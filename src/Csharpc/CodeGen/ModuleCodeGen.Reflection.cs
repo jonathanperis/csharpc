@@ -64,6 +64,7 @@ public sealed partial class ModuleCodeGen
         public uint Described;
         public uint Complete; // the Described kinds listed in full (the others: only members asked for by name)
         public HashSet<ISymbol> Listed = new(SymbolEqualityComparer.Default); // the constructors and methods listed so far
+        public HashSet<ISymbol> ListedBackingFields = new(SymbolEqualityComparer.Default); // field-like events whose backing field is listed
         public List<MethodRecordData> Constructors = [], Methods = [];
         public List<AttributeRecordData> Attributes = [];
         public List<PropertyRecordData> Properties = [];
@@ -418,6 +419,7 @@ public sealed partial class ModuleCodeGen
             entry.Fields.Clear();
             entry.Events.Clear();
             entry.Listed.Clear();
+            entry.ListedBackingFields.Clear();
             entry.Described = entry.Complete = 0;
             Describe(type, kinds, null);
             foreach (var (namedKinds, name) in _damNames.GetValueOrDefault(type) ?? []) Describe(type, namedKinds, name);
@@ -699,8 +701,28 @@ public sealed partial class ModuleCodeGen
                 entry.Fields.Add(new FieldRecordData(CString("value__"), MetadataMethodTable(t), MetadataMethodTable(underlying), stub, setStub, [], 0x606));
             }
             // CoreCLR's order: instance fields, then static ones (its FieldDescs), then constants (metadata only).
-            foreach (var f in t.GetMembers().OfType<IFieldSymbol>().OrderBy(f => f.IsConst ? 2 : f.IsStatic ? 1 : 0))
+            foreach (var member in FieldMembersInOrder(t))
             {
+                if (member is IEventSymbol fieldLike)
+                {
+                    // The compiler-generated private backing field of a field-like event: Roslyn hides it, .NET lists it.
+                    if (name is not null && fieldLike.MetadataName != name) continue;
+                    var eventBit = EventBackingFieldBit(fieldLike);
+                    if (!own && eventBit == RiNonPublicFields && EventBackingFieldIsPrivate(fieldLike)) continue; // inherited private fields aren't listed
+                    if ((added & eventBit) == 0 || entry.ListedBackingFields.Contains(fieldLike)) continue;
+                    FieldRecordData? backing = null;
+                    try { backing = EventBackingFieldRecord(fieldLike); }
+                    catch (CompileError) { }
+                    if (backing is null)
+                    {
+                        Unknown(eventBit); // listing that kind throws instead of omitting the field
+                        continue;
+                    }
+                    entry.ListedBackingFields.Add(fieldLike);
+                    entry.Fields.Add(backing);
+                    continue;
+                }
+                var f = (IFieldSymbol)member;
                 if (name is not null && f.MetadataName != name) continue;
                 if (!own && f.DeclaredAccessibility == Accessibility.Private) continue;
                 var bit = f.DeclaredAccessibility == Accessibility.Public ? RiPublicFields : RiNonPublicFields;
@@ -724,6 +746,112 @@ public sealed partial class ModuleCodeGen
             entry.Described &= ~bit;
             entry.Complete &= ~bit;
             added &= ~bit;
+        }
+    }
+
+    /// <summary>
+    /// A type's fields and the field-like events (standing for their backing fields) in CoreCLR's order: instance
+    /// fields, static ones, constants, each in declaration order (metadata order for IL types, where an event's
+    /// backing field is the FieldDef named like it).
+    /// </summary>
+    private List<ISymbol> FieldMembersInOrder(INamedTypeSymbol type)
+    {
+        var il = type.OriginalDefinition.MetadataToken != 0 ? Il.OwnerOf(type.OriginalDefinition) : null;
+        var items = new List<(ISymbol Member, int Class, int Order)>();
+        int position = 0;
+        foreach (var member in type.GetMembers())
+        {
+            position++;
+            if (member is IFieldSymbol f)
+            {
+                var row = il is not null && f.OriginalDefinition.MetadataToken != 0
+                    ? MetadataTokens.GetRowNumber(MetadataTokens.EntityHandle(f.OriginalDefinition.MetadataToken)) : position;
+                items.Add((f, f.IsConst ? 2 : f.IsStatic ? 1 : 0, row));
+            }
+            else if (member is IEventSymbol e && HasEventBackingField(e, il))
+            {
+                var row = il is not null ? MetadataTokens.GetRowNumber(il.BackingFieldOf(e)!.Value.Handle) : position;
+                items.Add((e, e.IsStatic ? 1 : 0, row));
+            }
+        }
+        return items.OrderBy(i => i.Class).ThenBy(i => i.Order).Select(i => i.Member).ToList();
+    }
+
+    /// <summary>
+    /// Whether the event is field-like: csc gives it a private backing field (named like the event) of the handler type.
+    /// A source event with explicit accessors, an abstract or extern one and an interface's have none; IL events are
+    /// field-like when a field named like them exists.
+    /// </summary>
+    private bool HasEventBackingField(IEventSymbol e, IlAssembly? il)
+    {
+        if (il is not null) return il.HasBackingField(e);
+        if (e.OriginalDefinition.MetadataToken != 0) return false; // a reference assembly's: its private fields are hidden (and reported unknown)
+        if (e.IsAbstract || e.IsExtern || e.ContainingType.TypeKind == TypeKind.Interface || e.AddMethod is not { IsImplicitlyDeclared: true }) return false;
+        // Partial events (C# 14) are described by neither part's symbol alone.
+        if (e.PartialDefinitionPart is not null || e.PartialImplementationPart is not null)
+            throw CompileError.Unsupported($"reflection over the backing field of the partial event '{e}'", e);
+        return true;
+    }
+
+    /// <summary>The backing field's FieldAttributes: as csc emits it for source (private, static for a static event), metadata's for IL.</summary>
+    private uint EventBackingFieldAttributes(IEventSymbol e)
+    {
+        var definition = e.OriginalDefinition;
+        if (definition.MetadataToken != 0 && Il.OwnerOf(definition) is { } il)
+            return (uint)il.BackingFieldOf(definition)!.Value.Definition.Attributes;
+        return 1u | (e.IsStatic ? 0x10u : 0);
+    }
+
+    private bool EventBackingFieldIsPrivate(IEventSymbol e) => (EventBackingFieldAttributes(e) & 7) == 1;
+
+    private uint EventBackingFieldBit(IEventSymbol e) => (EventBackingFieldAttributes(e) & 7) == 6 ? RiPublicFields : RiNonPublicFields;
+
+    private const uint FieldAttributesUnknown = 1u << 30; // CSRT_FIELD_ATTRIBUTES_UNKNOWN
+
+    private FieldRecordData EventBackingFieldRecord(IEventSymbol e)
+    {
+        var definition = e.OriginalDefinition;
+        var il = definition.MetadataToken != 0 ? Il.OwnerOf(definition) : null;
+        uint attributes = EventBackingFieldAttributes(e);
+        List<AttributeInstance> instances;
+        if (il is not null)
+            instances = DecodeAttributes(il, il.BackingFieldOf(definition)!.Value.Definition.GetCustomAttributes(), IlGenericContext.For(definition.ContainingType)).ToList();
+        else
+        {
+            instances = [];
+            AddCompilerGeneratedFieldAttributes(instances);
+            // csc puts a [Nullable] attribute on the backing field where it does on the event; Roslyn's symbols hide both.
+            if (NeedsNullableAttribute(definition)) attributes |= FieldAttributesUnknown;
+        }
+        return new FieldRecordData(CString(e.MetadataName), MetadataMethodTable(e.ContainingType), MetadataMethodTable(e.Type),
+            EventFieldAccessor(e, set: false), EventFieldAccessor(e, set: true), Attributes(instances), attributes);
+    }
+
+    /// <summary>[CompilerGenerated] and [DebuggerBrowsable(Never)]: what the compiler puts on the backing field of an auto-property or a field-like event.</summary>
+    private void AddCompilerGeneratedFieldAttributes(List<AttributeInstance> instances)
+    {
+        if (PseudoAttribute("System.Runtime.CompilerServices.CompilerGeneratedAttribute") is { } generated) instances.Add(generated);
+        if (Compilation.GetTypeByMetadataName("System.Diagnostics.DebuggerBrowsableAttribute") is { } browsable
+            && Compilation.GetTypeByMetadataName("System.Diagnostics.DebuggerBrowsableState") is { } state
+            && browsable.InstanceConstructors.FirstOrDefault(c => c.Parameters.Length == 1) is { } ctor)
+            instances.Add(new AttributeInstance(ctor, [new AttributeValue(state, 0)], []));
+    }
+
+    private LLVMValueRef EventFieldAccessor(IEventSymbol e, bool set)
+    {
+        if (_fieldAccessors.TryGetValue((e, set), out var existing)) return existing;
+        return _fieldAccessors[(e, set)] = NewEventFieldAccessor(e, set);
+    }
+
+    private LLVMValueRef NewEventFieldAccessor(IEventSymbol e, bool set)
+    {
+        var name = Mangler.TypeSymbol(e.ContainingType, e.Name + (set ? "$eventfield$reflectset" : "$eventfield$reflectget"));
+        var type = set ? Llvm.FunctionType(Llvm.Void, Llvm.Ptr, Llvm.Ptr) : Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr);
+        try { return SyntheticFunction(name, type, (g, syntax) => g.EmitEventFieldAccessor(e, set, syntax)); }
+        catch (CompileError)
+        {
+            var message = $"{(set ? "Setting" : "Reading")} the backing field of the event '{e.ToDisplayString()}' through reflection is not supported by csharpc yet.";
+            return SyntheticFunction(name, type, (g, _) => g.EmitThrowingFactory(message));
         }
     }
 
@@ -837,13 +965,7 @@ public sealed partial class ModuleCodeGen
             instances = definition.GetAttributes().Select(FromAttributeData).OfType<AttributeInstance>().ToList();
             // An auto-property's backing field: the attributes the compiler emits on it.
             if (field.IsImplicitlyDeclared && field.AssociatedSymbol is IPropertySymbol)
-            {
-                if (PseudoAttribute("System.Runtime.CompilerServices.CompilerGeneratedAttribute") is { } generated) instances.Add(generated);
-                if (Compilation.GetTypeByMetadataName("System.Diagnostics.DebuggerBrowsableAttribute") is { } browsable
-                    && Compilation.GetTypeByMetadataName("System.Diagnostics.DebuggerBrowsableState") is { } state
-                    && browsable.InstanceConstructors.FirstOrDefault(c => c.Parameters.Length == 1) is { } ctor)
-                    instances.Add(new AttributeInstance(ctor, [new AttributeValue(state, 0)], []));
-            }
+                AddCompilerGeneratedFieldAttributes(instances);
             else if (field.IsImplicitlyDeclared)
                 throw CompileError.Unsupported($"reflection over the compiler-generated field '{field}'", field);
         }
@@ -858,13 +980,13 @@ public sealed partial class ModuleCodeGen
         return _fieldAccessors[(field, set)] = NewFieldAccessor(field, set);
     }
 
-    private readonly Dictionary<(IFieldSymbol, bool), LLVMValueRef> _fieldAccessors = new(FieldAccessorKey.Instance);
+    private readonly Dictionary<(ISymbol, bool), LLVMValueRef> _fieldAccessors = new(FieldAccessorKey.Instance);
 
-    private sealed class FieldAccessorKey : IEqualityComparer<(IFieldSymbol Field, bool Set)>
+    private sealed class FieldAccessorKey : IEqualityComparer<(ISymbol Field, bool Set)>
     {
         public static readonly FieldAccessorKey Instance = new();
-        public bool Equals((IFieldSymbol Field, bool Set) x, (IFieldSymbol Field, bool Set) y) => x.Set == y.Set && SymbolEqualityComparer.Default.Equals(x.Field, y.Field);
-        public int GetHashCode((IFieldSymbol Field, bool Set) key) => SymbolEqualityComparer.Default.GetHashCode(key.Field) * 2 + (key.Set ? 1 : 0);
+        public bool Equals((ISymbol Field, bool Set) x, (ISymbol Field, bool Set) y) => x.Set == y.Set && SymbolEqualityComparer.Default.Equals(x.Field, y.Field);
+        public int GetHashCode((ISymbol Field, bool Set) key) => SymbolEqualityComparer.Default.GetHashCode(key.Field) * 2 + (key.Set ? 1 : 0);
     }
 
     private LLVMValueRef NewFieldAccessor(IFieldSymbol field, bool set)

@@ -70,6 +70,15 @@ by a pointer to one csrt task object (`TypeMapper` maps these library types to `
 { mt, i32 state, i32 payload_size, conts, i32 ncont, i32 lock, exception, aggregate, i32 id, i32 flags, payload @ +56 }
 ```
 
+**Classes deriving from `TaskCompletionSource(<T>)`** (System.Net.Http's connection waiters, Kestrel's) are laid
+out over that struct (`ModuleCodeGen.TaskSources.cs`): the header, `T`'s payload at the fixed offset, then the
+class's own fields; the method table chains to `csrt_Task_MT` (so every task test accepts them, and
+`csrt_object_is_task` walks the chain) and the base constructor stores the payload size. The task creation options
+passed to `base(...)` are ignored, as for `new TaskCompletionSource(options)`. A task doesn't record its result
+type, so `x is Task<T>` can't tell `Task<Stream>` from `Task<string>`: framework IL gets an is-any-task test (what
+`HttpContent` means with a field that holds a `Stream` or the `Task<Stream>` reading it), a program's source keeps
+the explicit diagnostic.
+
 **`ValueTask<T>` is .NET's struct** (`corelib/Tasks/ValueTaskOfT.cs`, a port of .NET's `ValueTask<T>`,
 `ValueTaskAwaiter<T>` and `ConfiguredValueTaskAwaitable<T>`): `{ object _obj, T _result, short _token, bool
 _continueOnCapturedContext }`, where `_obj` is null (the result is inline: a synchronously completed

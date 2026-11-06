@@ -218,6 +218,14 @@ namespace CsharpcCoreLib
         public SslApplicationProtocol NegotiatedApplicationProtocol => throw Tls.NotSupported();
         public TlsCipherSuite NegotiatedCipherSuite => throw Tls.NotSupported();
         public X509Certificate RemoteCertificate => throw Tls.NotSupported();
+        public X509Certificate LocalCertificate => throw Tls.NotSupported();
+        public bool IsAuthenticated => throw Tls.NotSupported();
+        public bool IsMutuallyAuthenticated => throw Tls.NotSupported();
+        public bool IsEncrypted => throw Tls.NotSupported();
+        public bool IsSigned => throw Tls.NotSupported();
+        public bool IsServer => throw Tls.NotSupported();
+        public string TargetHostName => throw Tls.NotSupported();
+        public bool CheckCertRevocationStatus => throw Tls.NotSupported();
         public CipherAlgorithmType CipherAlgorithm => throw Tls.NotSupported();
         public int CipherStrength => throw Tls.NotSupported();
         public HashAlgorithmType HashAlgorithm => throw Tls.NotSupported();
@@ -321,6 +329,33 @@ namespace CsharpcCoreLib
         public byte[] RawData { get => throw Tls.NotSupported(); set => throw Tls.NotSupported(); }
     }
 
+    // Like the certificate collections: a certificate's Extensions can't be read, so no instance exists.
+    [Shadows("System.Security.Cryptography.X509Certificates.X509ExtensionCollection")]
+    public sealed class X509ExtensionCollectionImpl : System.Collections.ICollection
+    {
+        public X509ExtensionCollectionImpl() => throw Tls.NotSupported();
+        public int Count => throw Tls.NotSupported();
+        public bool IsSynchronized => false;
+        public object SyncRoot => this;
+        public X509Extension this[int index] => throw Tls.NotSupported();
+        public X509Extension this[string oid] => throw Tls.NotSupported();
+        public int Add(X509Extension extension) => throw Tls.NotSupported();
+        public void CopyTo(X509Extension[] array, int index) => throw Tls.NotSupported();
+        void System.Collections.ICollection.CopyTo(Array array, int index) => throw Tls.NotSupported();
+        public X509ExtensionEnumeratorImpl GetEnumerator() => throw Tls.NotSupported();
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => throw Tls.NotSupported();
+    }
+
+    [Shadows("System.Security.Cryptography.X509Certificates.X509ExtensionEnumerator")]
+    public sealed class X509ExtensionEnumeratorImpl : System.Collections.IEnumerator
+    {
+        private X509ExtensionEnumeratorImpl() => throw Tls.NotSupported();
+        public X509Extension Current => throw Tls.NotSupported();
+        object System.Collections.IEnumerator.Current => throw Tls.NotSupported();
+        public bool MoveNext() => throw Tls.NotSupported();
+        public void Reset() => throw Tls.NotSupported();
+    }
+
     [Shadows("System.Security.Cryptography.X509Certificates.X509Extension")]
     public class X509ExtensionImpl : AsnEncodedDataImpl
     {
@@ -336,6 +371,14 @@ namespace CsharpcCoreLib
         public X509EnhancedKeyUsageExtensionImpl() : base() { }
         public X509EnhancedKeyUsageExtensionImpl(OidCollection enhancedKeyUsages, bool critical) : base() { }
         public OidCollection EnhancedKeyUsages => throw Tls.NotSupported();
+    }
+
+    [Shadows("System.Security.Cryptography.X509Certificates.X509KeyUsageExtension")]
+    public sealed class X509KeyUsageExtensionImpl : X509ExtensionImpl
+    {
+        public X509KeyUsageExtensionImpl() : base() { }
+        public X509KeyUsageExtensionImpl(X509KeyUsageFlags keyUsages, bool critical) : base() { }
+        public X509KeyUsageFlags KeyUsages => throw Tls.NotSupported();
     }
 
     [Shadows("System.Security.Cryptography.X509Certificates.X509SubjectAlternativeNameExtension")]

@@ -1,0 +1,20 @@
+status before: WaitingForActivation, name first
+consumed done
+status after: RanToCompletion, result done, extra 7
+same task: True
+long result: 1099511627776
+plain pending: True
+plain completed: True plain
+faulted: boom / Faulted
+canceled: Canceled
+TrySetResult after completion: False
+True
+True
+False
+done
+Waiter`1
+True
+True
+0,1,4,9,16
+through a ValueTask
+Waiter(options) True

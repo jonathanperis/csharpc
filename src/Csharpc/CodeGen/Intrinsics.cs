@@ -910,6 +910,9 @@ internal static class Intrinsics
         {
             t[$"{Tasks}.{type}.GetAwaiter()"] = self;
             t[$"{Tasks}.{type}.ConfigureAwait(bool)"] = self;
+            if (type == "Task<TResult>")
+                t[$"{Tasks}.Task<TResult>.ConfigureAwait({Tasks}.ConfigureAwaitOptions)"] = (g, inv) =>
+                    g.CallCoreLib("TaskConfigureAwaitMembers", "ConfigureAwaitOfT", g.EmitValue(inv.Instance!), Arg(g, inv, 0));
             if (type.StartsWith("ValueTask", StringComparison.Ordinal)) t[$"{Tasks}.{type}.Preserve()"] = self; // the task itself can be awaited again
             t[$"{Tasks}.{type}.Wait()"] = (g, inv) => { ThrowAggregate(g, Wait(g, g.EmitValue(inv.Instance!)), WaitFrames); return default; };
         }

@@ -1,0 +1,54 @@
+cookies set
+  jar: session=abc123 path / httpOnly False domain 127.0.0.1
+  jar: theme=dark path / httpOnly True domain 127.0.0.1
+2 cookies, header: session=abc123; theme=dark
+cookie header: session=abc123; theme=dark
+cookie header: session=abc123; theme=dark; manual=1
+  server saw: GET /set-cookies cookie=[] auth=[] accept-encoding=[]
+  server saw: GET /echo-cookie cookie=[session=abc123; theme=dark] auth=[] accept-encoding=[]
+  server saw: GET /echo-cookie cookie=[session=abc123; theme=dark; manual=1] auth=[] accept-encoding=[]
+cookies set
+cookie header: own=1
+Set-Cookie headers seen: 
+  server saw: GET /set-cookies cookie=[] auth=[] accept-encoding=[]
+  server saw: GET /echo-cookie cookie=[own=1] auth=[] accept-encoding=[]
+hello
+OK hello final /hello
+Found -> http://127.0.0.1:PORT/hello
+loop: Found at /loop
+  server saw: GET /redirect cookie=[] auth=[] accept-encoding=[]
+  server saw: GET /hello cookie=[] auth=[] accept-encoding=[]
+  server saw: GET /redirect-moved cookie=[] auth=[] accept-encoding=[]
+  server saw: GET /redirect cookie=[] auth=[] accept-encoding=[]
+  server saw: GET /hello cookie=[] auth=[] accept-encoding=[]
+  server saw: GET /redirect cookie=[] auth=[] accept-encoding=[]
+  server saw: GET /loop cookie=[] auth=[] accept-encoding=[]
+  server saw: GET /loop cookie=[] auth=[] accept-encoding=[]
+  server saw: GET /loop cookie=[] auth=[] accept-encoding=[]
+  server saw: GET /loop cookie=[] auth=[] accept-encoding=[]
+compressed hello hello hello hello
+deflated hello hello hello hello | content encoding header: 0
+not decompressed: gzip 37 bytes
+  server saw: GET /gzip cookie=[] auth=[] accept-encoding=[gzip, deflate]
+  server saw: GET /deflate cookie=[] auth=[] accept-encoding=[gzip, deflate]
+  server saw: GET /gzip cookie=[] auth=[] accept-encoding=[]
+welcome user
+Unauthorized Basic realm="sample"
+no credentials: Unauthorized
+header: welcome user
+  server saw: GET /secret cookie=[] auth=[] accept-encoding=[]
+  server saw: GET /secret cookie=[] auth=[Basic dXNlcjpwYXNz] accept-encoding=[]
+  server saw: GET /secret cookie=[] auth=[] accept-encoding=[]
+  server saw: GET /secret cookie=[] auth=[Basic dXNlcjp3cm9uZw==] accept-encoding=[]
+  server saw: GET /secret cookie=[] auth=[] accept-encoding=[]
+  server saw: GET /secret cookie=[] auth=[Basic dXNlcjpwYXNz] accept-encoding=[]
+HttpClientHandler: redirects True/50, cookies True, decompression None, proxy True, preauth False, default creds False, max connections 2147483647, max response header 64, tls None
+SocketsHttpHandler: lifetime 00:05:00, idle 00:01:00, connect 00:00:03, max 4, expect100 00:00:01, cookies False, redirects True
+hello
+  server saw: GET /hello cookie=[] auth=[] accept-encoding=[]
+  -> GET http://stub.invalid/items?id=7
+  <- 202
+Accepted GET /items?id=7 no body | X-Stub: yes
+  -> POST http://stub.invalid/post
+  <- 202
+post: POST /post body=payload

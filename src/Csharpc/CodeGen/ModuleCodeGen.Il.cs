@@ -93,9 +93,18 @@ public sealed partial class ModuleCodeGen
         return h;
     }
 
-    public bool IsIlType(ITypeSymbol? type) => type is INamedTypeSymbol && Il.Contains(type.ContainingAssembly);
+    public bool IsIlType(ITypeSymbol? type) => type is INamedTypeSymbol named && Il.Contains(type.ContainingAssembly) && !IsShadowedIlType(named);
 
-    public bool IsIlMethod(IMethodSymbol method) => Il.Contains(method.ContainingAssembly);
+    public bool IsIlMethod(IMethodSymbol method) =>
+        Il.Contains(method.ContainingAssembly) && !(method.ContainingType is { } owner && IsShadowedIlType(owner));
+
+    /// <summary>
+    /// A type of an IL assembly that also holds types csharpc implements itself (FrameworkIl.MixedWithShadows:
+    /// System.Net.Primitives) and that has a corelib shadow: its members are the shadow's, never lowered from IL
+    /// (a member the shadow lacks is "has no implementation" as for a reference-assembly type).
+    /// </summary>
+    internal bool IsShadowedIlType(INamedTypeSymbol type) =>
+        Frontend.FrameworkIl.IsMixedWithShadows(type.ContainingAssembly?.Name) && CoreLib.TryMap(type) is not null;
 
     private List<INamedTypeSymbol>? _ilTypes;
 
@@ -117,6 +126,7 @@ public sealed partial class ModuleCodeGen
             }
             // The precompiled corelib's types stay out, as the source corelib's do (ADR 0015).
             foreach (var assembly in Il.Assemblies.Where(a => !a.IsCoreLib)) Collect(assembly.Symbol.GlobalNamespace);
+            types.RemoveAll(IsShadowedIlType);
             return _ilTypes = types;
         }
     }

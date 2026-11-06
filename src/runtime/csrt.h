@@ -386,8 +386,9 @@ typedef struct csrt_FieldRecord {
     void (*set)(void* target, void* value);    // SetValue (throws for constants)
     const csrt_AttributeRecord* attributes;
     uint32_t attribute_count;
-    uint32_t field_attributes;                 // FieldAttributes
+    uint32_t field_attributes;                 // FieldAttributes | CSRT_FIELD_*
 } csrt_FieldRecord;
+enum { CSRT_FIELD_ATTRIBUTES_UNKNOWN = 1 << 30 /* the field's attributes can't be listed exactly: querying them throws */ };
 enum { CSRT_EVENT_PUBLIC = 1 /* an accessor is public */, CSRT_EVENT_STATIC = 2,
        CSRT_EVENT_ATTRIBUTES_UNKNOWN = 4 /* the event's attributes can't be listed exactly: querying them throws */,
        CSRT_EVENT_HAS_OTHER_METHODS = 8 /* IL `.other` accessors, not described: GetOtherMethods throws */ };

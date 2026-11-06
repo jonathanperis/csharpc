@@ -25,7 +25,11 @@ public sealed partial class FunctionCodeGen
         // typeof(X).M(...), or typeof(X).GetTypeInfo().M(...) (GetTypeInfo is the identity).
         var reflectedType = inv.Instance as ITypeOfOperation
             ?? (inv.Instance as IInvocationOperation is { TargetMethod.Name: "GetTypeInfo", Arguments: [{ Value: ITypeOfOperation viaInfo }] } ? viaInfo : null);
-        if (reflectedType is not null) NoteReflectedType(target, S(reflectedType.TypeOperand), inv.Arguments is [{ Value.ConstantValue: { HasValue: true, Value: string name } }, ..] ? name : null);
+        var reflectedName = inv.Arguments is [{ Value.ConstantValue: { HasValue: true, Value: string name } }, ..] ? name : null;
+        if (reflectedType is not null) NoteReflectedType(target, S(reflectedType.TypeOperand), reflectedName);
+        // `var t = typeof(X); t.GetFields()`: a local assigned typeof(X) stands for it (FunctionCodeGen.TypeofLocals.cs).
+        else if (inv.Instance is ILocalReferenceOperation && target.ContainingType is { Name: "Type" or "TypeInfo" })
+            foreach (var known in KnownTypeofValues(inv.Instance)) NoteReflectedType(target, S(known), reflectedName);
         if (inv.Instance is { } shadowReceiver && _m.CoreLib.MapForReceiver(target, TypeOf(shadowReceiver)) is { } shadowMember) target = shadowMember;
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
         if (target.IsStatic) CheckJsonSerializerRoots(target, inv);
@@ -84,6 +88,8 @@ public sealed partial class FunctionCodeGen
         // `: base()` / `: base(delay)` of a class deriving from CancellationTokenSource (ModuleCodeGen.Cancellation.cs).
         if (target.MethodKind == MethodKind.Constructor && inv.Instance is not null && ModuleCodeGen.IsRuntimeCancellationSource(target.ContainingType))
             return EmitCancellationSourceBaseConstructor(target, inv);
+        if (target.MethodKind == MethodKind.Constructor && inv.Instance is not null && ModuleCodeGen.IsRuntimeTaskSource(target.ContainingType))
+            return EmitTaskSourceBaseConstructor(target, inv);
         if (_m.IsUserMethod(target))
         {
             var arguments = inv.Arguments;
@@ -647,6 +653,12 @@ public sealed partial class FunctionCodeGen
         // object (the cast .NET would reject, of a plain Task, is the one csharpc can't tell apart).
         INamedTypeSymbol { Name: "Task", TypeArguments.Length: 0, ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } }
             or INamedTypeSymbol { Name: "TaskCompletionSource", ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } } =>
+            _m.ExternalGlobal("csrt_Task_MT"),
+        // A task doesn't record its result type, so `x is Task<T>` can only tell tasks from other objects. In
+        // framework IL that is what the code means (System.Net.Http's HttpContent keeps a Stream or the
+        // Task<Stream> reading it in one object field); a program's own source gets the explicit diagnostic below.
+        INamedTypeSymbol { Name: "Task", TypeArguments.Length: 1, ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } }
+            when CurrentMethod is { } current && _m.IsIlMethod(current) && !CoreLib.IsCoreLib(current) && _m.Il.OwnerOf(current) is { IsFramework: true } =>
             _m.ExternalGlobal("csrt_Task_MT"),
         // Type objects are runtime objects (src/runtime/type.c), all with one method table.
         // They are csharpc's TypeInfo objects too (GetTypeInfo is the identity), as every RuntimeType is a TypeInfo.
