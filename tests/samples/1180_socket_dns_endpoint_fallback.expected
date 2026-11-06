@@ -1,0 +1,48 @@
+Socket.ConnectAsync(DnsEndPoint): True 127.0.0.1 port ok True echo 1 byte 0x5A
+Socket.ConnectAsync(DnsEndPoint, token): True 127.0.0.1 port ok True
+Socket.ConnectAsync(host, port): True 127.0.0.1 port ok True echo 1 byte 0x5A
+Socket.ConnectAsync(host, port, token): True 127.0.0.1 port ok True
+Socket.Connect(host, port): True 127.0.0.1 port ok True
+Socket.Connect(DnsEndPoint): True 127.0.0.1 port ok True
+Socket.Connect(IPAddress[]) ::1 then IPv4: True 127.0.0.1 port ok True
+Socket.ConnectAsync(IPAddress[]) ::1 then IPv4: True 127.0.0.1 port ok True echo 1 byte 0x5A
+Socket.ConnectAsync(IPAddress[], token): True 127.0.0.1 port ok True
+IPv4 socket, ConnectAsync(host, port): InterNetwork 127.0.0.1 port ok True
+IPv4 socket, ConnectAsync(DnsEndPoint): InterNetwork 127.0.0.1 port ok True
+IPv4 socket, Connect(host, port): InterNetwork 127.0.0.1 port ok True
+IPv4 socket, DnsEndPoint for IPv6: NotSupportedException 
+IPv4 socket, only IPv6 addresses: NotSupportedException 
+dual-mode socket, DnsEndPoint with IPv4 address family: True 127.0.0.1 port ok True
+connecting twice: SocketException IsConnected
+canceled token: TaskCanceledException 
+port out of range: ArgumentOutOfRangeException 
+SocketAsyncEventArgs DnsEndPoint: Success Connect socket the caller's error none connected True 127.0.0.1 port ok True
+SocketAsyncEventArgs DnsEndPoint, IPv4 socket: Success Connect socket the caller's error none connected True 127.0.0.1 port ok True
+SocketAsyncEventArgs DnsEndPoint, nothing listens: ConnectionRefused Connect socket none error SocketException connected False
+SocketAsyncEventArgs IPEndPoint, nothing listens: ConnectionRefused Connect socket none error none connected False
+SocketAsyncEventArgs IPEndPoint: Success Connect socket the caller's error none connected True 127.0.0.1 port ok True
+static ConnectAsync DnsEndPoint: Success Connect socket InterNetwork error none 127.0.0.1 port ok True echo 1 byte 0x5A
+static ConnectAsync DnsEndPoint, nothing listens: ConnectionRefused Connect socket none error SocketException
+static ConnectAsync IPEndPoint: Success Connect socket InterNetwork error none 127.0.0.1 port ok True
+no RemoteEndPoint: ArgumentNullException
+new TcpClient(host, port): True InterNetworkV6 127.0.0.1 port ok True
+TcpClient.Connect(host, port): True InterNetworkV6 127.0.0.1 port ok True
+TcpClient.ConnectAsync(host, port): True InterNetworkV6 127.0.0.1 port ok True echo 1 0x21
+TcpClient.ConnectAsync(host, port, token): True 127.0.0.1 port ok True
+TcpClient.ConnectAsync(IPAddress[], port): True 127.0.0.1 port ok True
+TcpClient.Connect(IPAddress[], port): True 127.0.0.1 port ok True
+TcpClient.ConnectAsync(IPEndPoint): True 127.0.0.1 port ok True
+TcpClient.ConnectAsync(IPAddress, port, token): True 127.0.0.1 port ok True
+TcpClient(AddressFamily.InterNetwork).ConnectAsync(host, port): True InterNetwork 127.0.0.1 port ok True
+TcpClient(AddressFamily.InterNetwork).Connect(host, port): True InterNetwork 127.0.0.1 port ok True
+TcpClient connecting twice: SocketException IsConnected
+TcpClient connecting twice (sync): SocketException IsConnected
+TcpClient.ConnectAsync, canceled token: TaskCanceledException 
+TcpClient.ConnectAsync, port out of range: ArgumentOutOfRangeException 
+TcpClient.Connect, null host: ArgumentNullException 
+Socket.ConnectAsync(DnsEndPoint), nothing listens: SocketException ConnectionRefused
+Socket.ConnectAsync(host, port), nothing listens: SocketException ConnectionRefused
+Socket.Connect(host, port), nothing listens: SocketException ConnectionRefused
+TcpClient.ConnectAsync, nothing listens: SocketException ConnectionRefused
+TcpClient.Connect, nothing listens: SocketException ConnectionRefused
+the socket stays usable after a failed name connect: True 127.0.0.1 port ok True

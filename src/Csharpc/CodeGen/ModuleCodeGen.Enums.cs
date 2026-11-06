@@ -202,7 +202,8 @@ public sealed partial class ModuleCodeGen
             var underlying = enumType.EnumUnderlyingType!;
             entries.Add(LlvmContext.ConstNamedStruct(entryType, mt, values, names, Llvm.ConstInt(Llvm.I32, count),
                 Llvm.ConstInt(Llvm.I32, Types.Value(underlying).IntWidth), Llvm.ConstInt(Llvm.I32, TypeMapper.IsSigned(underlying) ? 1 : 0),
-                Llvm.ConstInt(Llvm.I32, 0)));
+                // [Flags] (EnumRuntime.IsFlags)
+                Llvm.ConstInt(Llvm.I32, enumType.GetAttributes().Any(a => a.AttributeClass is { Name: "FlagsAttribute", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } }) ? 1 : 0)));
         }
         var arrayInit = LlvmContext.ConstArray(entryType, [.. entries]);
         var array = Module.AddGlobal("csharpc.enumparse.entries", Native.LLVMTypeOf(arrayInit), arrayInit, constant: true, linkage: LLVMLinkage.Internal);

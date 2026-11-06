@@ -99,9 +99,13 @@ Which generators, with which inputs:
   `build_metadata.*` from `CompilerVisibleItemMetadata`, `.editorconfig`, `.globalconfig`) and the
   `/features` (`InterceptorsNamespaces` for the request-delegate and configuration-binder interceptors).
   Generated files get csc's paths (under the `/out` directory). Analyzers that aren't generators are not
-  run: their findings never change the program. With ProjectReferences, one generator run covers the
-  merged program with the root's options and the union of the projects' analyzers; additional files in a
-  referenced project are reported as not supported.
+  run: their findings never change the program. With ProjectReferences, each project's generators run on
+  that project's own compilation (`RoslynFrontend.BuildProjects`, the compilations `dotnet build` would make:
+  its references, parse options, analyzers, `RootNamespace` and other global options, additional files), and the
+  generated trees are folded into the merged program, attributed to the project for `Type.Assembly`.
+  Post-initialization sources every project's generator emits (identical text) are kept once. The one run
+  over the merged program left is the JSON generator for the contexts csharpc synthesizes for reflection-style
+  `System.Text.Json` calls.
 * **Single files**: the targeting pack's LibraryImport and System.Text.Json generators, when their
   attribute appears in the code, and csharpc's `[GeneratedRegex]`.
 
@@ -178,6 +182,18 @@ does; `SocketException` derives from `Win32Exception` and `ExternalException` li
 `*Async` methods run the blocking call on the thread pool. Not yet: TLS/`SslStream`, `HttpClient`,
 `Socket.Select`/`Poll`, socket flags, most socket options (other members are compile-time
 "not supported" diagnostics). Samples `195_ip_addresses` and `196_sockets_loopback`.
+
+Connecting by name follows .NET's rules (samples `1180`-`1182`): `Connect`/`ConnectAsync(host, port)`,
+`(DnsEndPoint)`, `(IPAddress[], port)`, `SocketAsyncEventArgs` with a `DnsEndPoint` (instance and static
+`Socket.ConnectAsync`, `ConnectSocket`, `ConnectByNameError`) and `TcpClient`'s overloads resolve the name and
+try its addresses in turn, `::1` before `127.0.0.1` for `localhost`: a socket of one address family only tries
+that family (a dual-mode one reaches IPv4 too), the failure of the last attempt is the exception, a canceled
+token ends the connect, and no usable address is `ArgumentException`/`NoData` as in .NET. On Unix a socket
+whose connect failed is replaced by a new descriptor with the same options before the next attempt
+(`ReplaceHandleIfNecessaryAfterFailedConnect`, .NET's `SafeSocketHandle.LastConnectFailed`): Linux leaves an
+IPv4-mapped connect's protocol operations on the socket after the peer refused it, so an attempt with a real
+IPv6 address would never complete. `TcpListener.AcceptTcpClientAsync`/`AcceptSocketAsync` are the socket
+engine's asynchronous accepts, so `Stop` ends them and closes the listening socket.
 
 ## Tests and benchmark
 
