@@ -250,3 +250,6 @@ windows 1001_httpclient_post            live: the request text it echoes is buil
 windows 1005_httpclient_handlers        known gap: gzip, deflate and brotli decompression need .NET's native compression shim, which csharpc can't link with MinGW yet (see 537_compression_streams)
 windows 1010_httpclient_base_address    known gap: the corelib's System.Uri rejects drive-less file paths ("/absolute/path") on Windows with an explicit NotSupportedException
 wasi 1141_network_interface_addresses   WASI preview 1 has no network interfaces to enumerate (NotSupportedException)
+macos 1151_unmanaged_function_pointer_libc   loads the Linux sonames "libc.so.6" and "libm.so.6": .NET on macOS throws DllNotFoundException
+windows 1151_unmanaged_function_pointer_libc live: loads the Linux sonames "libc.so.6" and "libm.so.6" (DllNotFoundException on Windows)
+wasi 1151_unmanaged_function_pointer_libc   WASI has no dynamic loading (NativeLibrary.Load fails), and wasm32 C types differ

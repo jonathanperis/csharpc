@@ -199,15 +199,24 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef FunctionPointerTo(IMethodSymbol method, IOperation at)
     {
-        if (!_m.IsUserMethod(method)) throw CompileError.Unsupported($"function pointer to library method '{method}'", at);
+        if (!_m.IsUserMethod(method)) return _m.LibraryFunctionPointer(method, at);
         var target = _m.GetFunction(method);
-        if (!ModuleCodeGen.IsNestedFunction(method)) return target.Fn;
+        // An [UnmanagedCallersOnly] method is entered with the C ABI.
+        if (ModuleCodeGen.IsUnmanagedCallersOnly(method))
+        {
+            var managed = ModuleCodeGen.IsNestedFunction(method) ? NestedFunctionThunk(method, target) : target;
+            return _m.NativeEntryThunk(method, managed);
+        }
+        return ModuleCodeGen.IsNestedFunction(method) ? NestedFunctionThunk(method, target).Fn : target.Fn;
+    }
 
-        // Static local functions use the closure convention (env first): wrap them in a thunk.
+    /// <summary>Static local functions use the closure convention (env first): a thunk with the plain signature.</summary>
+    private LoweredFunction NestedFunctionThunk(IMethodSymbol method, LoweredFunction target)
+    {
         var name = Mangler.Method(method) + ".fnptr";
-        var existing = _m.Module.GetFunction(name);
-        if (!existing.IsNull) return existing;
         var signature = FunctionPointerType(method);
+        var existing = _m.Module.GetFunction(name);
+        if (!existing.IsNull) return new LoweredFunction(existing, signature);
         var thunk = _m.Module.AddFunction(name, signature);
         Native.LLVMSetLinkage(thunk, LLVMLinkage.Internal);
         using var tb = new IrBuilder(L);
@@ -217,7 +226,7 @@ public sealed partial class FunctionCodeGen
         for (var i = 0; i < method.Parameters.Length; i++) args[i + 1] = thunk.Param((uint)i);
         var call = tb.Call(target.Type, target.Fn, args);
         if (method.ReturnsVoid) tb.RetVoid(); else tb.Ret(call);
-        return thunk;
+        return new LoweredFunction(thunk, signature);
     }
 
     private LLVMTypeRef FunctionPointerType(IMethodSymbol signature)
@@ -228,13 +237,60 @@ public sealed partial class FunctionCodeGen
         return L.FunctionType(ret, parameters);
     }
 
-    private LLVMValueRef EmitFunctionPointerInvocation(IFunctionPointerInvocationOperation op)
+    private LLVMValueRef EmitFunctionPointerInvocation(IFunctionPointerInvocationOperation op, bool address = false)
     {
         var signature = ((IFunctionPointerTypeSymbol)op.Target.Type!).Signature;
         var fn = EmitValue(op.Target);
         var args = new LLVMValueRef[signature.Parameters.Length];
         foreach (var argument in op.Arguments) args[argument.Parameter!.Ordinal] = EmitArgument(argument);
-        var result = _b.Call(FunctionPointerType(signature), fn, args);
-        return signature.RefKind != RefKind.None ? LoadValue(result, S(signature.ReturnType)) : result;
+        var result = CallFunctionPointer(signature, fn, args);
+        return signature.RefKind != RefKind.None && !address ? LoadValue(result, S(signature.ReturnType)) : result;
+    }
+
+    /// <summary>
+    /// Calls a function pointer: a managed one is a plain call (csharpc's own convention); an unmanaged one follows the
+    /// platform's C ABI (ModuleCodeGen.NativeCalls.cs). The result is the managed representation (the address for a ref return).
+    /// </summary>
+    internal LLVMValueRef CallFunctionPointer(IMethodSymbol signature, LLVMValueRef fn, LLVMValueRef[] args)
+    {
+        if (!ModuleCodeGen.IsUnmanagedConvention(signature.CallingConvention)) return _b.Call(FunctionPointerType(signature), fn, args);
+        // Through S(): `delegate* unmanaged<T, T>` in generic code has the instantiation's types.
+        var types = signature.Parameters.Select(p => S(p.Type)).ToArray();
+        var returnType = S(signature.ReturnType);
+        if (!types.Zip(signature.Parameters).All(x => SymbolEqualityComparer.Default.Equals(x.First, x.Second.Type))
+            || !SymbolEqualityComparer.Default.Equals(returnType, signature.ReturnType))
+            signature = ((IFunctionPointerTypeSymbol)_m.Compilation.CreateFunctionPointerTypeSymbol(returnType, signature.RefKind,
+                [.. types], [.. signature.Parameters.Select(p => p.RefKind)], signature.CallingConvention)).Signature;
+        if (_m.NativeCallStub(signature) is { } stub) return _b.Call(stub.Type, stub.Fn, [fn, .. args]);
+        var call = _b.Call(FunctionPointerType(signature), fn, args);
+        foreach (var (index, attribute) in _m.NativeExtensionAttributes(signature)) Native.LLVMAddCallSiteAttribute(call, index, attribute);
+        return call;
+    }
+
+    /// <summary>
+    /// `&amp;Math.Sqrt`: a library method has no function of its own (it may be an intrinsic, a corelib shadow or inlined
+    /// away), so its pointer is a thunk with the managed signature that calls it like any other call site.
+    /// </summary>
+    internal void EmitLibraryMethodThunk(IMethodSymbol method, SyntaxNode syntax)
+    {
+        var arguments = System.Collections.Immutable.ImmutableArray.CreateBuilder<IArgumentOperation>(method.Parameters.Length);
+        foreach (var p in method.Parameters)
+        {
+            var slot = ParamOf((uint)p.Ordinal);
+            IOperation operand = p.RefKind == RefKind.None
+                ? new IlValueOperation(syntax, p.Type, () => slot)
+                : new IlValueOperation(syntax, p.Type, () => LoadValue(slot, S(p.Type)), slot);
+            arguments.Add(new IlArgumentOperation(syntax, p, operand));
+        }
+        var call = new IlInvocationOperation(syntax, method, null, false, arguments.MoveToImmutable(), null);
+        if (method.RefKind != RefKind.None) _b.Ret(EmitInvocation(call));
+        else
+        {
+            var result = EmitValue(call);
+            if (method.ReturnsVoid) _b.RetVoid();
+            else if (result.IsNull) throw CompileError.Unsupported($"function pointer to '{method}' (it produces no value)");
+            else _b.Ret(result);
+        }
+        Finish();
     }
 }

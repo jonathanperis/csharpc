@@ -142,7 +142,7 @@ Roslyn `ControlFlowGraph` (its classes are sealed) but sharing `FunctionCodeGen`
 ### Out of scope
 
 `Reflection.Emit`, `System.Linq.Expressions` compilation, mixed-mode/C++/CLI assemblies (native
-code inside the PE), `calli` (until function pointers from IL are needed), `arglist`/`mkrefany`/
+code inside the PE), `calli` with an instance or `vararg` signature, `arglist`/`mkrefany`/
 `refanyval`/`refanytype` (TypedReference), `jmp`, multi-module assemblies. `tail.` is compiled as an
 ordinary call (warning `CSLLVM0006`: deep tail recursion can overflow where CoreCLR would not).
 
@@ -176,7 +176,7 @@ assets bind fine because they are a superset of the reference surface.)
 
 Measured 2026-10-23 on the branch that introduced the IL front-end.
 
-**Opcodes.** All of ECMA-335 partition III except `calli`, `jmp`, `arglist`, `mkrefany`, `refanyval`,
+**Opcodes.** All of ECMA-335 partition III except `jmp`, `arglist`, `mkrefany`, `refanyval`,
 `refanytype` and `ckfinite`, which are diagnosed. Prefixes: `constrained.`, `volatile.` (acquire/release
 accesses), `readonly.`, `unaligned.` (ignored: x86-64/AArch64 handle unaligned access), `tail.` (warning).
 
@@ -361,7 +361,8 @@ Toward **arbitrary pure-IL NuGet packages** (ordered; size in focused days):
    `is Array`), `CultureInfo`/`NumberFormatInfo` objects (invariant), `BitConverter`, more `Math`
    overloads, `string.GetHashCode` overloads, `InlineArray`. A survey harness (`tools/compat`-style)
    turns this into a ranked list. (ongoing, M2)
-4. `calli` and function pointers from IL; `ckfinite`; TypedReference only if a package needs it. (1)
+4. `calli` and function pointers from IL (done: managed and unmanaged signatures, the C ABI for unmanaged ones, library
+   methods as targets; instance and `vararg` signatures stay diagnostics); `ckfinite`; TypedReference only if a package needs it. (1)
 5. Package assets beyond `lib/`: RID-specific runtime assets (`runtimes/<rid>/lib`), native assets
    linked or copied for P/Invoke, satellite resource assemblies; `ref/` vs `lib/` binding (bind
    against `ref/` symbols, map to `lib/` bodies by name) for packages whose surfaces differ. (2)
