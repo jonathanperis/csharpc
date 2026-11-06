@@ -25,7 +25,7 @@ var data = Enumerable.Range(0, 10).ToArray();
 var list = data.ToList();
 
 Console.WriteLine("-- range partitioner");
-foreach (var r in Partitioner.Create(0, 10).GetPartitions(3).Select(p => DrainWith(p, t => $"[{t.Item1},{t.Item2})"))) Console.WriteLine(r);
+foreach (var r in Partitioner.Create(0, 10, 2).GetPartitions(3).Select(p => DrainWith(p, t => $"[{t.Item1},{t.Item2})"))) Console.WriteLine(r);
 foreach (var r in Partitioner.Create(0, 10, 4).GetPartitions(2).Select(p => DrainWith(p, t => $"[{t.Item1},{t.Item2})"))) Console.WriteLine(r);
 Console.WriteLine(string.Join(" ", Partitioner.Create(0, 10, 3).GetDynamicPartitions().Select(t => $"[{t.Item1},{t.Item2})")));
 Console.WriteLine(string.Join(" ", Partitioner.Create(0L, 10L, 3L).GetDynamicPartitions().Select(t => $"[{t.Item1},{t.Item2})")));
