@@ -265,6 +265,9 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
     public PropertyDefinition PropertyDefinitionOf(IPropertySymbol property) =>
         Reader.GetPropertyDefinition(MetadataTokens.PropertyDefinitionHandle(MetadataTokens.GetRowNumber(MetadataTokens.EntityHandle(property.OriginalDefinition.MetadataToken))));
 
+    public EventDefinition EventDefinitionOf(IEventSymbol e) =>
+        Reader.GetEventDefinition(MetadataTokens.EventDefinitionHandle(MetadataTokens.GetRowNumber(MetadataTokens.EntityHandle(e.OriginalDefinition.MetadataToken))));
+
     public FieldDefinition FieldDefinitionOf(IFieldSymbol field) =>
         Reader.GetFieldDefinition(MetadataTokens.FieldDefinitionHandle(MetadataTokens.GetRowNumber(MetadataTokens.EntityHandle(field.OriginalDefinition.MetadataToken))));
 
