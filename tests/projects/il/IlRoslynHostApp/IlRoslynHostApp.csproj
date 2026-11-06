@@ -10,6 +10,6 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- The version csharpc itself references (src/Csharpc/Csharpc.csproj). -->
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.12.0-1.26504.105" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.12.0-1.26555.108" />
   </ItemGroup>
 </Project>
