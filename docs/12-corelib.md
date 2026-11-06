@@ -347,7 +347,10 @@ and only for programs that ask:
   `shared/Microsoft.NETCore.App/11.*` with System.Reflection.Metadata (`Frontend/SharedFramework.cs`):
   `List<T>` binds against the `System.Collections` reference assembly but lives in
   `System.Private.CoreLib`. `Assembly`, `AssemblyName` and `Version` are corelib C#
-  (`corelib/Reflection/Assembly.cs`), one `Assembly` object per name so `==` holds.
+  (`corelib/Reflection/Assembly.cs`), one `Assembly` object per name so `==` holds. The program's own and the IL assemblies
+  also have a compiled-in type list (`GetTypes`, `ExportedTypes`, `Module.GetTypes`, in metadata order, csc's synthesized
+  types included: the program is emitted once with Roslyn to read them), a manifest `Module`, `EntryPoint` and, for the program,
+  `GetReferencedAssemblies` ([ADR 0018](adr/0018-reflection-metadata.md)).
 * **Assignability** (`type.c`, `assignable`) follows the CLR: base chains, interfaces, generic variance
   (reference-type arguments only), array covariance for reference elements and for primitives sharing
   storage (`int[]`/`uint[]`/enum arrays), `T[]` as `IList<U>`, `Nullable<T>` from `T`, delegates.

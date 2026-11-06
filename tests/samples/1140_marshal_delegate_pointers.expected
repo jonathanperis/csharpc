@@ -1,0 +1,18 @@
+add 7 -7
+same delegate, same pointer: True
+other delegate, other pointer: True 42
+closure 3 4 5 calls=3
+visit 5 values, sum 15
+bump 15
+scale 3.5 1127.5
+wide 65537
+small 42 0
+native int -1 1234567
+bool 1 0
+bool param 1 0 0
+native pointer as delegate 42 -8
+wrapped 123
+zero pointer: ptr
+200 short-lived delegates: 20100
+null: d
+generic delegate: ArgumentException

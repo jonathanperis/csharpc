@@ -65,6 +65,26 @@ namespace CsharpcCoreLib
             return (AssemblyName)(object)result;
         }
 
+        // The name of a loaded signed assembly: its token is known, its public key isn't (compiled in as the display name).
+        private bool _keyUnknown;
+
+        /// <summary>
+        /// Assembly.GetName(): what CoreCLR builds for a loaded assembly. An unsigned one has an empty public key (and so the
+        /// PublicKey flag), SHA1 as its hash algorithm and MSIL as its architecture; a signed one's key isn't known to csharpc.
+        /// </summary>
+        internal static AssemblyName ForLoadedAssembly(string fullName)
+        {
+            var result = (AssemblyNameImpl)(object)FromFullName(fullName);
+            if (result._publicKeyToken == null || result._publicKeyToken.Length == 0)
+            {
+                result.SetPublicKey(Array.Empty<byte>());
+                result._hashAlgorithm = System.Configuration.Assemblies.AssemblyHashAlgorithm.SHA1;
+                result.ProcessorArchitecture = ProcessorArchitecture.MSIL;
+            }
+            else result._keyUnknown = true;
+            return (AssemblyName)(object)result;
+        }
+
         public string Name { get => _name; set => _name = value; }
         public Version Version { get => _version; set => _version = value; }
 
@@ -134,13 +154,16 @@ namespace CsharpcCoreLib
             name._cultureInfo = _cultureInfo;
             name._version = _version;
             name._flags = _flags;
+            name._keyUnknown = _keyUnknown;
             name._codeBase = _codeBase;
             name._hashAlgorithm = _hashAlgorithm;
             name._versionCompatibility = _versionCompatibility;
             return name;
         }
 
-        public byte[] GetPublicKey() => _publicKey;
+        public byte[] GetPublicKey() => _keyUnknown && _publicKey == null
+            ? throw new NotSupportedException("AssemblyName.GetPublicKey() of a signed assembly is not supported by csharpc yet (only its public key token is known).")
+            : _publicKey;
 
         public void SetPublicKey(byte[] publicKey)
         {

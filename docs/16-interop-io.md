@@ -29,9 +29,21 @@ Return values: primitives, `bool` (non-zero), structs (register pairs or `sret`)
 (`Marshal.GetLastPInvokeError`, `Marshal.GetLastSystemError`, `Marshal.GetLastWin32Error`); on
 Windows it is the Win32 last error (`SetLastError(0)` / `GetLastError()`), as in .NET.
 
-Delegate parameters are not marshalled; pass callbacks as `delegate* unmanaged<...>` pointing to
+Delegate parameters of a `[DllImport]` are not marshalled; pass callbacks as `delegate* unmanaged<...>` pointing to
 an `[UnmanagedCallersOnly]` method (`&Compare`) — that is the supported, allocation-free path in
 .NET too.
+
+`Marshal.GetFunctionPointerForDelegate<TDelegate>` (what `[LibraryImport]` stubs call for a delegate parameter) and
+`Marshal.GetDelegateForFunctionPointer<TDelegate>` work for delegate types known at compile time whose signature is
+blittable (integers, floats, pointers, enums, by-ref blittables; `bool` as a 4-byte BOOL). csharpc generates no code at run
+time, so each such delegate type gets a pool of 32 reverse P/Invoke thunks (`ModuleCodeGen.ReverseThunks.cs`,
+`corelib/DelegateThunks.cs`): thunk *i* calls the delegate in slot *i*, which holds it weakly, as .NET's thunks do (keep
+the delegate reachable while native code can call it; a collected delegate frees its slot, and a full pool is collected
+once before it gives up with an `InvalidOperationException`). Other signatures (strings, structs by value, `char`) are a
+compile-time diagnostic; the non-generic overloads (a delegate known only as `Delegate`, a `Type` argument) and
+generic delegate types are a `NotSupportedException` / `ArgumentException`. A pointer from
+`GetFunctionPointerForDelegate` wrapped again with `GetDelegateForFunctionPointer` is a new delegate that calls it
+(.NET returns the original delegate).
 
 ### Binding
 
@@ -174,7 +186,7 @@ does; `SocketException` derives from `Win32Exception` and `ExternalException` li
   uses .NET's per-OS message.
 * Windows: `CharSet.Ansi` strings are marshalled as UTF-8 (.NET uses the ANSI code page; the same for
   ASCII text), and returned native strings are released with `free` (.NET: `CoTaskMemFree`).
-* No delegate marshalling, `SafeHandle` parameters, `[In, Out]` array copy-back of non-blittable
+* No delegate parameters on `[DllImport]` (see above for the `[LibraryImport]` path), `SafeHandle` parameters, `[In, Out]` array copy-back of non-blittable
   elements, `StringBuilder` parameters, or variadic functions (same as .NET for the last one).
 * `FileStream` is synchronous; the `*Async` file APIs complete synchronously.
 * File times other than last-write time, permissions/attributes, and file locking (`FileShare`)
