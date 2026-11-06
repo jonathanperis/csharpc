@@ -86,7 +86,7 @@ csharpc keeps reflection metadata the same way, generated at compile time by
   boundary, with trimming warnings at compile time; csharpc doesn't issue those warnings yet.
 - Fields: a type whose non-public fields csharpc can't see (a reference-assembly base type) or a field it
   can't describe (fixed buffers, ref fields) leaves that kind undescribed, so asking for it throws.
-- Not covered yet: `GetInterfaces`, `Activator.CreateInstance(Type)`, `MakeGenericMethod`,
+- Not covered yet (when this ADR was written; `GetInterfaces` and `Activator.CreateInstance(Type)` came later): `MakeGenericMethod`,
   `GetBaseDefinition` of overrides, inherited attribute lookup on overrides (answered when the overridden
   methods have no inheritable attributes). Each is an explicit `NotSupportedException` or compile-time
   error until it is added in the same scheme.
@@ -100,6 +100,22 @@ csharpc keeps reflection metadata the same way, generated at compile time by
   nullable-annotated type that has annotated events: csc synthesizes `[Nullable]`) throws `NotSupportedException` from
   `GetCustomAttributes*`/`IsDefined` only, as does `GetOtherMethods` of an IL event with `.other` accessors.
   Tests: `tests/samples/990_reflection_events`, `991_reflection_events_library`.
+- Backing fields of events (2026-11-06): `Type.GetFields`/`GetField` also list the compiler-generated private backing
+  field of every field-like event, as .NET does (named like the event, of the handler type, `Private`, `Static` for a static
+  event, in declaration order among the fields, `[CompilerGenerated]` and `[DebuggerBrowsable(Never)]` on it); Roslyn hides
+  it, so csharpc describes it from the event (`ModuleCodeGen.EventBackingFieldRecord`; for IL, the FieldDef named like the
+  event, with its real flags and attributes). `GetValue`/`SetValue` read and replace the delegate in the event's slot (a
+  class's layout slot, a static event's global). Events with accessors, abstract and interface events have no field. Explicit
+  failures: the field's custom attributes where csc adds `[Nullable]` (the event rule of `NeedsNullableAttribute`,
+  `CSRT_FIELD_ATTRIBUTES_UNKNOWN`), a struct's event field (`GetValue`/`SetValue` throw; structs lower no events yet) and a
+  partial event. Tests: `tests/samples/992_reflection_event_backing_fields`, `994_reflection_event_backing_field_kinds`.
+- `typeof(X)` through a local (2026-11-06): ILLink's dataflow follows `var t = typeof(C); t.GetFields()` and
+  `Show(t)` for an annotated parameter, so csharpc does too (`FunctionCodeGen.TypeofLocals.cs`): the `typeof`s assigned to
+  the local (flow-insensitive; the query itself still runs on the Type the program holds, so this only adds metadata) mark the
+  type as the direct form does. In IL, a local stored `ldtoken T; GetTypeFromHandle` and loaded again. Not tracked: only
+  direct `typeof` initializers and assignments count, not `cond ? typeof(A) : typeof(B)` (which ILLink merges); fields and
+  `obj.GetType()` aren't followed by ILLink either. A local captured by a lambda is followed in source but not in IL (the
+  closure field). Test: `tests/samples/993_reflection_typeof_local_flow`.
 - Added for expression trees (2026-10-30, [18](../18-compatibility.md#expression-trees)): standalone
   records of the members a program names directly — `ldtoken` + `GetMethodFromHandle`/`GetFieldFromHandle`
   and the `MethodInfo`/`FieldInfo` constants of lowered expression trees — with a per-method identity, so
