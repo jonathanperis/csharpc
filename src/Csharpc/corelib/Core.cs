@@ -278,6 +278,13 @@ namespace CsharpcCoreLib
             throw new ArgumentException("Object must be the same type as the enum. The type passed in was '" + other.GetType().FullName +
                 "'; the enum type was '" + source + "'.");
 
+        // Marshal.SizeOf/OffsetOf/PtrToStructure/StructureToPtr argument errors (FunctionCodeGen.MarshalLayout.cs).
+        public static void MarshalNotMarshalable(string message) => throw new ArgumentException(message);
+        public static void MarshalArgument(string message, string paramName) => throw new ArgumentException(message, paramName);
+        public static void MarshalArgumentNull(string paramName) => throw new ArgumentNullException(paramName);
+        public static void MarshalNotMember(string typeName) =>
+            throw new ArgumentException("Field passed in is not a marshaled member of the type '" + typeName + "'.", "fieldName");
+
         // ArgumentOutOfRangeException.ThrowIf* (.NET 8+): exact messages, with the actual value.
         public static void IfNegative(int value, string paramName)
         {
