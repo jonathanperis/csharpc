@@ -1,0 +1,105 @@
+{"I":12345678901234567890123,"U":5,"D":"2026-11-04","T":"13:30:00","Uri":"https://example.com/","V":"1.2.3","Bytes":"AQID","Floats":[1.5],"H":1.5}
+True
+i128: -170141183460469231731687303715884105728
+u128: 340282366920938463463374607431768211455
+i128 read: 12345678901234567890123
+i128 read neg: -5
+i128 read str: JsonException: The JSON value could not be converted to System.Int128. Path: $ | LineNumber: 0 | BytePositionInLine: 3.
+i128 read frac: JsonException: The JSON value could not be converted to System.Int128. Path: $ | LineNumber: 0 | BytePositionInLine: 3.
+i128 read big: JsonException: The JSON value could not be converted to System.Int128. Path: $ | LineNumber: 0 | BytePositionInLine: 39.
+u128 read: 340282366920938463463374607431768211455
+u128 read neg: JsonException: The JSON value could not be converted to System.UInt128. Path: $ | LineNumber: 0 | BytePositionInLine: 2.
+i128 dict: {"5":1}
+i128 dict read: -7,8
+Int128.Parse: 12345678901234567890123 -7 9
+Int128.Parse bad: FormatException: The input string 'abc' was not in a correct format.
+Int128.Parse empty: FormatException: The input string '' was not in a correct format.
+Int128.Parse big: OverflowException: Value was either too large or too small for an Int128.
+Int128.Parse null: ArgumentNullException: Value cannot be null. (Parameter 's')
+Int128.Parse min: -170141183460469231731687303715884105728
+Int128.Parse max: 170141183460469231731687303715884105727
+Int128.Parse trailing: FormatException: The input string '12x' was not in a correct format.
+Int128.Parse spaces: [42]
+UInt128.Parse max: 340282366920938463463374607431768211455
+UInt128.Parse over: OverflowException: Value was either too large or too small for a UInt128.
+UInt128.Parse neg: OverflowException: Value was either too large or too small for a UInt128.
+UInt128.Parse -0: 0
+TryParse: True 77 False 0 False 0
+Parse invariant provider: 12
+Parse span: 123 True9
+dateonly: "2026-11-04"
+dateonly read: 2026-11-04
+dateonly read "2026-1-4": JsonException: The JSON value could not be converted to System.DateOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 10.
+dateonly read "2026-11-04T10:00:00": JsonException: The JSON value could not be converted to System.DateOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 21.
+dateonly read 5: JsonException: The JSON value could not be converted to System.DateOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 1.
+dateonly read "2026-02-30": JsonException: The JSON value could not be converted to System.DateOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 12.
+dateonly read "0000-01-01": JsonException: The JSON value could not be converted to System.DateOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 12.
+dateonly read "2026-13-01": JsonException: The JSON value could not be converted to System.DateOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 12.
+dateonly read "": JsonException: The JSON value could not be converted to System.DateOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 2.
+dateonly read null: JsonException: The JSON value could not be converted to System.DateOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 4.
+dateonly dict: {"2026-01-02":1}
+dateonly dict read: 01/02/2026
+timeonly: "13:30:00""13:30:05.1200000""01:02:03.0000001""23:59:59.9999999""00:00:00"
+timeonly read "13:30": 13:30:00.0000000
+timeonly read "13:30:15": 13:30:15.0000000
+timeonly read "13:30:15.5": 13:30:15.5000000
+timeonly read "13:30:15.1234567": 13:30:15.1234567
+timeonly read "1:30": 01:30:00.0000000
+timeonly read "01:30:15": 01:30:15.0000000
+timeonly read "23:59:59.9999999": 23:59:59.9999999
+timeonly read "0:00": 00:00:00.0000000
+timeonly read "13:30:15.12345678": JsonException: The JSON value could not be converted to System.TimeOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 19.
+timeonly read "24:00": JsonException: The JSON value could not be converted to System.TimeOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 7.
+timeonly read "13:30 PM": JsonException: The JSON value could not be converted to System.TimeOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 10.
+timeonly read "13:30:15.": JsonException: The JSON value could not be converted to System.TimeOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 11.
+timeonly read "13": JsonException: The JSON value could not be converted to System.TimeOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 4.
+timeonly read "13:5": 13:05
+timeonly read "13:60": JsonException: The JSON value could not be converted to System.TimeOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 7.
+timeonly read "13:30:60": JsonException: The JSON value could not be converted to System.TimeOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 10.
+timeonly read " 13:30": JsonException: The JSON value could not be converted to System.TimeOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 8.
+timeonly read "13:30:5": 13:30
+timeonly read "13.30": JsonException: The JSON value could not be converted to System.TimeOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 7.
+timeonly read 5: JsonException: The JSON value could not be converted to System.TimeOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 1.
+timeonly read "": JsonException: The JSON value could not be converted to System.TimeOnly. Path: $ | LineNumber: 0 | BytePositionInLine: 2.
+uri: "https://example.com/a?q=1""rel/path"
+uri read: https://example.com/x False
+uri read null: True
+uri read num: JsonException: The JSON value could not be converted to System.Uri. Path: $ | LineNumber: 0 | BytePositionInLine: 1.
+version: "1.2.3""1.2"
+version read: 1.2.3.4 1.2
+version read bad: JsonException: The JSON value could not be converted to System.Version. Path: $ | LineNumber: 0 | BytePositionInLine: 3.
+version read bad2: JsonException: The JSON value could not be converted to System.Version. Path: $ | LineNumber: 0 | BytePositionInLine: 5.
+version read num: JsonException: The JSON value could not be converted to System.Version. Path: $ | LineNumber: 0 | BytePositionInLine: 3.
+version null: True
+rom byte: "AQID""""CQ=="
+rom byte read: 010203 0
+rom byte bad: JsonException: The JSON value could not be converted to System.ReadOnlyMemory`1[System.Byte]. Path: $ | LineNumber: 0 | BytePositionInLine: 4.
+memory byte read: 09
+rom float: [1.5,2][1,2][]
+rom float read: 1.5,2 0 
+rom float bad: JsonException: The JSON value could not be converted to System.ReadOnlyMemory`1[System.Single]. Path: $ | LineNumber: 0 | BytePositionInLine: 1.
+rom float badelement: JsonException: The JSON value could not be converted to System.Int32. Path: $[1] | LineNumber: 0 | BytePositionInLine: 6.
+half: 1.50.165500-06E-08
+half read: 1.5 0.1 -20
+half read 1e-8: 0
+half read 70000: JsonException: The JSON value could not be converted to System.Half. Path: $ | LineNumber: 0 | BytePositionInLine: 5.
+half read 65520: JsonException: The JSON value could not be converted to System.Half. Path: $ | LineNumber: 0 | BytePositionInLine: 5.
+half read 65519.99: 65500
+half read 0: 0
+half read -0: -0
+half read 1e400: JsonException: The JSON value could not be converted to System.Half. Path: $ | LineNumber: 0 | BytePositionInLine: 5.
+half read "1.5": JsonException: The JSON value could not be converted to System.Half. Path: $ | LineNumber: 0 | BytePositionInLine: 5.
+half read "NaN": JsonException: The JSON value could not be converted to System.Half. Path: $ | LineNumber: 0 | BytePositionInLine: 5.
+half read true: JsonException: The JSON value could not be converted to System.Half. Path: $ | LineNumber: 0 | BytePositionInLine: 4.
+half read 5.: JsonException: Expected a digit ('0'-'9'), but instead reached end of data. Path: $ | LineNumber: 0 | BytePositionInLine: 2.
+half read 00: JsonException: Invalid leading zero before '0'. Path: $ | LineNumber: 0 | BytePositionInLine: 1.
+half nan: JsonReaderException: 'N' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 0.
+half inf: JsonReaderException: 'I' is an invalid start of a value. LineNumber: 0 | BytePositionInLine: 0.
+half dict: {"1.5":1}
+half dict read: 2.5
+Half.Parse: 1.5 0.1 0 Infinity -0 65500 1000
+Half.Parse specials: NaN Infinity -Infinity 3
+Half.Parse bad: FormatException: The input string 'abc' was not in a correct format.
+Half.Parse null: ArgumentNullException: Value cannot be null. (Parameter 's')
+Half.TryParse: True 2.5 False 0
+Half.Parse ties: 15360 15361 15360 15362

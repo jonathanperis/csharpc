@@ -47,6 +47,14 @@ namespace CsharpcCoreLib
             if (uriKind != UriKind.Absolute && uriKind != UriKind.RelativeOrAbsolute && uriKind != UriKind.Relative)
                 throw new ArgumentException("The value '" + ((int)uriKind).ToString() + "' passed for the UriKind parameter is invalid.", "uriKind");
             _original = uriString;
+            // On Unix an implicit file path ("/dir/x") is absolute only for UriKind.Absolute: with
+            // RelativeOrAbsolute .NET takes it for a relative reference.
+            if (uriKind == UriKind.RelativeOrAbsolute && IsImplicitUnixPath(uriString))
+            {
+                CheckRelative(uriString);
+                _relative = true;
+                return;
+            }
             if (TryParseFile(uriString, out _path, out _localPath))
             {
                 if (uriKind == UriKind.Relative) throw new UriFormatException(FormatNotDetermined);
@@ -67,6 +75,13 @@ namespace CsharpcCoreLib
             if (error != null) throw new UriFormatException(error);
             if (uriKind == UriKind.Relative) throw new UriFormatException(FormatNotDetermined);
         }
+
+        private static bool IsImplicitUnixPath(string s) =>
+#if CSHARPC_TARGET_WINDOWS
+            false; // .NET on Windows takes "/dir/x" for no implicit file path (see TryParseFile)
+#else
+            s.Length > 0 && s[0] == '/' && !s.StartsWith("file:", StringComparison.OrdinalIgnoreCase);
+#endif
 
         // A relative reference is kept as it is: only text .NET neither escapes nor unescapes.
         private static void CheckRelative(string s)
@@ -119,6 +134,12 @@ namespace CsharpcCoreLib
         {
             result = null;
             if (uriString == null) return false;
+            if (uriKind == UriKind.RelativeOrAbsolute && IsImplicitUnixPath(uriString))
+            {
+                CheckRelative(uriString);
+                result = (Uri)(object)new UriImpl(uriString, uriKind);
+                return true;
+            }
             if (TryParseFile(uriString, out _, out _))
             {
                 if (uriKind == UriKind.Relative) return false;

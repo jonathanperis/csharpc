@@ -1,0 +1,12 @@
+Int128: {"type":"integer"}
+UInt128: {"type":"integer"}
+Half: {"type":"number"}
+DateOnly: {"type":"string","format":"date"}
+TimeOnly: {"type":"string","format":"time"}
+Uri: {"type":["string","null"],"format":"uri"}
+Version: {"$comment":"Represents a version string.","type":["string","null"],"pattern":"^\\d\u002B(\\.\\d\u002B){1,3}$"}
+ReadOnlyMemory<byte>: {"type":"string","contentEncoding":"base64"}
+Memory<byte>: {"type":"string","contentEncoding":"base64"}
+Rec: {"type":["object","null"],"properties":{"I":{"type":"integer"},"U":{"type":"integer"},"H":{"type":"number"},"D":{"type":"string","format":"date"},"T":{"type":"string","format":"time"},"Uri":{"type":"string","format":"uri"},"V":{"$comment":"Represents a version string.","type":"string","pattern":"^\\d\u002B(\\.\\d\u002B){1,3}$"},"Ro":{"type":"string","contentEncoding":"base64"},"Rw":{"type":"string","contentEncoding":"base64"}},"required":["I","U","H","D","T","Uri","V","Ro","Rw"]}
+Int128 (AllowReadingFromString): {"type":["string","integer"],"pattern":"^-?(?:0|[1-9]\\d*)$"}
+Half (AllowReadingFromString): {"type":["string","number"],"pattern":"^-?(?:0|[1-9]\\d*)(?:\\.\\d\u002B)?(?:[eE][\u002B-]?\\d\u002B)?$"}

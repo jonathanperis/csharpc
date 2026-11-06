@@ -216,6 +216,71 @@ namespace CsharpcCoreLib
             return (int)bits;
         }
 
+        // ---- parsing ----
+        // Through double: one rounding to double then one to Half. That differs from a single rounding only when the
+        // double lands exactly on a midpoint between two Halves from text with more digits than a double holds,
+        // which is refused rather than guessed.
+        private static bool IsHalfwayBetweenHalves(double value)
+        {
+            long bits = BitConverter.DoubleToInt64Bits(value);
+            int exp = (int)((bits >> 52) & 0x7FF);
+            if (exp == 0 || exp == 0x7FF) return false;
+            int e = exp - 1023;
+            ulong m = ((ulong)bits & 0xFFFFFFFFFFFFFUL) | (1UL << 52);
+            int shift = e >= -14 ? 42 : 28 - e;
+            if (shift >= 64 || shift < 1) return false;
+            return (m & ((1UL << shift) - 1)) == 1UL << (shift - 1);
+        }
+
+        private static bool TryParseCore(ReadOnlySpan<char> text, NumberStyles style, IFormatProvider provider, out Half result, bool throwOnFailure)
+        {
+            if (!double.TryParse(text, style, provider, out double d))
+            {
+                if (throwOnFailure) double.Parse(text, style, provider); // .NET's FormatException for the same text
+                result = default;
+                return false;
+            }
+            if (IsHalfwayBetweenHalves(d) && text.Length > 17)
+                throw new NotSupportedException("Half.Parse of '" + text.ToString() + "': the text is within a double's precision of a rounding midpoint, which csharpc does not resolve yet.");
+            result = Wrap(FromDouble(d));
+            return true;
+        }
+
+        private const NumberStyles DefaultStyle = NumberStyles.Float | NumberStyles.AllowThousands;
+
+        public static Half Parse(string s) => Parse(s, DefaultStyle, null);
+        public static Half Parse(string s, IFormatProvider provider) => Parse(s, DefaultStyle, provider);
+        public static Half Parse(string s, NumberStyles style) => Parse(s, style, null);
+
+        public static Half Parse(string s, NumberStyles style, IFormatProvider provider)
+        {
+            if (s == null) throw new ArgumentNullException("s");
+            TryParseCore(s.AsSpan(), style, provider, out Half result, true);
+            return result;
+        }
+
+        public static Half Parse(ReadOnlySpan<char> s, IFormatProvider provider) => Parse(s, DefaultStyle, provider);
+
+        public static Half Parse(ReadOnlySpan<char> s, NumberStyles style = DefaultStyle, IFormatProvider provider = null)
+        {
+            TryParseCore(s, style, provider, out Half result, true);
+            return result;
+        }
+
+        public static bool TryParse(string s, out Half result) => TryParse(s, DefaultStyle, null, out result);
+        public static bool TryParse(string s, IFormatProvider provider, out Half result) => TryParse(s, DefaultStyle, provider, out result);
+
+        public static bool TryParse(string s, NumberStyles style, IFormatProvider provider, out Half result)
+        {
+            if (s == null) { result = default; return false; }
+            return TryParseCore(s.AsSpan(), style, provider, out result, false);
+        }
+
+        public static bool TryParse(ReadOnlySpan<char> s, out Half result) => TryParse(s, DefaultStyle, null, out result);
+        public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, out Half result) => TryParse(s, DefaultStyle, provider, out result);
+        public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out Half result) =>
+            TryParseCore(s, style, provider, out result, false);
+
         // ---- text ----
         public override string ToString() => ToString(null, null);
         public string ToString(string format) => ToString(format, null);
