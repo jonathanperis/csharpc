@@ -53,40 +53,42 @@ namespace CsharpcCoreLib
         public static Task Create(Action action, CancellationToken token, TaskCreationOptions options)
         {
             if (action == null) throw new ArgumentNullException("action");
-            return Build(action, token, options);
+            return Build(action, token, options, null);
         }
 
         public static Task CreateWithState(Action<object> action, object state, CancellationToken token, TaskCreationOptions options)
         {
             if (action == null) throw new ArgumentNullException("action");
-            return Build(() => action(state), token, options);
+            return Build(() => action(state), token, options, state);
         }
 
-        private static Task Build(Action body, CancellationToken token, TaskCreationOptions options)
+        private static Task Build(Action body, CancellationToken token, TaskCreationOptions options, object state)
         {
             CheckOptions(options);
             var tcs = new TaskCompletionSource();
             TaskSupport.AttachToParent(tcs.Task, options);
+            TaskState.Set(tcs.Task, state, options);
             return Register(tcs.Task, scheduler => TaskSupport.Work(body, tcs, token, options, scheduler), () => tcs.TrySetCanceled(), token);
         }
 
         public static Task<TResult> CreateFunc<TResult>(Func<TResult> function, CancellationToken token, TaskCreationOptions options)
         {
             if (function == null) throw new ArgumentNullException("function");
-            return BuildFunc(function, token, options);
+            return BuildFunc(function, token, options, null);
         }
 
         public static Task<TResult> CreateFuncWithState<TResult>(Func<object, TResult> function, object state, CancellationToken token, TaskCreationOptions options)
         {
             if (function == null) throw new ArgumentNullException("function");
-            return BuildFunc(() => function(state), token, options);
+            return BuildFunc(() => function(state), token, options, state);
         }
 
-        private static Task<TResult> BuildFunc<TResult>(Func<TResult> body, CancellationToken token, TaskCreationOptions options)
+        private static Task<TResult> BuildFunc<TResult>(Func<TResult> body, CancellationToken token, TaskCreationOptions options, object state)
         {
             CheckOptions(options);
             var tcs = new TaskCompletionSource<TResult>();
             TaskSupport.AttachToParent(tcs.Task, options);
+            TaskState.Set(tcs.Task, state, options);
             Register(tcs.Task, scheduler => TaskSupport.Work(body, tcs, token, options, scheduler), () => tcs.TrySetCanceled(), token);
             return tcs.Task;
         }

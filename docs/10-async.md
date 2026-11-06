@@ -86,6 +86,21 @@ allocated before.
 (+40 on wasm32.) `default(ValueTask)` is a null pointer, meaning "completed". `id` is `Task.Id`, assigned
 on first use from one counter as in .NET; `flags` tells `Task.Status` a pending `Task.Run` delegate task
 (`WaitingToRun`, then `Running`) from a promise-style one (`WaitingForActivation`).
+`flags` also has the bits for `Created` (`new Task`, not started), `WaitingForChildrenToComplete` (a task whose
+body is done while attached children aren't) and "created by `Task.Run`" (`Task.CreationOptions` is
+`DenyChildAttach`).
+
+What the object has no field for lives in a `ConditionalWeakTable` keyed by the task
+(`corelib/Tasks/TaskState.cs`), so only tasks that have it pay: `Task.AsyncState` and `Task.CreationOptions`
+(recorded when a task is created with a state or non-default options: `new Task`, `Task.Factory.StartNew`,
+`ContinueWith`, `TaskCompletionSource(state, options)`), and the `ManualResetEvent` behind
+`IAsyncResult.AsyncWaitHandle`. A task implements `IAsyncResult` through slots csrt registers for its method
+table (`ModuleCodeGen.TaskAsyncResultMember`); `Task.Dispose` only checks that the task has completed, as
+.NET's does. `Task.Exception` and the `AggregateException` that `Wait()`/`Result` throw are new objects on
+every read (the task keeps only the inner-exception list), as in .NET; `TaskCanceledException.Task` is a
+field of the exception (`data` in `csrt_Exception`) and its `CancellationToken` is the canceled task's own.
+Not told apart: `GetType()` and type tests of tasks, which all share one method table (`t is Task<int>` is
+an explicit diagnostic).
 
 **Threading model** (.NET semantics for console apps, `src/runtime/async.c`):
 
