@@ -188,7 +188,8 @@ is not, yet. In rough order of impact:
 5. **Source generators and analyzers.** Analyzers already run in the regular `CoreCompile` and
    don't affect the native build. Source generators run inside csharpc (Roslyn's `GeneratorDriver`)
    with the inputs csc gets from the project: its analyzers, additional files, analyzer config and
-   features, read from the csc command line of the SDK's `Compile` target
+   features, read from the csc command line of the SDK's `Compile` target (for each referenced project too,
+   run on that project's own compilation)
    ([16-interop-io.md](16-interop-io.md#libraryimport-and-other-source-generators)).
 6. **Platforms.** `--target` passes the triple through, but csrt and the linker step are only
    exercised on Linux x86-64. Windows (COFF, `link.exe`/`lld-link`, `.exe`), macOS (Mach-O) and

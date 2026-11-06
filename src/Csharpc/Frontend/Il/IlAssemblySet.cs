@@ -37,7 +37,9 @@ public sealed class IlAssemblySet : IDisposable
     public bool IsCoreLib(ISymbol? symbol) => OwnerOf(symbol) is { IsCoreLib: true };
 
     /// <summary>Opens and validates the assemblies; throws <see cref="InvalidOperationException"/> with a user-facing message.</summary>
-    public static IlAssemblySet Load(IEnumerable<string> paths)
+    /// <param name="nestedTypesVisibleIn">The program whose private nested types the binding compilation must be able to name
+    /// (reflection-based JSON metadata for them is generated in another assembly; JsonReflectionContexts.Il.cs).</param>
+    public static IlAssemblySet Load(IEnumerable<string> paths, string? nestedTypesVisibleIn = null)
     {
         var set = new IlAssemblySet();
         foreach (var path in paths.Select(Path.GetFullPath).Distinct(StringComparer.Ordinal))
@@ -54,7 +56,9 @@ public sealed class IlAssemblySet : IDisposable
             if (!reader.IsAssembly) throw new InvalidOperationException($"'{path}' is a module, not an assembly");
             if (IsReferenceAssembly(reader))
                 throw new InvalidOperationException($"'{path}' is a reference assembly (no method bodies); reference the implementation assembly instead");
-            var reference = MetadataReference.CreateFromImage(bytes, filePath: path);
+            var image = nestedTypesVisibleIn is not null && string.Equals(path, Path.GetFullPath(nestedTypesVisibleIn), StringComparison.Ordinal)
+                ? JsonReflectionContexts.WithPrivateNestedTypesInternal(bytes, pe, reader) : bytes;
+            var reference = MetadataReference.CreateFromImage(image, filePath: path);
             set._assemblies.Add(new IlAssembly(path, pe, reader, reference));
         }
         return set;
@@ -221,7 +225,10 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         }
         var baseName = name[..^".resources".Length];
         foreach (var entry in entries)
-            yield return (baseName, entry.Name, entry.Text ?? NonStringPrefix + entry.TypeName + "\u0001" + entry.Value);
+            // A preserialized user type is marked with "\u0002<format>" after the type name (3: the value is the type converter's
+            // string, else a byte array, an activator stream or BinaryFormatter output the runtime can't create), so the runtime
+            // can tell it from a primitive stored by type code and say how it is stored.
+            yield return (baseName, entry.Name, entry.Text ?? NonStringPrefix + entry.TypeName + (entry.Format != 0 ? "\u0002" + entry.Format : "") + "\u0001" + entry.Value);
     }
 
     /// <summary>Starts the value of a resource entry that is not a string: the prefix, the type's full name, U+0001 and the value's text (corelib/Resources.cs reads it).</summary>

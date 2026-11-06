@@ -765,9 +765,10 @@ What it took, besides library members (all with regression samples 840–849):
   described (their signature, invocation and `MakeGenericMethod` are explicit errors);
   `Assembly.DefinedTypes`/`GetTypes()` are explicit errors (the `startupAssembly` setting).
   `QuicListener.IsSupported` is false where MsQuic isn't installed, as .NET answers, folding Kestrel's
-  HTTP/3 transport away; where MsQuic is installed csharpc stops with an explicit error. TLS client options
-  are a property bag; certificates, SSL streams and the post-quantum keys Kestrel's certificate loader names
-  throw `NotSupportedException` (TLS is not implemented yet).
+  HTTP/3 transport away; where MsQuic is installed csharpc stops with an explicit error. TLS exists on Linux
+  since 2026-11-06 ([ADR 0022](adr/0022-tls.md); Kestrel's HTTPS through it is not tested yet, its certificate
+  loader's post-quantum keys and `SslStreamCertificateContext` are `NotSupportedException`s); elsewhere
+  certificates and SSL streams throw `NotSupportedException`.
 
 ## HttpClient (plain HTTP/1.1)
 
@@ -819,9 +820,9 @@ variables first, then `MacProxy` over CFNetwork / `HttpWindowsProxy` over WinINe
 
 Explicit diagnostics, never a different behavior:
 
-- **TLS.** `https://` fails with `NotSupportedException: TLS and X.509 certificates ... are not supported by csharpc
-  yet` when the connection would need an `SslStream`; so do certificate APIs. HTTP/2 and HTTP/3 need TLS (ALPN) in
-  practice and QUIC is a stub (HTTP/2 over cleartext "prior knowledge" is not tested).
+- **TLS** works on Linux (see "SslStream and https" below); on macOS and Windows `https://` fails with `NotSupportedException:
+  TLS and X.509 certificates ... are not supported by csharpc yet`. HTTP/2 needs ALPN `h2` negotiated by a server; HTTP/3 and
+  QUIC are stubs (HTTP/2 over TLS and over cleartext "prior knowledge" is not tested).
 - **NTLM / Negotiate** authentication (`NegotiateAuthentication` needs GSSAPI/SSPI): `NotSupportedException` when a
   server challenges with it and the handler has credentials.
 - `Dns.GetHostEntry*` (canonical names and aliases are not resolved): `NotSupportedException`.
@@ -835,6 +836,41 @@ Explicit diagnostics, never a different behavior:
 Not yet measured: HttpClient's speed against NativeAOT's (the pool, header parsing and `Task` machinery are the same
 IL; the sockets under it are csharpc's). A program that does one `GetStringAsync` is 3.2 MB at `-O2` (`tests/size.sh` has
 no HttpClient program yet); the budgets of the programs it has are unchanged.
+
+## SslStream and https (Linux)
+
+`SslStream` (client and server), `AuthenticatedStream` and `HttpClient` over `https://` work on Linux ([ADR 0022](adr/0022-tls.md)):
+libssl 3 under corelib C#, with .NET's validation logic, policy errors and exception messages. Samples `1101_sslstream_loopback`
+(handshake properties and callbacks, synchronous and asynchronous I/O, a 1 MB round trip, TLS 1.2/1.3 selection, mutual
+authentication, ALPN, the unauthenticated state, close-notify), `1102_sslstream_validation` (untrusted root, a refusing callback,
+host name mismatch, custom root trust through `CertificateChainPolicy`, protocol mismatch, plain-text and garbage peers, a missing
+client certificate, invalid server certificates, callbacks given twice) and `1103_httpclient_https` (GET/POST and connection reuse over
+one TLS session against an `SslStream` server, `ServerCertificateCustomValidationCallback`, `DangerousAcceptAnyServerCertificateValidator`,
+`SslOptions.CertificateChainPolicy`, the `HttpRequestException` of an untrusted or mismatched certificate and of a server that
+doesn't speak TLS) run against .NET's recordings, in a program with both ends and no network. Explicit diagnostics, a known
+difference (client session resumption) and the platforms are in the ADR. Found, not fixed: `Socket.ConnectAsync(DnsEndPoint)`
+for `localhost` when the listener is IPv4-only fails with `Software caused connection abort` instead of falling back from `::1` to
+`127.0.0.1` (plain HTTP too: `HttpClient.GetStringAsync("http://localhost:port")`), so the samples address `127.0.0.1`.
+
+## X.509 certificates (Linux)
+
+`X509Certificate`, `X509Certificate2`, `X509Certificate2Collection`, `X509CertificateLoader`, `X509Chain` and the pieces under them
+(`X500DistinguishedName`, `AsnEncodedData`, `Oid`, `PublicKey`, `X509ChainPolicy`/`Element`/`Status`) are corelib C# over OpenSSL 3
+([ADR 0022](adr/0022-tls.md): why not the framework's IL). Sample `1100_x509_certificates` is recorded from .NET and covers: loading a
+PKCS#12 (`X509CertificateLoader.LoadPkcs12*`, the obsolete constructors), DER and PEM (`CreateFromPem` with a key); `Subject`/`Issuer`
+(.NET's `CN=a, O=b, C=c` order and quoting), serial number (both byte orders), thumbprint and `GetCertHash(HashAlgorithmName)`,
+`NotBefore`/`NotAfter`, version, signature and key algorithms, `GetNameInfo` for names with a CN, `RawData`, `Export(Cert)`,
+`ExportCertificatePem`, `GetCertContentType`, equality and hash codes; `GetRSAPrivateKey()` / `GetRSAPublicKey()` (the private key
+stays an OpenSSL `EVP_PKEY`, shared with the RSA object); collections (`Add`, `AddRange`, `Contains`, `IndexOf`, `Remove`,
+`Find` by thumbprint, serial number, subject and issuer); `X509Chain.Build` with OpenSSL's verification: `UntrustedRoot` with
+OpenSSL's text as the status information (what .NET shows on Linux), `CustomRootTrust`, `AllowUnknownCertificateAuthority` (the
+status is still reported, `Build` is true), `VerificationTime` and `NotTimeValid`. Errors keep .NET's types and messages: a wrong
+PFX password, garbage data, a missing file (OpenSSL's `error:10000080:BIO routines::no such file`), a disposed certificate.
+
+Explicit diagnostics: `X509Certificate2.Extensions` and the typed extension classes (X509KeyUsageExtension, ...), `X509Store`,
+PKCS#7, exporting a PFX, `CopyWithPrivateKey`, `ToString(true)` of a `X509Certificate2` (it lists the extensions),
+`GetNameInfo` of names without CN/OU/O, revocation checking (`X509Chain` needs `RevocationMode.NoCheck`), ECDSA/DSA keys.
+macOS and Windows keep the previous `NotSupportedException` for every certificate API.
 
 ## Expression trees
 

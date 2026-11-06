@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Reflection;
 using System.Reflection.Metadata;
 using System.Reflection.Metadata.Ecma335;
+using System.Reflection.PortableExecutable;
 using Csharpc.Frontend.Il;
 using Microsoft.CodeAnalysis;
 
@@ -16,9 +17,11 @@ namespace Csharpc.Frontend;
 /// rule csc applies to the code it generates). From source the context is compiled into the program's own
 /// assembly; from IL it lives in csharpc's binding compilation, another assembly to Roslyn, so the program
 /// grants that compilation internals access — what an [InternalsVisibleTo] in the program would say. The
-/// program's internal types and members then look to the generator exactly as they do from source, and
-/// private nested types (which a source context reaches by being nested beside them) stay unsupported:
-/// such calls are reported where they are lowered (FunctionCodeGen.JsonRoots.cs).
+/// program's internal types and members then look to the generator exactly as they do from source. Private
+/// nested types (which a source context reaches by being nested beside them) are marked internal in the copy
+/// of the image the binding compilation reads (WithPrivateNestedTypesInternal); reflection still reports their
+/// real accessibility. Calls on types no metadata can be generated for are reported where they are lowered
+/// (FunctionCodeGen.JsonRoots.cs).
 /// </summary>
 public static partial class JsonReflectionContexts
 {
@@ -71,6 +74,33 @@ public static partial class JsonReflectionContexts
         {
             return false;
         }
+    }
+
+    /// <summary>
+    /// The program's image with its private (and protected) nested types marked internal, for the compilation that binds the
+    /// program: a source context is made accessible to them by being nested beside them, which a context in another assembly
+    /// can't be, but with internals granted (<see cref="GrantInternalsAccess"/>) an internal nested type is as visible to the
+    /// generator as it is to the program. Only the copy the binding compilation reads changes; IL bodies and the type's real
+    /// attributes (reflection's IsNestedPrivate) come from the original image. Returns <paramref name="image"/> itself when
+    /// the program neither calls JsonSerializer nor has such a type.
+    /// </summary>
+    public static byte[] WithPrivateNestedTypesInternal(byte[] image, PEReader pe, MetadataReader reader)
+    {
+        if (!ReferencesJsonSerializer(reader)) return image;
+        var table = pe.PEHeaders.MetadataStartOffset + reader.GetTableMetadataOffset(TableIndex.TypeDef);
+        var rowSize = reader.GetTableRowSize(TableIndex.TypeDef);
+        byte[]? patched = null;
+        for (var row = 0; row < reader.GetTableRowCount(TableIndex.TypeDef); row++)
+        {
+            // TypeDef's first column is the 4-byte Flags; the visibility is its low three bits.
+            var offset = table + row * rowSize;
+            var flags = BitConverter.ToUInt32(image, offset);
+            var visibility = (TypeAttributes)(flags & (uint)TypeAttributes.VisibilityMask);
+            if (visibility is not (TypeAttributes.NestedPrivate or TypeAttributes.NestedFamily or TypeAttributes.NestedFamANDAssem)) continue;
+            patched ??= (byte[])image.Clone();
+            BitConverter.TryWriteBytes(patched.AsSpan(offset, 4), (flags & ~(uint)TypeAttributes.VisibilityMask) | (uint)TypeAttributes.NestedAssembly);
+        }
+        return patched ?? image;
     }
 
     /// <summary>

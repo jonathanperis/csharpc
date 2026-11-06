@@ -262,8 +262,14 @@ public sealed partial class FunctionCodeGen
             EmitValue(instance); // keep side effects
             return TypeObject(valueType, inv);
         }
+        // The object may be a task: GetType() must name its Task<T> (ModuleCodeGen.TaskTypes.cs).
+        if (MayBeTask(TypeOf(instance))) _m.ObserveTaskTypes();
         return CallRuntime("csrt_type_of_object", L.Ptr, [L.Ptr], EmitValue(inv.Instance!));
     }
+
+    /// <summary>Whether a value of this static type can be a task: object, an interface (IAsyncResult, IDisposable...), Task and its sources.</summary>
+    private static bool MayBeTask(ITypeSymbol? type) => type is null || type.SpecialType == SpecialType.System_Object || type.TypeKind is TypeKind.Interface or TypeKind.TypeParameter or TypeKind.Dynamic
+        || type is INamedTypeSymbol { Name: "Task" or "TaskCompletionSource", ContainingNamespace: { Name: "Tasks", ContainingNamespace.Name: "Threading" } };
 
     /// <summary>Gives a freshly allocated array its element-specific method table ("System.Int32[]").</summary>
     internal void TagArray(LLVMValueRef array, ITypeSymbol elementType) =>

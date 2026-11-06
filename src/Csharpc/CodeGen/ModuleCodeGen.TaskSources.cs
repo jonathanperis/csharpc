@@ -35,7 +35,10 @@ public sealed partial class ModuleCodeGen
         layout.Elements.AddRange(fields);
         layout.InstanceSize = Types.Target.SizeOf(structType);
         AddObjectSlots(layout);
-        layout.MethodTable = ExternalGlobal("csrt_Task_MT");
+        // The table of the Task<T> the source is (ModuleCodeGen.TaskTypes.cs); plain for a source without a result.
+        var source = type;
+        while (source is not null && !IsRuntimeTaskSource(source)) source = source.BaseType;
+        layout.MethodTable = TaskTypeOf(source) is { } sourceTask ? TaskMethodTable(sourceTask, observed: false) : ExternalGlobal("csrt_Task_MT");
         _layouts[type] = layout;
         return layout;
     }

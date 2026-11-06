@@ -131,6 +131,18 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void JsonConfigureHook(ref bool reflectionEnabled, ref System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver resolver);
         /// <summary>The program's CsharpcCoreLib.ProgramHooks.JsonBuiltIn(type, options) if it has one, else null.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object JsonBuiltInHook(Type type, object options);
+        /// <summary>
+        /// The program's CsharpcCoreLib.ProgramHooks.ResourceObject(type, text) if it has one: a one-element array holding the
+        /// object a resource of that type and TypeConverter string is, or null when the program has no conversion for the
+        /// type (Frontend/ResourceConverters.cs generates one for the types its .resources files hold).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object[] ResourceObjectHook(string type, string text);
+        /// <summary>
+        /// The program's CsharpcCoreLib.ProgramHooks.TypeConverterFor(type) if it has one: the converter TypeDescriptor.GetConverter gives a type
+        /// the corelib doesn't know (a [TypeConverter] attribute, enums, BCL types), or null (Frontend/ResourceConverters.cs generates it for
+        /// the types the sources name in `typeof` where they call GetConverter).
+        /// </summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object TypeConverterHook(Type type);
         /// <summary>csrt_task_try_fault_async: faults a pending task, or cancels it for an OperationCanceledException.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool TryFaultAsyncTask(System.Threading.Tasks.Task task, Exception exception);
         /// <summary>An enum's underlying value as .NET's EnumConverter keys it: sign-extended, then reinterpreted as ulong.</summary>
