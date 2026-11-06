@@ -91,7 +91,7 @@ class Program
             Show("timeonly read " + bad, () => Des(bad, Ctx.Default.TimeOnly));
 
         Show("uri", () => Ser(Ctx.Default.Uri, new Uri("https://example.com/a?q=1")) + Ser(Ctx.Default.Uri, new Uri("rel/path", UriKind.Relative)));
-        Show("uri read", () => Des("\"https://example.com/x\"", Ctx.Default.Uri).AbsoluteUri + " " + Des("\"/rel\"", Ctx.Default.Uri).IsAbsoluteUri);
+        Show("uri read", () => Des("\"https://example.com/x\"", Ctx.Default.Uri).AbsoluteUri + " " + Des("\"rel/x\"", Ctx.Default.Uri).IsAbsoluteUri);
         Show("uri read null", () => JsonSerializer.Deserialize("null", Ctx.Default.Uri) == null);
         Show("uri read num", () => Des("5", Ctx.Default.Uri));
         Show("version", () => Ser(Ctx.Default.Version, new Version(1, 2, 3)) + Ser(Ctx.Default.Version, new Version(1, 2)));
