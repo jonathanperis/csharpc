@@ -783,6 +783,15 @@ namespace CsharpcCoreLib
 
         public void Add<T>(T value) => AddHash(Hash(value));
 
+        /// <summary>Four bytes at a time as ints, then the rest byte by byte (.NET's AddBytes).</summary>
+        public void AddBytes(ReadOnlySpan<byte> value)
+        {
+            int i = 0;
+            for (; value.Length - i >= 4; i += 4)
+                AddHash((uint)(value[i] | value[i + 1] << 8 | value[i + 2] << 16 | value[i + 3] << 24));
+            for (; i < value.Length; i++) AddHash((uint)value[i]);
+        }
+
         public void Add<T>(T value, IEqualityComparer<T> comparer) =>
             AddHash(value is null ? 0u : comparer != null ? (uint)comparer.GetHashCode(value) : Hash(value));
 

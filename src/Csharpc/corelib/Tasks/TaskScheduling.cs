@@ -600,6 +600,18 @@ namespace CsharpcCoreLib
         private static TaskFactoryImpl s_factory;
         public static TaskFactoryImpl Factory => s_factory ??= new TaskFactoryImpl();
 
+        public static Task Delay(TimeSpan delay) => Delay(delay, CancellationToken.None);
+
+        // .NET: the delay in whole milliseconds is -1 (infinite) or 0 to 4294967294 (Timer.MaxSupportedTimeout); csharpc's
+        // timers take an int, so the longest delays (past 24.8 days) are cut there.
+        public static Task Delay(TimeSpan delay, CancellationToken cancellationToken)
+        {
+            long milliseconds = (long)delay.TotalMilliseconds;
+            if (milliseconds < -1 || milliseconds > 4294967294L)
+                throw new ArgumentOutOfRangeException("delay", "The value needs to translate in milliseconds to -1 (signifying an infinite timeout), 0, or a positive integer less than or equal to the maximum allowed timer duration.");
+            return Task.Delay(milliseconds > int.MaxValue ? int.MaxValue : (int)milliseconds, cancellationToken);
+        }
+
         // Task.Run with a token: .NET's Task.InternalStartNew(DenyChildAttach, TaskScheduler.Default); a
         // token that is already canceled still queues the task (WaitingToRun), which cancels when it would run.
         public static Task Run(Action action, CancellationToken cancellationToken)
