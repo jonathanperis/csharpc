@@ -828,6 +828,8 @@ Explicit diagnostics, never a different behavior:
 - `Dns.GetHostEntry*` (canonical names and aliases are not resolved): `NotSupportedException`.
 - `NetworkChange.NetworkAddressChanged` accepts subscriptions and never fires (the pool only uses it to drop its
   Alt-Svc cache).
+- **Windows:** a rooted request path (`"/absolute/path"`) is a relative `Uri` there, as in .NET, so `BaseAddress` + path
+  works (sample 1010); UNC paths and `file:` URIs without a drive letter stay `NotSupportedException`.
 - `Uri` is the corelib's: a relative request URI that has a query or escaped characters (`"items?id=7"`, `"with space"`) is the
   Uri shadow's explicit `NotSupportedException` ("System.Uri with this relative URI").
 - Stack traces of exceptions thrown by `System.Net.Http` list its frames as .NET does only where csharpc compiles them
