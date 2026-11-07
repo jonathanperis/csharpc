@@ -188,6 +188,8 @@ namespace CsharpcCoreLib
         {
 #if CSHARPC_TARGET_MACOS
             return new CryptographicException("Unknown format in import.");
+#elif CSHARPC_TARGET_WINDOWS
+            return new CryptographicException("Cannot find the requested object."); // CRYPT_E_NOT_FOUND from CryptoAPI
 #else
             return Der.Corrupt();
 #endif
@@ -275,6 +277,15 @@ namespace CsharpcCoreLib
         {
 #if CSHARPC_TARGET_MACOS
             // .NET on macOS reads the file itself: a missing one is the file system's exception.
+            return File.ReadAllBytes(path);
+#elif CSHARPC_TARGET_WINDOWS
+            // .NET on Windows opens the file with CryptoAPI: a missing one is a CryptographicException with the Win32 text.
+            if (!File.Exists(path))
+            {
+                string dir = Path.GetDirectoryName(Path.GetFullPath(path));
+                throw new CryptographicException(dir != null && !Directory.Exists(dir)
+                    ? "The system cannot find the path specified." : "The system cannot find the file specified.");
+            }
             return File.ReadAllBytes(path);
 #else
             // BIO_new_file reports a missing file as OpenSSL's error text, which .NET surfaces unchanged.
