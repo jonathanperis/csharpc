@@ -272,3 +272,5 @@ wasi 1181_socket_dns_endpoint_failure_messages  opens loopback sockets: WASI pre
 wasi 1182_httpclient_localhost_ipv4_server  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 macos 1181_socket_dns_endpoint_failure_messages  the texts and native codes are the OS's: "Connection refused" and errno 111 are Linux's
 windows 1181_socket_dns_endpoint_failure_messages  the texts and native codes are the OS's: Winsock says "No connection could be made because the target machine actively refused it." (10061)
+wasi 1204_taskfactory_state_creation_options  known gap (#118): Task.CreationOptions traps on WebAssembly, so the options of the returned tasks can't be observed there
+wasi 1205_taskfactory_from_async_wait_handle  needs threads: FromAsync over an operation that isn't complete waits on its handle through ThreadPool.RegisterWaitForSingleObject (PlatformNotSupportedException on WebAssembly)
