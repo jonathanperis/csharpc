@@ -637,6 +637,11 @@ namespace CsharpcCoreLib
         {
             if (from == to) return true;
             Type source = ReflectionRuntime.TypeOf(from), destination = ReflectionRuntime.TypeOf(to);
+            // An enum and its underlying type are interchangeable (the CLR compares the types' reduced forms).
+            if (source.IsEnum && destination.IsEnum) return false;
+            if (source.IsEnum || destination.IsEnum)
+                return source.IsValueType && destination.IsValueType
+                    && (source.IsEnum ? Enum.GetUnderlyingType(source) : source) == (destination.IsEnum ? Enum.GetUnderlyingType(destination) : destination);
             return !source.IsValueType && !destination.IsValueType && destination.IsAssignableFrom(source);
         }
 

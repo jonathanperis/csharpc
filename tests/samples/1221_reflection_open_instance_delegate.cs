@@ -36,22 +36,32 @@ catch (ArgumentException) { Console.WriteLine("parameter count"); }
 try { countOpen(null!); }
 catch (NullReferenceException) { Console.WriteLine("null receiver"); }
 
+// An enum and its underlying type are interchangeable in the signature (System.Text.Json's generator reads
+// Roslyn's MemorySafetyRulesVersion enum property through a Func<IModuleSymbol, int>).
+MethodInfo level = typeof(IShape).GetProperty("Level")!.GetMethod!;
+var levelOpen = (Func<IShape, int>)level.CreateDelegate(typeof(Func<IShape, int>));
+Console.WriteLine($"{levelOpen(new Square())} {levelOpen(new Triangle())}");
+
 // With a target, the delegate is closed over it.
 var closed = (Action<string>)add.CreateDelegate(typeof(Action<string>), bag);
 closed("z");
 Console.WriteLine(countOpen(bag));
 
-interface IShape { int Sides { get; } }
+enum Rules { Legacy = 1, Updated = 2 }
+
+interface IShape { int Sides { get; } Rules Level { get; } }
 
 abstract class Shape : IShape
 {
     public abstract int Sides { get; }
+    public virtual Rules Level => Rules.Legacy;
     public virtual string Describe(string tag) => $"{tag}:shape/{Sides}";
 }
 
 sealed class Square : Shape
 {
     public override int Sides => 4;
+    public override Rules Level => Rules.Updated;
     public override string Describe(string tag) => $"{tag}:square/{Sides}";
 }
 
