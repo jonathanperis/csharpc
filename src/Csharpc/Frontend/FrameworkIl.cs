@@ -197,7 +197,13 @@ public static partial class FrameworkIl
             var (from, references) = queue.Dequeue();
             foreach (var reference in references)
             {
-                if (chosen.Contains(reference) || given.Contains(reference) || !index.TryGetValue(reference, out var a) || Unusable(a) is not null) continue;
+                if (chosen.Contains(reference) || given.Contains(reference) || !index.TryGetValue(reference, out var a)) continue;
+                if (Unusable(a) is { } skipped)
+                {
+                    // Kept for the diagnostics of the types it would have given: without it a survey only says "creating instances of ...".
+                    NotCompiledFromIl.TryAdd(a.Name, skipped);
+                    continue;
+                }
                 Add(a, $"referenced by {from}");
                 queue.Enqueue((a.Name, Followed(a)));
             }

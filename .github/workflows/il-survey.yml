@@ -127,7 +127,9 @@ jobs:
           pkgs="$HOME/.nuget/packages"
           common=$(ls -d "$pkgs"/microsoft.codeanalysis.common/"$version"/lib/net*.0 | sort -V | tail -1)
           csharp=$(ls -d "$pkgs"/microsoft.codeanalysis.csharp/"$version"/lib/net*.0 | sort -V | tail -1)
-          dlls="$common/Microsoft.CodeAnalysis.dll,$csharp/Microsoft.CodeAnalysis.CSharp.dll,src/Csharpc/obj/Release/net11.0/csharpc.dll"
+          # The SDK's source generators csharpc links (Csharpc.csproj): csharpc references them, so they are part of its closure.
+          gens=$(ls -d "$HOME"/.dotnet11/packs/Microsoft.NETCore.App.Ref/*/analyzers/dotnet/cs | sort -V | tail -1)
+          dlls="$common/Microsoft.CodeAnalysis.dll,$csharp/Microsoft.CodeAnalysis.CSharp.dll,src/Csharpc/obj/Release/net11.0/csharpc.dll,$gens/System.Text.Json.SourceGeneration.dll,$gens/Microsoft.Interop.SourceGeneration.dll"
           echo "Roslyn $version: $dlls"
           python3 -I tools/il-survey/survey.py --no-packages --local "roslyn+csharpc=$dlls" \
             --survey-assemblies Microsoft.CodeAnalysis,Microsoft.CodeAnalysis.CSharp,csharpc \

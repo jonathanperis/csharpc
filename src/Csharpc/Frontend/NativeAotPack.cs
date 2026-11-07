@@ -75,7 +75,7 @@ public static class NativeAotPack
         {
             if (s_directories.TryGetValue(key, out var known))
             {
-                if (known is null) reason = $"the NativeAOT runtime pack {PackageId(rid)} {version} could not be restored";
+                if (known is null) reason = RestoreFailure(rid, version);
                 return known;
             }
             // A restore can fail for reasons that pass (a network hiccup, NuGet's own locking while a compile running in
@@ -89,10 +89,16 @@ public static class NativeAotPack
                 dir = Find(rid, version);
             }
             s_directories[key] = dir;
-            if (dir is null) reason = $"the NativeAOT runtime pack {PackageId(rid)} {version} could not be restored";
+            if (dir is null) reason = RestoreFailure(rid, version);
             return dir;
         }
     }
+
+    /// <summary>`dotnet restore`'s last error output, so a diagnostic says why the pack is missing.</summary>
+    private static string s_lastRestoreError = "";
+
+    private static string RestoreFailure(string rid, string version) =>
+        $"the NativeAOT runtime pack {PackageId(rid)} {version} could not be restored" + (s_lastRestoreError.Length > 0 ? $" ({s_lastRestoreError})" : "");
 
     private static string PackageId(string rid) => "Microsoft.NETCore.App.Runtime.NativeAOT." + rid;
 
@@ -138,12 +144,15 @@ public static class NativeAotPack
             var stderr = process.StandardError.ReadToEndAsync();
             process.StandardOutput.ReadToEnd();
             process.WaitForExit();
-            _ = stderr.Result;
+            var error = stderr.Result.Trim();
             try { Directory.Delete(cache, recursive: true); } catch (IOException) { }
+            if (process.ExitCode != 0)
+                s_lastRestoreError = $"dotnet restore exited with {process.ExitCode}" + (error.Length > 0 ? ": " + error.Split('\n')[0].Trim() : "");
             return process.ExitCode == 0;
         }
         catch (Exception e) when (e is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception or InvalidOperationException)
         {
+            s_lastRestoreError = e.Message;
             return false;
         }
     }
