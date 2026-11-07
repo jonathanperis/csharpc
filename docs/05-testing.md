@@ -122,6 +122,12 @@ The opt-in generational nursery (`--gc-nursery`) has its own workflow, `GC nurse
 collection every MiB), then the collection-heavy samples under `CSRT_GC_STRESS=50`. A missing write
 barrier shows up there as wrong output or a crash ([ADR 0004](adr/0004-memory-management.md)).
 
+The informational workflows (`GC concurrent`, `GC nursery`, `Program as IL`, `Bootstrap`, `Benchmarks`)
+each have a `concurrency` group per workflow and ref with `cancel-in-progress`, so a burst of merges to
+`main` leaves only the newest commit's run, queued or running, and none of them gates a merge. Branch
+pushes start `Benchmarks` only on `ci/perf*`, `ci/bench*` and `ci/m7-*` (the measurement branches);
+any other `ci/**` branch, such as a flake hunt, leaves the benchmark runners alone.
+
 Failure output shows the compile errors (including `CSLLVM0001` "not supported yet" diagnostics) or
 the first lines of a unified diff between the expected and actual stdout.
 
@@ -164,6 +170,16 @@ checks green. The same five job names still run and pass, which is what a requir
 `paths-ignore` would leave them pending. The skip does not apply when that ancestor's gate is
 missing, failed, or cancelled (a docs push that cancels an in-progress full run therefore runs the
 suite). `main` ignores a `CI-Only:` trailer and a `ci/targets` file, so those cannot drop the gate.
+
+A push to `main` whose tree is identical to the tree of a commit that already has the five `test`
+checks green skips the suite the same way (mode `tree` in `tools/ci-plan.sh`; the gate jobs print the
+commit they rely on). The candidates are the pushed commit itself (fast-forward), its parents (the
+merged PR's head is the second parent of a merge commit) and the heads GitHub lists for it. A
+candidate counts only when it descends from the commit `main` pointed at before the push: a pull
+request's checks test its merge with the base at that time, which is the head's own tree exactly when
+the head already contained that base, and `main` only moves forward. A PR that was behind `main` when
+it was merged produces a different tree and runs the full suite. Like a docs-only skip, such a run
+does not publish (the Release workflow needs the sharded `diff (` jobs).
 
 ### Targeted runs
 

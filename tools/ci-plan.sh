@@ -331,6 +331,38 @@ find_green_ancestor() {
   return 1
 }
 
+# A push to main whose tree equals the tree of a commit that already has the five green `test (*)`
+# checks: the merged PR's head (second parent of a merge commit), a parent, the pushed commit itself
+# (fast-forward) or a head GitHub lists for the pushed commit. Sets TREE_TWIN to that commit.
+#
+# The green checks of a pull request describe its merge with the base at the time, which is the head's
+# own tree only when the head already contained that base. So the twin must descend from the commit
+# main pointed at before this push: main only moves forward, which makes every base the PR run used
+# an ancestor of the twin, and the tree it tested the twin's tree. A PR that was behind main when
+# it ran (or a merge that brought in other changes) has a different tree here and runs the suite.
+find_green_tree() {
+  local sha="$1" before="$2" tree cand cands seen=" "
+  [[ -n "$before" && "$before" != 0000000* ]] || return 1
+  git cat-file -e "${before}^{commit}" 2>/dev/null || return 1
+  tree="$(git rev-parse "${sha}^{tree}" 2>/dev/null)" || return 1
+  cands="$sha $(git rev-list --parents -n 1 "$sha" 2>/dev/null | cut -d' ' -f2-)"
+  if [[ -n "${CI_REPO:-}" ]]; then
+    cands+=" $(gh api "/repos/${CI_REPO}/commits/${sha}/pulls" --jq '.[].head.sha' 2>/dev/null | tr '\n' ' ')"
+  fi
+  for cand in $cands; do
+    [[ "$seen" == *" $cand "* ]] && continue
+    seen+="$cand "
+    # A squash- or rebase-merged PR head is not in the clone's history; ask the remote for it.
+    git cat-file -e "${cand}^{commit}" 2>/dev/null || git fetch -q --no-tags origin "$cand" 2>/dev/null || continue
+    [[ "$(git rev-parse "${cand}^{tree}" 2>/dev/null)" == "$tree" ]] || continue
+    git merge-base --is-ancestor "$before" "$cand" 2>/dev/null || continue
+    parent_gate_green "$cand" || continue
+    TREE_TWIN="$cand"
+    return 0
+  done
+  return 1
+}
+
 emit_outputs() {
   local dest="${GITHUB_OUTPUT:-}"
   local diff_json suites_json
@@ -461,6 +493,17 @@ cmd_emit() {
         REASON="docs-only change; parent $DOCS_PARENT already has a green test (*) gate. Compiler suite skipped; the five merge-bar checks report success."
       else
         REASON="docs-only paths, but no ancestor has a green test (*) gate (in progress, failed, or cancelled). Running the full suite."
+      fi
+    fi
+    # main only: the pushed tree was already tested (typically the merged PR's head). Pull requests and
+    # ci/** pushes always run, so a PR's own run is the evidence this reuses.
+    if [[ "$MODE" == full && "$event" == push && "$ref" == refs/heads/main && -n "${CI_SHA:-}" ]]; then
+      TREE_TWIN=""
+      if find_green_tree "$CI_SHA" "${CI_BEFORE:-}"; then
+        MODE=tree
+        RUN_SUITES=false
+        DOCS_PARENT="$TREE_TWIN"
+        REASON="identical tree: commit $TREE_TWIN has the same files as this push and already has a green test (*) gate on a tree that contains main's previous tip. Compiler suite skipped; the five merge-bar checks report success."
       fi
     fi
   fi
@@ -735,6 +778,49 @@ EOF
     [[ -z "$line" ]] && continue
     [[ -f "$ROOT/tests/samples/$line.cs" ]] || { echo "tests/serial-samples.txt names a missing sample: $line"; fail=1; }
   done < "$ROOT/tests/serial-samples.txt"
+
+  # Identical-tree skip, on a scratch repository with the gate lookup stubbed to a list of green commits.
+  # `main` is A; the PR forks at A with P (one file changed).
+  parent_gate_green() { grep -qx "$1" "$tmp/green"; }
+  local g="git -c user.name=t -c user.email=t@t -c commit.gpgsign=false" repo="$tmp/repo"
+  mkdir "$repo"
+  (
+    cd "$repo" || exit 1
+    export CI_REPO=""
+    $g init -q -b main . && echo a > a && $g add a && $g commit -q -m A
+    A="$(git rev-parse HEAD)"
+    $g checkout -q -b pr && echo p > p && $g add p && $g commit -q -m P
+    P="$(git rev-parse HEAD)"
+    : >"$tmp/green"
+    expect() { # name want sha before
+      local want="$2" got=0 twin
+      TREE_TWIN=""
+      find_green_tree "$3" "$4" || got=1
+      twin="$TREE_TWIN"
+      [[ "$got" == "$want" ]] || { echo "tree skip '$1': find_green_tree returned $got, wanted $want"; return 1; }
+      [[ "$want" == 1 || -n "$twin" ]] || { echo "tree skip '$1': no twin reported"; return 1; }
+    }
+    rc=0
+    # A merge commit of an up-to-date PR has the head's tree: skip only once the head's gate is green.
+    $g checkout -q main && $g merge -q --no-ff pr -m M1 && M1="$(git rev-parse HEAD)"
+    expect "merge, head not green" 1 "$M1" "$A" || rc=1
+    echo "$P" >"$tmp/green"
+    expect "merge, head green" 0 "$M1" "$A" || rc=1
+    [[ "$TREE_TWIN" == "$P" ]] || { echo "tree skip: twin is $TREE_TWIN, not $P"; rc=1; }
+    # A fast-forward push is the head itself.
+    expect "fast-forward" 0 "$P" "$A" || rc=1
+    # Main moved after the PR forked: the merge has files the head does not, so no skip.
+    $g checkout -q -b moved "$A" && echo b > b && $g add b && $g commit -q -m B && B="$(git rev-parse HEAD)"
+    $g merge -q --no-ff pr -m M2 && M2="$(git rev-parse HEAD)"
+    expect "main moved" 1 "$M2" "$B" || rc=1
+    # Equal tree but the twin does not contain main's previous tip: its gate tested something else.
+    T="$(git rev-parse "${P}^{tree}")"
+    M3="$(git commit-tree "$T" -p "$B" -p "$P" -m M3)"
+    expect "twin behind main" 1 "$M3" "$B" || rc=1
+    # No previous tip (new branch, force push) never skips.
+    expect "no before" 1 "$M1" "0000000000000000000000000000000000000000" || rc=1
+    exit "$rc"
+  ) || fail=1
 
   rm -rf "$tmp"
   if [[ "$fail" != 0 ]]; then
