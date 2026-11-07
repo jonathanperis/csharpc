@@ -1,0 +1,149 @@
+0                        next=5E-324 prev=-5E-324 ilogb=-2147483648 acosh=NaN asinh=0 atanh=0
+                         fma=0.5 fma2=0 sincos=0,1
+                         y=0     maxmag=0 minmag=0
+                         y=-2.5  maxmag=-2.5 minmag=0
+                         y=2.5   maxmag=2.5 minmag=0
+                         y=1     maxmag=1 minmag=0
+                         y=NaN   maxmag=NaN minmag=NaN
+                         sign=0
+-0                       next=5E-324 prev=-5E-324 ilogb=-2147483648 acosh=NaN asinh=-0 atanh=-0
+                         fma=0.5 fma2=0 sincos=-0,1
+                         y=0     maxmag=0 minmag=-0
+                         y=-2.5  maxmag=-2.5 minmag=-0
+                         y=2.5   maxmag=2.5 minmag=-0
+                         y=1     maxmag=1 minmag=-0
+                         y=NaN   maxmag=NaN minmag=NaN
+                         sign=0
+0.5                      next=0.5000000000000001 prev=0.49999999999999994 ilogb=-1 acosh=NaN asinh=0.481212 atanh=0.549306
+                         fma=2 fma2=0 sincos=0.479426,0.877583
+                         y=0     maxmag=0.5 minmag=0
+                         y=-2.5  maxmag=-2.5 minmag=0.5
+                         y=2.5   maxmag=2.5 minmag=0.5
+                         y=1     maxmag=1 minmag=0.5
+                         y=NaN   maxmag=NaN minmag=NaN
+                         sign=1
+1                        next=1.0000000000000002 prev=0.9999999999999999 ilogb=0 acosh=0 asinh=0.881374 atanh=Infinity
+                         fma=3.5 fma2=0 sincos=0.841471,0.540302
+                         y=0     maxmag=1 minmag=0
+                         y=-2.5  maxmag=-2.5 minmag=1
+                         y=2.5   maxmag=2.5 minmag=1
+                         y=1     maxmag=1 minmag=1
+                         y=NaN   maxmag=NaN minmag=NaN
+                         sign=1
+-1                       next=-0.9999999999999999 prev=-1.0000000000000002 ilogb=0 acosh=NaN asinh=-0.881374 atanh=-Infinity
+                         fma=-2.5 fma2=0 sincos=-0.841471,0.540302
+                         y=0     maxmag=-1 minmag=0
+                         y=-2.5  maxmag=-2.5 minmag=-1
+                         y=2.5   maxmag=2.5 minmag=-1
+                         y=1     maxmag=1 minmag=-1
+                         y=NaN   maxmag=NaN minmag=NaN
+                         sign=-1
+1.5                      next=1.5000000000000002 prev=1.4999999999999998 ilogb=0 acosh=0.962424 asinh=1.19476 atanh=NaN
+                         fma=5 fma2=0 sincos=0.997495,0.0707372
+                         y=0     maxmag=1.5 minmag=0
+                         y=-2.5  maxmag=-2.5 minmag=1.5
+                         y=2.5   maxmag=2.5 minmag=1.5
+                         y=1     maxmag=1.5 minmag=1
+                         y=NaN   maxmag=NaN minmag=NaN
+                         sign=1
+2.5                      next=2.5000000000000004 prev=2.4999999999999996 ilogb=1 acosh=1.5668 asinh=1.64723 atanh=NaN
+                         fma=8 fma2=0 sincos=0.598472,-0.801144
+                         y=0     maxmag=2.5 minmag=0
+                         y=-2.5  maxmag=2.5 minmag=-2.5
+                         y=2.5   maxmag=2.5 minmag=2.5
+                         y=1     maxmag=2.5 minmag=1
+                         y=NaN   maxmag=NaN minmag=NaN
+                         sign=1
+-2.5                     next=-2.4999999999999996 prev=-2.5000000000000004 ilogb=1 acosh=NaN asinh=-1.64723 atanh=NaN
+                         fma=-7 fma2=0 sincos=-0.598472,-0.801144
+                         y=0     maxmag=-2.5 minmag=0
+                         y=-2.5  maxmag=-2.5 minmag=-2.5
+                         y=2.5   maxmag=2.5 minmag=-2.5
+                         y=1     maxmag=-2.5 minmag=1
+                         y=NaN   maxmag=NaN minmag=NaN
+                         sign=-1
+10                       next=10.000000000000002 prev=9.999999999999998 ilogb=3 acosh=2.99322 asinh=2.99822 atanh=NaN
+                         fma=30.5 fma2=0 sincos=-0.544021,-0.839072
+                         y=0     maxmag=10 minmag=0
+                         y=-2.5  maxmag=10 minmag=-2.5
+                         y=2.5   maxmag=10 minmag=2.5
+                         y=1     maxmag=10 minmag=1
+                         y=NaN   maxmag=NaN minmag=NaN
+                         sign=1
+1E-300                   next=1.0000000000000002E-300 prev=9.999999999999999E-301 ilogb=-997 acosh=NaN asinh=1E-300 atanh=1E-300
+                         fma=0.5 fma2=0 sincos=1E-300,1
+                         y=0     maxmag=1E-300 minmag=0
+                         y=-2.5  maxmag=-2.5 minmag=1E-300
+                         y=2.5   maxmag=2.5 minmag=1E-300
+                         y=1     maxmag=1 minmag=1E-300
+                         y=NaN   maxmag=NaN minmag=NaN
+                         sign=1
+5E-324                   next=1E-323 prev=0 ilogb=-1074 acosh=NaN asinh=4.94066E-324 atanh=4.94066E-324
+                         fma=0.5 fma2=0 sincos=4.94066E-324,1
+                         y=0     maxmag=5E-324 minmag=0
+                         y=-2.5  maxmag=-2.5 minmag=5E-324
+                         y=2.5   maxmag=2.5 minmag=5E-324
+                         y=1     maxmag=1 minmag=5E-324
+                         y=NaN   maxmag=NaN minmag=NaN
+                         sign=1
+2.2250738585072014E-308  next=2.225073858507202E-308 prev=2.225073858507201E-308 ilogb=-1022 acosh=NaN asinh=2.22507E-308 atanh=2.22507E-308
+                         fma=0.5 fma2=0 sincos=2.22507E-308,1
+                         y=0     maxmag=2.2250738585072014E-308 minmag=0
+                         y=-2.5  maxmag=-2.5 minmag=2.2250738585072014E-308
+                         y=2.5   maxmag=2.5 minmag=2.2250738585072014E-308
+                         y=1     maxmag=1 minmag=2.2250738585072014E-308
+                         y=NaN   maxmag=NaN minmag=NaN
+                         sign=1
+1E+308                   next=1.0000000000000002E+308 prev=9.999999999999998E+307 ilogb=1023 acosh=709.889 asinh=709.889 atanh=NaN
+                         fma=Infinity fma2=-Infinity sincos=0.453396,-0.891309
+                         y=0     maxmag=1E+308 minmag=0
+                         y=-2.5  maxmag=1E+308 minmag=-2.5
+                         y=2.5   maxmag=1E+308 minmag=2.5
+                         y=1     maxmag=1E+308 minmag=1
+                         y=NaN   maxmag=NaN minmag=NaN
+                         sign=1
+1.7976931348623157E+308  next=Infinity prev=1.7976931348623155E+308 ilogb=1023 acosh=710.476 asinh=710.476 atanh=NaN
+                         fma=Infinity fma2=-Infinity sincos=0.00496195,-0.999988
+                         y=0     maxmag=1.7976931348623157E+308 minmag=0
+                         y=-2.5  maxmag=1.7976931348623157E+308 minmag=-2.5
+                         y=2.5   maxmag=1.7976931348623157E+308 minmag=2.5
+                         y=1     maxmag=1.7976931348623157E+308 minmag=1
+                         y=NaN   maxmag=NaN minmag=NaN
+                         sign=1
+-1.7976931348623157E+308 next=-1.7976931348623155E+308 prev=-Infinity ilogb=1023 acosh=NaN asinh=-710.476 atanh=NaN
+                         fma=-Infinity fma2=-Infinity sincos=-0.00496195,-0.999988
+                         y=0     maxmag=-1.7976931348623157E+308 minmag=0
+                         y=-2.5  maxmag=-1.7976931348623157E+308 minmag=-2.5
+                         y=2.5   maxmag=-1.7976931348623157E+308 minmag=2.5
+                         y=1     maxmag=-1.7976931348623157E+308 minmag=1
+                         y=NaN   maxmag=NaN minmag=NaN
+                         sign=-1
+Infinity                 next=Infinity prev=1.7976931348623157E+308 ilogb=2147483647 acosh=Infinity asinh=Infinity atanh=NaN
+                         fma=Infinity fma2=NaN sincos=NaN,NaN
+                         y=0     maxmag=Infinity minmag=0
+                         y=-2.5  maxmag=Infinity minmag=-2.5
+                         y=2.5   maxmag=Infinity minmag=2.5
+                         y=1     maxmag=Infinity minmag=1
+                         y=NaN   maxmag=NaN minmag=NaN
+                         sign=1
+-Infinity                next=-1.7976931348623157E+308 prev=-Infinity ilogb=2147483647 acosh=NaN asinh=-Infinity atanh=NaN
+                         fma=-Infinity fma2=NaN sincos=NaN,NaN
+                         y=0     maxmag=-Infinity minmag=0
+                         y=-2.5  maxmag=-Infinity minmag=-2.5
+                         y=2.5   maxmag=-Infinity minmag=2.5
+                         y=1     maxmag=-Infinity minmag=1
+                         y=NaN   maxmag=NaN minmag=NaN
+                         sign=-1
+NaN                      next=NaN prev=NaN ilogb=2147483647 acosh=NaN asinh=NaN atanh=NaN
+                         fma=NaN fma2=NaN sincos=NaN,NaN
+                         y=0     maxmag=NaN minmag=NaN
+                         y=-2.5  maxmag=NaN minmag=NaN
+                         y=2.5   maxmag=NaN minmag=NaN
+                         y=1     maxmag=NaN minmag=NaN
+                         y=NaN   maxmag=NaN minmag=NaN
+                         ArithmeticException: Function does not accept floating point Not-a-Number values.
+-8.673617379884035E-19 0
+7FF8000000000000 7FF8000000000000
+FFF0000000000000 FFF0000000000000 7FF8000000000000 7FF8000000000000
+True False True False
+FFF8000000000000 7FF8000000000000 FFF8000000000000
