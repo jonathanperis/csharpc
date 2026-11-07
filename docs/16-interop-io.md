@@ -208,6 +208,10 @@ does; `SocketException` derives from `Win32Exception` and `ExternalException` li
 on macOS and Windows,
 `Socket.Select`/`Poll`, socket flags, most socket options (other members are compile-time
 "not supported" diagnostics). Samples `195_ip_addresses` and `196_sockets_loopback`.
+Disposing a `NetworkStream` that owns its socket, or a `TcpClient`, shuts the connection down (both directions, errors ignored)
+before closing the descriptor, as .NET does: a bare `close()` with unread received data sends an RST, and the peer's kernel
+then drops what it had received but not read, such as a TLS `close_notify` (a client that never read the server's TLS 1.3
+session tickets; sample `1207_socket_close_unread_data`). `Socket.Dispose` and `Close(0)` stay bare closes.
 
 Connecting by name follows .NET's rules (samples `1180`-`1182`): `Connect`/`ConnectAsync(host, port)`,
 `(DnsEndPoint)`, `(IPAddress[], port)`, `SocketAsyncEventArgs` with a `DnsEndPoint` (instance and static
