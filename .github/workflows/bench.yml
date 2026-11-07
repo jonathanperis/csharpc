@@ -9,9 +9,12 @@ on:
   schedule:
     - cron: "0 6 * * 1" # Mondays 06:00 UTC
   push:
-    # ci/** is the measurement-branch namespace (docs/20-status.md). A push still has to touch
-    # src, benchmarks, or this file, same as main.
-    branches: [main, "ci/**"]
+    # Only the branches that exist to measure speed or size: ci/perf*, ci/bench* and the M7 branches
+    # (ci/m7-*, docs/20-status.md). Any other ci/** branch is a correctness or flake-hunting branch;
+    # its push touches src and used to start two 120-minute benchmark jobs nobody read. Dispatch the
+    # workflow (or name the branch ci/bench-<topic>) to measure one of those. A push still has to
+    # touch src, benchmarks, or this file, same as main.
+    branches: [main, "ci/perf*", "ci/bench*", "ci/m7-*"]
     paths: ["src/**", "benchmarks/**", ".github/workflows/bench.yml"]
 
 permissions:

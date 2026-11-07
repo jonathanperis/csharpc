@@ -43,6 +43,15 @@ tests/run.sh --regen 07         # re-record a single sample
 tests/run.sh --via-il -O0 07    # the program as IL: `dotnet build 07*.cs`, then `csharpc 07*.dll`
 ```
 
+`CSHARPC_JOBS=N tests/run.sh` compiles and runs up to N samples at once (default 1). The output is what a
+sequential run prints, in sample order, with the same `PASS`/`FAIL`/`SKIP` lines, per-binary timeout and
+exit code; every sample gets scratch files of its own. The first sample of each pass (-O0, -O2) runs alone
+so the shared runtime/corelib cache in `~/.cache/csharpc` is filled once, and the samples listed in
+`tests/serial-samples.txt` run alone too: those that observe their neighbours (connecting to a port that
+was just closed on purpose, wall-clock windows of a few tens of milliseconds, inotify). Add a sample
+there if it flakes only when run next to others. `--repeat` and `--via-il` always run one sample at a
+time. CI picks N per platform in `tools/ci-plan.sh` (`jobs_for_platform`: 3, macOS 2).
+
 `--via-il` runs the same samples against the same recordings through csc first, as the dotnet pipeline
 hands csharpc its input ([ADR 0010](adr/0010-il-frontend.md#the-program-as-il-2026-10-30)): each sample is
 built with `dotnet build NAME.cs` (the build `dotnet run NAME.cs` makes, with its runtimeconfig.json) and
@@ -113,6 +122,12 @@ The opt-in generational nursery (`--gc-nursery`) has its own workflow, `GC nurse
 collection every MiB), then the collection-heavy samples under `CSRT_GC_STRESS=50`. A missing write
 barrier shows up there as wrong output or a crash ([ADR 0004](adr/0004-memory-management.md)).
 
+The informational workflows (`GC concurrent`, `GC nursery`, `Program as IL`, `Bootstrap`, `Benchmarks`)
+each have a `concurrency` group per workflow and ref with `cancel-in-progress`, so a burst of merges to
+`main` leaves only the newest commit's run, queued or running, and none of them gates a merge. Branch
+pushes start `Benchmarks` only on `ci/perf*`, `ci/bench*` and `ci/m7-*` (the measurement branches);
+any other `ci/**` branch, such as a flake hunt, leaves the benchmark runners alone.
+
 Failure output shows the compile errors (including `CSLLVM0001` "not supported yet" diagnostics) or
 the first lines of a unified diff between the expected and actual stdout.
 
@@ -127,16 +142,27 @@ fails if any shard or the suites job failed, or if the shard manifests do not li
 `-O0` and at `-O2` exactly once (`tools/ci-plan.sh coverage`). Shards are a round-robin over the
 `LC_ALL=C` sorted sample names (`tests/run.sh --shard INDEX/COUNT`).
 
-Shard counts are chosen from the unsharded step times on run
-[40310822368](https://github.com/jonathanperis/csharpc/actions/runs/40310822368) (x86-64 differential
-38.5 min, Windows 49.1 min, arm64 35.4 min, macOS 29.5 min, wasm 21.5 min; wall clock 69 min on
-Windows). x86-64 and Windows use 4 shards. arm64, macOS and wasm use 2: arm and macOS runners queue,
-and wasm shares `ubuntu-24.04` with x86-64, so more shards wait instead of finishing sooner.
-Run [40324256805](https://github.com/jonathanperis/csharpc/actions/runs/40324256805) measured the
-split: with a runner free, x86-64 shards take 8–9 min (suites 14 min), Windows shards 9–14 min
-(suites 20 min), arm64 shards 18 min, macOS shards 19–22 min, wasm shards 12–14 min. The full gate
-is then about 22 min. That run's 3 h end-to-end was queue time behind other workflows, not the
-shard work.
+Each shard compiles and runs several samples at once (`CSHARPC_JOBS`, 3 on every platform; 2 on macOS took 19-25 min), which makes it
+2-3x faster than the sequential shard the counts were first chosen for, so a platform needs fewer
+of them: x86-64 3, the other platforms 2 (14 diff jobs became 11). The queue, not the work, was the
+delay (runner minutes are capped across the repository), so the counts aim at finishing near the
+platform's `suites` job rather than at the shortest shard. Measured before (run
+[42216047679](https://github.com/jonathanperis/csharpc/actions/runs/42216047679), sequential shards,
+4/4/2/2/2) and after (runs [42269384295](https://github.com/jonathanperis/csharpc/actions/runs/42269384295)
+and [42308195548](https://github.com/jonathanperis/csharpc/actions/runs/42308195548), 3 jobs per shard):
+
+| differential shards | before | after |
+|---|---|---|
+| jobs | 14 | 11 |
+| x86-64 shard | 15-20 min (4 shards) | 9-17 min (3 shards) |
+| Windows shard | 22-24 min (4 shards) | 22-26 min (2 shards) |
+| arm64 shard | 35-38 min | 14-16 min |
+| wasm shard | 32-33 min | 11-19 min |
+| macOS shard | 28-35 min (2 shards) | 16-19 min (2 shards, 3 at once) |
+| diff job minutes, all platforms | 366 | 180 |
+
+The suites jobs (size, conformance, programs, projects, IL; 11-21 min) are unchanged and now set the
+wall clock of an unqueued gate (Windows 21 min against 22-26 for its shards).
 
 A push or pull request that only touches `docs/**`, `*.md`, or `LICENSE` / `COPYING` / `NOTICE` /
 `AUTHORS` skips the compiler suite when some ancestor of that commit already has the five `test`
@@ -144,6 +170,16 @@ checks green. The same five job names still run and pass, which is what a requir
 `paths-ignore` would leave them pending. The skip does not apply when that ancestor's gate is
 missing, failed, or cancelled (a docs push that cancels an in-progress full run therefore runs the
 suite). `main` ignores a `CI-Only:` trailer and a `ci/targets` file, so those cannot drop the gate.
+
+A push to `main` whose tree is identical to the tree of a commit that already has the five `test`
+checks green skips the suite the same way (mode `tree` in `tools/ci-plan.sh`; the gate jobs print the
+commit they rely on). The candidates are the pushed commit itself (fast-forward), its parents (the
+merged PR's head is the second parent of a merge commit) and the heads GitHub lists for it. A
+candidate counts only when it descends from the commit `main` pointed at before the push: a pull
+request's checks test its merge with the base at that time, which is the head's own tree exactly when
+the head already contained that base, and `main` only moves forward. A PR that was behind `main` when
+it was merged produces a different tree and runs the full suite. Like a docs-only skip, such a run
+does not publish (the Release workflow needs the sharded `diff (` jobs).
 
 ### Targeted runs
 
