@@ -28,8 +28,11 @@ ready.Set();
 waiter.Join();
 Console.WriteLine($"after set: {observed} {ready.IsSet}");
 
+// The first two workers to get a permit wait for each other inside the section, so two are inside at
+// once whatever the scheduler does (a fixed sleep would only make that likely on a loaded machine).
 var semaphore = new SemaphoreSlim(2);
-int inside = 0, maxInside = 0;
+int inside = 0, maxInside = 0, entered = 0;
+var rendezvous = new CountdownEvent(2);
 object gate = new();
 var workers = new Thread[6];
 for (int i = 0; i < workers.Length; i++)
@@ -38,6 +41,7 @@ for (int i = 0; i < workers.Length; i++)
     {
         semaphore.Wait();
         lock (gate) { inside++; if (inside > maxInside) maxInside = inside; }
+        if (Interlocked.Increment(ref entered) <= 2) { rendezvous.Signal(); rendezvous.Wait(); }
         Thread.Sleep(10);
         lock (gate) inside--;
         semaphore.Release();
@@ -52,13 +56,27 @@ for (int i = 0; i < 3; i++) new Thread(() => countdown.Signal()).Start();
 countdown.Wait();
 Console.WriteLine($"countdown done: {countdown.IsSet}");
 
+// An AutoResetEvent that is already set stays set: a second Set before the waiter consumed the first is
+// absorbed. Each Set therefore waits for the waiter's acknowledgement instead of for a fixed sleep, which
+// a loaded machine can outlast (the waiter then missed a signal and blocked forever).
 var auto = new AutoResetEvent(false);
+var ack = new AutoResetEvent(false);
 int handoffs = 0;
-var ponger = new Thread(() => { for (int i = 0; i < 3; i++) { auto.WaitOne(); handoffs++; } });
+var ponger = new Thread(() => { for (int i = 0; i < 3; i++) { auto.WaitOne(); handoffs++; ack.Set(); } });
 ponger.Start();
-for (int i = 0; i < 3; i++) { auto.Set(); Thread.Sleep(10); }
+for (int i = 0; i < 3; i++) { auto.Set(); ack.WaitOne(); }
 ponger.Join();
 Console.WriteLine($"handoffs: {handoffs}");
+
+// The same handshake many times over: every Set wakes a waiter that is about to block or already blocked.
+int pings = 0, pongs = 0;
+var ping = new AutoResetEvent(false);
+var pong = new AutoResetEvent(false);
+var echo = new Thread(() => { for (int i = 0; i < 2000; i++) { ping.WaitOne(); pings++; pong.Set(); } });
+echo.Start();
+for (int i = 0; i < 2000; i++) { ping.Set(); pong.WaitOne(); pongs++; }
+echo.Join();
+Console.WriteLine($"ping-pong: {pings} {pongs}");
 Console.WriteLine(Monitor.Wait(gate, 0) ? "?" : "no wait outside lock?");
 
 class BoundedQueue(int capacity)
