@@ -3,10 +3,10 @@
 // Ported to csharpc from dotnet/runtime (release/11.0), src/libraries/System.Security.Cryptography/src/
 // System/Security/Cryptography/X509Certificates/{X509Chain,X509ChainPolicy,X509ChainElement,X509ChainStatus}.cs and
 // OpenSslX509ChainProcessor.cs; see THIRD-PARTY-NOTICES.md.
-// X509Chain on Linux: OpenSSL builds and verifies the chain (X509_verify_cert with a verify callback that records every
+// X509Chain on Linux and Windows: OpenSSL builds and verifies the chain (X509_verify_cert with a verify callback that records every
 // error and carries on, as .NET's shim does), the errors map to X509ChainStatusFlags with OpenSSL's own message as the
 // status information ("self-signed certificate"). Trust is the system store (SSL_CERT_FILE / SSL_CERT_DIR as OpenSSL
-// reads them) or the CustomTrustStore; revocation checking and downloading missing issuers are not implemented, so a
+// reads them on Linux, the ROOT certificate stores of the current user and the machine on Windows) or the CustomTrustStore; revocation checking and downloading missing issuers are not implemented, so a
 // RevocationMode other than NoCheck is an explicit NotSupportedException (docs/adr/0022-tls.md).
 #nullable disable
 #if CSHARPC_OPENSSL
@@ -219,7 +219,7 @@ namespace CsharpcCoreLib
             }
         }
 
-        /// <summary>The status text: OpenSSL's, as .NET shows on Linux; on macOS the Security.framework messages for the common errors.</summary>
+        /// <summary>The status text: OpenSSL's, as .NET shows on Linux; on macOS the Security.framework and on Windows the CryptoAPI messages for the common errors.</summary>
         private static string Information(int error)
         {
 #if CSHARPC_TARGET_MACOS
@@ -227,6 +227,14 @@ namespace CsharpcCoreLib
             {
                 case 18: case 19: return "The certificate was not trusted."; // errSecNotTrusted
                 case 10: return "An expired certificate was detected."; // errSecCertificateExpired
+            }
+#endif
+#if CSHARPC_TARGET_WINDOWS
+            // .NET on Windows reports CryptoAPI's texts for the common errors.
+            switch (error)
+            {
+                case 18: case 19: return "A certificate chain processed, but terminated in a root certificate which is not trusted by the trust provider.";
+                case 10: return "A required certificate is not within its validity period when verifying against the current system clock or the timestamp in the signed file.";
             }
 #endif
             return Marshal.PtrToStringUTF8(Ossl.X509_verify_cert_error_string(error));

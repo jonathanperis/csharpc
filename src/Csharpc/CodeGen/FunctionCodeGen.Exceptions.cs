@@ -499,6 +499,42 @@ public sealed partial class FunctionCodeGen
         if (task is { } canceledTask) CallRuntime("csrt_exception_set_task", L.Void, [L.Ptr, L.Ptr], exception, canceledTask);
     }
 
+    /// <summary>
+    /// The overrides of Exception.GetObjectData in the program's source and in the libraries and program compiled from IL
+    /// (not the framework's), most derived class first.
+    /// </summary>
+    private List<IMethodSymbol> GetObjectDataOverrides()
+    {
+        var found = new List<IMethodSymbol>();
+        foreach (var symbol in _m.Compilation.GetSymbolsWithName(n => n == "GetObjectData", SymbolFilter.Member))
+            if (symbol is IMethodSymbol { IsOverride: true, IsStatic: false, Parameters.Length: 2, ContainingType.TypeKind: TypeKind.Class } method && OverridesExceptionMember(method)
+                && method.Locations.Any(l => l.IsInSource))
+                found.Add(method);
+        foreach (var assembly in _m.Il.Assemblies)
+            if (!assembly.IsCoreLib && !assembly.IsFramework) CollectOverrides(assembly.Symbol.GlobalNamespace, found);
+        static int Depth(IMethodSymbol m) { var d = 0; for (var t = m.ContainingType.BaseType; t is not null; t = t.BaseType) d++; return d; }
+        return [.. found.OrderByDescending(Depth)];
+
+        static void CollectOverrides(INamespaceOrTypeSymbol container, List<IMethodSymbol> found)
+        {
+            foreach (var member in container.GetMembers())
+            {
+                if (member is INamespaceOrTypeSymbol inner) CollectOverrides(inner, found);
+                if (member is INamedTypeSymbol { TypeKind: TypeKind.Class } type)
+                    foreach (var method in type.GetMembers("GetObjectData").OfType<IMethodSymbol>())
+                        if (method is { IsOverride: true, IsStatic: false, Parameters.Length: 2 } && OverridesExceptionMember(method)) found.Add(method);
+            }
+        }
+    }
+
+    /// <summary>Is <paramref name="method"/> System.Exception's member or an override of it?</summary>
+    private static bool OverridesExceptionMember(IMethodSymbol method)
+    {
+        for (var m = method; m is not null; m = m.OverriddenMethod)
+            if (Mangler.MetadataName(m.ContainingType) == "System.Exception") return true;
+        return false;
+    }
+
     private bool TryEmitLibraryExceptionCall(IInvocationOperation inv, out LLVMValueRef result)
     {
         result = default;
@@ -508,6 +544,37 @@ public sealed partial class FunctionCodeGen
         {
             // `: base(message)` from a user exception class.
             EmitExceptionConstructor(target, EmitValue(inv.Instance!), inv.Arguments);
+            return true;
+        }
+        // Exception.GetObjectData(info, context): corelib/ExceptionData.cs. `base.GetObjectData` is the base implementation. A call
+        // through the exception's type must find the override of a user exception, but library exceptions' method tables have no
+        // slot for it: the overrides in the program's source and in its IL assemblies are tested for in turn (most derived
+        // first) before the base implementation.
+        if (!target.IsStatic && target.Name == "GetObjectData" && target.Parameters.Length == 2 && OverridesExceptionMember(target))
+        {
+            var self = EmitValue(inv.Instance!);
+            NullCheck(self);
+            var info = EmitValue(inv.Arguments[0].Value);
+            var context = EmitValue(inv.Arguments[1].Value);
+            if (inv.Instance?.Syntax is Microsoft.CodeAnalysis.CSharp.Syntax.BaseExpressionSyntax)
+            {
+                CallCoreLib("ExceptionData", "GetObjectData", self, info);
+                return true;
+            }
+            var done = NewBlock("objectdata.done");
+            foreach (var candidate in GetObjectDataOverrides())
+            {
+                var hit = NewBlock("objectdata.hit");
+                var next = NewBlock("objectdata.next");
+                _b.CondBr(_b.ICmp(LLVMIntPredicate.NE, IsInst(self, candidate.ContainingType, inv), LlvmContext.Null(L.Ptr)), hit, next);
+                _b.PositionAtEnd(hit);
+                DirectCall(candidate, [self, info, context]);
+                _b.Br(done);
+                _b.PositionAtEnd(next);
+            }
+            CallCoreLib("ExceptionData", "GetObjectDataBase", self, info);
+            _b.Br(done);
+            _b.PositionAtEnd(done);
             return true;
         }
         if (!target.IsStatic && (target.IsVirtual || target.IsOverride) && target.Parameters.IsEmpty && target.Name == "ToString")

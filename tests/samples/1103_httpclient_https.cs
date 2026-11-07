@@ -141,7 +141,8 @@ using (var client = new HttpClient(handler))
     Console.WriteLine($"POST: {(int)post.StatusCode} {await post.Content.ReadAsStringAsync()} method={post.Headers.GetValues("X-Method").First()} version={post.Version}");
     Console.WriteLine("big: " + (await client.GetStringAsync(baseUrl + "/big")).Length);
     Console.WriteLine("callback: calls=" + callbackCalls + " " + callbackFacts);
-    Console.WriteLine($"connections: accepted={accepted} handshakes={handshakes} requests={requests}");
+    // (how many server handshakes completed when a client rejects the certificate depends on the TLS stack, so only the connections and requests are printed)
+    Console.WriteLine($"connections: accepted={accepted} requests={requests}");
 }
 
 // 2. accept anything
