@@ -6,17 +6,82 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
+using System.Runtime.Serialization;
 
 namespace CsharpcCoreLib
 {
     internal static class ExceptionData
     {
         private static readonly ConditionalWeakTable<Exception, ListDictionaryInternal> s_data = new();
+        private static readonly ConditionalWeakTable<Exception, StringBox> s_helpLink = new(), s_source = new();
+
+        private sealed class StringBox { public string Value; }
+
+        public static string GetHelpLink(Exception exception) => s_helpLink.TryGetValue(exception, out StringBox box) ? box.Value : null;
+        public static void SetHelpLink(Exception exception, string value) => s_helpLink.GetOrCreateValue(exception).Value = value;
+
+        /// <summary>
+        /// Exception.Source: what was set, else null for an exception that was never thrown. .NET names the assembly of the method
+        /// that threw an exception otherwise; csharpc doesn't know it yet, so that asks for an explicit error.
+        /// </summary>
+        public static string GetSource(Exception exception)
+        {
+            if (s_source.TryGetValue(exception, out StringBox box)) return box.Value;
+            if (exception.StackTrace == null) return null;
+            throw new NotSupportedException("Exception.Source of an exception that was thrown is not supported by csharpc yet (it names the assembly of the throwing method).");
+        }
+
+        public static void SetSource(Exception exception, string value) => s_source.GetOrCreateValue(exception).Value = value;
 
         public static IDictionary Get(Exception exception)
         {
             ArgumentNullException.ThrowIfNull(exception);
             return s_data.GetValue(exception, static _ => new ListDictionaryInternal());
+        }
+
+        // The library exceptions whose GetObjectData adds nothing to Exception's.
+        private static readonly HashSet<string> s_plainLibraryExceptions = new()
+        {
+            "System.Exception", "System.SystemException", "System.ApplicationException", "System.InvalidOperationException",
+            "System.NotSupportedException", "System.NotImplementedException", "System.FormatException",
+        };
+
+        /// <summary>A call of GetObjectData through the exception's type that no override of the program took: the base implementation.</summary>
+        public static void GetObjectDataBase(Exception exception, SerializationInfo info) => GetObjectData(exception, info);
+
+        /// <summary>
+        /// Exception.GetObjectData: the entries .NET's base implementation writes. Exceptions whose library ancestor overrides it
+        /// with entries of its own (ArgumentException's ParamName, the file exceptions' FileName...) are an explicit error, not a
+        /// shorter list.
+        /// </summary>
+        public static void GetObjectData(Exception exception, SerializationInfo info)
+        {
+            ArgumentNullException.ThrowIfNull(info);
+            bool known = false;
+            for (Type t = exception.GetType(); t != null; t = t.BaseType)
+            {
+                if (s_plainLibraryExceptions.Contains(t.FullName ?? "")) { known = true; break; }
+                if (t.FullName != null && t.FullName.StartsWith("System.", StringComparison.Ordinal))
+                    throw new NotSupportedException($"Exception.GetObjectData of '{t.FullName}' is not supported by csharpc yet (the entries of its own GetObjectData).");
+            }
+            if (!known) throw new NotSupportedException("Exception.GetObjectData of this exception is not supported by csharpc yet.");
+            string message = exception.Message;
+            // No message given to Exception or a user exception: .NET stores null, and Message answers this text (the library
+            // exceptions put their own default text in the field).
+            if (message == $"Exception of type '{exception.GetType()}' was thrown.") message = null;
+            s_data.TryGetValue(exception, out ListDictionaryInternal data);
+            info.AddValue("ClassName", exception.GetType().ToString(), typeof(string));
+            info.AddValue("Message", message, typeof(string));
+            info.AddValue("Data", data, typeof(IDictionary));
+            info.AddValue("InnerException", exception.InnerException, typeof(Exception));
+            info.AddValue("HelpURL", GetHelpLink(exception), typeof(string));
+            info.AddValue("StackTraceString", exception.StackTrace, typeof(string));
+            info.AddValue("RemoteStackTraceString", null, typeof(string));
+            info.AddValue("RemoteStackIndex", 0, typeof(int));
+            info.AddValue("ExceptionMethod", null, typeof(string));
+            info.AddValue("HResult", exception.HResult);
+            info.AddValue("Source", GetSource(exception), typeof(string));
+            info.AddValue("WatsonBuckets", null, typeof(byte[]));
         }
     }
 

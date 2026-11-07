@@ -1,0 +1,65 @@
+llo w
+0
+0
+world
+ArgumentOutOfRangeException: startIndex ('8') must be less than or equal to '6'. (Parameter 'startIndex')
+Actual value was 8.
+ArgumentOutOfRangeException: startIndex ('4294967295') must be less than or equal to '11'. (Parameter 'startIndex')
+Actual value was 4294967295.
+ArgumentOutOfRangeException: startIndex ('12') must be less than or equal to '11'. (Parameter 'startIndex')
+Actual value was 12.
+ArgumentOutOfRangeException: length ('-1') must be a non-negative value. (Parameter 'length')
+Actual value was -1.
+NullReferenceException: Object reference not set to an instance of an object.
+3
+2
+0
+-Infinity
+NaN
+NaN
+NaN
+NaN
+NaN
+0
+NaN
+-0
+Infinity
+0.5
+6.907755278982137
+a+b%26c%3Dd%2F%C3%A9%3F%7E-_.!*%27()
+%E6%97%A5%E6%9C%AC%E8%AA%9E+%F0%9F%98%80
+lone+%EF%BF%BD+surrogate
+0
+<null>
+True
+True
+False
+True
+True
+10.1.2.3
+InterNetwork
+50462986
+2001:db8::1%3
+3
+::
+SocketException: The requested property is not supported for the 'InterNetworkV6' AddressFamily.
+ArgumentException: An invalid IP address was specified. (Parameter 'address')
+ArgumentException: An invalid IP address was specified. (Parameter 'address')
+ArgumentOutOfRangeException: scopeid ('18446744073709551615') must be less than or equal to '4294967295'. (Parameter 'scopeid')
+Actual value was 18446744073709551615.
+ArgumentOutOfRangeException: scopeid ('4294967296') must be less than or equal to '4294967295'. (Parameter 'scopeid')
+Actual value was 4294967296.
+127.0.0.1
+16777343
+170141183460469231731687303715884105727
+-1
+~170141183460469231731687303715884105728
+~12345
+0
+340282366920938463463374607431768211455
+0
+ArgumentOutOfRangeException: The value needs to translate in milliseconds to -1 (signifying an infinite timeout), 0, or a positive integer less than or equal to the maximum allowed timer duration. (Parameter 'delay')
+ArgumentOutOfRangeException: The value needs to translate in milliseconds to -1 (signifying an infinite timeout), 0, or a positive integer less than or equal to the maximum allowed timer duration. (Parameter 'delay')
+canceled
+False
+done

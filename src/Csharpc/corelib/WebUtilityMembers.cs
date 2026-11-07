@@ -10,6 +10,29 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Net.WebUtility")]
     internal static class WebUtilityMembers
     {
+        /// <summary>Letters, digits and -_.!*() stay; a space is '+'; every other byte of the UTF-8 form becomes %XX (upper-case hex).</summary>
+        public static string UrlEncode(string value)
+        {
+            if (value == null) return null;
+            if (value.Length == 0) return string.Empty;
+            byte[] bytes = Encoding.UTF8.GetBytes(value);
+            var result = new StringBuilder(bytes.Length + 8);
+            foreach (byte b in bytes)
+            {
+                char ch = (char)b;
+                if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') || ch == '-' || ch == '_' || ch == '.' || ch == '!' || ch == '*' || ch == '(' || ch == ')')
+                    result.Append(ch);
+                else if (ch == ' ') result.Append('+');
+                else
+                {
+                    result.Append('%');
+                    result.Append("0123456789ABCDEF"[b >> 4]);
+                    result.Append("0123456789ABCDEF"[b & 15]);
+                }
+            }
+            return result.ToString();
+        }
+
         public static string UrlDecode(string encodedValue)
         {
             if (encodedValue == null) return null;

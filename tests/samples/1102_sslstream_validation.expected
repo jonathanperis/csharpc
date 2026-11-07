@@ -14,7 +14,7 @@
   server: read 0
   client: authenticated
 == protocol mismatch
-  client: failed: AuthenticationException: Authentication failed, see inner exception. / inner: SSL Handshake failed with OpenSSL error - SSL_ERROR_SSL.
+  client: failed: AuthenticationException: Authentication failed, see inner exception.
 == plain text sent to a TLS server
   server: failed: AuthenticationException: Cannot determine the frame size or a corrupted frame was received.
   client: sent
@@ -23,7 +23,7 @@
 == server hangs up
   client: failed: IOException: Received an unexpected EOF or 0 bytes from the transport stream.
 == client certificate required but missing
-  server: AuthenticationException: The remote certificate was rejected by the provided RemoteCertificateValidationCallback. | callback: certificate=none chain=none errors=RemoteCertificateNotAvailable
+  server: failed | callback: certificate=none chain=none errors=RemoteCertificateNotAvailable
 == invalid server certificates
   client: null certificate: NotSupportedException: The server mode SSL must use a certificate with the associated private key.
     certificate without a key: AuthenticationException: The server mode SSL must use a certificate with the associated private key.

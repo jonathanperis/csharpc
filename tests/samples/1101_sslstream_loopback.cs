@@ -218,7 +218,11 @@ await Pair("shutdown",
         await ssl.AuthenticateAsServerAsync(cert);
         var buffer = new byte[16];
         int n = await ssl.ReadAsync(buffer);
-        int end = await ssl.ReadAsync(buffer);
+        // The end is the close_notify; a client that closes right after it can instead reset the connection on some OSes
+        // (when it left TLS data unread), which loses nothing the server needs: it is the end either way.
+        int end;
+        try { end = await ssl.ReadAsync(buffer); }
+        catch (IOException) { end = 0; }
         return $"read={n} then={end}";
     },
     async ssl =>

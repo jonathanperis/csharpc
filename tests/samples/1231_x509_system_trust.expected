@@ -1,0 +1,4 @@
+DigiCert Global Root G2: subject ok=True build=True elements=1 status=0
+  in 2000: build=False NotTimeValid
+ISRG Root X1: subject ok=True build=True elements=1 status=0
+  in 2000: build=False NotTimeValid

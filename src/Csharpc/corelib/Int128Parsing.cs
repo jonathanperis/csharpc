@@ -85,6 +85,13 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Int128")]
     internal static class Int128Members
     {
+        /// <summary>ToString(IFormatProvider): the digits, with the provider's negative sign.</summary>
+        public static string FormatWith(Int128 value, IFormatProvider provider)
+        {
+            string text = value.ToString();
+            return value < 0 ? NumberFormatInfo.GetInstance(provider).NegativeSign + text.Substring(1) : text;
+        }
+
         public static Int128 Parse(string s) => Parse(s, NumberStyles.Integer, null);
         public static Int128 Parse(string s, IFormatProvider provider) => Parse(s, NumberStyles.Integer, provider);
         public static Int128 Parse(string s, NumberStyles style) => Parse(s, style, null);
@@ -124,6 +131,8 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.UInt128")]
     internal static class UInt128Members
     {
+        public static string FormatWith(UInt128 value, IFormatProvider provider) => value.ToString();
+
         public static UInt128 Parse(string s) => Parse(s, NumberStyles.Integer, null);
         public static UInt128 Parse(string s, IFormatProvider provider) => Parse(s, NumberStyles.Integer, provider);
         public static UInt128 Parse(string s, NumberStyles style) => Parse(s, style, null);

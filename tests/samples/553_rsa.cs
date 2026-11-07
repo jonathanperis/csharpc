@@ -22,8 +22,8 @@ byte[] data = Encoding.UTF8.GetBytes("Hello, from csharpc!");
 using (RSA rsa = RSA.Create())
 {
     Console.WriteLine($"default key {rsa.KeySize} bits, max output {rsa.GetMaxOutputSize()}, {rsa.SignatureAlgorithm}/{rsa.KeyExchangeAlgorithm}");
-    // macOS: .NET's SecKey-based RSA has its own legal sizes, minimum key size and disposal behaviour, not compared here.
-    if (!OperatingSystem.IsMacOS()) Console.WriteLine($"legal sizes: {string.Join(", ", Array.ConvertAll(rsa.LegalKeySizes, k => $"{k.MinSize}-{k.MaxSize} step {k.SkipSize}"))}");
+    // macOS and Windows: .NET's SecKey / CNG based RSA has its own legal sizes, minimum key size, disposal behaviour and (Windows) parameter-error texts, not compared here.
+    if (!(OperatingSystem.IsMacOS() || OperatingSystem.IsWindows())) Console.WriteLine($"legal sizes: {string.Join(", ", Array.ConvertAll(rsa.LegalKeySizes, k => $"{k.MinSize}-{k.MaxSize} step {k.SkipSize}"))}");
     RSAParameters pub = rsa.ExportParameters(false), priv = rsa.ExportParameters(true);
     Console.WriteLine($"public: modulus {pub.Modulus!.Length}, exponent {Convert.ToHexString(pub.Exponent!)}, private parts {pub.D is null && pub.P is null}");
     Console.WriteLine($"private: D {priv.D!.Length}, P {priv.P!.Length}, Q {priv.Q!.Length}, DP {priv.DP!.Length}, DQ {priv.DQ!.Length}, InverseQ {priv.InverseQ!.Length}");
@@ -82,12 +82,12 @@ using (RSA rsa = RSA.Create(fixedKey))
 // Paddings, invalid parameters, key sizes and disposal.
 Console.WriteLine($"paddings: {RSASignaturePadding.Pkcs1} {RSASignaturePadding.Pss} {RSAEncryptionPadding.OaepSHA512} {RSAEncryptionPadding.CreateOaep(HashAlgorithmName.SHA256) == RSAEncryptionPadding.OaepSHA256} {RSASignaturePadding.Pss.Equals(RSASignaturePadding.Pkcs1)}");
 try { RSA.Create(new RSAParameters { Modulus = fixedKey.Modulus }); }
-catch (CryptographicException e) { Console.WriteLine($"no exponent: {e.Message}"); }
+catch (CryptographicException e) { Console.WriteLine($"no exponent: {(OperatingSystem.IsWindows() ? e.GetType().Name : e.Message)}"); }
 try { RSA.Create(new RSAParameters { Modulus = fixedKey.Modulus, Exponent = fixedKey.Exponent, P = fixedKey.P }); }
-catch (CryptographicException e) { Console.WriteLine($"inconsistent: {e.Message}"); }
-try { if (!OperatingSystem.IsMacOS()) { RSA.Create(1000).Dispose(); Console.WriteLine("1000 bits accepted"); } RSA.Create(513); }
+catch (CryptographicException e) { Console.WriteLine($"inconsistent: {(OperatingSystem.IsWindows() ? e.GetType().Name : e.Message)}"); }
+try { if (!(OperatingSystem.IsMacOS() || OperatingSystem.IsWindows())) { RSA.Create(1000).Dispose(); Console.WriteLine("1000 bits accepted"); } RSA.Create(513); }
 catch (CryptographicException e) { Console.WriteLine($"513 bits: {e.Message}"); }
-if (!OperatingSystem.IsMacOS())
+if (!(OperatingSystem.IsMacOS() || OperatingSystem.IsWindows()))
 {
     var disposed = RSA.Create();
     disposed.Dispose();
