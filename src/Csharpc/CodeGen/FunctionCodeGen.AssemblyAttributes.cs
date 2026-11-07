@@ -23,23 +23,10 @@ public sealed partial class FunctionCodeGen
         var result = NewTemp(L.Ptr, "attribute");
         _b.Store(LlvmContext.Null(L.Ptr), result);
         var done = NewBlock("attribute.done");
-        // The program's own (root) assembly: its [assembly: ...] attributes, the SDK-generated AssemblyInfo
-        // included (FrontendSettings.AssemblyInfo). Attributes of other projects folded into the compilation
-        // belong to their own assemblies, which stay unknown.
-        List<(string Identity, IEnumerable<AttributeData> Attributes)> assemblies = [];
-        if (_m.MainIl is null && _m.ProgramAssemblyName(null) is { } programName)
+        // KnownAssemblyAttributes: the program's own assembly, the IL ones and System.Private.CoreLib.
+        foreach (var (identity, attributes) in KnownAssemblyAttributes())
         {
-            var root = _m.ProgramAssemblies.FirstOrDefault(a => a.IsRoot);
-            bool OfRoot(AttributeData a) => _m.ProgramAssemblies.Count <= 1
-                || a.ApplicationSyntaxReference?.SyntaxTree.FilePath is not { } path
-                || path == Frontend.RoslynFrontend.AssemblyInfoTreePath
-                || root?.Files.Contains(Path.GetFullPath(path)) == true;
-            assemblies.Add((programName, _m.Compilation.Assembly.GetAttributes().Where(OfRoot)));
-        }
-        foreach (var il in _m.Il.Assemblies) assemblies.Add((il.Symbol.Identity.GetDisplayName(), il.Symbol.GetAttributes()));
-        foreach (var (identity, attributes) in assemblies)
-        {
-            var matches = attributes.Where(a => a.AttributeClass is { } c && DerivesFromOrEquals(c, attributeType)).ToList();
+            var matches = attributes.Where(a => DerivesFromOrEquals(a.Class, attributeType)).ToList();
             var hit = NewBlock("attribute.assembly");
             var next = NewBlock("attribute.next");
             var same = CallRuntime("csrt_string_equals", L.I1, [L.Ptr, L.Ptr], name, _m.StringLiteral(identity));
@@ -47,12 +34,15 @@ public sealed partial class FunctionCodeGen
             _b.PositionAtEnd(hit);
             if (SynthesizedForProgram(identity, attributeType))
                 ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.NotSupportedException")!, ProgramAttributesMessage);
+            else if (matches.Any(m => m.Construct is null))
+                ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.NotSupportedException")!,
+                    $"The assembly attribute '{attributeType.ToDisplayString()}' of {identity.Split(',')[0]} is not available to csharpc yet (csharpc has no class for it).");
             else if (matches.Count > 1)
                 ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.Reflection.AmbiguousMatchException")!,
                     $"Multiple custom attributes of the same type '{attributeType.ToDisplayString()}' found.");
             else
             {
-                if (matches.Count == 1) _b.Store(ConstructAttribute(matches[0], at), result);
+                if (matches.Count == 1) _b.Store(matches[0].Construct!(at), result);
                 _b.Br(done);
             }
             _b.PositionAtEnd(next);
@@ -91,18 +81,21 @@ public sealed partial class FunctionCodeGen
         var done = NewBlock("attributes.done");
         foreach (var (identity, attributes) in KnownAssemblyAttributes())
         {
-            var matches = attributes.Where(a => a.AttributeClass is { } c && DerivesFromOrEquals(c, attributeType)).ToList();
+            var matches = attributes.Where(a => DerivesFromOrEquals(a.Class, attributeType)).ToList();
             var hit = NewBlock("attributes.assembly");
             var next = NewBlock("attributes.next");
             _b.CondBr(CallRuntime("csrt_string_equals", L.I1, [L.Ptr, L.Ptr], name, _m.StringLiteral(identity)), hit, next);
             _b.PositionAtEnd(hit);
             if (SynthesizedForProgram(identity, attributeType))
                 ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.NotSupportedException")!, ProgramAttributesMessage);
+            else if (matches.Any(m => m.Construct is null))
+                ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.NotSupportedException")!,
+                    $"The assembly attribute '{attributeType.ToDisplayString()}' of {identity.Split(',')[0]} is not available to csharpc yet (csharpc has no class for it).");
             else
             {
                 var array = NewArray(attributeType, L.ConstInt(L.I64, matches.Count));
                 for (var i = 0; i < matches.Count; i++)
-                    StoreValue(ConstructAttribute(matches[i], at), ArrayElementAddress(array, attributeType, L.ConstInt(L.I64, i)));
+                    StoreValue(matches[i].Construct!(at), ArrayElementAddress(array, attributeType, L.ConstInt(L.I64, i)));
                 _b.Store(array, result);
                 _b.Br(done);
             }
@@ -142,9 +135,9 @@ public sealed partial class FunctionCodeGen
     }
 
     /// <summary>(identity, attributes) of the assemblies whose attributes csharpc knows: the program's own and the IL ones.</summary>
-    private List<(string Identity, IEnumerable<AttributeData> Attributes)> KnownAssemblyAttributes()
+    private List<(string Identity, IEnumerable<KnownAttribute> Attributes)> KnownAssemblyAttributes()
     {
-        List<(string Identity, IEnumerable<AttributeData> Attributes)> assemblies = [];
+        List<(string Identity, IEnumerable<KnownAttribute> Attributes)> assemblies = [];
         if (_m.MainIl is null && _m.ProgramAssemblyName(null) is { } programName)
         {
             var root = _m.ProgramAssemblies.FirstOrDefault(a => a.IsRoot);
@@ -152,9 +145,16 @@ public sealed partial class FunctionCodeGen
                 || a.ApplicationSyntaxReference?.SyntaxTree.FilePath is not { } path
                 || path == Frontend.RoslynFrontend.AssemblyInfoTreePath
                 || root?.Files.Contains(Path.GetFullPath(path)) == true;
-            assemblies.Add((programName, _m.Compilation.Assembly.GetAttributes().Where(OfRoot)));
+            // The program's own (root) assembly: its [assembly: ...] attributes, the SDK-generated AssemblyInfo
+            // included (FrontendSettings.AssemblyInfo). Attributes of other projects folded into the compilation
+            // belong to their own assemblies, which stay unknown.
+            assemblies.Add((programName, _m.Compilation.Assembly.GetAttributes().Where(OfRoot).Select(Known)));
         }
-        foreach (var il in _m.Il.Assemblies) assemblies.Add((il.Symbol.Identity.GetDisplayName(), il.Symbol.GetAttributes()));
+        foreach (var il in _m.Il.Assemblies) assemblies.Add((il.Symbol.Identity.GetDisplayName(), il.Symbol.GetAttributes().Select(Known)));
+        // System.Private.CoreLib: what typeof(object).Assembly says. The implementation assembly's own attributes, read at
+        // compile time; those whose type the reference assemblies don't declare, or whose arguments are not plain values, are left out.
+        if (Frontend.FrameworkAttributes.CoreLib is var (coreLibIdentity, coreLibAttributes))
+            assemblies.Add((coreLibIdentity, coreLibAttributes.Select(FrameworkAttribute).OfType<KnownAttribute>().ToList()));
         return assemblies;
     }
 
@@ -165,33 +165,87 @@ public sealed partial class FunctionCodeGen
         return false;
     }
 
+    /// <summary>An assembly attribute csharpc can construct: its class and how to build it (from Roslyn's AttributeData, or decoded from an assembly's metadata).</summary>
+    private sealed record KnownAttribute(INamedTypeSymbol Class, Func<IOperation, LLVMValueRef>? Construct);
+
+    private KnownAttribute Known(AttributeData data) =>
+        new(data.AttributeClass!, at => ConstructAttribute(data, at));
+
+    /// <summary>The System.Private.CoreLib attribute classes the corelib has (Reflection/AssemblyAttributes.cs): the others can't be instantiated by csharpc.</summary>
+    private static readonly HashSet<string> s_constructibleFrameworkAttributes =
+    [
+        "System.Reflection.AssemblyInformationalVersionAttribute", "System.Reflection.AssemblyFileVersionAttribute", "System.Reflection.AssemblyVersionAttribute",
+        "System.Reflection.AssemblyProductAttribute", "System.Reflection.AssemblyCompanyAttribute", "System.Reflection.AssemblyTitleAttribute",
+        "System.Reflection.AssemblyConfigurationAttribute", "System.Reflection.AssemblyCopyrightAttribute", "System.Reflection.AssemblyDescriptionAttribute",
+        "System.Reflection.AssemblyMetadataAttribute", "System.Runtime.Versioning.TargetFrameworkAttribute",
+        "System.Runtime.CompilerServices.CompilationRelaxationsAttribute", "System.Runtime.CompilerServices.RuntimeCompatibilityAttribute",
+        "System.Resources.NeutralResourcesLanguageAttribute",
+    ];
+
+    /// <summary>
+    /// A System.Private.CoreLib attribute as a KnownAttribute: null when the reference assemblies don't declare its type
+    /// (internal to the corelib). One csharpc can't build (no class for it in the corelib, no constructor for its argument
+    /// types, a Type or array argument) is known without a Construct: asking for it is a NotSupportedException, not null.
+    /// </summary>
+    private KnownAttribute? FrameworkAttribute(Frontend.FrameworkAttribute attribute)
+    {
+        if (_m.Compilation.GetTypeByMetadataName(attribute.TypeName) is not { } type) return null;
+        var constructor = type.InstanceConstructors.FirstOrDefault(c => c.DeclaredAccessibility == Accessibility.Public
+            && c.Parameters.Length == attribute.Arguments.Count
+            && c.Parameters.Select((p, i) => MetadataFullName(p.Type) == attribute.Arguments[i].Type).All(same => same));
+        if (constructor is null || !s_constructibleFrameworkAttributes.Contains(attribute.TypeName)
+            || attribute.Arguments.Any(a => a.Type == "System.Type" || a.Type.EndsWith("[]", StringComparison.Ordinal))
+            || attribute.Named.Any(n => n.Type == "System.Type" || n.Type.EndsWith("[]", StringComparison.Ordinal))) return new KnownAttribute(type, null);
+        return new KnownAttribute(type, at => ConstructAttribute(type, constructor,
+            (i, t) => PlainValue(attribute.Arguments[i].Value, t, at),
+            attribute.Named.Select(n => (n.Name, (Func<ITypeSymbol, IOperation>)(t => PlainValue(n.Value, t, at)))), at));
+    }
+
+    /// <summary>"System.String", "System.Diagnostics.DebuggableAttribute+DebuggingModes": how FrameworkAttribute names types.</summary>
+    private static string MetadataFullName(ITypeSymbol type) => type is INamedTypeSymbol named
+        ? named.ContainingType is { } outer ? MetadataFullName(outer) + "+" + named.MetadataName
+            : (named.ContainingNamespace.IsGlobalNamespace ? "" : named.ContainingNamespace.ToDisplayString() + ".") + named.MetadataName
+        : type.ToDisplayString();
+
     /// <summary>`new A(args) { Named = value }` from an attribute's metadata.</summary>
     private LLVMValueRef ConstructAttribute(AttributeData data, IOperation at)
     {
-        var syntax = at.Syntax;
         var constructor = data.AttributeConstructor ?? throw CompileError.Unsupported($"attribute '{data.AttributeClass}' without a resolvable constructor", at);
-        var arguments = constructor.Parameters.Select((p, i) => (IArgumentOperation)new IlArgumentOperation(syntax, p,
-            AttributeValue(data.ConstructorArguments[i], p.Type, at))).ToImmutableArray();
+        return ConstructAttribute(data.AttributeClass!, constructor, (i, t) => AttributeValue(data.ConstructorArguments[i], t, at),
+            data.NamedArguments.Select(n => (n.Key, (Func<ITypeSymbol, IOperation>)(t => AttributeValue(n.Value, t, at)))), at);
+    }
+
+    private LLVMValueRef ConstructAttribute(INamedTypeSymbol attributeClass, IMethodSymbol constructor, Func<int, ITypeSymbol, IOperation> argument,
+        IEnumerable<(string Name, Func<ITypeSymbol, IOperation> Value)> named, IOperation at)
+    {
+        var syntax = at.Syntax;
+        var arguments = constructor.Parameters.Select((p, i) => (IArgumentOperation)new IlArgumentOperation(syntax, p, argument(i, p.Type))).ToImmutableArray();
         var instance = EmitValue(new IlObjectCreationOperation(syntax, constructor, arguments));
-        foreach (var (memberName, value) in data.NamedArguments)
+        foreach (var (memberName, value) in named)
         {
-            var self = new IlValueOperation(syntax, data.AttributeClass!, () => instance, nonNull: true);
-            var member = data.AttributeClass!.GetMembers(memberName).FirstOrDefault();
+            var self = new IlValueOperation(syntax, attributeClass, () => instance, nonNull: true);
+            var member = attributeClass.GetMembers(memberName).FirstOrDefault();
             switch (member)
             {
                 case IPropertySymbol property:
                     EmitPropertySet(new IlPropertyReferenceOperation(syntax, property, self, [], null),
-                        () => EmitValue(AttributeValue(value, property.Type, at)), property.Type);
+                        () => EmitValue(value(property.Type)), property.Type);
                     break;
                 case IFieldSymbol field:
-                    StoreValue(ToStorage(EmitValue(AttributeValue(value, field.Type, at)), S(field.Type)), FieldAddressOn(instance, S(field)));
+                    StoreValue(ToStorage(EmitValue(value(field.Type)), S(field.Type)), FieldAddressOn(instance, S(field)));
                     break;
                 default:
-                    throw CompileError.Unsupported($"named attribute argument '{memberName}' of '{data.AttributeClass}'", at);
+                    throw CompileError.Unsupported($"named attribute argument '{memberName}' of '{attributeClass}'", at);
             }
         }
         return instance;
     }
+
+    /// <summary>A constant read from an assembly's metadata (a string, a number, a bool, an enum's underlying value) as an operation of <paramref name="type"/>.</summary>
+    private IOperation PlainValue(object? value, ITypeSymbol type, IOperation at) =>
+        value is null
+            ? new IlValueOperation(at.Syntax, type, () => LlvmContext.Null(T.Value(S(type))))
+            : new IlValueOperation(at.Syntax, type, () => Coerce(Constant(value, type, at), type, S(type)));
 
     private IOperation AttributeValue(TypedConstant constant, ITypeSymbol type, IOperation at)
     {
