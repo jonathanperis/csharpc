@@ -31,6 +31,11 @@ public sealed partial class ModuleCodeGen
         public int Rounds { get; set; }
         public bool Closed { get; set; }
         public HashSet<INamedTypeSymbol> Covered { get; } = new(SymbolEqualityComparer.Default);
+        // Where the next round continues in the candidate lists (ModuleCodeGen.NextCases), and the candidates passed over
+        // because their method table was not constructed yet.
+        public int ClassCursor, StructCursor;
+        public List<int> ClassPending { get; } = [];
+        public List<int> StructPending { get; } = [];
     }
 
     private readonly Dictionary<IMethodSymbol, GenericInterfaceDispatcher> _genericInterfaceDispatchers = new(SymbolEqualityComparer.Default);
@@ -64,13 +69,13 @@ public sealed partial class ModuleCodeGen
     private bool EmitGenericInterfaceDispatchers(bool final)
     {
         var changed = false;
-        using var _ = Stats.Time("generic interface dispatchers/rounds");
+        using var rounds = Stats.Time("generic interface dispatchers/rounds");
         foreach (var d in _genericInterfaceDispatchers.Values.ToList())
             Guard(d.Target, () =>
             {
                 if (d.Closed) return;
                 List<(INamedTypeSymbol Type, LLVMValueRef MethodTable, IMethodSymbol Callee)> cases;
-                using (Stats.Time("generic interface dispatchers/implementing types")) cases = ImplementingTypes(d.Target, d.Covered).ToList();
+                using (Stats.Time("generic interface dispatchers/implementing types")) cases = NextCases(d);
                 if (cases.Count == 0 && !final) return;
                 changed |= cases.Count > 0;
                 using var b = new IrBuilder(Llvm);
@@ -121,114 +126,134 @@ public sealed partial class ModuleCodeGen
     /// Types that only appeared while lowering the closed dispatchers' last cases would be missing from the
     /// switch: report them instead of dispatching wrongly.
     /// </summary>
-    /// <summary>Classes (instantiations included) deriving from a generic virtual method's class, with the override each runs.</summary>
-    private IEnumerable<(INamedTypeSymbol Type, LLVMValueRef MethodTable, IMethodSymbol Callee)> OverridingClasses(IMethodSymbol target)
+    /// <summary>
+    /// The implementation a generic virtual method (or generic interface method) <paramref name="target"/> runs for
+    /// <paramref name="type"/>, or null when the type has none or is not one the dispatcher handles. A fact of the symbols
+    /// alone: it never changes once the type exists.
+    /// </summary>
+    private IMethodSymbol? DispatchCallee(IMethodSymbol target, INamedTypeSymbol type)
     {
-        var owner = target.ContainingType;
-        var root = ClassLayout.RootOf(target.OriginalDefinition);
+        var itf = target.ContainingType;
         var typeArgs = target.TypeArguments.ToArray();
-        foreach (var (type, layout) in _layouts.ToList())
+        if (itf.TypeKind != TypeKind.Interface)
         {
-            if (type is not { TypeKind: TypeKind.Class, IsAbstract: false } || layout.MethodTable.IsNull || TypeSubstitution.IsOpen(type) || !IsConstructed(layout)) continue;
+            // A generic virtual method of a class overridden in generic classes: the classes deriving from the
+            // method's class, each calling its most-derived override.
+            if (TypeSubstitution.IsOpen(type)) return null;
             bool derives = false;
             for (INamedTypeSymbol? t = type; t is not null && !derives; t = t.BaseType)
-                derives = SymbolEqualityComparer.Default.Equals(t, owner);
-            if (!derives) continue;
+                derives = SymbolEqualityComparer.Default.Equals(t, itf);
+            if (!derives) return null;
+            var root = ClassLayout.RootOf(target.OriginalDefinition);
             IMethodSymbol? callee = null;
             for (INamedTypeSymbol? t = type; t is not null && callee is null; t = t.BaseType)
                 callee = t.GetMembers(target.Name).OfType<IMethodSymbol>().FirstOrDefault(m => m.IsGenericMethod && !m.IsAbstract
                     && m.TypeParameters.Length == typeArgs.Length && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m.OriginalDefinition), root));
-            if (callee is not null) yield return (type, layout.MethodTable, callee.Construct(typeArgs));
+            return callee?.Construct(typeArgs);
         }
+        var member = target.ConstructedFrom;
+        if (!type.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, itf))) return null;
+        var impl = type.FindImplementationForInterfaceMember(member) as IMethodSymbol;
+        if (impl is null) return member.IsAbstract ? null : target; // the interface's default body
+        if (impl.ContainingType.TypeKind == TypeKind.Interface) return impl.IsAbstract ? null : impl.Construct(typeArgs);
+        if (impl is { IsVirtual: true } or { IsOverride: true } or { IsAbstract: true })
+        {
+            // Implemented by a virtual method: the type's most-derived override runs.
+            var root = ClassLayout.RootOf(impl.OriginalDefinition);
+            impl = null;
+            for (INamedTypeSymbol? t = type; t is not null && impl is null; t = t.BaseType)
+                impl = t.GetMembers().OfType<IMethodSymbol>().FirstOrDefault(m => m.IsGenericMethod && !m.IsAbstract
+                    && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m.OriginalDefinition), root));
+            if (impl is null) return null;
+        }
+        return impl.Construct(typeArgs);
+    }
+
+    /// <summary>The candidate classes and structs of a dispatcher, in layout order: the types implementing its interface, or every concrete class.</summary>
+    private (List<INamedTypeSymbol> Classes, List<INamedTypeSymbol> Structs) CandidatesOf(IMethodSymbol target)
+    {
+        IndexImplementers();
+        if (target.ContainingType.TypeKind != TypeKind.Interface) return (_classSequence, []);
+        return (_classesByInterface.GetValueOrDefault(target.ContainingType) ?? [], _structsByInterface.GetValueOrDefault(target.ContainingType) ?? []);
+    }
+
+    /// <summary>Is the method table of this candidate there to dispatch on (a class: and constructed)?</summary>
+    private bool IsDispatchable(INamedTypeSymbol type, bool isStruct, out LLVMValueRef methodTable)
+    {
+        methodTable = default;
+        if (isStruct) { if (!_structs.TryGetValue(type, out var sl) || sl.MethodTable.IsNull) return false; methodTable = sl.MethodTable; return true; }
+        if (!_layouts.TryGetValue(type, out var layout) || layout.MethodTable.IsNull || !IsConstructed(layout)) return false;
+        methodTable = layout.MethodTable;
+        return true;
+    }
+
+    /// <summary>
+    /// The cases a dispatcher does not have yet, in layout order (classes, then structs). A dispatcher continues where
+    /// its last round stopped: candidates seen before are not examined again, except the ones that had no constructed
+    /// method table then. (Every round used to resolve the implementation of every candidate of every dispatcher again.)
+    /// </summary>
+    private List<(INamedTypeSymbol Type, LLVMValueRef MethodTable, IMethodSymbol Callee)> NextCases(GenericInterfaceDispatcher d)
+    {
+        var (classes, structs) = CandidatesOf(d.Target);
+        List<(INamedTypeSymbol Type, LLVMValueRef MethodTable, IMethodSymbol Callee)> found = [];
+        void Scan(List<INamedTypeSymbol> list, ref int cursor, List<int> pending, bool isStruct)
+        {
+            var positions = pending.ToList();
+            pending.Clear();
+            for (; cursor < list.Count; cursor++) positions.Add(cursor);
+            foreach (var i in positions)
+            {
+                var type = list[i];
+                if (d.Covered.Contains(type)) continue;
+                if (!IsDispatchable(type, isStruct, out var methodTable)) pending.Add(i);
+                else if (DispatchCallee(d.Target, type) is { } callee) found.Add((type, methodTable, callee));
+            }
+        }
+        Scan(classes, ref d.ClassCursor, d.ClassPending, isStruct: false);
+        Scan(structs, ref d.StructCursor, d.StructPending, isStruct: true);
+        return found;
     }
 
     private void CheckGenericInterfaceDispatchers()
     {
         foreach (var d in _genericInterfaceDispatchers.Values)
-            if (ImplementingTypes(d.Target, d.Covered).FirstOrDefault() is { Type: { } missed })
+            if (UncoveredCase(d) is { Type: { } missed })
                 Errors.Add(CompileError.Unsupported($"generic interface method '{d.Target}' implemented by '{missed}', which appeared after its dispatcher was closed", d.Target));
         foreach (var t in _variantDelegateTests.Values)
             if (DelegatesConvertibleTo(t.Target).FirstOrDefault(d => !t.Covered.Contains(d)) is { } late)
                 Errors.Add(CompileError.Unsupported($"type test against '{t.Target}' with delegate type '{late}' created after the test was closed", t.Target));
     }
 
-    /// <summary>Instantiable types implementing the target's interface that the program has method tables for, with their implementation.</summary>
-    private IEnumerable<(INamedTypeSymbol Type, LLVMValueRef MethodTable, IMethodSymbol Callee)> ImplementingTypes(IMethodSymbol target, HashSet<INamedTypeSymbol> covered)
+    /// <summary>The first case a closed dispatcher lacks (a full pass over the candidates, once per dispatcher).</summary>
+    private (INamedTypeSymbol Type, LLVMValueRef MethodTable, IMethodSymbol Callee)? UncoveredCase(GenericInterfaceDispatcher d)
     {
-        if (target.ContainingType.TypeKind != TypeKind.Interface)
-        {
-            foreach (var entry in OverridingClasses(target)) if (!covered.Contains(entry.Type)) yield return entry;
-            yield break;
-        }
-        var itf = target.ContainingType;
-        var member = target.ConstructedFrom;
-        var typeArgs = target.TypeArguments.ToArray();
-        // A generic virtual method of a class (GenericVirtualCall, when generic classes override it): the
-        // derived types' most-derived override.
-        IMethodSymbol? MostDerived(INamedTypeSymbol type, IMethodSymbol root)
-        {
-            for (INamedTypeSymbol? t = type; t is not null; t = t.BaseType)
-                if (t.GetMembers(root.Name).OfType<IMethodSymbol>().FirstOrDefault(m => m.IsGenericMethod && !m.IsAbstract
-                        && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m.OriginalDefinition), root)) is { } found)
-                    return found;
-            return null;
-        }
-        IMethodSymbol? CalleeIn(INamedTypeSymbol type)
-        {
-            if (itf.TypeKind != TypeKind.Interface)
-            {
-                for (INamedTypeSymbol? b = type; b is not null; b = b.BaseType)
-                    if (SymbolEqualityComparer.Default.Equals(b, itf))
-                        return MostDerived(type, ClassLayout.RootOf(target.OriginalDefinition)) is { } classImpl ? classImpl.Construct(typeArgs) : null;
-                return null;
-            }
-            if (!type.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, itf))) return null;
-            var impl = type.FindImplementationForInterfaceMember(member) as IMethodSymbol;
-            if (impl is null) return member.IsAbstract ? null : target; // the interface's default body
-            if (impl.ContainingType.TypeKind == TypeKind.Interface) return impl.IsAbstract ? null : impl.Construct(typeArgs);
-            if (impl is { IsVirtual: true } or { IsOverride: true } or { IsAbstract: true })
-            {
-                // Implemented by a virtual method: the type's most-derived override runs.
-                var root = ClassLayout.RootOf(impl.OriginalDefinition);
-                impl = null;
-                for (INamedTypeSymbol? t = type; t is not null && impl is null; t = t.BaseType)
-                    impl = t.GetMembers().OfType<IMethodSymbol>().FirstOrDefault(m => m.IsGenericMethod && !m.IsAbstract
-                        && SymbolEqualityComparer.Default.Equals(ClassLayout.RootOf(m.OriginalDefinition), root));
-                if (impl is null) return null;
-            }
-            return impl.Construct(typeArgs);
-        }
-        // Only the types that implement the interface (indexed as layouts appear), in layout order;
-        // the ones the dispatcher covers already are not looked at again (every round used to resolve the
-        // implementation of every class of the program for every dispatcher).
-        IndexImplementers();
-        if (_classesByInterface.TryGetValue(itf, out var classes))
-            foreach (var type in classes.ToArray())
-                if (!covered.Contains(type) && _layouts.TryGetValue(type, out var layout) && !layout.MethodTable.IsNull && IsConstructed(layout) && CalleeIn(type) is { } callee)
-                    yield return (type, layout.MethodTable, callee);
-        if (_structsByInterface.TryGetValue(itf, out var structs))
-            foreach (var type in structs.ToArray())
-                if (!covered.Contains(type) && _structs.TryGetValue(type, out var layout) && !layout.MethodTable.IsNull && CalleeIn(type) is { } callee)
-                    yield return (type, layout.MethodTable, callee);
+        var (classes, structs) = CandidatesOf(d.Target);
+        foreach (var type in classes.ToArray())
+            if (!d.Covered.Contains(type) && IsDispatchable(type, false, out var methodTable) && DispatchCallee(d.Target, type) is { } callee) return (type, methodTable, callee);
+        foreach (var type in structs.ToArray())
+            if (!d.Covered.Contains(type) && IsDispatchable(type, true, out var methodTable) && DispatchCallee(d.Target, type) is { } callee) return (type, methodTable, callee);
+        return null;
     }
 
     private readonly Dictionary<INamedTypeSymbol, List<INamedTypeSymbol>> _classesByInterface = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<INamedTypeSymbol, List<INamedTypeSymbol>> _structsByInterface = new(SymbolEqualityComparer.Default);
+    private readonly List<INamedTypeSymbol> _classSequence = [];
     private readonly HashSet<INamedTypeSymbol> _indexedImplementers = new(SymbolEqualityComparer.Default);
 
     /// <summary>
-    /// Files the concrete classes and structs with a layout under each interface (instantiation) they implement, in the
-    /// order their layouts appeared: what a dispatcher for an interface method has to consider.
+    /// Files the concrete classes and structs with a layout, in the order their layouts appeared, in one list and under
+    /// each interface (instantiation) they implement: what a dispatcher has to consider.
     /// </summary>
     private void IndexImplementers()
     {
-        using var _ = Stats.Time("generic interface dispatchers/index");
-        foreach (var (type, layout) in _layouts)
+        using var timer = Stats.Time("generic interface dispatchers/index");
+        foreach (var (type, _) in _layouts)
         {
             if (type is not { TypeKind: TypeKind.Class, IsAbstract: false } || !_indexedImplementers.Add(type)) continue;
+            _classSequence.Add(type);
             foreach (var itf in type.AllInterfaces) AddImplementer(_classesByInterface, itf, type);
         }
-        foreach (var (type, layout) in _structs)
+        foreach (var (type, _) in _structs)
         {
             if (!_indexedImplementers.Add(type)) continue;
             foreach (var itf in type.AllInterfaces) AddImplementer(_structsByInterface, itf, type);
