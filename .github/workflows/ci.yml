@@ -3,16 +3,16 @@ name: CI
 # Merge bar: the five jobs named `test (<platform>)`. A full run shards the differential suite
 # and those jobs fail unless every shard passed and the shards cover every sample at -O0 and -O2
 # exactly once. A docs-only push reports the same five names as success without rerunning the
-# compiler, but only when an ancestor commit already has them green (tools/ci-plan.sh).
+# compiler, but only when an ancestor commit already has them green (tools/ci-plan.sh). So does a
+# push to main whose tree is the tree of a commit that already has them green (the merged PR's head).
 #
 # A targeted run (CI-Only trailer or ci/targets on a ci/** branch) is labeled `partial (...)` and
 # does not report `test (<platform>)` as success, so it cannot satisfy the merge bar or a release.
 # Manual targeted runs are the separate "CI (targeted)" workflow. Dispatching THIS workflow is a
 # full gate. `gh workflow run` is 403 from the agent checkout; push a ci/** branch instead.
 #
-# Shard counts (tools/ci-plan.sh) come from run 40310822368: x86-64 differential 38.5 min and
-# windows 49.1 min get 4 shards; arm64 (35.4), macOS (29.5) and wasm (21.5) get 2, because arm
-# and macOS runners queue and wasm shares ubuntu-24.04 with x86-64.
+# A shard compiles and runs several samples at once (CSHARPC_JOBS, tests/run.sh). Shard counts
+# (tools/ci-plan.sh, measured in docs/05-testing.md): x86-64 3, the other platforms 2.
 on:
   push:
     # ci/** is the long-lived namespace for measurement branches (docs/20-status.md).
@@ -74,7 +74,7 @@ jobs:
   diff:
     name: ${{ matrix.job_name }}
     needs: plan
-    if: needs.plan.result == 'success' && needs.plan.outputs.mode != 'docs'
+    if: needs.plan.result == 'success' && needs.plan.outputs.mode != 'docs' && needs.plan.outputs.mode != 'tree'
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 100
     strategy:
@@ -110,6 +110,7 @@ jobs:
           CI_OPT: ${{ matrix.opt }}
           CI_SHARD: ${{ matrix.shard }}
           CI_SHARDS: ${{ matrix.shards }}
+          CI_PLATFORM: ${{ matrix.platform }}
           CI_REPEAT: ${{ needs.plan.outputs.repeat }}
         run: bash tools/ci-plan.sh run-shard
 
@@ -177,7 +178,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  # These names are the merge bar. They run for a full gate and for a docs-only skip, and they are
+  # These names are the merge bar. They run for a full gate and for a docs-only or identical-tree skip, and they are
   # skipped (not passed) for a partial run. A skipped job is not a successful `test (<platform>)`
   # check: when the job-level `if` is false the matrix is not expanded, so the check name stays the
   # literal template and does not replace a previous green `test (x86-64)`.
@@ -199,6 +200,14 @@ jobs:
         run: |
           echo "Docs-only change. The compiler suite did not run."
           echo "Parent gate: ${{ needs.plan.outputs.parent_sha }}"
+          echo "Required check 'test (${{ matrix.platform }})' reports success."
+          echo "${{ needs.plan.outputs.reason }}"
+
+      - name: Identical tree
+        if: needs.plan.outputs.mode == 'tree'
+        run: |
+          echo "This push has the same tree as a commit that already passed the full gate. The compiler suite did not run."
+          echo "Tested commit: ${{ needs.plan.outputs.parent_sha }}"
           echo "Required check 'test (${{ matrix.platform }})' reports success."
           echo "${{ needs.plan.outputs.reason }}"
 

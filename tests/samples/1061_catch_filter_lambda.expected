@@ -1,0 +1,10 @@
+static lambda: caught
+delegate argument: caught
+rejecting lambda: passed to the outer handler
+captures exception: captured
+captures local: found needle
+nested lambdas: caught
+local function: caught
+aggregate inner exceptions: both 2
+task wait: filtered 2
+lambda in filter and handler: filter,handler

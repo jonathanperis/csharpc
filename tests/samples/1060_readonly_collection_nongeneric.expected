@@ -1,0 +1,41 @@
+3 True True False
+True
+True
+True
+b True False False False
+1 -1 -1
+True False 2 False
+4 a,b,c,d (changes show through)
+-- mutators
+set: NotSupportedException: Collection is read-only.
+add: NotSupportedException: Collection is read-only.
+clear: NotSupportedException: Collection is read-only.
+insert: NotSupportedException: Collection is read-only.
+remove: NotSupportedException: Collection is read-only.
+removeAt: NotSupportedException: Collection is read-only.
+generic add: NotSupportedException: Collection is read-only.
+generic set: NotSupportedException: Collection is read-only.
+generic remove: NotSupportedException: Collection is read-only.
+True
+-- CopyTo
+-|a|b|c|d|-
+a|b|c|d|-
+null: ArgumentNullException: Value cannot be null. (Parameter 'array')
+negative: ArgumentOutOfRangeException: Non-negative number required. (Parameter 'index')
+too small: ArgumentException: Destination array is not long enough to copy all the items in the collection. Check array index and length.
+offset too big: ArgumentException: Destination array is not long enough to copy all the items in the collection. Check array index and length.
+multi-dimensional: ArgumentException: Only single dimensional arrays are supported for the requested action.
+wrong element type: ArgumentException: Target array type is not compatible with the type of items in the collection.
+covariant mismatch: ArgumentException: Target array type is not compatible with the type of items in the collection.
+base element type: ok
+-- empty and wrapped
+0
+null list: ArgumentNullException: Value cannot be null. (Parameter 'list')
+7;8;
+True
+-- AggregateException.InnerExceptions
+2 True True two
+True 1
+inner add: NotSupportedException: Collection is read-only.
+InvalidOperationException,ArgumentException
+True

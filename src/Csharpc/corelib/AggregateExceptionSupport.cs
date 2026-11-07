@@ -33,10 +33,12 @@ namespace CsharpcCoreLib
             return new Exception[] { innerException };
         }
 
-        /// <summary>`message` null: a null message argument (Exception's "Exception of type ... was thrown.").</summary>
+        /// <summary>A null message argument is the default text (.NET's constructors pass SR.AggregateException_ctor_DefaultMessage for it).</summary>
+        public static string OrDefault(string message) => message ?? "One or more errors occurred.";
+
         public static string Message(string message, Exception[] innerExceptions)
         {
-            string text = message ?? "Exception of type 'System.AggregateException' was thrown.";
+            string text = OrDefault(message);
             for (int i = 0; i < innerExceptions.Length; i++) text = text + " (" + innerExceptions[i].Message + ")";
             return text;
         }

@@ -185,6 +185,7 @@ public sealed partial class FunctionCodeGen
         IPropertyReferenceOperation { Property.RefKind: not RefKind.None } p => RefPropertyAddress(p),
         IImplicitIndexerReferenceOperation ii => ImplicitIndexerAddress(ii),
         IInvocationOperation { TargetMethod.RefKind: not RefKind.None } i => EmitInvocation(i),
+        IFunctionPointerInvocationOperation { Target.Type: IFunctionPointerTypeSymbol { Signature.RefKind: not RefKind.None } } f => EmitFunctionPointerInvocation(f, address: true),
         _ when TryAddressOfNone(target, out var pointee) => pointee,
         _ => throw CompileError.Unsupported($"assignment to {target.Kind}", target),
     };
