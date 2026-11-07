@@ -18,3 +18,4 @@ Console.WriteLine(RawResources.ByType());
 Console.WriteLine(RawResources.ModuleInfo());
 Console.WriteLine(RawResources.References());
 foreach (var line in RawResources.ReadStrings()) Console.WriteLine(line);
+foreach (var line in ResourceSets.Describe()) Console.WriteLine(line);

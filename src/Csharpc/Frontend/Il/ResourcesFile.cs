@@ -107,7 +107,7 @@ public static class ResourcesFile
             13 => reader.ReadDouble().ToString("R", invariant),
             14 => reader.ReadDecimal().ToString(invariant),
             15 or 16 => reader.ReadInt64().ToString(invariant), // DateTime / TimeSpan: their ticks
-            32 => Convert.ToBase64String(reader.ReadBytes(reader.ReadInt32())),
+            32 or 33 => Convert.ToBase64String(reader.ReadBytes(reader.ReadInt32())), // byte[] and Stream: the bytes
             // a preserialized user type: format 3 is "the type converter's string" (the text from the .resx)
             >= StartOfUserTypes => format == 3 ? reader.ReadString() : null,
             _ => null,

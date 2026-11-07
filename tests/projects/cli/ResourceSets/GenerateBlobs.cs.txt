@@ -1,0 +1,23 @@
+// Writes Blobs.resources, the .resources file of this project (run it with `dotnet run GenerateBlobs.cs.txt` after copying it to
+// GenerateBlobs.cs): ResourceWriter, so no preserialized types: strings, primitives by type code, a byte array and Stream entries.
+using System.Resources;
+
+using (var writer = new ResourceWriter("Blobs.resources"))
+{
+    writer.AddResource("Text", "plain text");
+    writer.AddResource("Bytes", new byte[] { 1, 2, 3, 4, 5 });
+    writer.AddResource("Data", new MemoryStream(new byte[] { 10, 20, 30 }), closeAfterWrite: true);
+    writer.AddResource("EmptyData", new MemoryStream(new byte[0]), closeAfterWrite: true);
+    writer.AddResource("Count", 42);
+    writer.AddResource("Big", 9000000000L);
+    writer.AddResource("Ratio", 2.5);
+    writer.AddResource("Flag", true);
+    writer.AddResource("Letter", 'x');
+    writer.AddResource("Stamp", new DateTime(2024, 3, 5, 6, 7, 8, DateTimeKind.Utc));
+    writer.AddResource("Span", TimeSpan.FromSeconds(90));
+    writer.AddResource("Price", 12.5m);
+    writer.AddResource("Nothing", (object)null);
+    writer.AddResource("Small", (short)7);
+    writer.AddResource("Byte", (byte)255);
+    writer.AddResource("Float", 1.5f);
+}
