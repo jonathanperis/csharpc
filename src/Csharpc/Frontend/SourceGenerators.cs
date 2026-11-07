@@ -1,3 +1,5 @@
+extern alias JsonGenerator;
+
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Reflection;
@@ -37,17 +39,19 @@ public sealed record GeneratorInputs
 public static class SourceGenerators
 {
     /// <summary>
-    /// Single files: generators worth loading, keyed by the attribute that triggers them. A null assembly is
-    /// a generator built into csharpc: [GeneratedRegex] (GeneratedRegex.cs) replaces the SDK's, whose output
-    /// is built on RegexRunner internals.
+    /// Single files: generators worth running, keyed by the attribute that triggers them. The SDK's JSON and
+    /// LibraryImport generators are linked into csharpc (<see cref="Linked"/>); the entry with a null assembly is a
+    /// generator built into csharpc: [GeneratedRegex] (GeneratedRegex.cs) replaces the SDK's, whose output is built
+    /// on RegexRunner internals.
     /// </summary>
     private static readonly (string Trigger, string? Assembly)[] s_generators =
     [
-        ("LibraryImport", "Microsoft.Interop.LibraryImportGenerator.dll"),
+        ("LibraryImport", LibraryImportGeneratorAssembly),
         ("GeneratedRegex", null),
         ("JsonSerializable", JsonGeneratorAssembly),
     ];
 
+    private const string LibraryImportGeneratorAssembly = "Microsoft.Interop.LibraryImportGenerator.dll";
     private const string JsonGeneratorAssembly = "System.Text.Json.SourceGeneration.dll";
     /// <summary>The SDK's (and the System.Text.RegularExpressions package's) [GeneratedRegex] generator, which csharpc replaces.</summary>
     private const string RegexGeneratorAssembly = "System.Text.RegularExpressions.Generator.dll";
@@ -57,7 +61,7 @@ public static class SourceGenerators
         diagnostics = [];
         if (Environment.GetEnvironmentVariable("CSHARPC_NO_GENERATORS") == "1") return compilation;
         List<Diagnostic> found = [];
-        var generators = inputs is null ? DefaultGenerators(userTrees, found) : ProjectGenerators(compilation, inputs, found);
+        var generators = inputs is null ? DefaultGenerators(userTrees) : ProjectGenerators(compilation, inputs, found);
         if (generators.Count == 0) { diagnostics = found; return compilation; }
 
         var parseOptions = (CSharpParseOptions)compilation.SyntaxTrees.First().Options;
@@ -112,53 +116,51 @@ public static class SourceGenerators
         return [.. updated.SyntaxTrees.Except(compilation.SyntaxTrees).Where(t => JsonReflectionContexts.IsSynthesizedContextFile(t.FilePath))];
     }
 
-    private static List<ISourceGenerator> DefaultGenerators(IEnumerable<SyntaxTree> userTrees, List<Diagnostic> diagnostics)
+    private static List<ISourceGenerator> DefaultGenerators(IEnumerable<SyntaxTree> userTrees)
     {
         var text = string.Concat(userTrees.Select(t => t.GetText().ToString()));
-        var dir = AnalyzerDirectory();
         List<ISourceGenerator> generators = [];
         foreach (var (trigger, assembly) in s_generators)
         {
             if (!text.Contains(trigger, StringComparison.Ordinal)) continue;
-            if (assembly is null) { generators.Add(new GeneratedRegexGenerator().AsSourceGenerator()); continue; }
-            var path = dir is null ? null : Path.Combine(dir, assembly);
-            if (path is null || !File.Exists(path))
-            {
-                // Without the SDK's reference pack (or in a csharpc compiled by csharpc, which does not run on the SDK's
-                // runtime directory) the generator's output is missing and the program differs from `dotnet build`'s.
-                if (UsesAttribute(text, trigger))
-                    diagnostics.Add(Error("CSLLVM0001", $"not supported by csharpc yet: [{trigger}] needs the SDK's source generator '{assembly}' "
-                        + $"(from the analyzers folder of the Microsoft.NETCore.App.Ref pack, found next to the .NET runtime csharpc runs on), which was not found"));
-                continue;
-            }
-            // The SDK's generators are assemblies loaded at run time. A csharpc that is itself compiled by csharpc
-            // cannot load code (like NativeAOT), and a program compiled without their output differs from
-            // `dotnet build`'s: say so instead of continuing.
-            var reference = Reference(path);
-            var failed = false;
-            void OnFailure(object? sender, AnalyzerLoadFailureEventArgs e)
-            {
-                if (e.ErrorCode == AnalyzerLoadFailureEventArgs.FailureErrorCode.NoAnalyzers) return;
-                failed = true;
-                diagnostics.Add(Error("CSLLVM0001", $"not supported by csharpc yet: loading the source generator '{assembly}' for [{trigger}] at run time failed: {e.Message}"
-                    + (e.Exception is { } x ? $" ({x.GetType().Name}: {x.Message})" : "")));
-            }
-            reference.AnalyzerLoadFailed += OnFailure;
-            try
-            {
-                var loaded = reference.GetGenerators(LanguageNames.CSharp);
-                if (loaded.Length == 0 && !failed)
-                    diagnostics.Add(Error("CSLLVM0001", $"not supported by csharpc yet: the source generator '{assembly}' for [{trigger}] has no generators to run here (this csharpc cannot load assemblies at run time)"));
-                generators.AddRange(loaded);
-            }
-            finally { reference.AnalyzerLoadFailed -= OnFailure; }
+            generators.Add(assembly is null ? new GeneratedRegexGenerator().AsSourceGenerator() : LinkedGenerator(assembly)!);
         }
         return generators;
     }
 
-    /// <summary>`[Trigger(`, `[Trigger]`, `[N.Trigger(`, `[A, Trigger(` and the Attribute-suffixed spellings: the text mentions the trigger as an attribute, not in a comment.</summary>
-    private static bool UsesAttribute(string text, string trigger) =>
-        System.Text.RegularExpressions.Regex.IsMatch(text, @"[\[,]\s*(?:[\w.]+\.)?" + trigger + @"(?:Attribute)?\s*[(\]]");
+    /// <summary>
+    /// The SDK's generators that are linked into csharpc (they come from the Microsoft.NETCore.App.Ref pack of the SDK
+    /// that built it, Csharpc.csproj): no assembly is loaded at run time, so a csharpc compiled by csharpc runs them too.
+    /// </summary>
+    private static ISourceGenerator? LinkedGenerator(string assemblyFile) => assemblyFile.ToLowerInvariant() switch
+    {
+        "system.text.json.sourcegeneration.dll" => new JsonGenerator::System.Text.Json.SourceGeneration.JsonSourceGenerator().AsSourceGenerator(),
+        "microsoft.interop.libraryimportgenerator.dll" => new Microsoft.Interop.LibraryImportGenerator().AsSourceGenerator(),
+        _ => null,
+    };
+
+    /// <summary>
+    /// The linked generator for a project's /analyzer file when it is the same build (assembly version) as the linked
+    /// one: it then makes the same output the file would, and needs no assembly loading. Another version (a NuGet
+    /// package's own copy) is loaded from its file, as csc does.
+    /// </summary>
+    private static ISourceGenerator? LinkedFor(string path)
+    {
+        var file = Path.GetFileName(path);
+        Type? marker = file.ToLowerInvariant() switch
+        {
+            "system.text.json.sourcegeneration.dll" => typeof(JsonGenerator::System.Text.Json.SourceGeneration.JsonSourceGenerator),
+            "microsoft.interop.libraryimportgenerator.dll" => typeof(Microsoft.Interop.LibraryImportGenerator),
+            _ => null,
+        };
+        if (marker is null) return null;
+        try
+        {
+            var identity = System.Reflection.Metadata.MetadataReader.GetAssemblyName(path);
+            return identity.Version == marker.Assembly.GetName().Version ? LinkedGenerator(file) : null;
+        }
+        catch (Exception e) when (e is IOException or BadImageFormatException) { return null; }
+    }
 
     /// <summary>
     /// The generators of a project's /analyzer assemblies (assemblies with only analyzers contribute
@@ -172,9 +174,8 @@ public static class SourceGenerators
         // csharpc's reflection-based System.Text.Json support synthesizes [JsonSerializable] contexts
         // (JsonReflectionContexts) that the JSON generator must turn into metadata, whatever the project's analyzers.
         if (!analyzers.Any(a => Path.GetFileName(a).Equals(JsonGeneratorAssembly, StringComparison.OrdinalIgnoreCase))
-            && compilation.SyntaxTrees.Any(JsonReflectionContexts.IsSynthesizedTree) && AnalyzerDirectory() is { } sdkDir
-            && File.Exists(Path.Combine(sdkDir, JsonGeneratorAssembly)))
-            analyzers.Add(Path.Combine(sdkDir, JsonGeneratorAssembly));
+            && compilation.SyntaxTrees.Any(JsonReflectionContexts.IsSynthesizedTree))
+            generators.Add(LinkedGenerator(JsonGeneratorAssembly)!);
         foreach (var path in analyzers)
         {
             if (Path.GetFileName(path).Equals(RegexGeneratorAssembly, StringComparison.OrdinalIgnoreCase))
@@ -186,6 +187,11 @@ public static class SourceGenerators
             {
                 // csc: error CS0006 for an /analyzer file that doesn't exist.
                 diagnostics.Add(Error("CS0006", $"Metadata file '{path}' could not be found"));
+                continue;
+            }
+            if (LinkedFor(path) is { } linked)
+            {
+                generators.Add(linked);
                 continue;
             }
             var reference = Reference(path);
@@ -261,21 +267,6 @@ public static class SourceGenerators
             return false;
         return type.GetMembers(name).Any(m => m is IPropertySymbol or IFieldSymbol &&
             m.GetAttributes().Any(a => a.AttributeClass is { Name: "ObsoleteAttribute", ContainingNamespace.Name: "System" }));
-    }
-
-    /// <summary>packs/Microsoft.NETCore.App.Ref/&lt;version&gt;/analyzers/dotnet/cs of the SDK csharpc runs on.</summary>
-    private static string? AnalyzerDirectory()
-    {
-        if (Environment.GetEnvironmentVariable("CSHARPC_ANALYZERS") is { Length: > 0 } explicitDir) return explicitDir;
-        var runtimeDir = RuntimeEnvironment.GetRuntimeDirectory().TrimEnd('/');
-        var version = Path.GetFileName(runtimeDir);
-        var dotnetRoot = Path.GetFullPath(Path.Combine(runtimeDir, "..", "..", ".."));
-        var packs = Path.Combine(dotnetRoot, "packs", "Microsoft.NETCore.App.Ref");
-        if (!Directory.Exists(packs)) return null;
-        var exact = Path.Combine(packs, version, "analyzers", "dotnet", "cs");
-        if (Directory.Exists(exact)) return exact;
-        return Directory.GetDirectories(packs).Order().Select(v => Path.Combine(v, "analyzers", "dotnet", "cs"))
-            .LastOrDefault(Directory.Exists);
     }
 
     /// <summary>One reference per analyzer file, so generator instances (and loaded assemblies) are shared by every run.</summary>

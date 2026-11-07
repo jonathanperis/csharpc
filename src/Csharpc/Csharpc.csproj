@@ -46,6 +46,22 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="5.12.0-1.26504.105" />
   </ItemGroup>
 
+  <!--
+    The SDK's own source generators for [JsonSerializable] and [LibraryImport], linked into csharpc instead of loaded at
+    run time (SourceGenerators.cs): a csharpc compiled by csharpc cannot load assemblies. They come from the analyzers
+    folder of the Microsoft.NETCore.App.Ref pack of the SDK that builds csharpc (version pinned by the SDK,
+    global.json), so they are the generators `dotnet build` runs for the same .NET. Microsoft.Interop.SourceGeneration
+    is the shared library of LibraryImportGenerator. Generators of projects (analyzers from NuGet, Razor) stay dynamic.
+  -->
+  <PropertyGroup>
+    <_CsharpcSdkGenerators>$(NetCoreTargetingPackRoot)/Microsoft.NETCore.App.Ref/$(BundledNETCoreAppPackageVersion)/analyzers/dotnet/cs</_CsharpcSdkGenerators>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="System.Text.Json.SourceGeneration" Aliases="JsonGenerator" HintPath="$(_CsharpcSdkGenerators)/System.Text.Json.SourceGeneration.dll" />
+    <Reference Include="Microsoft.Interop.LibraryImportGenerator" HintPath="$(_CsharpcSdkGenerators)/Microsoft.Interop.LibraryImportGenerator.dll" />
+    <Reference Include="Microsoft.Interop.SourceGeneration" HintPath="$(_CsharpcSdkGenerators)/Microsoft.Interop.SourceGeneration.dll" />
+  </ItemGroup>
+
   <!-- The C runtime (csrt) ships next to the compiler and is compiled/linked on demand. -->
   <ItemGroup>
     <Compile Remove="corelib/**" />

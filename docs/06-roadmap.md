@@ -315,15 +315,21 @@ cheaper, with byte-identical output (`tools/bootstrap/compare-compilers.sh`; num
 interface instead of resolving every class's implementation each round, and array interface maps compute their facts once per
 interface and element.
 The native compiler on the whole differential suite (`CSHARPC_NATIVE` in `tests/run.sh`, the `native-suite` jobs of the
-`Bootstrap` workflow, run 42247074061): 582 of 616 samples pass at -O0 and -O2, 34 do not, the same with both native
-compilers (`tools/bootstrap/native-known-failures.txt`). 21 are source generators the SDK ships as assemblies
-(System.Text.Json, LibraryImport), which a csharpc compiled by csharpc cannot load at run time (the single-file path
-was silent about it; it is an explicit CSLLVM0001 now) and are decided (the owner, 2026-11-06): the two generators are linked into csharpc; 11 are stack traces, where the
-native compiler's emit of the program for its PDB stops because Roslyn reads an attribute of System.Private.CoreLib
-(csharpc has none, a NotSupportedException), so the lambda frames are missing (decided: the framework's real attributes); 2 are the built-in `[GeneratedRegex]`
-generator failing to initialize with an ArrayTypeMismatchException in `ArrayBuilder<IIncrementalGeneratorOutputNode>.Add`
-(a store check Roslyn's driver passes under the JIT, cause not found).
-Not done: the suite is not at 100 % yet. Next: the 34 known failures (the generators linked in, the corelib's real assembly attributes for the PDB writer).
+`Bootstrap` workflow): at first 582 of 616 samples passed at -O0 and -O2 and 34 did not, the same with both native
+compilers (run 42247074061). The causes, all closed: 21 samples needed the SDK's source generators (System.Text.Json,
+LibraryImport), which a csharpc compiled by csharpc cannot load at run time (the single-file path was silent about it; it is
+an explicit CSLLVM0001 now) and are linked into csharpc instead (owner decision, 2026-11-06; #106); 11 were stack traces,
+where the native compiler's emit of the program for its PDB stopped because Roslyn reads an attribute of System.Private.CoreLib,
+which csharpc now answers with the framework's real ones (#107); 2 were the built-in `[GeneratedRegex]` generator failing with an
+ArrayTypeMismatchException. That one was no store-check problem: Roslyn hands `IncrementalGeneratorInitializationContext.RegisterOutput`,
+a method of a readonly struct, to its nodes as a delegate, and csharpc called the method with the box instead of the struct, so it
+read the syntax-input builder instead of the output builder (any delegate over a struct's instance method; #129, sample 1220). It
+hid the same failure in the linked JSON and LibraryImport generators, and the JSON generator then needed open instance delegates
+(`MethodInfo.CreateDelegate` without a target, the receiver as first parameter, an enum for its underlying type; #130, sample 1221).
+With all four the native compiler passes all 654 samples at -O0 and -O2, with the -O0 and the -O2 native compiler
+(`tools/bootstrap/native-known-failures.txt` is empty; Bootstrap run 42350479137 on the merge of the branches). The self-compile
+takes 192 s at -O0 and 610 s at -O2 on a CI runner (8.7 GB peak in both), the native compilers are 124 MB and 89 MB (76 MB at -O2
+before the two generators were linked in). That M6 bullet is met once the branches of #105, #110 and #111 are merged; alone, #110 leaves the 11 stack-trace samples of #107 in the list.
 
 ### Runtime tiers — C# for library code, C where it is the right tool
 [ADR 0017](adr/0017-runtime-tiers.md); a C-free runtime is not a goal (owner, 2026-10-30). **Tier 1 (now,

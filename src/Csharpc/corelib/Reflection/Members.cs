@@ -450,9 +450,10 @@ namespace CsharpcCoreLib
     {
         internal static readonly int P = sizeof(nint);
         // csrt_MethodRecord
-        internal static int MethodSize => 8 * P + 16;
+        internal static int MethodSize => 9 * P + 16;
         internal static nint MethodIdentity(byte* m) => *(nint*)(m + 7 * P + 16);
         internal static nint MethodFunction(byte* m) => *(nint*)(m + 6 * P + 16);
+        internal static nint MethodOpenFunction(byte* m) => *(nint*)(m + 8 * P + 16);
         internal static byte* MethodName(byte* m) => (byte*)*(nint*)m;
         internal static nint MethodDeclaring(byte* m) => *(nint*)(m + P);
         internal static nint MethodReturnType(byte* m) => *(nint*)(m + 2 * P);
@@ -590,6 +591,13 @@ namespace CsharpcCoreLib
                     throw new ArgumentException("Cannot bind to the target method because its signature is not compatible with that of the delegate type.");
                 return CoreIntrinsics.ReinterpretAs<Delegate>(CoreIntrinsics.PointerToObject((nint)CoreIntrinsics.csrt_delegate_create(CoreIntrinsics.csrt_type_handle(delegateType), 0, fn)));
             }
+            // An instance method without a target: an open instance delegate, whose first parameter is the receiver.
+            if (!IsStatic && target == null && signature != null && ReflectionRecords.MethodOpenFunction(_record) is var open and not 0)
+            {
+                if (!CompatibleOpen(signature))
+                    throw new ArgumentException("Cannot bind to the target method because its signature is not compatible with that of the delegate type.");
+                return CoreIntrinsics.ReinterpretAs<Delegate>(CoreIntrinsics.PointerToObject((nint)CoreIntrinsics.csrt_delegate_create(CoreIntrinsics.csrt_type_handle(delegateType), 0, open)));
+            }
             if (signature == null || fn == 0 || target == null || IsStatic)
                 throw new NotSupportedException("MethodInfo.CreateDelegate of '" + this + "' to '" + delegateType + "'" + (target == null ? " without a target" : "") + " is not supported by csharpc yet.");
             if (!DeclaringType.IsInstanceOfType(target) || !Compatible(signature))
@@ -601,17 +609,23 @@ namespace CsharpcCoreLib
 
         // The delegate's parameters must be passable to the method's (the same type, or a reference type the
         // method's accepts) and the method's return must be the delegate's (or a reference type assignable to it).
-        private bool Compatible(byte* signature)
+        private bool Compatible(byte* signature) => Compatible(signature, 0);
+
+        // An open instance delegate's first parameter is the receiver: any type the declaring type is assignable from.
+        private bool CompatibleOpen(byte* signature) => Compatible(signature, 1);
+
+        private bool Compatible(byte* signature, int receivers)
         {
             int count = *(int*)(signature + 3 * ReflectionRecords.P);
-            if (count != ReflectionRecords.MethodParameterCount(_record)) return false;
+            if (count != ReflectionRecords.MethodParameterCount(_record) + receivers) return false;
             nint* delegateParameters = (nint*)*(nint*)(signature + 2 * ReflectionRecords.P);
+            if (receivers == 1 && !Passable(delegateParameters[0], ReflectionRecords.MethodDeclaring(_record))) return false;
             byte* parameters = ReflectionRecords.MethodParameters(_record);
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < count - receivers; i++)
             {
                 byte* p = parameters + i * ReflectionRecords.ParameterSize;
                 if ((ReflectionRecords.ParameterFlags(p) & (1 << 17)) != 0) return false; // by-ref
-                if (!Passable(delegateParameters[i], ReflectionRecords.ParameterType(p))) return false;
+                if (!Passable(delegateParameters[i + receivers], ReflectionRecords.ParameterType(p))) return false;
             }
             nint delegateReturn = *(nint*)(signature + ReflectionRecords.P);
             nint methodReturn = ReflectionRecords.MethodReturnType(_record);
@@ -623,6 +637,11 @@ namespace CsharpcCoreLib
         {
             if (from == to) return true;
             Type source = ReflectionRuntime.TypeOf(from), destination = ReflectionRuntime.TypeOf(to);
+            // An enum and its underlying type are interchangeable (the CLR compares the types' reduced forms).
+            if (source.IsEnum && destination.IsEnum) return false;
+            if (source.IsEnum || destination.IsEnum)
+                return source.IsValueType && destination.IsValueType
+                    && (source.IsEnum ? Enum.GetUnderlyingType(source) : source) == (destination.IsEnum ? Enum.GetUnderlyingType(destination) : destination);
             return !source.IsValueType && !destination.IsValueType && destination.IsAssignableFrom(source);
         }
 

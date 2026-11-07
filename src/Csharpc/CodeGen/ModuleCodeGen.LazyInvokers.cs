@@ -51,7 +51,7 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     private bool FillLazyInvoker(MethodRecordData record, bool invoke, bool function)
     {
-        if (!(invoke && record.InvokePending) && !(function && record.FunctionPending)) return false;
+        if (!(invoke && record.InvokePending) && !(function && record.FunctionPending) && !(function && record.OpenPending)) return false;
         var outerCaller = _currentCaller;
         _currentCaller = record.Method;
         try
@@ -66,6 +66,11 @@ public sealed partial class ModuleCodeGen
                 record.FunctionPending = false;
                 record.Function = RecordFunction(record.Method);
             }
+            if (function && record.OpenPending)
+            {
+                record.OpenPending = false;
+                record.OpenFunction = OpenInstanceFunction(record.Method);
+            }
         }
         finally { _currentCaller = outerCaller; }
         return true;
@@ -78,7 +83,8 @@ public sealed partial class ModuleCodeGen
         {
             if (record.InvokePending) record.Invoke = LlvmContext.Null(Llvm.Ptr);
             if (record.FunctionPending) record.Function = LlvmContext.Null(Llvm.Ptr);
-            record.InvokePending = record.FunctionPending = false;
+            if (record.OpenPending) record.OpenFunction = LlvmContext.Null(Llvm.Ptr);
+            record.InvokePending = record.FunctionPending = record.OpenPending = false;
         }
     }
 
@@ -101,6 +107,36 @@ public sealed partial class ModuleCodeGen
         catch (CompileError error)
         {
             if (Environment.GetEnvironmentVariable("CSHARPC_TRACE") == "1") Console.Error.WriteLine($"[csharpc] no delegate function for {method}: {error.Message}");
+            return LlvmContext.Null(Llvm.Ptr);
+        }
+    }
+
+    /// <summary>
+    /// Can a record's method be the target of an open instance delegate (CreateDelegate without a target)? An instance
+    /// method of a class or interface, by-value parameters and result, no open generics: the delegate's first parameter
+    /// is the receiver, and a value type's would be a `ref` one.
+    /// </summary>
+    private static bool OpenInstanceDelegatable(IMethodSymbol method) =>
+        !method.IsStatic && method.MethodKind is MethodKind.Ordinary or MethodKind.PropertyGet or MethodKind.PropertySet
+        && method.ContainingType is { TypeKind: TypeKind.Class or TypeKind.Interface }
+        && method.Parameters.All(p => p.RefKind == RefKind.None && p.Type is not (IPointerTypeSymbol or IFunctionPointerTypeSymbol) && !p.Type.IsRefLikeType)
+        && method.ReturnType is not (IPointerTypeSymbol or IFunctionPointerTypeSymbol) && !method.ReturnType.IsRefLikeType && method.RefKind == RefKind.None
+        && !method.IsGenericMethod && !TypeSubstitution.IsOpen(method);
+
+    /// <summary>
+    /// The entry point (ignored target, this, args...) of an open instance delegate over <paramref name="method"/>
+    /// (MethodInfo.CreateDelegate(Type) of an instance method); null when csharpc can't call the method, which makes
+    /// the corelib's CreateDelegate throw NotSupportedException.
+    /// </summary>
+    private LLVMValueRef OpenInstanceFunction(IMethodSymbol method)
+    {
+        List<LLVMTypeRef> parameters = [Llvm.Ptr, Llvm.Ptr];
+        foreach (var p in method.Parameters) parameters.Add(Types.Value(p.Type));
+        var type = Llvm.FunctionType(Types.Value(method.ReturnType), [.. parameters]);
+        try { return SyntheticFunction(Mangler.Method(method) + "$opendelegate", type, (g, syntax) => g.EmitOpenInstanceThunk(method, syntax)); }
+        catch (CompileError error)
+        {
+            if (Environment.GetEnvironmentVariable("CSHARPC_TRACE") == "1") Console.Error.WriteLine($"[csharpc] no open delegate function for {method}: {error.Message}");
             return LlvmContext.Null(Llvm.Ptr);
         }
     }

@@ -357,6 +357,8 @@ typedef struct csrt_MethodRecord {
     const void* function;                      // an instance method's own function (MethodInfo.CreateDelegate); NULL: none
     const void* identity;                      // one address per method: records of the same method (in a type's list,
                                                // a property's accessor, an expression tree's ldtoken) are one MethodInfo
+    const void* open_function;                 // (ignored target, this, args...) of an instance method of a class or
+                                               // interface (an open instance delegate, MethodInfo.CreateDelegate); NULL: none
 } csrt_MethodRecord;
 
 // MethodInfo.CreateDelegate: the Invoke signatures of the delegate types the program names.
