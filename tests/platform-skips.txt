@@ -271,3 +271,4 @@ wasi 1211_compression_codecs           known gap: no NativeAOT runtime pack (nat
 windows 1210_uri_rooted_path_platform live: a rooted path without a drive is an implicit file path on Unix only; on Windows UriKind.Absolute is a UriFormatException (the platform decides the expectation)
 wasi 1207_socket_close_unread_data  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 windows 1207_socket_close_unread_data  live: what a close with unread received data sends, and what the peer then reads, is the OS's TCP stack (Winsock)
+wasi 1230_file_set_last_write_time  known gap: File/Directory.SetLastWriteTime[Utc] have no WASI implementation yet (wasi-libc utimensat / path_filestat_set_times is not bound)
