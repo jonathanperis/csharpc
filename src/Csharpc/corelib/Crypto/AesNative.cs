@@ -1,11 +1,11 @@
 // Aes.Create()'s implementation: the managed SymmetricAlgorithm/UniversalCryptoTransform machinery ported
 // from .NET (SymmetricCrypto.cs: padding, the transforms, CryptoStream, the one-shot APIs) over the block
 // cipher of the OS's crypto library, as .NET uses it — OpenSSL's libcrypto on Linux (EVP, loaded on first
-// use like .NET's shim loads it), CommonCrypto on macOS (part of libSystem). The cipher always runs without
-// padding (UniversalCryptoTransform pads), as in .NET's OpenSslCipher/AppleCCCryptor. Windows (CNG) and
-// WASI have no implementation yet: Aes.Create() isn't there, a compile-time error.
+// use like .NET's shim loads it), CommonCrypto on macOS (part of libSystem), CNG (bcrypt.dll) on Windows. The
+// cipher always runs without padding (UniversalCryptoTransform pads), as in .NET's OpenSslCipher/AppleCCCryptor/
+// BasicSymmetricCipherBCrypt. WASI has no implementation yet: Aes.Create() isn't there, a compile-time error.
 #nullable disable
-#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+#if !CSHARPC_TARGET_WASI
 using System;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -196,6 +196,88 @@ namespace CsharpcCoreLib
             }
 
             public static void Free(IntPtr ctx) => CCCryptorRelease(ctx);
+        }
+#elif CSHARPC_TARGET_WINDOWS
+        // CNG (bcrypt.dll), as .NET's BasicSymmetricCipherBCrypt: an AES algorithm provider per cipher with the
+        // chaining mode as a property (CFB8 and CFB128 through MessageBlockLength), a symmetric key handle, and
+        // BCryptEncrypt/BCryptDecrypt without BCRYPT_BLOCK_PADDING (the managed transform pads). CNG chains
+        // by updating the IV buffer it is given, so the context owns that buffer and a reset copies the start IV back.
+        // The context is a native block: alg @0, key @8, encrypting @16, IV length @20, IV @24 (16 bytes).
+        private static class Native
+        {
+            [DllImport("bcrypt")] private static extern int BCryptOpenAlgorithmProvider(IntPtr* algorithm, char* algorithmId, char* implementation, uint flags);
+            [DllImport("bcrypt")] private static extern int BCryptCloseAlgorithmProvider(IntPtr algorithm, uint flags);
+            [DllImport("bcrypt")] private static extern int BCryptSetProperty(IntPtr handle, char* property, byte* input, uint inputLength, uint flags);
+            [DllImport("bcrypt")] private static extern int BCryptGenerateSymmetricKey(IntPtr algorithm, IntPtr* key, byte* keyObject, uint keyObjectLength, byte* secret, uint secretLength, uint flags);
+            [DllImport("bcrypt")] private static extern int BCryptDestroyKey(IntPtr key);
+            [DllImport("bcrypt")] private static extern int BCryptEncrypt(IntPtr key, byte* input, uint inputLength, void* paddingInfo, byte* iv, uint ivLength, byte* output, uint outputLength, uint* result, uint flags);
+            [DllImport("bcrypt")] private static extern int BCryptDecrypt(IntPtr key, byte* input, uint inputLength, void* paddingInfo, byte* iv, uint ivLength, byte* output, uint outputLength, uint* result, uint flags);
+
+            private const int ContextSize = 40, IvOffset = 24, BlockLength = 16;
+
+            public static IntPtr Create(CipherMode mode, int feedbackBits, byte* key, int keyLength, byte* iv, bool encrypting)
+            {
+                byte* ctx = (byte*)Libc.malloc(ContextSize);
+                if (ctx == null) throw Error();
+                IntPtr algorithm = IntPtr.Zero, handle = IntPtr.Zero;
+                bool ok;
+                fixed (char* aes = "AES")
+                    ok = BCryptOpenAlgorithmProvider(&algorithm, aes, null, 0) >= 0;
+                if (ok)
+                {
+                    string chaining = mode switch { CipherMode.ECB => "ChainingModeECB", CipherMode.CBC => "ChainingModeCBC", _ => "ChainingModeCFB" };
+                    fixed (char* property = "ChainingMode") fixed (char* value = chaining)
+                        ok = BCryptSetProperty(algorithm, property, (byte*)value, (uint)((chaining.Length + 1) * 2), 0) >= 0;
+                }
+                if (ok && mode == CipherMode.CFB)
+                {
+                    uint messageBlockLength = (uint)(feedbackBits / 8);
+                    fixed (char* property = "MessageBlockLength")
+                        ok = BCryptSetProperty(algorithm, property, (byte*)&messageBlockLength, 4, 0) >= 0;
+                }
+                if (ok) ok = BCryptGenerateSymmetricKey(algorithm, &handle, null, 0, key, (uint)keyLength, 0) >= 0;
+                if (!ok)
+                {
+                    if (algorithm != IntPtr.Zero) BCryptCloseAlgorithmProvider(algorithm, 0);
+                    Libc.free(ctx);
+                    throw Error();
+                }
+                *(IntPtr*)ctx = algorithm;
+                *(IntPtr*)(ctx + 8) = handle;
+                *(int*)(ctx + 16) = encrypting ? 1 : 0;
+                *(int*)(ctx + 20) = iv == null ? 0 : BlockLength;
+                for (int i = 0; i < BlockLength; i++) ctx[IvOffset + i] = iv == null ? (byte)0 : iv[i];
+                return (IntPtr)ctx;
+            }
+
+            public static int Update(IntPtr ctx, byte* input, int inputLength, byte* output, int outputLength)
+            {
+                byte* c = (byte*)ctx;
+                IntPtr key = *(IntPtr*)(c + 8);
+                uint ivLength = (uint)*(int*)(c + 20), written;
+                byte* iv = ivLength == 0 ? null : c + IvOffset;
+                int status = *(int*)(c + 16) != 0
+                    ? BCryptEncrypt(key, input, (uint)inputLength, null, iv, ivLength, output, (uint)outputLength, &written, 0)
+                    : BCryptDecrypt(key, input, (uint)inputLength, null, iv, ivLength, output, (uint)outputLength, &written, 0);
+                if (status < 0) throw Error();
+                return (int)written;
+            }
+
+            // Same key and direction, the chaining state back to the start IV.
+            public static void Reset(IntPtr ctx, byte* iv)
+            {
+                byte* c = (byte*)ctx;
+                if (iv != null && *(int*)(c + 20) != 0)
+                    for (int i = 0; i < BlockLength; i++) c[IvOffset + i] = iv[i];
+            }
+
+            public static void Free(IntPtr ctx)
+            {
+                byte* c = (byte*)ctx;
+                BCryptDestroyKey(*(IntPtr*)(c + 8));
+                BCryptCloseAlgorithmProvider(*(IntPtr*)c, 0);
+                Libc.free(c);
+            }
         }
 #else
         // OpenSSL's EVP interface (libcrypto 3, as on the Linux distributions .NET 11 supports).

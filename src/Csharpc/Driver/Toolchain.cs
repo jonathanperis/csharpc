@@ -266,6 +266,7 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         // CoTaskMemAlloc/CoTaskMemFree: P/Invoke string returns and Marshal.*CoTaskMem*, as in .NET.
         yield return "-lole32";
         yield return "-lws2_32";  // System.Net.Sockets over Winsock
+        yield return "-lbcrypt";  // CNG: Aes.Create() (referenced imports only, so programs without it carry nothing)
         if (options.Strip ?? !options.Debug) yield return "-s";
     }
 

@@ -159,6 +159,13 @@ separators, drive, root-relative and UNC roots, case-insensitive `GetRelativePat
 counts as redirected unless it is a console, as in .NET; `Console.Clear` on redirected output throws
 `IOException` like .NET). The local time zone is the Windows one (`GetDynamicTimeZoneInformation` +
 `SystemTimeToTzSpecificLocalTimeEx`); `TZ` is ignored, as .NET does on Windows.
+`File`/`Directory.SetLastWriteTime[Utc]` open the entry with write access, all sharing and backup semantics
+(directories too) and call `SetFileTime`, as .NET's `FileSystem.SetLastWriteTime`; on Unix `utimensat` leaves the
+access time alone (`UTIME_OMIT`). Both go through `Posix.SetWriteTime` (sample 1230), which ZipFile and Tar extraction use.
+`Aes.Create()` on Windows is CNG (`bcrypt.dll`, linked directly by `-lbcrypt`, which only costs a program that
+references it): an `AES` algorithm provider per cipher with `ChainingModeECB`/`CBC`/`CFB` (`MessageBlockLength` for the
+CFB feedback size) and `BCryptEncrypt`/`BCryptDecrypt` without CNG padding, under the same managed transforms as the
+other OSes (`corelib/Crypto/AesNative.cs`).
 
 | Area | Types |
 |---|---|
