@@ -187,7 +187,7 @@ diagnostics work. What differs from `PublishAot` is the language and library sid
    ([16-interop-io.md](16-interop-io.md#libraryimport-and-other-source-generators)). The SDK's JSON and
    `LibraryImport` generators and the regex generator are built into csharpc.
 5. **Platforms.** `--target` passes the triple through; Linux x86-64 and ARM64, macOS ARM64, Windows x64 and
-   `wasm32-wasip1` are tested in CI ([06-roadmap.md](06-roadmap.md#m3--platforms-and-per-platform-evidence)). A
+   `wasm32-wasip1` are tested in CI ([06-roadmap.md](06-roadmap.md)). A
    native toolchain is required on the host: clang (and lld when available), LLVM-MinGW on Windows, the WASI SDK for
    WebAssembly.
 6. **Build performance.** A release build of csharpc is ReadyToRun-compiled and a compilation is multi-threaded; hello
