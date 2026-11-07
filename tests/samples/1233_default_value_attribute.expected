@@ -1,0 +1,43 @@
+Count: 5 (Int32)
+Count: found=True generic=True defined=True
+Greeting: hello (String)
+Greeting: found=True generic=True defined=True
+Enabled: True (Boolean)
+Enabled: found=True generic=True defined=True
+Ratio: 2.5 (Double)
+Ratio: found=True generic=True defined=True
+Letter: x (Char)
+Letter: found=True generic=True defined=True
+Small: 7 (Byte)
+Small: found=True generic=True defined=True
+Parsed: ArgumentException: Runtime instantiation of this attribute is not allowed. (String)
+Parsed: found=True generic=True defined=True
+Nothing: null (-)
+Nothing: found=True generic=True defined=True
+Plain: found=False generic=False defined=False
+True
+True
+System.ComponentModel.DefaultValueAttribute
+False
+3
+True
+c
+2.5
+System.Single
+System.Byte
+System.Int16
+System.Int64
+System.SByte
+System.UInt16
+System.UInt32
+System.UInt64
+s
+Friday
+True
+True
+False
+False
+True
+False
+False
+True True
