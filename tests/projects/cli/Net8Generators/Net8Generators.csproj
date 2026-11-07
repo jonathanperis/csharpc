@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- A project that targets an older .NET than the SDK builds with gets that version's generators from its own
+       Microsoft.NETCore.App.Ref pack (ComInterfaceGenerator, JSImportGenerator ...). They bind to the Microsoft.Interop.SourceGeneration
+       next to them, not to the newer copy linked into csharpc (TypeLoadException / CS8784 otherwise). Compat corpus: the
+       trimming sample ConsoleApp1 (net8.0). RollForward lets `dotnet run` run it on the SDK's runtime. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <RollForward>Major</RollForward>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+</Project>

@@ -30,6 +30,13 @@ like the JIT, how many does csharpc match? See [Method](#method), step 5.
 (The first parity run counted some clock-dependent programs as NativeAOT differences; the harness now
 re-runs the JIT before blaming NativeAOT or csharpc, which moved a few programs to SKIPPED.)
 
+- **98.4 % parity** in the scheduled run of 2026-11-01 (run 41296648257, 242 of 246): four COMPILE-ERRORs, no wrong
+  output, from three regressions since the 100 % run, fixed in #163 (regression samples `1236_langversion7_no_regex_generator_output`
+  and the `ConfigBindingRefs` / `Net8Generators` project tests): the built-in regex generator emitted `#nullable` under
+  `LangVersion` 6/7.x and for programs with no `[GeneratedRegex]` (`ref-readonly-struct`, `csharp6-finished`, `csharp6-starter`);
+  trees of different projects carried different `/features` ("Inconsistent syntax tree features", `ConsoleApp1`); and the
+  SDK's generators of a `net8.0` project were bound to the `Microsoft.Interop.SourceGeneration` linked into csharpc.
+  The table below keeps the last 100 % run until a run confirms the fix.
 - **100 % parity** (run 41152809617 on `main` `d572f27`, 249 of 249), and no wrong output: C# 15 unions,
   `System.Data`, `AssemblyLoadContext`, `dynamic` (ADR 0019) and expression trees (interpreted, as NativeAOT
   runs them) closed the last seven. Before that, **97.2 % parity** (run 40424843703, 243 of 250), and no wrong output. The seven left: expression trees
