@@ -50,6 +50,33 @@ runs:
         echo "$bin" >> "$GITHUB_PATH"
         echo "CSHARPC_LIBLLVM=$bin\\libLLVM-18.dll" >> "$GITHUB_ENV"
 
+    # TLS and X.509 on Windows run over OpenSSL 3 (docs/adr/0022-tls.md, "Windows"): a program using them loads
+    # libssl-3-x64.dll / libcrypto-3-x64.dll from its own directory or PATH, as it would on a machine that
+    # ships them. The two DLLs come from MSYS2's OpenSSL package (pinned release and checksum; self-contained,
+    # they import only system DLLs and the UCRT); the package is zstd-compressed, which Python unpacks.
+    - name: Provide OpenSSL 3 (Windows)
+      if: inputs.os == 'windows'
+      shell: bash
+      run: |
+        set -euo pipefail
+        pkg=mingw-w64-ucrt-x86_64-openssl-3.6.5-1-any.pkg.tar.zst
+        curl -sSLf -o "$RUNNER_TEMP/$pkg" "https://repo.msys2.org/mingw/ucrt64/$pkg"
+        echo "773e021ebad83f14b5c103db467411e8ff064663e1c7e7f730e2be72f4117064  $RUNNER_TEMP/$pkg" | sha256sum -c -
+        dest="$RUNNER_TEMP/openssl"
+        mkdir -p "$dest"
+        python -m pip install --quiet zstandard
+        python - "$RUNNER_TEMP/$pkg" "$dest" <<'PY'
+        import sys, tarfile, zstandard
+        with open(sys.argv[1], 'rb') as f:
+            with tarfile.open(fileobj=zstandard.ZstdDecompressor().stream_reader(f), mode='r|') as t:
+                for m in t:
+                    if m.name in ('ucrt64/bin/libssl-3-x64.dll', 'ucrt64/bin/libcrypto-3-x64.dll'):
+                        m.name = m.name.rsplit('/', 1)[1]
+                        t.extract(m, sys.argv[2], filter='data')
+        PY
+        ls -l "$dest"
+        echo "$(cygpath -w "$dest")" >> "$GITHUB_PATH"
+
     - name: Install LLVM 18 (WebAssembly host)
       if: inputs.os == 'wasm'
       shell: bash
