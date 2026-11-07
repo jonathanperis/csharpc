@@ -203,6 +203,21 @@ public sealed partial class FunctionCodeGen
                 fn = _m.StaticThunk(S(group.Method));
                 described = S(group.Method);
                 break;
+            // An instance method of a struct (`Action<T> a = state.Register`, IL: `box S; ldftn S::M; newobj D`): the
+            // delegate's target is a boxed copy (an object), while the method takes `this` as a pointer to the struct,
+            // so the delegate calls the unboxing thunk that passes the payload. Calling the method itself would hand
+            // it the box, eight bytes (the header) before the struct's fields.
+            case IMethodReferenceOperation { Instance: { } structReceiver } group when !group.Method.IsStatic
+                && group.Method.ContainingType.IsValueType && _m.IsUserMethod(group.Method):
+            {
+                var receiver = EmitValue(structReceiver);
+                var receiverType = TypeOf(structReceiver);
+                target = receiverType is { IsValueType: true } ? Box(receiver, receiverType, creation) : receiver;
+                var structMethod = S(group.Method);
+                fn = _m.UnboxingThunk(structMethod);
+                described = structMethod;
+                break;
+            }
             case IMethodReferenceOperation group when _m.IsUserMethod(group.Method):
             {
                 // obj.Method: the receiver is the target; virtual methods are resolved now, as in .NET.
