@@ -1,5 +1,6 @@
-// A rooted path without a drive ("/rel") is a relative Uri on Unix (an implicit file path, so absolute, on Windows):
-// Uri.TryCreate with UriKind.RelativeOrAbsolute, and the same text read by the JSON Uri converter.
+// A rooted path without a drive ("/rel") is a relative Uri with UriKind.RelativeOrAbsolute, on Unix (where it is
+// an implicit file path only for UriKind.Absolute) and on Windows (where it is none; 1210_uri_rooted_path_platform
+// has the Absolute kind): Uri.TryCreate, and the same text read by the JSON Uri converter.
 using System;
 using System.Text.Json;
 using System.Text.Json.Serialization;
