@@ -24,7 +24,8 @@ foreach (var x in new[] { 0f, 1f, 2f, 8f, 0.25f, -8f, 100f, float.PositiveInfini
 // results that are exact in every libm
 Console.WriteLine(MathF.Pow(2f, 10f) + " " + MathF.Pow(10f, 3f) + " " + MathF.Pow(-8f, 1f / 3f) + " " + MathF.Pow(4f, 0.5f) + " " + MathF.Pow(7f, 0f));
 Console.WriteLine(MathF.Exp(0f) + " " + MathF.Log(1f) + " " + MathF.Log2(8f) + " " + MathF.Log10(1000f) + " " + MathF.Cbrt(27f) + " " + MathF.Cbrt(-8f));
-Console.WriteLine(MathF.Sin(0f) + " " + MathF.Cos(0f) + " " + MathF.Atan2(0f, -1f) + " " + MathF.Atan2(1f, 0f) + " " + MathF.Acos(1f));
+// (macOS's atan2f(0, -1) is one ulp below pi, so the angles print with 5 digits like the rest)
+Console.WriteLine(MathF.Sin(0f) + " " + MathF.Cos(0f) + " " + F(MathF.Atan2(0f, -1f)) + " " + F(MathF.Atan2(1f, 0f)) + " " + MathF.Acos(1f));
 
 // the generic-math statics reach the same functions
 Console.WriteLine(F(float.Sin(1f)) + " " + F(float.Cos(1f)) + " " + F(float.Pow(2f, 0.5f)) + " " + F(float.Log(10f, 10f)) + " " + F(float.Exp2(3.5f)) + " " + F(float.Exp10(2.5f)));

@@ -496,12 +496,14 @@ internal static class Intrinsics
                 var l = g.Module.Llvm;
                 return g.Builder.Cast(LLVMOpcode.BitCast, Arg(g, inv, 0), to switch { "i64" => l.I64, "f64" => l.F64, "i32" => l.I32, _ => l.F32 });
             };
-        // .NET's runtime wrappers answer a negative argument of Log and Log2 with the positive quiet NaN; glibc's log(-1) is
-        // the sign-set one that the hardware produces (the bits show through BitConverter and double.IsNegative).
+        // On Unix .NET's runtime wrappers answer a negative argument of Log and Log2 with the positive quiet NaN; glibc's log(-1) is
+        // the sign-set one that the hardware produces (the bits show through BitConverter and double.IsNegative). Windows' C
+        // runtime returns the sign-set one and .NET passes it on.
         LLVMValueRef logOf(FunctionCodeGen g, IInvocationOperation inv, string function)
         {
             var b = g.Builder;
             var x = Arg(g, inv, 0);
+            if (g.Types.Target.IsWindows) return CallUnaryF64(g, function, x);
             var nan = LlvmContext.ConstReal(g.Module.Llvm.F64, BitConverter.Int64BitsToDouble(0x7FF8000000000000));
             return b.Select(b.FCmp(LLVMRealPredicate.OLT, x, LlvmContext.ConstReal(g.Module.Llvm.F64, 0)), nan, CallUnaryF64(g, function, x));
         }
