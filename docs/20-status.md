@@ -24,8 +24,8 @@ built through the fork's `PublishAot`). A milestone is done only when none of it
 | M2 library | open | the surface of [06-roadmap.md](06-roadmap.md#m2--library-in-c) is implemented on Linux; macOS/Windows TLS over OpenSSL | #146 (survey), #143, #144, #89, #95–#104 |
 | M3 platforms | done | five `test (<platform>)` CI jobs green on `main` | |
 | M4 validation | open | NativeAOT parity 242 of 246 (98.4 %) in the latest Compatibility run, 249 of 249 before | #163 |
-| M5 packages and program as IL | open | `csharpc app.dll` and `--via-il` pass every sample; `-g` from the PDB; `calli`; RID assets | #168, #146 |
-| M6 bootstrapping | open | csharpc compiles itself at -O0 and -O2; the native compiler passes every sample | #169, #93 |
+| M5 packages and program as IL | open | `csharpc app.dll` and `--via-il` pass every sample; `-g` from the PDB; `calli`; RID assets | #175, #146 |
+| M6 bootstrapping | open | csharpc compiles itself at -O0 and -O2; the native compiler passes every sample | #174, #93 |
 | M7 TechEmpower (CLI) | on hold | harness and performance work on `main`; 288 of 456 metrics ahead on 2026-11-02, none buildable on 2026-11-07 | #164 |
 | M8, M9 | not started | | |
 
@@ -72,7 +72,7 @@ Everything listed here is a bullet of M2–M6; M7 and later wait for the owner's
   reflection lookups (#157, PR #158; #159).
 - **The gap lists from a large WinForms/macOS application:** #89, #93 (quadratic lowering), #95–#104.
 - **Native TLS routes on macOS and Windows:** #144, #143 (the OpenSSL route works and stays until they land).
-- **M5 leftovers:** #168. **M6 leftovers:** #169.
+- **M5 leftovers:** #175 (static archives). **M6 leftovers:** #174 (`Mutex`), #93.
 - **Platform limits that are explicit diagnostics:** async socket operations on macOS/Windows block pool threads;
   `FileSystemWatcher` on macOS/Windows; `PosixSignalRegistration` on Windows; no sockets, TLS, compression or OS ciphers
   on WebAssembly (`known gap` entries in `tests/platform-skips.txt`).

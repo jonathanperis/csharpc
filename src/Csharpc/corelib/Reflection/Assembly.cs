@@ -154,6 +154,22 @@ namespace CsharpcCoreLib
             return Load(new AssemblyName(assemblyString));
         }
 
+        // Assemblies are compiled in: a file cannot be loaded at run time (the same explicit stop as NativeAOT's missing dynamic loading).
+        public static Assembly LoadFrom(string assemblyFile)
+        {
+            ArgumentNullException.ThrowIfNull(assemblyFile);
+            return NotLoadable(assemblyFile);
+        }
+
+        public static Assembly LoadFile(string path)
+        {
+            ArgumentNullException.ThrowIfNull(path);
+            return NotLoadable(path);
+        }
+
+        private static Assembly NotLoadable(string path) =>
+            throw new NotSupportedException("Loading the assembly file '" + path + "' at run time is not supported by csharpc: the program's assemblies are compiled in.");
+
         private static bool SameBytes(byte[] a, byte[] b)
         {
             if (b == null || a.Length != b.Length) return false;
