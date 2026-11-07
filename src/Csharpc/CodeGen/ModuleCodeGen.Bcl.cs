@@ -379,6 +379,8 @@ public sealed partial class ModuleCodeGen
             INamedTypeSymbol { TypeKind: TypeKind.Interface } i when !i.IsUnboundGenericType && !TypeSubstitution.IsOpen(i) => InterfaceMethodTable(i),
             // Delegates: the table delegate instances carry (obj.GetType() == typeof(Func<int>)).
             INamedTypeSymbol { TypeKind: TypeKind.Delegate } d when !d.IsUnboundGenericType && !TypeSubstitution.IsOpen(d) => DelegateMethodTable(d),
+            // An anonymous type's instances carry the table of its layout.
+            INamedTypeSymbol { IsAnonymousType: true } anonymous when !TypeSubstitution.IsOpen(anonymous) => GetAnonymousLayout(anonymous).MethodTable,
             // Closed generic instantiations (and corelib shadows such as List<int>) use the same method
             // table their instances carry, so typeof(G<int>) == obj.GetType() holds.
             INamedTypeSymbol { TypeKind: TypeKind.Class } c when !c.IsStatic && IsUserType(CoreLib.TryMap(c) ?? c) && !c.IsUnboundGenericType && !TypeSubstitution.IsOpen(c) => GetLayout(c).MethodTable,

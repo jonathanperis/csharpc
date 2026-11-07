@@ -17,6 +17,22 @@ public sealed partial class ModuleCodeGen
 {
     private readonly Dictionary<INamedTypeSymbol, AnonymousLayout> _anonymous = new(SymbolEqualityComparer.Default);
 
+    /// <summary>
+    /// The getter of an anonymous type's property as a function, for what calls it as a method (a reflection record and its
+    /// invoker: EventSource.Write&lt;T&gt; reads the payload through PropertyInfo.GetValue); direct reads load the field.
+    /// </summary>
+    private LoweredFunction AnonymousGetter(IMethodSymbol getter)
+    {
+        var layout = GetAnonymousLayout((INamedTypeSymbol)getter.ContainingType.OriginalDefinition);
+        var property = (IPropertySymbol)getter.AssociatedSymbol!;
+        var type = FunctionTypeOf(getter);
+        var fn = Module.AddFunction(Mangler.Method(getter), type);
+        Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
+        var lowered = new LoweredFunction(fn, type);
+        new FunctionCodeGen(this, null, lowered).EmitAnonymousGetter(layout, property);
+        return lowered;
+    }
+
     public AnonymousLayout GetAnonymousLayout(INamedTypeSymbol type)
     {
         if (_anonymous.TryGetValue(type, out var existing)) return existing;
@@ -45,6 +61,7 @@ public sealed partial class ModuleCodeGen
         var mtType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32, LlvmContext.Array(Llvm.Ptr, 3));
         var mt = Module.AddGlobal($"__anon{index}_MT", mtType, constant: true, linkage: LLVMLinkage.Internal);
         layout.MethodTable = mt;
+        RegisterTypeMethodTable(mt, type); // a Type object for it: Type.Name, GetProperties, PropertyInfo.GetValue (EventSource.Write<T>)
         Native.LLVMSetInitializer(mt, Llvm.ConstStruct(
             ExternalGlobal("csrt_Object_MT"), CString("<>f__AnonymousType" + (index - 1)),
             Llvm.ConstInt(Llvm.I32, (long)layout.InstanceSize), Llvm.ConstInt(Llvm.I32, 0),
