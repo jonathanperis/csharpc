@@ -89,7 +89,7 @@ public static class RoslynFrontend
         if (settings.ProgramIl is null)
             compilation = NullableAttributeDeclarations.Add(compilation, parseOptions,
                 trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath)), nullable,
-                usesLibraries: settings.IlReferences.Any() || settings.Projects.Count > 1);
+                usesLibraries: settings.Projects.Count > 1 || settings.IlSet is { } set && set.Assemblies.Any(a => !a.IsCoreLib));
         // Reflection-based System.Text.Json calls get compile-time metadata from synthesized contexts.
         List<Diagnostic> jsonDiagnostics = [];
         compilation = JsonReflectionContexts.Add(compilation, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath))],
