@@ -3,13 +3,13 @@
 // Ported to csharpc from dotnet/runtime (release/11.0), src/libraries/System.Security.Cryptography/src/
 // System/Security/Cryptography/X509Certificates/{X509Chain,X509ChainPolicy,X509ChainElement,X509ChainStatus}.cs and
 // OpenSslX509ChainProcessor.cs; see THIRD-PARTY-NOTICES.md.
-// X509Chain on Linux: OpenSSL builds and verifies the chain (X509_verify_cert with a verify callback that records every
+// X509Chain on Linux and Windows: OpenSSL builds and verifies the chain (X509_verify_cert with a verify callback that records every
 // error and carries on, as .NET's shim does), the errors map to X509ChainStatusFlags with OpenSSL's own message as the
 // status information ("self-signed certificate"). Trust is the system store (SSL_CERT_FILE / SSL_CERT_DIR as OpenSSL
-// reads them) or the CustomTrustStore; revocation checking and downloading missing issuers are not implemented, so a
+// reads them on Linux, the ROOT certificate stores of the current user and the machine on Windows) or the CustomTrustStore; revocation checking and downloading missing issuers are not implemented, so a
 // RevocationMode other than NoCheck is an explicit NotSupportedException (docs/adr/0022-tls.md).
 #nullable disable
-#if CSHARPC_TARGET_LINUX
+#if CSHARPC_OPENSSL
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -248,7 +248,7 @@ namespace CsharpcCoreLib
             var result = new List<(byte[] Der, List<X509ChainStatusFlags> Flags, List<string> Info)>();
             try
             {
-                if (policy.TrustMode == X509ChainTrustMode.System) Ossl.X509_STORE_set_default_paths(store);
+                if (policy.TrustMode == X509ChainTrustMode.System) Ossl.AddSystemTrust(store);
                 else
                     foreach (X509Certificate c in policy.CustomTrustStore)
                         Ossl.X509_STORE_add_cert(store, ((X509CertificateImpl)(object)c).Handle);

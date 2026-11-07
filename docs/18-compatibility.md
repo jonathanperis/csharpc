@@ -766,7 +766,7 @@ What it took, besides library members (all with regression samples 840–849):
   `Assembly.DefinedTypes`/`GetTypes()` are explicit errors (the `startupAssembly` setting).
   `QuicListener.IsSupported` is false where MsQuic isn't installed, as .NET answers, folding Kestrel's
   HTTP/3 transport away; where MsQuic is installed csharpc stops with an explicit error. TLS exists on Linux
-  since 2026-11-06 ([ADR 0022](adr/0022-tls.md); Kestrel's HTTPS through it is not tested yet, its certificate
+  since 2026-11-06 and on Windows (over OpenSSL 3 DLLs) since 2026-11-07 ([ADR 0022](adr/0022-tls.md); Kestrel's HTTPS through it is not tested yet, its certificate
   loader's post-quantum keys and `SslStreamCertificateContext` are `NotSupportedException`s); elsewhere
   certificates and SSL streams throw `NotSupportedException`.
 
@@ -820,7 +820,7 @@ variables first, then `MacProxy` over CFNetwork / `HttpWindowsProxy` over WinINe
 
 Explicit diagnostics, never a different behavior:
 
-- **TLS** works on Linux (see "SslStream and https" below); on macOS and Windows `https://` fails with `NotSupportedException:
+- **TLS** works on Linux and, with the OpenSSL 3 DLLs at run time, on Windows (see "SslStream and https" below); on macOS `https://` fails with `NotSupportedException:
   TLS and X.509 certificates ... are not supported by csharpc yet`. HTTP/2 needs ALPN `h2` negotiated by a server; HTTP/3 and
   QUIC are stubs (HTTP/2 over TLS and over cleartext "prior knowledge" is not tested).
 - **NTLM / Negotiate** authentication (`NegotiateAuthentication` needs GSSAPI/SSPI): `NotSupportedException` when a
@@ -839,9 +839,10 @@ Not yet measured: HttpClient's speed against NativeAOT's (the pool, header parsi
 IL; the sockets under it are csharpc's). A program that does one `GetStringAsync` is 3.2 MB at `-O2` (`tests/size.sh` has
 no HttpClient program yet); the budgets of the programs it has are unchanged.
 
-## SslStream and https (Linux)
+## SslStream and https (Linux, Windows)
 
-`SslStream` (client and server), `AuthenticatedStream` and `HttpClient` over `https://` work on Linux ([ADR 0022](adr/0022-tls.md)):
+`SslStream` (client and server), `AuthenticatedStream` and `HttpClient` over `https://` work on Linux and Windows ([ADR 0022](adr/0022-tls.md);
+on Windows the OpenSSL 3 DLLs `libssl-3-x64.dll` and `libcrypto-3-x64.dll` must be next to the executable or on `PATH`):
 libssl 3 under corelib C#, with .NET's validation logic, policy errors and exception messages. Samples `1101_sslstream_loopback`
 (handshake properties and callbacks, synchronous and asynchronous I/O, a 1 MB round trip, TLS 1.2/1.3 selection, mutual
 authentication, ALPN, the unauthenticated state, close-notify), `1102_sslstream_validation` (untrusted root, a refusing callback,
@@ -854,7 +855,7 @@ difference (client session resumption) and the platforms are in the ADR. Found, 
 for `localhost` when the listener is IPv4-only fails with `Software caused connection abort` instead of falling back from `::1` to
 `127.0.0.1` (plain HTTP too: `HttpClient.GetStringAsync("http://localhost:port")`), so the samples address `127.0.0.1`.
 
-## X.509 certificates (Linux)
+## X.509 certificates (Linux, Windows)
 
 `X509Certificate`, `X509Certificate2`, `X509Certificate2Collection`, `X509CertificateLoader`, `X509Chain` and the pieces under them
 (`X500DistinguishedName`, `AsnEncodedData`, `Oid`, `PublicKey`, `X509ChainPolicy`/`Element`/`Status`) are corelib C# over OpenSSL 3
@@ -872,7 +873,10 @@ PFX password, garbage data, a missing file (OpenSSL's `error:10000080:BIO routin
 Explicit diagnostics: `X509Certificate2.Extensions` and the typed extension classes (X509KeyUsageExtension, ...), `X509Store`,
 PKCS#7, exporting a PFX, `CopyWithPrivateKey`, `ToString(true)` of a `X509Certificate2` (it lists the extensions),
 `GetNameInfo` of names without CN/OU/O, revocation checking (`X509Chain` needs `RevocationMode.NoCheck`), ECDSA/DSA keys.
-macOS and Windows keep the previous `NotSupportedException` for every certificate API.
+macOS keeps the previous `NotSupportedException` for every certificate API. On Windows the same code runs over the OpenSSL 3
+DLLs, with the Windows `ROOT` certificate stores (current user, then local machine) as the trust anchors of
+`X509ChainTrustMode.System` (sample `1231_x509_system_trust`); roots Windows downloads on demand and the `CA` (intermediate)
+stores are not consulted, and `RSA.Create()` (sample 553) uses the same OpenSSL on Windows rather than CNG.
 
 ## Expression trees
 

@@ -12,7 +12,7 @@
 // callbacks, cipher suite policies, client certificate renegotiation (NegotiateClientCertificateAsync), the
 // CipherAlgorithm/HashAlgorithm/KeyExchangeAlgorithm properties.
 #nullable disable
-#if CSHARPC_TARGET_LINUX
+#if CSHARPC_OPENSSL
 using System;
 using System.Collections.Generic;
 using System.IO;

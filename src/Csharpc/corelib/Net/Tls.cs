@@ -201,7 +201,7 @@ namespace CsharpcCoreLib
         }
     }
 
-#if !CSHARPC_TARGET_LINUX
+#if !CSHARPC_OPENSSL
     [Shadows("System.Net.Security.SslStream")]
     public class SslStreamImpl : Stream
     {
@@ -251,7 +251,7 @@ namespace CsharpcCoreLib
     }
 #endif
 
-#if !CSHARPC_TARGET_LINUX
+#if !CSHARPC_OPENSSL
     [Shadows("System.Security.Cryptography.X509Certificates.X509Certificate")]
     public class X509CertificateImpl : IDisposable
     {
@@ -277,7 +277,7 @@ namespace CsharpcCoreLib
         public OidImpl() { }
         public OidImpl(string oid)
         {
-#if CSHARPC_TARGET_LINUX
+#if CSHARPC_OPENSSL
             // A dotted value or a friendly name: the table fills in the other (OidLookup).
             if (oid != null && oid.Length > 0 && char.IsDigit(oid[0]))
             {
@@ -346,7 +346,7 @@ namespace CsharpcCoreLib
         public void Reset() => _current = -1;
     }
 
-#if !CSHARPC_TARGET_LINUX
+#if !CSHARPC_OPENSSL
     [Shadows("System.Security.Cryptography.AsnEncodedData")]
     public class AsnEncodedDataImpl
     {
@@ -417,7 +417,7 @@ namespace CsharpcCoreLib
         public IEnumerable<System.Net.IPAddress> EnumerateIPAddresses() => throw Tls.NotSupported();
     }
 
-#if !CSHARPC_TARGET_LINUX
+#if !CSHARPC_OPENSSL
     [Shadows("System.Security.Cryptography.X509Certificates.X509ChainPolicy")]
     public sealed class X509ChainPolicyImpl
     {
@@ -427,7 +427,7 @@ namespace CsharpcCoreLib
     }
 #endif
 
-#if !CSHARPC_TARGET_LINUX
+#if !CSHARPC_OPENSSL
     [Shadows("System.Security.Cryptography.X509Certificates.X509ChainElementCollection")]
     public sealed class X509ChainElementCollectionImpl
     {
@@ -437,7 +437,7 @@ namespace CsharpcCoreLib
     }
 #endif
 
-#if !CSHARPC_TARGET_LINUX
+#if !CSHARPC_OPENSSL
     [Shadows("System.Security.Cryptography.X509Certificates.X509ChainElement")]
     public class X509ChainElementImpl
     {
@@ -563,7 +563,7 @@ namespace CsharpcCoreLib
         public static DSA Create() => throw Tls.NotSupported();
     }
 
-#if !CSHARPC_TARGET_LINUX
+#if !CSHARPC_OPENSSL
     [ShadowMembers("System.Security.Cryptography.X509Certificates.X509CertificateLoader")]
     internal static class X509CertificateLoaderMembers
     {
@@ -609,7 +609,7 @@ namespace CsharpcCoreLib
         public X509Certificate2 TargetCertificate => throw Tls.NotSupported();
     }
 
-#if !CSHARPC_TARGET_LINUX
+#if !CSHARPC_OPENSSL
     [ShadowMembers("System.Security.Cryptography.X509Certificates.RSACertificateExtensions")]
     internal static class RSACertificateExtensionsMembers
     {
@@ -660,7 +660,7 @@ namespace CsharpcCoreLib
         public static X509Certificate2 CopyWithPrivateKey(X509Certificate2 certificate, DSA privateKey) => throw Tls.NotSupported();
     }
 
-#if !CSHARPC_TARGET_LINUX
+#if !CSHARPC_OPENSSL
     [Shadows("System.Security.Cryptography.X509Certificates.X509Certificate2")]
     public class X509Certificate2Impl : X509CertificateImpl
     {
@@ -694,7 +694,7 @@ namespace CsharpcCoreLib
 #endif
 
     // Certificate collections can't be created (X509CertificateCollection's constructors throw): no instance exists.
-#if !CSHARPC_TARGET_LINUX
+#if !CSHARPC_OPENSSL
     [Shadows("System.Security.Cryptography.X509Certificates.X509CertificateCollection")]
     public class X509CertificateCollectionImpl : System.Collections.IEnumerable
     {
@@ -710,7 +710,7 @@ namespace CsharpcCoreLib
     }
 #endif
 
-#if !CSHARPC_TARGET_LINUX
+#if !CSHARPC_OPENSSL
     [Shadows("System.Security.Cryptography.X509Certificates.X509Certificate2Collection")]
     public class X509Certificate2CollectionImpl : X509CertificateCollectionImpl, IEnumerable<X509Certificate2>
     {
@@ -724,7 +724,7 @@ namespace CsharpcCoreLib
     }
 #endif
 
-#if !CSHARPC_TARGET_LINUX
+#if !CSHARPC_OPENSSL
     [Shadows("System.Security.Cryptography.X509Certificates.X509Certificate2Enumerator")]
     public sealed class X509Certificate2EnumeratorImpl : IEnumerator<X509Certificate2>
     {
@@ -737,7 +737,7 @@ namespace CsharpcCoreLib
     }
 #endif
 
-#if !CSHARPC_TARGET_LINUX
+#if !CSHARPC_OPENSSL
     [Shadows("System.Security.Cryptography.X509Certificates.PublicKey")]
     public sealed class PublicKeyImpl
     {
@@ -746,7 +746,7 @@ namespace CsharpcCoreLib
     }
 #endif
 
-#if !CSHARPC_TARGET_LINUX
+#if !CSHARPC_OPENSSL
     [Shadows("System.Security.Cryptography.X509Certificates.X509Chain")]
     public class X509ChainImpl : IDisposable
     {

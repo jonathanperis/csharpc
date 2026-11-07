@@ -49,6 +49,24 @@ runs:
         echo "$bin" >> "$GITHUB_PATH"
         echo "CSHARPC_LIBLLVM=$bin\\libLLVM-18.dll" >> "$GITHUB_ENV"
 
+    # TLS and X.509 on Windows run over OpenSSL 3 (docs/adr/0022-tls.md, "Windows"): a program using them loads
+    # libssl-3-x64.dll / libcrypto-3-x64.dll from its own directory or PATH, as it would on a machine that
+    # ships them. The runner's Git for Windows bundles them; a directory of just those DLLs goes on PATH so
+    # no other tool of that bundle shadows the system's.
+    - name: Provide OpenSSL 3 (Windows)
+      if: inputs.os == 'windows'
+      shell: bash
+      run: |
+        set -euo pipefail
+        src="$(cygpath -u "$PROGRAMFILES")/Git/mingw64/bin"
+        dest="$RUNNER_TEMP/openssl"
+        mkdir -p "$dest"
+        for dll in libssl-3-x64.dll libcrypto-3-x64.dll zlib1.dll; do
+          if [[ -f "$src/$dll" ]]; then cp "$src/$dll" "$dest/"; elif [[ $dll != zlib1.dll ]]; then echo "missing $src/$dll" >&2; ls "$src" | head -50 >&2; exit 1; fi
+        done
+        ls -l "$dest"
+        echo "$(cygpath -w "$dest")" >> "$GITHUB_PATH"
+
     - name: Install LLVM 18 (WebAssembly host)
       if: inputs.os == 'wasm'
       shell: bash

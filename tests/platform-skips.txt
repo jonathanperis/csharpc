@@ -174,7 +174,6 @@ wasi 538_aes_cryptostream              known gap: no OS cipher on WebAssembly (W
 windows 540_tar_zipfile                known gap: .NET's native shims are linked from the NativeAOT runtime pack, which csharpc can't link with MinGW yet
 wasi 540_tar_zipfile                   known gap: no NativeAOT runtime pack (native shims) for WebAssembly
 macos 553_rsa                          known gap: RSA.Create() needs Security.framework (SecKey), not implemented yet
-windows 553_rsa                        known gap: RSA.Create() needs CNG (BCrypt), not implemented yet
 wasi 553_rsa                           known gap: no OS RSA on WebAssembly (WASI)
 wasi 549_async_local                   needs threads: the sample starts a Thread (Thread.Start throws PlatformNotSupportedException on WebAssembly)
 wasi 552_plinq_attached_children       needs threads: the parallel sort merges partitions through barriers (pool work items run one after another on WebAssembly)
@@ -242,19 +241,19 @@ macos 1009_httpclient_json  known gap: System.Net.Http's system-proxy support (C
 windows 1009_httpclient_json  known gap: System.Net.Http's system-proxy support (HttpWindowsProxy: WinINet, WindowsIdentity, EventWaitHandle) isn't implemented, so HttpClient is an explicit compile error on Windows
 macos 1010_httpclient_base_address  known gap: System.Net.Http's system-proxy support (CFNetwork: Marshal.GetFunctionPointerForDelegate) isn't implemented, so HttpClient is an explicit compile error on macOS
 
-# TLS and X.509 (docs/adr/0022-tls.md): over OpenSSL on Linux only.
+# TLS and X.509 (docs/adr/0022-tls.md): over OpenSSL 3, on Linux and (with the OpenSSL DLLs at run time) on Windows.
 macos 1100_x509_certificates  known gap: X.509 certificates, PKCS#12 and chains need Security.framework on macOS, not implemented yet (an explicit NotSupportedException)
-windows 1100_x509_certificates  known gap: X.509 certificates, PKCS#12 and chains need CNG/CryptoAPI on Windows, not implemented yet (an explicit NotSupportedException)
 wasi 1100_x509_certificates  known gap: no OpenSSL on WebAssembly (WASI): certificates throw NotSupportedException
 macos 1101_sslstream_loopback  known gap: SslStream needs SecureTransport/Network.framework on macOS, not implemented yet (an explicit NotSupportedException)
-windows 1101_sslstream_loopback  known gap: SslStream needs SChannel on Windows, not implemented yet (an explicit NotSupportedException)
+windows 1101_sslstream_loopback  live: joins lines with a bare "\n" itself, next to WriteLine's "\r\n"
 wasi 1101_sslstream_loopback  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 macos 1102_sslstream_validation  known gap: SslStream needs SecureTransport/Network.framework on macOS, not implemented yet (an explicit NotSupportedException)
-windows 1102_sslstream_validation  known gap: SslStream needs SChannel on Windows, not implemented yet (an explicit NotSupportedException)
+windows 1102_sslstream_validation  live: joins lines with a bare "\n" itself, next to WriteLine's "\r\n"
 wasi 1102_sslstream_validation  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 macos 1103_httpclient_https  known gap: https needs SslStream (SecureTransport/Network.framework on macOS, not implemented yet), and the system-proxy gap of HttpClient applies too
-windows 1103_httpclient_https  known gap: https needs SslStream (SChannel on Windows, not implemented yet), and the system-proxy gap of HttpClient applies too
 wasi 1103_httpclient_https  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+macos 1231_x509_system_trust  known gap: X.509 certificates and chains need Security.framework on macOS, not implemented yet (an explicit NotSupportedException)
+wasi 1231_x509_system_trust  known gap: no OpenSSL on WebAssembly (WASI): certificates throw NotSupportedException
 wasi 1053_binary_primitives_native_int  nint/nuint are 4 bytes on wasm32: the bytes written and reversed differ from the 64-bit recording
 windows 1057_marshal_memory_copy_strings  live: Marshal's ANSI conversions use the Windows ANSI code page (1252, where é survives), UTF-8 on Linux and macOS
 windows 1058_marshal_variant_bool  known gap: .NET on Windows marshals VARIANT_BOOL fields with its built-in COM support and gives their size; csharpc reports them as unmarshalable there as elsewhere
