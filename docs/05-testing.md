@@ -63,6 +63,12 @@ rejects the assembly (exit 1, any diagnostic). `CSHARPC_IL_BUILD=dir` keeps the 
 samples known to fail that way, and a shard fails on a sample outside the list or a listed one that
 passes (`tests/il-main-check.sh`).
 
+`CSHARPC_NATIVE=path/to/csharpc-native` runs the suite with the compiler csharpc built from itself
+(`tools/bootstrap/selfhost.sh`, M6) instead of the managed one: the samples and recordings are the same, so a
+difference is a csharpc that miscompiled csharpc. The [Bootstrap](../.github/workflows/bootstrap.yml) workflow
+runs it in 8 shards for the `-O0` and the `-O2` native compiler, with `tools/bootstrap/native-known-failures.txt`
+as the list (same check as above); `tools/bootstrap/native-diff.sh` shows where the two compilers' IR differs.
+
 Environment: `DOTNET` (path to the `dotnet` executable; the .NET 11 SDK must be first on `PATH`),
 `CSHARPC_OPT`, `CSHARPC_TEST_TIMEOUT`, `CSHARPC_TEST_TARGET` (cross-target runs, see below).
 

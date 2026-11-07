@@ -58,7 +58,7 @@ public sealed partial class FunctionCodeGen
             _b.PositionAtEnd(next);
         }
         ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.NotSupportedException")!,
-            "The custom attributes of this assembly are not available to csharpc yet (only those of assemblies compiled from IL are).");
+            CallCoreLib("AssemblyImpl", "UnavailableAttributesMessage", name));
         _b.PositionAtEnd(done);
         return _b.Load(L.Ptr, result);
     }
@@ -109,7 +109,7 @@ public sealed partial class FunctionCodeGen
             _b.PositionAtEnd(next);
         }
         ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.NotSupportedException")!,
-            "The custom attributes of this assembly are not available to csharpc yet (only those of assemblies compiled from IL are).");
+            CallCoreLib("AssemblyImpl", "UnavailableAttributesMessage", name));
         _b.PositionAtEnd(done);
         return _b.Load(L.Ptr, result);
     }

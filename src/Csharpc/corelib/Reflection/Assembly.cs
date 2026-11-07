@@ -109,6 +109,10 @@ namespace CsharpcCoreLib
         /// <summary>The identity compiled-in attribute lookups dispatch on (FunctionCodeGen.AssemblyAttributes.cs).</summary>
         internal static string NameOf(Assembly assembly) => ((AssemblyImpl)(object)assembly)._fullName;
 
+        /// <summary>NotSupportedException's text for an assembly whose attributes are not compiled in (it names the assembly).</summary>
+        internal static string UnavailableAttributesMessage(string assemblyName) =>
+            "The custom attributes of the assembly '" + assemblyName + "' are not available to csharpc yet (only those of assemblies compiled from IL are).";
+
         /// <summary>
         /// Assembly.Load in a closed world: the program's own assemblies and the IL assemblies csharpc compiled
         /// are found by simple name (case-insensitively, as the binder matches); a reference csharpc can't

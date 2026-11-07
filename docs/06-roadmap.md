@@ -313,7 +313,17 @@ declarations and constants in memory (ADR 0014, "Next hot spots"). Instead the m
 cheaper, with byte-identical output (`tools/bootstrap/compare-compilers.sh`; numbers in
 [#108](https://github.com/jonathanperis/csharpc/issues/108)): generic interface dispatchers look only at the types that implement their
 interface instead of resolving every class's implementation each round, and array interface maps compute their facts once per
-interface and element. Next: the native compiler on the whole differential suite.
+interface and element.
+The native compiler on the whole differential suite (`CSHARPC_NATIVE` in `tests/run.sh`, the `native-suite` jobs of the
+`Bootstrap` workflow, run 42247074061): 582 of 616 samples pass at -O0 and -O2, 34 do not, the same with both native
+compilers (`tools/bootstrap/native-known-failures.txt`). 21 are source generators the SDK ships as assemblies
+(System.Text.Json, LibraryImport), which a csharpc compiled by csharpc cannot load at run time (the single-file path
+was silent about it; it is an explicit CSLLVM0001 now) and are decided (the owner, 2026-11-06): the two generators are linked into csharpc; 11 are stack traces, where the
+native compiler's emit of the program for its PDB stops because Roslyn reads an attribute of System.Private.CoreLib
+(csharpc has none, a NotSupportedException), so the lambda frames are missing (decided: the framework's real attributes); 2 are the built-in `[GeneratedRegex]`
+generator failing to initialize with an ArrayTypeMismatchException in `ArrayBuilder<IIncrementalGeneratorOutputNode>.Add`
+(a store check Roslyn's driver passes under the JIT, cause not found).
+Not done: the suite is not at 100 % yet. Next: the 34 known failures (the generators linked in, the corelib's real assembly attributes for the PDB writer).
 
 ### Runtime tiers — C# for library code, C where it is the right tool
 [ADR 0017](adr/0017-runtime-tiers.md); a C-free runtime is not a goal (owner, 2026-10-30). **Tier 1 (now,
