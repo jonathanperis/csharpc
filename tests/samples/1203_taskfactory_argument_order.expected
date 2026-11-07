@@ -1,0 +1,46 @@
+all: null tasks, null action, bad opts: ArgumentNullException: Value cannot be null. (Parameter 'continuationAction')
+all: null tasks, null action: ArgumentNullException: Value cannot be null. (Parameter 'continuationAction')
+all: empty, null action: ArgumentNullException: Value cannot be null. (Parameter 'continuationAction')
+all: done, null action, null sched: ArgumentNullException: Value cannot be null. (Parameter 'continuationAction')
+all: done, action, null sched, bad opts: ArgumentOutOfRangeException: It is invalid to exclude specific continuation kinds for continuations off of multiple tasks. (Parameter 'continuationOptions')
+all: null tasks, null sched: ArgumentNullException: Value cannot be null. (Parameter 'tasks')
+all: empty, null sched: ArgumentNullException: Value cannot be null. (Parameter 'scheduler')
+all: bad opts + null element: ArgumentOutOfRangeException: It is invalid to exclude specific continuation kinds for continuations off of multiple tasks. (Parameter 'continuationOptions')
+all: canceled token + null action: ArgumentNullException: Value cannot be null. (Parameter 'continuationAction')
+any: null tasks, null action, bad opts: ArgumentNullException: Value cannot be null. (Parameter 'continuationAction')
+any: empty, null action: ArgumentNullException: Value cannot be null. (Parameter 'continuationAction')
+any: done, action, null sched, bad opts: ArgumentOutOfRangeException: It is invalid to exclude specific continuation kinds for continuations off of multiple tasks. (Parameter 'continuationOptions')
+any: null tasks, null sched: ArgumentNullException: Value cannot be null. (Parameter 'tasks')
+tf: null func + empty: ArgumentNullException: Value cannot be null. (Parameter 'continuationFunction')
+all null tasks bad opts: ArgumentOutOfRangeException: It is invalid to exclude specific continuation kinds for continuations off of multiple tasks. (Parameter 'continuationOptions')
+all null tasks bad opts func: ArgumentOutOfRangeException: It is invalid to exclude specific continuation kinds for continuations off of multiple tasks. (Parameter 'continuationOptions')
+any null tasks bad opts: ArgumentOutOfRangeException: It is invalid to exclude specific continuation kinds for continuations off of multiple tasks. (Parameter 'continuationOptions')
+any empty bad opts: ArgumentOutOfRangeException: It is invalid to exclude specific continuation kinds for continuations off of multiple tasks. (Parameter 'continuationOptions')
+any empty null sched: ArgumentException: The tasks argument contains no tasks. (Parameter 'tasks')
+any null elem null sched: ArgumentNullException: Value cannot be null. (Parameter 'scheduler')
+all null elem null sched: ArgumentNullException: Value cannot be null. (Parameter 'scheduler')
+all generic empty null sched: ArgumentNullException: Value cannot be null. (Parameter 'scheduler')
+any generic null tasks null sched: ArgumentNullException: Value cannot be null. (Parameter 'tasks')
+tf all empty null sched: ArgumentNullException: Value cannot be null. (Parameter 'scheduler')
+fa: null ar, null end: ArgumentNullException: Value cannot be null. (Parameter 'asyncResult')
+fa: null ar, bad opts: ArgumentNullException: Value cannot be null. (Parameter 'asyncResult')
+fa: null end, null sched: ArgumentNullException: Value cannot be null. (Parameter 'endMethod')
+fa: null sched, bad opts: ArgumentNullException: Value cannot be null. (Parameter 'scheduler')
+fa: null end, bad opts: ArgumentNullException: Value cannot be null. (Parameter 'endMethod')
+fa: null begin, null end: ArgumentNullException: Value cannot be null. (Parameter 'beginMethod')
+fa: null begin, bad opts: ArgumentNullException: Value cannot be null. (Parameter 'beginMethod')
+fa: null end, bad opts (begin/end): ArgumentNullException: Value cannot be null. (Parameter 'endMethod')
+fa: ar+AttachedToParent|LongRunning: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'creationOptions')
+fa: be+AttachedToParent|LongRunning: ArgumentOutOfRangeException: It is invalid to specify TaskCreationOptions.LongRunning in calls to FromAsync. (Parameter 'creationOptions')
+fa: be+LongRunning|PreferFairness: ArgumentOutOfRangeException: It is invalid to specify TaskCreationOptions.LongRunning in calls to FromAsync. (Parameter 'creationOptions')
+False
+fa: begin returns incomplete op, never completes (just call): no exception
+end ran
+RanToCompletion
+fa: callback inside begin, CompletedSynchronously=false: no exception
+RanToCompletion 1
+fa: callback inside begin AND CompletedSynchronously=true: no exception
+RanToCompletion 1
+fa: begin returns completed-sync op without calling back: no exception
+False
+fa: begin returns completed op (not sync) without calling back: no exception

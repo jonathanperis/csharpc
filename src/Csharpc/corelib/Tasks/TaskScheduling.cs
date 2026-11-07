@@ -104,6 +104,31 @@ namespace CsharpcCoreLib
             }
         }
 
+        // Task.InternalRunSynchronously(scheduler, waitForCompletion: false), which TaskFactory.FromAsync uses for
+        // its end method: the default scheduler runs it on the calling thread; a custom one is asked through
+        // TryExecuteTaskInline first and gets the task queued when it declines.
+        internal void RunInline(Task task, Action work)
+        {
+            TaskSupport.MarkQueued(task);
+            if (this is ThreadPoolTaskSchedulerImpl)
+            {
+                work();
+                return;
+            }
+            lock (_pending) _pending.Add(new KeyValuePair<Task, Action>(task, work));
+            try
+            {
+                if (!TryExecuteTaskInline(task, false)) QueueTask(task);
+            }
+            catch (Exception e)
+            {
+                lock (_pending)
+                    for (int i = 0; i < _pending.Count; i++)
+                        if (ReferenceEquals(_pending[i].Key, task)) { _pending.RemoveAt(i); break; }
+                throw new TaskSchedulerException(e);
+            }
+        }
+
         public static TaskSchedulerImpl FromCurrentSynchronizationContext() =>
             throw new InvalidOperationException("The current SynchronizationContext may not be used as a TaskScheduler.");
 
@@ -369,7 +394,7 @@ namespace CsharpcCoreLib
     }
 
     [Shadows("System.Threading.Tasks.TaskFactory")]
-    public class TaskFactoryImpl
+    public partial class TaskFactoryImpl
     {
         private readonly CancellationToken m_defaultCancellationToken;
         private readonly TaskSchedulerImpl m_defaultScheduler;
@@ -432,7 +457,7 @@ namespace CsharpcCoreLib
     }
 
     [Shadows("System.Threading.Tasks.TaskFactory`1")]
-    public class TaskFactoryImpl<TResult>
+    public partial class TaskFactoryImpl<TResult>
     {
         private readonly CancellationToken m_defaultCancellationToken;
         private readonly TaskSchedulerImpl m_defaultScheduler;

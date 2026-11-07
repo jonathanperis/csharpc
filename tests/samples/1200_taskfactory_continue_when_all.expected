@@ -1,0 +1,61 @@
+all1 2 True False
+RanToCompletion True
+all2 token
+all3 options
+all4 full
+r2
+r2
+r3
+r4
+g1 60 Task`1[]
+g2
+g3
+g4
+60
+3
+4
+5
+after one: False
+after two: False
+Faulted,RanToCompletion,Canceled RanToCompletion
+faulted: InvalidOperationException: in continuation
+canceled early: True Canceled
+canceled: TaskCanceledException: A task was canceled.
+pre-canceled: canceled: TaskCanceledException: A task was canceled. Canceled
+pre-canceled result: canceled: TaskCanceledException: A task was canceled. Canceled
+null tasks: ArgumentNullException: Value cannot be null. (Parameter 'tasks')
+empty tasks: ArgumentException: The tasks argument contains no tasks. (Parameter 'tasks')
+null element: ArgumentException: The tasks argument included a null value. (Parameter 'tasks')
+null action: ArgumentNullException: Value cannot be null. (Parameter 'continuationAction')
+null func: ArgumentNullException: Value cannot be null. (Parameter 'continuationFunction')
+null scheduler: ArgumentNullException: Value cannot be null. (Parameter 'scheduler')
+NotOnFaulted: ArgumentOutOfRangeException: It is invalid to exclude specific continuation kinds for continuations off of multiple tasks. (Parameter 'continuationOptions')
+NotOnRanToCompletion: ArgumentOutOfRangeException: It is invalid to exclude specific continuation kinds for continuations off of multiple tasks. (Parameter 'continuationOptions')
+OnlyOnCanceled: ArgumentOutOfRangeException: It is invalid to exclude specific continuation kinds for continuations off of multiple tasks. (Parameter 'continuationOptions')
+LongRunning|ExecuteSynchronously: ArgumentOutOfRangeException: The specified TaskContinuationOptions combined LongRunning and ExecuteSynchronously.  Synchronous continuations should not be long running. (Parameter 'continuationOptions')
+bad options: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'continuationOptions')
+generic null tasks: ArgumentNullException: Value cannot be null. (Parameter 'tasks')
+generic empty: ArgumentException: The tasks argument contains no tasks. (Parameter 'tasks')
+generic null element: ArgumentException: The tasks argument included a null value. (Parameter 'tasks')
+generic null func: ArgumentNullException: Value cannot be null. (Parameter 'continuationFunction')
+generic NotOnFaulted: ArgumentOutOfRangeException: It is invalid to exclude specific continuation kinds for continuations off of multiple tasks. (Parameter 'continuationOptions')
+default token: no exception
+False
+2
+2
+3
+4
+30
+6
+7
+8
+TResult factory null tasks: ArgumentNullException: Value cannot be null. (Parameter 'tasks')
+TResult factory NotOnCanceled: ArgumentOutOfRangeException: It is invalid to exclude specific continuation kinds for continuations off of multiple tasks. (Parameter 'continuationOptions')
+9
+True
+1
+False
+1
+5
+canceled: TaskCanceledException: A task was canceled.
+11

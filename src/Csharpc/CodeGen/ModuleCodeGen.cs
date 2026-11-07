@@ -635,6 +635,15 @@ public sealed partial class ModuleCodeGen
         /// <summary>Module-level steps (tables, dispatchers, metadata, reachability), in first-run order.</summary>
         public readonly List<(string Name, long Ticks)> Steps = [];
 
+        /// <summary>Times a part of a step (counted inside it, listed after it as "step/part"); disposed to add the elapsed time.</summary>
+        internal Part Time(string name) => new(this, name);
+
+        internal readonly struct Part(LoweringStats stats, string name) : IDisposable
+        {
+            private readonly long _start = System.Diagnostics.Stopwatch.GetTimestamp();
+            public void Dispose() => stats.AddStep(name, System.Diagnostics.Stopwatch.GetTimestamp() - _start);
+        }
+
         internal void AddStep(string name, long ticks)
         {
             var i = Steps.FindIndex(s => s.Name == name);

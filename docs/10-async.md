@@ -129,6 +129,20 @@ every read (the task keeps only the inner-exception list), as in .NET; `TaskCanc
 field of the exception (`data` in `csrt_Exception`) and its `CancellationToken` is the canceled task's own.
 The task object is the same csrt struct whatever its type: only the table pointer differs.
 
+**`TaskFactory.ContinueWhenAll` / `ContinueWhenAny` / `FromAsync`** (`corelib/Tasks/TaskFactoryOps.cs`, the public
+overloads in `TaskFactoryMembers.cs`; every overload .NET has on `TaskFactory` and `TaskFactory<TResult>`). A multi-task
+continuation is a gate task over a private copy of the antecedents (completed when all, or the first in order, have
+completed, whatever their outcome) that `TaskSupport.ContinueWith` hooks as for `Task.ContinueWith`: the factory's
+default token, continuation options and scheduler apply when the overload does not name them, a token canceled before
+the antecedents finish cancels the continuation at once, `NotOn*`/`OnlyOn*` are rejected, and the argument checks keep
+.NET's exceptions, messages and order (which differs between All and Any). `FromAsync` over an `IAsyncResult` runs the
+end method as a task: inline when the operation is complete (the scheduler is asked through `TryExecuteTaskInline`,
+else `QueueTask`), otherwise from `ThreadPool.RegisterWaitForSingleObject` on its wait handle (so on WebAssembly, which
+has no threads, an incomplete operation is `PlatformNotSupportedException`); an `OperationCanceledException` from the end
+method cancels the task. Begin/End pairs call Begin at once (its exception propagates), complete the promise from the
+callback or, for a `CompletedSynchronously` result, right after Begin returns, and `AsyncState` is the state argument.
+Left out: the type identity of the returned tasks (`GetType()` names `ContinuationResultTaskFromResultTask<,>` etc.).
+
 **Threading model** (.NET semantics for console apps, `src/runtime/async.c`):
 
 - **Thread pool.** `Task.Run` work items run on a pool of background worker threads
