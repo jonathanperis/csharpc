@@ -290,6 +290,12 @@ public static class SourceGenerators
         public Assembly LoadFromPath(string fullPath) =>
             _contexts.GetOrAdd(Path.GetDirectoryName(fullPath)!, d => new DirectoryContext(d)).LoadFile(fullPath);
 
+        private static readonly string s_runtimeDirectory = Path.GetFullPath(System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory());
+
+        /// <summary>An assembly of the shared framework csharpc runs on (System.*, netstandard, mscorlib ...).</summary>
+        private static bool IsFrameworkAssembly(string name) =>
+            File.Exists(Path.Combine(s_runtimeDirectory, name + ".dll"));
+
         private sealed class DirectoryContext(string directory) : AssemblyLoadContext($"csharpc analyzers: {directory}")
         {
             private readonly Dictionary<string, Assembly> _loaded = new(StringComparer.Ordinal);
@@ -311,10 +317,16 @@ public static class SourceGenerators
                 return File.Exists(candidate) ? LoadFile(candidate) : null;
             }
 
-            /// <summary>The host's copy when it has one (Microsoft.CodeAnalysis*, System.*), as csc's loader prefers the compiler's context.</summary>
+            /// <summary>
+            /// The host's copy when it has one (Microsoft.CodeAnalysis*, System.*), as csc's loader prefers the compiler's
+            /// context. Not the assemblies csharpc links for its own use (Microsoft.Interop.SourceGeneration, the JSON
+            /// generator): the SDK's other generators of another .NET (the net8.0 targeting pack's ComInterfaceGenerator ...)
+            /// must bind to the copy next to them, not to this one (TypeLoadException on the newer library).
+            /// </summary>
             private static Assembly? HostAssembly(AssemblyName name)
             {
                 if (name.Name is null) return null;
+                if (!name.Name.StartsWith("Microsoft.CodeAnalysis", StringComparison.OrdinalIgnoreCase) && !IsFrameworkAssembly(name.Name)) return null;
                 foreach (var loaded in Default.Assemblies)
                     if (string.Equals(loaded.GetName().Name, name.Name, StringComparison.OrdinalIgnoreCase)) return loaded;
                 try { return Default.LoadFromAssemblyName(new AssemblyName(name.Name)); }

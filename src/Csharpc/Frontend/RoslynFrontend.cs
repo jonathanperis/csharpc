@@ -42,14 +42,15 @@ public static class RoslynFrontend
     {
         var languageVersion = LanguageVersionOf(settings.LanguageVersion);
 
-        var parseOptions = ParseOptions(languageVersion, settings.Defines, settings.Generators?.Features);
+        var features = MergedFeatures(settings);
+        var parseOptions = ParseOptions(languageVersion, settings.Defines, features);
 
         // Each project's files are parsed with that project's own symbols (DefineConstants).
         s_parsed.Clear();
         List<(string Path, CSharpParseOptions Options)> projectFiles = [];
         foreach (var project in settings.Projects)
         {
-            var projectOptions = ParseOptions(LanguageVersionOf(project.LanguageVersion), project.Defines, project.Generators?.Features);
+            var projectOptions = ParseOptions(LanguageVersionOf(project.LanguageVersion), project.Defines, features);
             foreach (var f in project.Files)
                 if (s_parsed.TryAdd(Path.GetFullPath(f), null!)) projectFiles.Add((Path.GetFullPath(f), projectOptions));
         }
@@ -154,6 +155,25 @@ public static class RoslynFrontend
         return languageVersion;
     }
 
+    /// <summary>
+    /// The /features of the program's csc command line and of every project's. Roslyn rejects a compilation whose syntax trees
+    /// carry different features ("Inconsistent syntax tree features"), and the projects of a solution differ (the root's
+    /// configuration binder adds InterceptorsNamespaces, its library's csc line has none), so all trees get the union.
+    /// </summary>
+    private static IReadOnlyDictionary<string, string> MergedFeatures(FrontendSettings settings)
+    {
+        Dictionary<string, string> merged = [];
+        foreach (var features in settings.Projects.Select(p => p.Generators?.Features).Prepend(settings.Generators?.Features))
+        {
+            if (features is null) continue;
+            foreach (var (key, value) in features)
+                merged[key] = merged.TryGetValue(key, out var existing) && existing != value && key == "InterceptorsNamespaces"
+                    ? string.Join(';', existing.Split(';').Concat(value.Split(';')).Where(n => n.Length > 0).Distinct())
+                    : merged.GetValueOrDefault(key, value);
+        }
+        return merged;
+    }
+
     private static CSharpParseOptions ParseOptions(LanguageVersion languageVersion, IEnumerable<string> defines, IReadOnlyDictionary<string, string>? features = null) =>
         new CSharpParseOptions(languageVersion, DocumentationMode.None, SourceCodeKind.Regular, ["CSHARPC", .. defines])
             // Accept file-based app directives (`#:property ...`, `#:package ...`) like `dotnet run app.cs`;
@@ -214,7 +234,7 @@ public static class RoslynFrontend
             List<MetadataReference> references = [.. FrameworkReferences(settings), .. settings.IlReferences, .. CoreLibFacadeFor(settings)];
             foreach (var reference in project.References)
                 if (byPath.TryGetValue(reference, out var referenced)) references.Add(Build(referenced).Compilation.ToMetadataReference());
-            var parseOptions = ParseOptions(LanguageVersionOf(project.LanguageVersion), project.Defines, project.Generators?.Features);
+            var parseOptions = ParseOptions(LanguageVersionOf(project.LanguageVersion), project.Defines, MergedFeatures(settings));
             List<SyntaxTree> trees = [.. project.Files.Select(f => s_parsed[Path.GetFullPath(f)])];
             if (project.GlobalUsings is { Length: > 0 } usings)
                 trees.Add(CSharpSyntaxTree.ParseText(usings, parseOptions, path: "<global-usings>.g.cs"));

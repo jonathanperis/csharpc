@@ -235,11 +235,15 @@ NativeAOT can't build or run identically are out of scope, and parity is the sha
 matches (target: 100 %).
 
 State: 249 of 249 (100 %) on 2026-10-30, **242 of 246 (98.4 %)** in the latest run (2026-11-01, scheduled), with no wrong
-output and no crash among the in-scope programs. Four in-scope programs fail to compile: three because the built-in regex
-generator's output uses `#nullable` under `LangVersion` 6/7.2, one for a reason not yet analysed (#163). csharpc also
-passes 22 of the 29 programs NativeAOT can't run. Against NativeAOT on the 242: executables a tenth of the size
-(143 KiB vs 1,338 KiB median); compile time is the open comparison (see the standing goal). M4 is done when #163 is
-fixed and a run is at 100 % again.
+output and no crash among the in-scope programs. The four in-scope programs that failed to compile had three causes, all
+fixed in #163 (the next Compatibility run confirms it): the built-in regex generator wrote `#nullable` into a file even for
+a program without `[GeneratedRegex]` members (an error under `LangVersion` 6/7.x: `ref-readonly-struct`, `csharp6-*`);
+the projects of a solution carried different `/features` (the root's configuration-binding generator adds
+`InterceptorsNamespaces`), which Roslyn rejects as "Inconsistent syntax tree features" (`ConsoleApp1`); and the SDK's
+older generators of a `net8.0` project were bound to the newer `Microsoft.Interop.SourceGeneration` linked into csharpc.
+csharpc also passes 22 of the 29 programs NativeAOT can't run. Against NativeAOT on the 242: executables a tenth of the
+size (143 KiB vs 1,338 KiB median); compile time is the open comparison (see the standing goal). M4 is done when a
+Compatibility run is at 100 % again.
 
 ### M5 — Drop-in: binary packages and the program as IL
 **Status:** 🟡 open (#168, #146).
