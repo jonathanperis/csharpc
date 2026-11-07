@@ -159,6 +159,13 @@ internal static partial class BclValueTypes
         };
         // Exception.Data (corelib/ExceptionData.cs): csrt_Exception has no field for it.
         t["System.Exception.get_Data()"] = (g, _, self, _, _) => g.CallCoreLib("ExceptionData", "Get", self);
+        t["System.Exception.get_HelpLink()"] = (g, _, self, _, _) => g.CallCoreLib("ExceptionData", "GetHelpLink", self);
+        t["System.Exception.set_HelpLink(string)"] = (g, _, self, a, _) => { g.CallCoreLib("ExceptionData", "SetHelpLink", self, a[0]); return default; };
+        t["System.Exception.get_Source()"] = (g, _, self, _, _) => g.CallCoreLib("ExceptionData", "GetSource", self);
+        t["System.Exception.set_Source(string)"] = (g, _, self, a, _) => { g.CallCoreLib("ExceptionData", "SetSource", self, a[0]); return default; };
+        // The base implementation: a call that dispatches virtually to a user override is emitted by FunctionCodeGen.Exceptions.cs.
+        t["System.Exception.GetObjectData(System.Runtime.Serialization.SerializationInfo, System.Runtime.Serialization.StreamingContext)"] =
+            (g, _, self, a, _) => { g.CallCoreLib("ExceptionData", "GetObjectData", self, a[0]); return default; };
         t[$"{Type}.get_GenericParameterAttributes()"] = (g, _, self, _, _) =>
             Rt(g, "csrt_type_generic_parameter_attributes", g.Llvm.I32, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
         t["System.Array.CreateInstance(System.Type, int)"] = (g, _, _, a, _) =>

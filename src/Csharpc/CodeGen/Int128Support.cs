@@ -66,6 +66,9 @@ internal static class Int128Support
             case "ToString" when method.Parameters.IsEmpty:
                 handler = (g, m, s, _, _) => Format(g, s, TypeMapper.IsSigned(m.ContainingType));
                 return true;
+            case "ToString" when method.Parameters is [{ Type.Name: "IFormatProvider" }]:
+                handler = (g, m, s, a, _) => g.CallCoreLib(TypeMapper.IsSigned(m.ContainingType) ? "Int128Members" : "UInt128Members", "FormatWith", Load(g, s), a[0]);
+                return true;
             case "Equals" when method.Parameters.Length == 1 && Is128(method.Parameters[0].Type):
                 handler = (g, _, s, a, _) => g.Builder.ICmp(LLVMIntPredicate.EQ, Load(g, s), a[0]);
                 return true;
