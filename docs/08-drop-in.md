@@ -160,41 +160,36 @@ across files, `#if` on a `DefineConstants` symbol, `<Using>` items including an 
    `dotnet publish -p:PublishCsharpc=true`. The test checks that the publish directory contains
    only the native executable.
 
-## What "drop-in" still lacks
+## Known limits of the drop-in
 
-Honest status: the **toolchain** side is drop-in. Project files, multi-project solutions,
-`dotnet build/run/publish`, packaging and diagnostics all work. The **language and library** side
-is not, yet. In rough order of impact:
+The **toolchain** side is drop-in: project files, multi-project solutions, `dotnet build/run/publish`, packaging and
+diagnostics work. What differs from `PublishAot` is the language and library side, and the open items are tracked in
+[06-roadmap.md](06-roadmap.md). In rough order of impact:
 
-1. **BCL coverage.** User code binds against the real .NET reference assemblies, so every API
-   resolves, but only the members csharpc implements actually compile (`csharpc --intrinsics`
-   lists them). The scalable fix is the planned **self-hosted corelib**: `List<T>`,
-   `Dictionary<,>`, LINQ, `StringBuilder`, `Span<T>` and so on, written in C# and compiled by
-   csharpc together with the program. Calls bound to the reference-assembly symbols get redirected
-   to those implementations by matching signatures. This depends on generics and interfaces.
-2. **Language features still landing.** Structs/`Nullable<T>`/tuples, exceptions, lambdas and
-   closures, generics and interfaces are each in progress on their own branch. Async/await and
-   iterators need csharpc's own state-machine transform (or LLVM coroutines), because Roslyn's
-   public API doesn't expose that lowering. See `06-roadmap.md`.
-3. **NuGet packages.** Binary packages are IL; the IL front-end compiles the parts a program reaches
-   ([ADR 0010](adr/0010-il-frontend.md)). What still fails is mostly BCL surface the packages call
-   (the same members a source program would need), compiled `async` methods, and native package
-   assets.
-4. **Runtime services a native closed world can't offer directly:** reflection
-   (`Type.GetMethods`, `Activator.CreateInstance` on arbitrary types), `dynamic`,
-   `Assembly.Load`, `System.Reflection.Emit`, and runtime code generation. NativeAOT has the same
-   constraints. The answer is the same as there: trimming-style analysis plus generated metadata
-   for what's statically knowable, and diagnostics for the rest.
-5. **Source generators and analyzers.** Analyzers already run in the regular `CoreCompile` and
-   don't affect the native build. Source generators run inside csharpc (Roslyn's `GeneratorDriver`)
-   with the inputs csc gets from the project: its analyzers, additional files, analyzer config and
-   features, read from the csc command line of the SDK's `Compile` target (for each referenced project too,
-   run on that project's own compilation)
-   ([16-interop-io.md](16-interop-io.md#libraryimport-and-other-source-generators)).
-6. **Platforms.** `--target` passes the triple through, but csrt and the linker step are only
-   exercised on Linux x86-64. Windows (COFF, `link.exe`/`lld-link`, `.exe`), macOS (Mach-O) and
-   wasm need toolchain work.
-7. **Build performance.** About 2–4 s per build. Most of it is Roslyn binding against the full
-   framework reference set, plus one `dotnet msbuild` evaluation per project. Options: a
-   persistent compiler server like VBCSCompiler, or reusing MSBuild's evaluation inside the build
-   task.
+1. **BCL coverage.** User code binds against the real .NET reference assemblies, so every API resolves, but only the
+   members csharpc implements compile (`csharpc --intrinsics` lists those mapped to the runtime). The library surface is
+   the C# corelib compiled together with the program ([12-corelib.md](12-corelib.md)): calls bound to the
+   reference-assembly symbols are redirected to it by matching signatures, and framework assemblies csharpc implements
+   none of are compiled from the shared framework's IL ([ADR 0013](adr/0013-framework-il.md)). A missing member is a
+   `CSLLVM0002` diagnostic; the ranked gaps are the roadmap's M2 list.
+2. **NuGet packages.** Binary packages are IL; the IL front-end compiles the parts a program reaches
+   ([ADR 0010](adr/0010-il-frontend.md)), with RID-specific assemblies and native assets selected for the target. What
+   still fails is mostly BCL surface the packages call (the same members a source program would need) and the shapes
+   listed under M5 in the roadmap.
+3. **Runtime services a native closed world can't offer directly:** `Assembly.Load`, `System.Reflection.Emit` and run-time
+   code generation. NativeAOT has the same constraints, and the answer is the same: reflection over compile-time metadata
+   for what is statically knowable ([ADR 0018](adr/0018-reflection-metadata.md)), `dynamic` bound at compile time
+   ([ADR 0019](adr/0019-dynamic.md)), and diagnostics for the rest.
+4. **Source generators and analyzers.** Analyzers run in the regular `CoreCompile` and don't affect the native build.
+   Source generators run inside csharpc (Roslyn's `GeneratorDriver`) with the inputs csc gets from the project: its
+   analyzers, additional files, analyzer config and features, read from the csc command line of the SDK's `Compile`
+   target (for each referenced project too, run on that project's own compilation)
+   ([16-interop-io.md](16-interop-io.md#libraryimport-and-other-source-generators)). The SDK's JSON and
+   `LibraryImport` generators and the regex generator are built into csharpc.
+5. **Platforms.** `--target` passes the triple through; Linux x86-64 and ARM64, macOS ARM64, Windows x64 and
+   `wasm32-wasip1` are tested in CI ([06-roadmap.md](06-roadmap.md#m3--platforms-and-per-platform-evidence)). A
+   native toolchain is required on the host: clang (and lld when available), LLVM-MinGW on Windows, the WASI SDK for
+   WebAssembly.
+6. **Build performance.** A release build of csharpc is ReadyToRun-compiled and a compilation is multi-threaded; hello
+   world compiles in about a second at `-O0`. Project input adds one `dotnet msbuild` evaluation per project, and the
+   compile time of large programs is dominated by LLVM ([ADR 0014](adr/0014-compile-time.md)).
