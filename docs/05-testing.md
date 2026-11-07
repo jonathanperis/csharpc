@@ -113,6 +113,12 @@ The opt-in generational nursery (`--gc-nursery`) has its own workflow, `GC nurse
 collection every MiB), then the collection-heavy samples under `CSRT_GC_STRESS=50`. A missing write
 barrier shows up there as wrong output or a crash ([ADR 0004](adr/0004-memory-management.md)).
 
+The informational workflows (`GC concurrent`, `GC nursery`, `Program as IL`, `Bootstrap`, `Benchmarks`)
+each have a `concurrency` group per workflow and ref with `cancel-in-progress`, so a burst of merges to
+`main` leaves only the newest commit's run, queued or running, and none of them gates a merge. Branch
+pushes start `Benchmarks` only on `ci/perf*`, `ci/bench*` and `ci/m7-*` (the measurement branches);
+any other `ci/**` branch, such as a flake hunt, leaves the benchmark runners alone.
+
 Failure output shows the compile errors (including `CSLLVM0001` "not supported yet" diagnostics) or
 the first lines of a unified diff between the expected and actual stdout.
 
