@@ -3,6 +3,12 @@
 Thanks for helping! (Automated coding agents: see [AGENTS.md](../AGENTS.md).) csharpc is a C# front-end for LLVM; the bar for every change is simple:
 **the output of a compiled program must be byte-identical to real .NET.**
 
+## Workflow
+
+Every change, whether a bug, a roadmap bullet, a docs fix or a CI change, starts with an issue (labels, assignee,
+milestone), is made on a branch and merged through a pull request that says `Fixes #N`; the steps are in
+[AGENTS.md](../AGENTS.md#workflow-issue-branch-pr-report).
+
 ## Reporting a bug
 
 Open an issue with a **minimal C# program** and what `dotnet run` prints versus what the csharpc
@@ -57,8 +63,9 @@ gate, not a targeted run.
 | Roslyn front-end, project loading | `src/Csharpc/Frontend`, `src/Csharpc/Driver` |
 | CFG → LLVM IR lowering | `src/Csharpc/CodeGen` (`FunctionCodeGen.*.cs` per feature) |
 | BCL members mapped to runtime calls | `src/Csharpc/CodeGen/Intrinsics.cs` |
-| BCL types written in C# (collections, LINQ) | `src/Csharpc/corelib` |
-| C runtime (GC, exceptions, threads, formatting, ...) | `src/runtime` |
+| BCL types written in C# (collections, LINQ, JSON, IO, networking, ...) | `src/Csharpc/corelib` |
+| C runtime (GC, exceptions, threads, async scheduler, OS boundary) | `src/runtime` |
+| MSBuild integration | `src/Csharpc.Sdk` |
 | LLVM C API bindings | `src/Csharpc/Llvm` |
 
 Debugging tips: `--dump-cfg` shows Roslyn's CFG for every method, `--emit llvm-ir -O0` shows what
