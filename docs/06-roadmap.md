@@ -205,6 +205,12 @@ nested types too (the binding compilation reads the program with those types mar
 [ADR 0010](adr/0010-il-frontend.md#the-program-as-il-2026-10-30)). Left as diagnostics from IL: JSON of
 anonymous, file-local and other compiler-generated types, as in source. Gaps between the two front-ends are bugs.
 
+`-g` works from IL too (2026-11-06): `csharpc -g app.dll` (or a library DLL it references) emits the DWARF
+line table, parameter and local names from the assembly's portable PDB — beside the DLL or embedded —
+so gdb breaks on `Counter.cs:10` of a library compiled from its IL, with inlined frames at -O2
+(`tests/debuginfo.sh`, [13-debugging.md](13-debugging.md#from-the-assemblys-pdb)). An assembly without a
+PDB, the precompiled corelib and shared-framework assemblies get no debug info (Windows PDBs aren't read).
+
 **Function pointers and `calli`**: `delegate*<...>` calls and IL `calli` share one lowering (managed signatures:
 csharpc's own convention, `ref`/`out`/`in` and `ref` returns, structs, generics). `delegate* unmanaged` calls and
 `&[UnmanagedCallersOnly]` entries follow the platform's C ABI as a P/Invoke of the same function does: structs
@@ -222,7 +228,7 @@ with the runtime graph's fallbacks (linux-x64 -> linux -> unix-x64 -> unix -> an
 next to the executable, where a P/Invoke probes first (`tests/il.sh`, RidApp, against a package built locally).
 Left: satellite resource assemblies, `ref/` vs `lib/` binding, linking a package's static archives.
 
-Next: `-g` from the assembly's PDB, the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`.
+Next: the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`.
 
 ### M6 — Bootstrapping
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.
