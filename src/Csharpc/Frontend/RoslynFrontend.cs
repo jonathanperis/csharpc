@@ -85,11 +85,6 @@ public static class RoslynFrontend
 
         var name = settings.AssemblyName ?? (settings.Files.Count > 0 ? Path.GetFileNameWithoutExtension(settings.Files[0]) : "program");
         var compilation = CSharpCompilation.Create(name, trees, [.. FrameworkReferences(settings), .. settings.IlReferences, .. CoreLibFacadeFor(settings)], options);
-        // The [Nullable]/[NullableContext] classes csc embeds, for reflection over members of annotated source.
-        if (settings.ProgramIl is null)
-            compilation = NullableAttributeDeclarations.Add(compilation, parseOptions,
-                trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath)), nullable,
-                usesLibraries: settings.Projects.Count > 1 || settings.IlSet is { } set && set.Assemblies.Any(a => !a.IsCoreLib));
         // Reflection-based System.Text.Json calls get compile-time metadata from synthesized contexts.
         List<Diagnostic> jsonDiagnostics = [];
         compilation = JsonReflectionContexts.Add(compilation, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath))],

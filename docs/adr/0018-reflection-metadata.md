@@ -146,9 +146,8 @@ csharpc keeps reflection metadata the same way, generated at compile time by
   type or method carries `[NullableContext]` when it differs from what its container passes down (nothing at the top: 0),
   and a type with a base type `[Nullable]` for it unless its bytes are the inherited value; whatever else differs from the
   context gets `[Nullable]` (a byte, or the array when not all equal). The order is `[NullableContext]`, `[Nullable]`, then
-  the other synthesized attributes, then the source's own. The classes themselves are declared by a tree the front-end adds
-  when the program has an annotations context and may list attributes (`NullableAttributeDeclarations`: its code or a
-  library asks), as csc embeds them. Validated against the JIT's reflection on ~80 hand-written shapes (sample 1222) and
+  the other synthesized attributes, then the source's own. The attribute classes are the public ones of the .NET 11 reference
+  assemblies (csc embeds nothing; the corelib shadows them). Validated against the JIT's reflection on ~80 hand-written shapes (sample 1222) and
   several hundred randomly generated types. Still the explicit unknown list (untyped queries throw): records, delegates,
   indexers, primary constructors, type parameters with constraint types or `new()`, generic overrides and explicit
   implementations, nested types of generic types, a type that mixes `#nullable` regions, names csharpc can't match to the

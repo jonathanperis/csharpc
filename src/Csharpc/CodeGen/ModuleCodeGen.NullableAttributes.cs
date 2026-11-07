@@ -56,8 +56,9 @@ public sealed partial class ModuleCodeGen
 
     private sealed class NullableUnsupported : Exception { }
 
-    private INamedTypeSymbol? NullableAttributeType => Compilation.Assembly.GetTypeByMetadataName("System.Runtime.CompilerServices.NullableAttribute");
-    private INamedTypeSymbol? NullableContextAttributeType => Compilation.Assembly.GetTypeByMetadataName("System.Runtime.CompilerServices.NullableContextAttribute");
+    // Public in the .NET 11 reference assemblies (csc uses them from System.Private.CoreLib, it embeds nothing); the corelib shadows them.
+    private INamedTypeSymbol? NullableAttributeType => Compilation.GetTypeByMetadataName("System.Runtime.CompilerServices.NullableAttribute");
+    private INamedTypeSymbol? NullableContextAttributeType => Compilation.GetTypeByMetadataName("System.Runtime.CompilerServices.NullableContextAttribute");
 
     /// <summary>The analysis of a source type; <c>Exact</c> is false when csharpc can't reproduce csc's attributes for it.</summary>
     private NullableType NullableOf(INamedTypeSymbol type)
