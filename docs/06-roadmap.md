@@ -295,9 +295,14 @@ bitcode image kept in LLVM's buffer and the partition workers limited by the mem
 free, each further one is estimated at ten times the image): the self-compile peaks at 8.0 GB at -O0 and 7.6 GB at
 -O2 with two workers (9.3 and 8.6 GB before), 5.3 and 5.5 GB with one (backend 219 s instead of 122 s at -O0,
 1076 s instead of 462 s at -O2), executables byte-identical (run 42256286314). What remains is the module itself,
-about 2.7 GB for 9 M instructions, and the managed heap at the end of lowering (3.7 GB). Lowering on several threads is
-an open design question: single-threaded lowering is 75 s of the 238 s self-compile at -O0 and 69 s of 577 s at -O2
-(ADR 0014, "Next hot spots"). Next: the native compiler on the whole differential suite.
+about 2.7 GB for 9 M instructions, and the managed heap at the end of lowering (3.7 GB).
+Lowering on several threads is deferred (owner, 2026-11-06): the single-threaded lowering is 75 s of the 238 s self-compile
+at -O0 and 69 s of 577 s at -O2, so two parallel threads would save about 35 s (15 % / 6 %) for a second set of types,
+declarations and constants in memory (ADR 0014, "Next hot spots"). Instead the module-level steps of that thread were made
+cheaper, with byte-identical output (`tools/bootstrap/compare-compilers.sh`; numbers in
+[#108](https://github.com/jonathanperis/csharpc/issues/108)): generic interface dispatchers look only at the types that implement their
+interface instead of resolving every class's implementation each round, and array interface maps compute their facts once per
+interface and element. Next: the native compiler on the whole differential suite.
 
 ### Runtime tiers — C# for library code, C where it is the right tool
 [ADR 0017](adr/0017-runtime-tiers.md); a C-free runtime is not a goal (owner, 2026-10-30). **Tier 1 (now,
