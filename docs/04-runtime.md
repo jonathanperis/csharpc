@@ -196,6 +196,10 @@ iteration threw on a pool worker). `eh.c` carries its own `csrt_trap_save`/`csrt
 assembly instead (callee-saved registers, RDI/RSI and XMM6-15 included).
 `win32.c` supplies C library functions the UCRT lacks (`roundeven`, which LLVM calls for
 `Math.Round` without SSE4.1).
+`windows-shims/msvc_compat.c` is not part of the runtime proper: it holds the MSVC runtime symbols that
+.NET's Windows shim archives (zlib-ng, brotli, zstd from the NativeAOT pack, built with `/GS` and `/guard:cf`)
+reference, is compiled on demand, and is linked only into a program that links one of those shims
+([16-interop-io.md](16-interop-io.md#binding)).
 
 errno values, `open` flags and struct layouts that C# code needs are selected in the corelib at
 compile time from the target triple, not in C ([16-interop-io.md](16-interop-io.md#systemio)).
