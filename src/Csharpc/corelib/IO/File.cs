@@ -29,6 +29,18 @@ namespace CsharpcCoreLib
             return FileStatusImpl.GetUnixFileMode(path);
         }
 
+        /// <summary>FileSystem.GetAttributes: the entry's attributes (a directory's too), FileNotFoundException when there is none.</summary>
+        public static FileAttributes GetAttributes(string path)
+        {
+            string full = PathImpl.GetFullPath(path);
+            FileAttributes attributes = FileStatusImpl.GetAttributes(full, PathImpl.GetFileName(full));
+            if ((int)attributes == -1) throw Posix.IOError(Posix.ENOENT, full, false);
+            return attributes;
+        }
+
+        public static void SetAttributes(string path, FileAttributes fileAttributes) =>
+            FileStatusImpl.SetAttributes(PathImpl.GetFullPath(path), fileAttributes, false);
+
         public static FileSystemInfo CreateSymbolicLink(string path, string pathToTarget)
         {
             ArgumentException.ThrowIfNullOrEmpty(path);
@@ -659,7 +671,11 @@ namespace CsharpcCoreLib
         public override string ToString() => OriginalPath;
 
         /// <summary>The attributes .NET reports (FileStatusImpl); -1 when the entry doesn't exist.</summary>
-        public FileAttributes Attributes => FileStatusImpl.GetAttributes(FullPath, Name);
+        public FileAttributes Attributes
+        {
+            get => FileStatusImpl.GetAttributes(FullPath, Name);
+            set => FileStatusImpl.SetAttributes(FullPath, value, this is DirectoryInfoImpl);
+        }
 
         public UnixFileMode UnixFileMode
         {
@@ -703,7 +719,11 @@ namespace CsharpcCoreLib
         public long Length => FileImpl.Length(FullPath);
         public string DirectoryName => PathImpl.GetDirectoryName(FullPath);
         public DirectoryInfo Directory => new DirectoryInfo(DirectoryName);
-        public bool IsReadOnly => false;
+        public bool IsReadOnly
+        {
+            get => (Attributes & FileAttributes.ReadOnly) != 0;
+            set => Attributes = value ? Attributes | FileAttributes.ReadOnly : Attributes & ~FileAttributes.ReadOnly;
+        }
         public override void Delete() => FileImpl.Delete(FullPath);
         public FileStream Open(FileMode mode) => new FileStream(FullPath, mode);
         public FileStream Open(FileMode mode, FileAccess access) => new FileStream(FullPath, mode, access);

@@ -1,0 +1,42 @@
+Debugger.IsAttached: False
+Write(null chars): ArgumentNullException
+61-62-C3-A9-79-7A-02-03-61-62
+Some.Assembly, Version=1.0.0.0 / True / 
+True
+Assembly.GlobalAssemblyCache: False
+GetAssemblyName(missing): DirectoryNotFoundException
+GetAssemblyName(null): ArgumentNullException
+add_Changed,get_Value,Hidden,Inst,remove_Changed,set_Value,Twice
+True
+_secret,<Value>k__BackingField,Changed
+Value
+Changed
+Twice 
+Value  Changed
+GetRuntimeMethods(null): ArgumentNullException
+42
+8
+7
+bad signature: ArgumentException
+bad signature, no throw: null
+null type: ArgumentNullException
+null method: ArgumentNullException
+not a delegate: ArgumentException
+Normal False
+ReadOnly True 444
+Normal False 644
+ReadOnly 444
+Normal 644
+40
+Directory
+200
+SetAttributes(missing): FileNotFoundException
+GetAttributes(missing): FileNotFoundException
+GetAttributes(missing dir): DirectoryNotFoundException
+SetAttributes(invalid): ArgumentException
+FileInfo.Attributes(missing): -1
+FileInfo.IsReadOnly(missing): True
+FileInfo.IsReadOnly = (missing): ArgumentException
+Wait(null): ArgumentNullException
+258
+stream 2 8589934592 5,7 0 18 9

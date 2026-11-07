@@ -139,6 +139,10 @@ public static class NativeAotPack
             var dotnet = Environment.GetEnvironmentVariable("DOTNET_HOST_PATH") is { Length: > 0 } host && File.Exists(host) ? host : "dotnet";
             var psi = new ProcessStartInfo(dotnet) { RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = cache };
             foreach (var a in new[] { "restore", "restore.csproj", "-nologo", "-v", "quiet" }) psi.ArgumentList.Add(a);
+            // A compile run under a memory cap (tools/il-survey sets DOTNET_GCHeapHardLimit and an address-space limit for the
+            // compile) passes both to this child, whose GC then fails to reserve 1.5 times the limit ("Reserving 15 GiB ... failed")
+            // and the pack, so System.IO.Compression, is missing. A pack download needs a fraction of that.
+            if (psi.Environment.ContainsKey("DOTNET_GCHeapHardLimit")) psi.Environment["DOTNET_GCHeapHardLimit"] = "0x80000000";
             foreach (var k in new[] { "MSBuildExtensionsPath", "MSBuildSDKsPath", "MSBUILD_EXE_PATH", "MSBuildLoadMicrosoftTargetsReadOnly" }) psi.Environment.Remove(k);
             using var process = Process.Start(psi)!;
             var stderr = process.StandardError.ReadToEndAsync();

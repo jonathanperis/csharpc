@@ -206,6 +206,18 @@ namespace CsharpcCoreLib
             return s ?? base.ToString();
         }
 
+        /// <summary>
+        /// The identity of an assembly file. A file that isn't there is .NET's FileNotFoundException; reading the assembly
+        /// table of a PE file at run time is not done by csharpc yet (NativeAOT answers every path with FileNotFoundException).
+        /// </summary>
+        public static AssemblyName GetAssemblyName(string assemblyFile)
+        {
+            ArgumentNullException.ThrowIfNull(assemblyFile);
+            string full = Path.GetFullPath(assemblyFile);
+            if (!File.Exists(full)) throw CsharpcCoreLib.Posix.IOError(CsharpcCoreLib.Posix.ENOENT, full, false);
+            throw new NotSupportedException("AssemblyName.GetAssemblyName of an existing file ('" + full + "') is not supported by csharpc yet.");
+        }
+
         public static bool ReferenceMatchesDefinition(AssemblyName reference, AssemblyName definition)
         {
             if (ReferenceEquals(reference, definition)) return true;

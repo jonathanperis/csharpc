@@ -1237,6 +1237,30 @@ namespace CsharpcCoreLib
         public virtual void Write(sbyte value) => _stream.WriteByte((byte)value);
         public virtual void Write(byte[] buffer) => _stream.Write(buffer, 0, buffer.Length);
         public virtual void Write(byte[] buffer, int index, int count) => _stream.Write(buffer, index, count);
+
+        // Characters are encoded without a length prefix (Write(string) is the one with it).
+        public virtual void Write(char[] chars)
+        {
+            if (chars == null) throw new ArgumentNullException("chars");
+            byte[] bytes = _encoding.GetBytes(chars, 0, chars.Length);
+            _stream.Write(bytes, 0, bytes.Length);
+        }
+
+        public virtual void Write(char[] chars, int index, int count)
+        {
+            if (chars == null) throw new ArgumentNullException("chars");
+            byte[] bytes = _encoding.GetBytes(chars, index, count);
+            _stream.Write(bytes, 0, bytes.Length);
+        }
+
+        public virtual void Write(ReadOnlySpan<byte> buffer) => _stream.Write(buffer);
+
+        public virtual void Write(ReadOnlySpan<char> chars)
+        {
+            byte[] bytes = _encoding.GetBytes(chars.ToArray());
+            _stream.Write(bytes, 0, bytes.Length);
+        }
+
         public virtual void Write(short value) => Raw((byte*)&value, 2);
         public virtual void Write(ushort value) => Raw((byte*)&value, 2);
         public virtual void Write(int value) => Raw((byte*)&value, 4);

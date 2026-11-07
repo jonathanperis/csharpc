@@ -345,6 +345,8 @@ namespace CsharpcCoreLib
         public virtual bool IsDynamic => false;
         /// <summary>.NET's answers for any assembly: code access security is gone (always true / None), the image runtime version is CoreCLR's.</summary>
         public virtual bool IsFullyTrusted => true;
+        /// <summary>The global assembly cache is gone: .NET reports false for every assembly.</summary>
+        public virtual bool GlobalAssemblyCache => false;
         public virtual string ImageRuntimeVersion => "v4.0.30319";
         public virtual bool ReflectionOnly => false;
         public virtual long HostContext => 0;

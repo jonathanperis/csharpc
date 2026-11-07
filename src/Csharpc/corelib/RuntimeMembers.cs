@@ -336,6 +336,16 @@ namespace CsharpcCoreLib
         }
     }
 
+    /// <summary>The arguments of AppDomain.AssemblyResolve (never raised: nothing is loaded at run time).</summary>
+    [Shadows("System.ResolveEventArgs")]
+    public class ResolveEventArgsImpl : EventArgs
+    {
+        public ResolveEventArgsImpl(string name) { Name = name; }
+        public ResolveEventArgsImpl(string name, Assembly requestingAssembly) { Name = name; RequestingAssembly = requestingAssembly; }
+        public string Name { get; }
+        public Assembly RequestingAssembly { get; }
+    }
+
     [Shadows("System.AppDomain")]
     public sealed class AppDomainImpl
     {
@@ -352,6 +362,13 @@ namespace CsharpcCoreLib
 
         // csharpc raises no first-chance notifications yet: handlers are kept but never called.
         public event EventHandler<System.Runtime.ExceptionServices.FirstChanceExceptionEventArgs> FirstChanceException { add { } remove { } }
+
+        // Assemblies are compiled in, so nothing is ever resolved at run time (as under NativeAOT): the handlers are kept and
+        // never raised, and Load finds only what Assembly.Load does.
+        public event ResolveEventHandler AssemblyResolve { add { } remove { } }
+
+        public Assembly Load(AssemblyName assemblyRef) => Assembly.Load(assemblyRef);
+        public Assembly Load(string assemblyString) => Assembly.Load(assemblyString);
 
         public Assembly[] GetAssemblies() =>
             throw new NotSupportedException("AppDomain.GetAssemblies (the loaded assemblies) is not supported by csharpc yet.");
