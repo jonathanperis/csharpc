@@ -130,10 +130,15 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     private LLVMValueRef OpenInstanceFunction(IMethodSymbol method)
     {
-        List<LLVMTypeRef> parameters = [Llvm.Ptr, Llvm.Ptr];
-        foreach (var p in method.Parameters) parameters.Add(Types.Value(p.Type));
-        var type = Llvm.FunctionType(Types.Value(method.ReturnType), [.. parameters]);
-        try { return SyntheticFunction(Mangler.Method(method) + "$opendelegate", type, (g, syntax) => g.EmitOpenInstanceThunk(method, syntax)); }
+        // The signature's types are inside the try: a method whose parameter or result is a type csharpc can't map
+        // (Type.TypeHandle returns System.RuntimeTypeHandle) has no open delegate function, it is not a compile error.
+        try
+        {
+            List<LLVMTypeRef> parameters = [Llvm.Ptr, Llvm.Ptr];
+            foreach (var p in method.Parameters) parameters.Add(Types.Value(p.Type));
+            var type = Llvm.FunctionType(Types.Value(method.ReturnType), [.. parameters]);
+            return SyntheticFunction(Mangler.Method(method) + "$opendelegate", type, (g, syntax) => g.EmitOpenInstanceThunk(method, syntax));
+        }
         catch (CompileError error)
         {
             if (Environment.GetEnvironmentVariable("CSHARPC_TRACE") == "1") Console.Error.WriteLine($"[csharpc] no open delegate function for {method}: {error.Message}");

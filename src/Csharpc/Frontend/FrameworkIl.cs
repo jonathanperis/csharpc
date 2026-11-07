@@ -57,9 +57,11 @@ public static partial class FrameworkIl
     /// libSystem.Native's socket-address shims); Cookie, CookieContainer, CredentialCache,
     /// NetworkCredential, DnsEndPoint and HttpVersion are plain C#. System.Collections.NonGeneric:
     /// CollectionBase is a shadow (X509CertificateCollection derives from it); SortedList, Queue and
-    /// Stack, which CookieContainer and others use, come from IL.
+    /// Stack, which CookieContainer and others use, come from IL. System.Net.NetworkInformation: NetworkInterface and its
+    /// property types are shadows (getifaddrs / GetAdaptersAddresses in the corelib); PhysicalAddress, NetworkInformationException
+    /// and the rest the program may name (a List&lt;PhysicalAddress&gt; in ASP.NET Core) come from IL.
     /// </summary>
-    private static readonly string[] MixedWithShadows = ["System.Net.Primitives", "System.Collections.NonGeneric", "System.ComponentModel.TypeConverter"];
+    private static readonly string[] MixedWithShadows = ["System.Net.Primitives", "System.Collections.NonGeneric", "System.ComponentModel.TypeConverter", "System.Net.NetworkInformation"];
 
     /// <summary>
     /// Mixed assemblies that are taken for the types csharpc doesn't implement only: naming a shadowed type (System.ComponentModel's

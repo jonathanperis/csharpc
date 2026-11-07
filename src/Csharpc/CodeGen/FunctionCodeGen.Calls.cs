@@ -469,12 +469,15 @@ public sealed partial class FunctionCodeGen
 
     /// <summary>
     /// Activator.CreateInstance&lt;T&gt;() (also ConditionalWeakTable.GetOrCreateValue): T is known after
-    /// monomorphization. A class with a public parameterless constructor is constructed, a struct without
+    /// monomorphization. object is a new object, a class with a public parameterless constructor is constructed, a struct without
     /// one is its zero value; .NET's MissingMethodException cases (abstract classes, no public
     /// parameterless constructor) are compile-time errors rather than guessed run-time behaviour.
     /// </summary>
     internal LLVMValueRef ActivatorCreateInstance(ITypeSymbol type, IOperation at)
     {
+        // `new object()`: LazyInitializer.EnsureInitialized(ref object) and its lock-object overloads.
+        if (type.SpecialType == SpecialType.System_Object)
+            return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
         if (type is INamedTypeSymbol { TypeKind: TypeKind.Class, IsAbstract: false } named && _m.IsUserType(named)
             && named.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty && c.DeclaredAccessibility == Accessibility.Public) is { } ctor)
         {
