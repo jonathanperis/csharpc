@@ -1,7 +1,7 @@
 // Library members the Roslyn-from-IL survey listed as missing (M6, #169), each checked against .NET:
 // Debugger.Break without a debugger, BinaryWriter.Write(char[]), AppDomain.AssemblyResolve/Load and ResolveEventArgs,
 // Assembly.GlobalAssemblyCache, the RuntimeReflectionExtensions lookups, Delegate.CreateDelegate over a MethodInfo,
-// File.GetAttributes/SetAttributes and FileInfo.IsReadOnly, SynchronizationContext.Wait, and the COM interop structs.
+// SynchronizationContext.Wait and the COM interop structs (file attributes: sample 1237).
 #pragma warning disable SYSLIB0005, CS0618, IL2026, IL2075, CS0169, CS0414
 using System;
 using System.Collections.Generic;
@@ -67,42 +67,6 @@ Show("bad signature, no throw", () => (object)Delegate.CreateDelegate(typeof(Fun
 Show("null type", () => Delegate.CreateDelegate(null, new Sample(), inst));
 Show("null method", () => Delegate.CreateDelegate(typeof(Func<int>), new Sample(), (MethodInfo)null));
 Show("not a delegate", () => Delegate.CreateDelegate(typeof(string), new Sample(), inst));
-
-// File attributes: ReadOnly is the write permission, and a missing file is FileNotFoundException.
-string dir = Path.Combine(Path.GetTempPath(), "csharpc-attrs-" + Environment.ProcessId);
-Directory.CreateDirectory(dir);
-try
-{
-    string path = Path.Combine(dir, "a.txt");
-    File.WriteAllText(path, "x");
-    File.SetUnixFileMode(path, (UnixFileMode)Convert.ToInt32("644", 8));
-    Console.WriteLine(File.GetAttributes(path) + " " + new FileInfo(path).IsReadOnly);
-    File.SetAttributes(path, FileAttributes.ReadOnly);
-    Console.WriteLine(File.GetAttributes(path) + " " + new FileInfo(path).IsReadOnly + " " + Convert.ToString((int)File.GetUnixFileMode(path), 8));
-    var info = new FileInfo(path);
-    info.IsReadOnly = false;
-    Console.WriteLine(info.Attributes + " " + info.IsReadOnly + " " + Convert.ToString((int)File.GetUnixFileMode(path), 8));
-    info.Attributes = FileAttributes.ReadOnly | FileAttributes.Archive;
-    Console.WriteLine(info.Attributes + " " + Convert.ToString((int)File.GetUnixFileMode(path), 8));
-    File.SetAttributes(path, FileAttributes.Normal);
-    Console.WriteLine(File.GetAttributes(path) + " " + Convert.ToString((int)File.GetUnixFileMode(path), 8));
-    // Without owner read permission nobody is granted write permission.
-    File.SetUnixFileMode(path, UnixFileMode.GroupRead);
-    File.SetAttributes(path, FileAttributes.Archive);
-    Console.WriteLine(Convert.ToString((int)File.GetUnixFileMode(path), 8));
-    File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite);
-    Console.WriteLine(File.GetAttributes(dir));
-    File.SetAttributes(dir, FileAttributes.Directory);
-    Console.WriteLine(Convert.ToString((int)File.GetUnixFileMode(dir) & 0x80, 8));
-    Show("SetAttributes(missing)", () => { File.SetAttributes(Path.Combine(dir, "none"), FileAttributes.ReadOnly); return "no"; });
-    Show("GetAttributes(missing)", () => File.GetAttributes(Path.Combine(dir, "none")));
-    Show("GetAttributes(missing dir)", () => File.GetAttributes(Path.Combine(dir, "none", "x")));
-    Show("SetAttributes(invalid)", () => { File.SetAttributes(path, (FileAttributes)0x40000000); return "no"; });
-    Show("FileInfo.Attributes(missing)", () => (int)new FileInfo(Path.Combine(dir, "none")).Attributes);
-    Show("FileInfo.IsReadOnly(missing)", () => new FileInfo(Path.Combine(dir, "none")).IsReadOnly);
-    Show("FileInfo.IsReadOnly = (missing)", () => { new FileInfo(Path.Combine(dir, "none")).IsReadOnly = true; return "no"; });
-}
-finally { Directory.Delete(dir, true); }
 
 // SynchronizationContext.Wait is virtual and checks its argument.
 var context = new WaitingContext();

@@ -274,3 +274,5 @@ windows 1207_socket_close_unread_data  live: what a close with unread received d
 windows 1100_x509_certificates  live: X.509 over OpenSSL 3 on Windows (ADR 0022 addendum); chain status texts and some messages come from CryptoAPI in real .NET, recorded there
 windows 553_rsa  live: RSA over OpenSSL 3 on Windows (ADR 0022 addendum); legal key sizes and some messages come from CNG in real .NET, recorded there
 wasi 1230_file_set_last_write_time  known gap: File/Directory.SetLastWriteTime[Utc] have no WASI implementation yet (wasi-libc utimensat / path_filestat_set_times is not bound)
+windows 1237_file_attributes   Unix permission bits: real .NET on Windows throws PlatformNotSupportedException from File.SetUnixFileMode and reports no Unix modes
+wasi 1237_file_attributes      known gap: WASI has no permission bits to change (File.SetAttributes and the Unix modes are a PlatformNotSupportedException there)

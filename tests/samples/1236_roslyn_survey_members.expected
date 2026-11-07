@@ -22,21 +22,6 @@ bad signature, no throw: null
 null type: ArgumentNullException
 null method: ArgumentNullException
 not a delegate: ArgumentException
-Normal False
-ReadOnly True 444
-Normal False 644
-ReadOnly 444
-Normal 644
-40
-Directory
-200
-SetAttributes(missing): FileNotFoundException
-GetAttributes(missing): FileNotFoundException
-GetAttributes(missing dir): DirectoryNotFoundException
-SetAttributes(invalid): ArgumentException
-FileInfo.Attributes(missing): -1
-FileInfo.IsReadOnly(missing): True
-FileInfo.IsReadOnly = (missing): ArgumentException
 Wait(null): ArgumentNullException
 258
 stream 2 8589934592 5,7 0 18 9

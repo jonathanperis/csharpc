@@ -187,15 +187,12 @@ threads alone (against the branch point).
    interface dispatchers 13.5 s, IL failure reachability 4.4 s) are 26 s of the single thread: those are
    the cheaper first target. Lowering reaches functions through a worklist that `GetFunction` fills from
    inside the function being lowered (37 000 lines of `CodeGen` share one `ModuleCodeGen`), so threading
-   it is a redesign (discover first, emit after) and needs the owner's decision, not a change in place. Measured on csharpc compiling itself (CI runner, 2 threads, run 42244078369): lowering
-   is 75 s of the 238 s at -O0 (backend 120 s, coroutine lowering 24 s) and 69 s of the 577 s at -O2
-   (optimization and backend 490 s), so two perfectly parallel lowering threads would save about 35 s at either
-   level (15 % and 6 %) and cost a second set of types, declarations and constants in memory. 130 000 IL
-   methods lower in 46 s (decoding 0.8 s) and the module-level steps (builtin interface tables 8.6 s, generic
-   interface dispatchers 13.5 s, IL failure reachability 4.4 s) are 26 s of the single thread: those are
-   the cheaper first target. Lowering reaches functions through a worklist that `GetFunction` fills from
-   inside the function being lowered (37 000 lines of `CodeGen` share one `ModuleCodeGen`), so threading
-   it is a redesign (discover first, emit after) and needs the owner's decision, not a change in place.
+   it is a redesign (discover first, emit after).
+   **Decision (owner, 2026-11-06): deferred, not implemented.** What the measurement above says is recorded here so the
+   question stays closed until something changes: the whole prize is about 35 s of a self-compile that takes four to ten
+   minutes, for a redesign of the code generator's core. The module-level steps (26 s on the one thread) are the cheaper
+   first target, and the backend (120 s at -O0, 490 s at -O2) is already split across threads. Reopen it when a
+   measurement shows lowering as the largest remaining single-threaded phase of a build that matters.
 3. **`-O2` optimization** of small programs stays one thread over the whole program; large ones are
    partitioned (section 5), and partitioning by the call graph instead of module order would import less.
 4. **Memory:** each code-generation thread still parses the whole bitcode image before pruning it
