@@ -465,6 +465,11 @@ public sealed record FrontendSettings
     /// </summary>
     public IReadOnlyList<ProgramResource> EmbeddedResources { get; init; } = [];
     /// <summary>
+    /// Native libraries the program's packages ship for its target (runtimes/&lt;rid&gt;/native, a deployed app's
+    /// native files): copied next to the executable, where P/Invoke probing finds them as .NET's does.
+    /// </summary>
+    public IReadOnlyList<string> NativeAssets { get; init; } = [];
+    /// <summary>
     /// The full names of the types the embedded .resources files hold as TypeConverter strings (ResourceConverters.TypeNames):
     /// the front end generates their conversions, and FrameworkIl takes the framework assemblies that define them.
     /// </summary>

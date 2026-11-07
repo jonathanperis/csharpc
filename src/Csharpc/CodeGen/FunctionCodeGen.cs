@@ -447,7 +447,9 @@ public sealed partial class FunctionCodeGen
 
     private static bool InFilter(BasicBlock block)
     {
-        for (var r = block.EnclosingRegion; r is not null; r = r.EnclosingRegion)
+        // A lambda's graph is rooted in the region it is declared in (`when (list.Any(x => ...))`): its blocks
+        // are not part of the filter, which is the enclosing graph's.
+        for (var r = block.EnclosingRegion; r is not null && r.Kind != ControlFlowRegionKind.Root; r = r.EnclosingRegion)
             if (r.Kind == ControlFlowRegionKind.Filter) return true;
         return false;
     }

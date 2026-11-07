@@ -483,6 +483,8 @@ public sealed partial class FunctionCodeGen
             message = CallCoreLib("AggregateExceptionSupport", "Message", baseMessage, inners.Value);
             inner = CallCoreLib("AggregateExceptionSupport", "First", inners.Value);
         }
+        else if (aggregate && message is { } given)
+            message = CallCoreLib("AggregateExceptionSupport", "OrDefault", given); // AggregateException((string)null)
         if (objectName is { } name)  // ObjectDisposedException: "\nObject name: 'X'." is part of Message
             message = CallRuntime("csrt_object_disposed_message", L.Ptr, [L.Ptr, L.Ptr], message ?? LlvmContext.Null(L.Ptr), name);
         if (message is null && s_defaultMessages.TryGetValue(Mangler.MetadataName(constructor.ContainingType), out var text))

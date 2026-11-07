@@ -66,9 +66,12 @@ namespace CsharpcCoreLib
             lock (info)
             {
                 if (info.WaitHandle != null) return info.WaitHandle;
-                var handle = new ManualResetEvent(task.IsCompleted);
+                // One read: a task that completes between two reads would leave the handle unset with no
+                // continuation to set it (a WaitOne that only times out).
+                bool completed = task.IsCompleted;
+                var handle = new ManualResetEvent(completed);
                 info.WaitHandle = handle;
-                if (!task.IsCompleted) task.ConfigureAwait(false).GetAwaiter().UnsafeOnCompleted(() => handle.Set());
+                if (!completed) task.ConfigureAwait(false).GetAwaiter().UnsafeOnCompleted(() => handle.Set());
                 return handle;
             }
         }

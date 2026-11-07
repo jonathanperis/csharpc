@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The portable lib/ asset of the RidPkg test package (tests/il.sh, "RID-specific package assets"): built into its
+       own directory so that a second project can build the platform's variant under the same assembly name. -->
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+    <AssemblyName>RidPkg</AssemblyName>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../RidPkg.cs" />
+  </ItemGroup>
+</Project>

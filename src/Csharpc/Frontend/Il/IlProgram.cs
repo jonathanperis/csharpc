@@ -28,8 +28,15 @@ public sealed record IlProgram
     /// </summary>
     public required IReadOnlyList<string> Frameworks { get; init; }
 
+    /// <summary>
+    /// The native libraries deps.json lists for the target's runtime identifier (`runtimeTargets` of assetType native,
+    /// runtimes/&lt;rid&gt;/native next to the assembly): copied next to the executable, where P/Invoke probing finds them.
+    /// </summary>
+    public IReadOnlyList<string> NativeAssets { get; init; } = [];
+
+    /// <param name="runtimeIdentifier">The target's RID: which `runtimeTargets` of deps.json apply (the host picks the same by its own RID).</param>
     /// <summary>Reads the assembly's identity and entry point; throws <see cref="InvalidOperationException"/> with a user-facing message.</summary>
-    public static IlProgram Read(string path)
+    public static IlProgram Read(string path, string? runtimeIdentifier = null)
     {
         if (!File.Exists(path)) throw new InvalidOperationException($"'{path}' not found");
         using var stream = File.OpenRead(path);
@@ -48,6 +55,7 @@ public sealed record IlProgram
             if (token == 0 || MetadataTokens.EntityHandle(token).Kind != HandleKind.MethodDefinition)
                 throw new InvalidOperationException($"'{path}' has no entry point: it is a library, not a program (reference it with -r instead)");
             var runtimeConfig = System.IO.Path.ChangeExtension(path, ".runtimeconfig.json");
+            var (managedTargets, nativeTargets) = ReadRuntimeTargets(path, runtimeIdentifier);
             return new IlProgram
             {
                 Path = path,
@@ -55,7 +63,8 @@ public sealed record IlProgram
                 EntryPointToken = token,
                 RuntimeConfig = ReadRuntimeConfig(runtimeConfig),
                 Frameworks = ReadFrameworks(runtimeConfig),
-                AppLocalAssemblies = AppLocal(path, reader),
+                AppLocalAssemblies = AppLocal(path, reader, managedTargets),
+                NativeAssets = nativeTargets,
             };
         }
     }
@@ -69,7 +78,59 @@ public sealed record IlProgram
     /// </summary>
     public required IReadOnlyList<string> AppLocalAssemblies { get; init; }
 
-    private static List<string> AppLocal(string path, MetadataReader main)
+    /// <summary>
+    /// deps.json's `runtimeTargets`: the platform-specific assets of its packages (runtimes/&lt;rid&gt;/lib/&lt;tfm&gt;/X.dll,
+    /// runtimes/&lt;rid&gt;/native/libX.so). For the target's RID and the ones it falls back to (linux-x64, linux, unix, any),
+    /// the best-matching managed assembly of each name replaces the portable lib/ one, as the host loads it, and the
+    /// native libraries are the ones to deploy.
+    /// </summary>
+    private static (Dictionary<string, string> Managed, List<string> Native) ReadRuntimeTargets(string path, string? runtimeIdentifier)
+    {
+        Dictionary<string, string> managed = new(StringComparer.OrdinalIgnoreCase);
+        List<string> native = [];
+        var deps = System.IO.Path.ChangeExtension(path, ".deps.json");
+        if (runtimeIdentifier is null || !File.Exists(deps)) return (managed, native);
+        var directory = System.IO.Path.GetDirectoryName(path)!;
+        var chain = Csharpc.Driver.RuntimeIdentifiers.Fallbacks(runtimeIdentifier);
+        Dictionary<string, int> bestRank = new(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(deps), new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true });
+            if (!document.RootElement.TryGetProperty("targets", out var targets) || targets.ValueKind != JsonValueKind.Object) return (managed, native);
+            foreach (var target in targets.EnumerateObject())
+                foreach (var library in target.Value.EnumerateObject())
+                {
+                    if (library.Value.ValueKind != JsonValueKind.Object || !library.Value.TryGetProperty("runtimeTargets", out var runtimeTargets)
+                        || runtimeTargets.ValueKind != JsonValueKind.Object) continue;
+                    foreach (var asset in runtimeTargets.EnumerateObject())
+                    {
+                        if (asset.Value.ValueKind != JsonValueKind.Object || !asset.Value.TryGetProperty("rid", out var ridElement)
+                            || !asset.Value.TryGetProperty("assetType", out var typeElement)) continue;
+                        var rank = chain.ToList().IndexOf(ridElement.GetString() ?? "");
+                        if (rank < 0) continue;
+                        var relative = asset.Value.TryGetProperty("localPath", out var local) && local.GetString() is { Length: > 0 } l ? l : asset.Name;
+                        var file = System.IO.Path.GetFullPath(System.IO.Path.Combine(directory, relative));
+                        if (!File.Exists(file)) continue;
+                        switch (typeElement.GetString())
+                        {
+                            case "runtime":
+                                var name = System.IO.Path.GetFileNameWithoutExtension(file);
+                                if (bestRank.TryGetValue(name, out var existing) && existing <= rank) break;
+                                bestRank[name] = rank;
+                                managed[name] = file;
+                                break;
+                            case "native":
+                                if (!native.Contains(file)) native.Add(file);
+                                break;
+                        }
+                    }
+                }
+        }
+        catch (JsonException) { /* a malformed deps.json says nothing, as for the framework assemblies */ }
+        return (managed, native);
+    }
+
+    private static List<string> AppLocal(string path, MetadataReader main, Dictionary<string, string> runtimeTargets)
     {
         var directory = System.IO.Path.GetDirectoryName(path)!;
         List<string> found = [];
@@ -85,7 +146,7 @@ public sealed record IlProgram
                 foreach (var handle in reader.AssemblyReferences)
                 {
                     var name = reader.GetString(reader.GetAssemblyReference(handle).Name);
-                    var candidate = System.IO.Path.Combine(directory, name + ".dll");
+                    var candidate = runtimeTargets.TryGetValue(name, out var platformSpecific) ? platformSpecific : System.IO.Path.Combine(directory, name + ".dll");
                     if (!seen.Add(name) || !File.Exists(candidate)) continue;
                     found.Add(candidate);
                     var pe = new PEReader(File.OpenRead(candidate));

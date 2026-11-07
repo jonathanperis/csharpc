@@ -96,15 +96,18 @@ public static class ParallelCodegen
         log?.Invoke($"split into {count} partitions ({total} instructions), {threads} thread(s)");
         // 4. One bitcode image of the whole program; each partition parses it into its own context
         // and prunes it. The program module is freed first: the partitions reuse its memory.
-        var bitcode = Serialize(m);
+        using var image = BitcodeImage.Write(m);
+        log?.Invoke($"bitcode image {image.Size >> 20} MB, rss {Rss()} MB");
         module.Dispose();
+        log?.Invoke($"program module freed, rss {Rss()} MB");
+        threads = MemoryBudget.Workers(threads, image.Size, log);
         var objects = Enumerable.Range(0, count).Select(i => $"{objectPathBase}.{i}.o").ToList();
         var next = -1;
         var failures = new ConcurrentQueue<Exception>();
         void Work()
         {
             for (int i; (i = Interlocked.Increment(ref next)) < count && failures.IsEmpty;)
-                try { EmitPartition(bitcode, i, owned[i], target, objects[i]); }
+                try { EmitPartition(image, i, owned[i], target, objects[i], log); }
                 catch (Exception e) { failures.Enqueue(e); }
         }
         // The calling thread is one of the workers; the others get a stack as large as the main
@@ -122,22 +125,13 @@ public static class ParallelCodegen
         return objects;
     }
 
-    private static unsafe void EmitPartition(byte[] bitcode, int partition, HashSet<string> owned, TargetMachine target, string path)
+    private static void EmitPartition(BitcodeImage image, int partition, HashSet<string> owned, TargetMachine target, string path, Action<string>? log)
     {
         var context = LLVMContextCreate();
         try
         {
-            LLVMModuleRef m;
-            fixed (byte* data = bitcode)
-            {
-                var buffer = LLVMCreateMemoryBufferWithMemoryRange(data, (nuint)bitcode.Length, "partition", 0);
-                try
-                {
-                    if (LLVMParseBitcodeInContext2(context, buffer, out m) != 0)
-                        throw new InvalidOperationException("internal compiler error: csharpc could not re-read its own bitcode for parallel code generation");
-                }
-                finally { LLVMDisposeMemoryBuffer(buffer); }
-            }
+            var m = image.Parse(context, "parallel code generation");
+            log?.Invoke($"partition {partition} parsed, rss {Rss()} MB");
             try
             {
                 // A target machine must not emit two modules at once: one per partition.
@@ -147,9 +141,12 @@ public static class ParallelCodegen
                     throw new InvalidOperationException($"LLVM code generation failed: {TakeMessage(error)}");
             }
             finally { LLVMDisposeModule(m); }
+            log?.Invoke($"partition {partition} emitted, rss {Rss()} MB");
         }
         finally { LLVMContextDispose(context); }
     }
+
+    private static long Rss() => Environment.WorkingSet >> 20;
 
     /// <summary>Turns everything partition <paramref name="partition"/> doesn't own into declarations.</summary>
     private static void Prune(LLVMModuleRef m, int partition, HashSet<string> owned, TargetMachine target)
@@ -195,13 +192,6 @@ public static class ParallelCodegen
     {
         LLVMSetComdat(value, 0);
         LLVMSetLinkage(value, AvailableExternally);
-    }
-
-    private static unsafe byte[] Serialize(LLVMModuleRef m)
-    {
-        var buffer = LLVMWriteBitcodeToMemoryBuffer(m);
-        try { return new ReadOnlySpan<byte>(LLVMGetBufferStart(buffer), checked((int)LLVMGetBufferSize(buffer))).ToArray(); }
-        finally { LLVMDisposeMemoryBuffer(buffer); }
     }
 
     private static void Externalize(LLVMValueRef value, HashSet<LLVMValueRef> keepName, ref int anonymous)
