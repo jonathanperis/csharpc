@@ -55,7 +55,11 @@ async Task<string> ServeOnce(SslStream ssl)
 {
     await ssl.AuthenticateAsServerAsync(cert);
     var buffer = new byte[8];
-    int n = await ssl.ReadAsync(buffer);
+    // A client that leaves without a close_notify ends the stream as an orderly close or a reset, depending on the OS and
+    // on what the client left unread; both are "no data".
+    int n;
+    try { n = await ssl.ReadAsync(buffer); }
+    catch (IOException) { n = 0; }
     return "read " + n;
 }
 
