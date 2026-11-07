@@ -141,7 +141,7 @@ JSON source generator, which csharpc also synthesizes for reflection-style calls
 project's source generators run on that project's own compilation, with its options and additional files,
 [16-interop-io.md](16-interop-io.md#libraryimport-and-other-source-generators)); formatting, parsing,
 `decimal`, `BigInteger` and `DateTime` (moved from the C runtime into C#); P/Invoke and `System.IO`;
-sockets (`Socket`, `TcpListener`/`TcpClient`, `UdpClient`, `Dns`); library value types (`Guid`,
+sockets (`Socket`, `TcpListener`/`TcpClient`, `UdpClient`, `Dns`); library value types (`Guid`, `Vector2`/`Vector3`/`Vector4`,
 `ArraySegment<T>`, `DateTimeOffset`); `MemoryPool<T>`, `Convert`; `System.Type` reflection basics; globalization (cultures via ICU, as .NET:
 [19-globalization.md](19-globalization.md)). Next: TLS and `HttpClient`; the library surface ranked by the compatibility runs and
 the NuGet survey (`Uri`, `System.Xml.Linq`, `IConvertible`).
