@@ -29,7 +29,13 @@ Latest run (scheduled `Compatibility` run of 2026-11-01 on `main`, hosted `ubunt
   `LangVersion` is 6 or 7.2 stop in the built-in regex generator's output (`RegexGenerator.g.cs(3,2): error
   CS8059/CS8320: Feature 'nullable reference types' is not available`: the generated file begins with
   `#nullable enable annotations` whether or not the program has a `[GeneratedRegex]`), and `trimming/ConsoleApp1`
-  makes csharpc print its usage text and exit 2. The run before it, on 2026-10-30, was 249 of 249 (100 %).
+  makes csharpc print its usage text and exit 2. The run before it, on 2026-10-30, was 249 of 249 (100 %). Fixed in #163
+  (the next Compatibility run confirms it; regression sample `1236_langversion7_no_regex_generator_output` and the
+  `ConfigBindingRefs` / `Net8Generators` project tests): the regex generator now emits nothing without `[GeneratedRegex]`
+  members and `#nullable` only from C# 8; the `ConsoleApp1` exit was Roslyn's "Inconsistent syntax tree features" (the
+  root project's csc line carries `/features:InterceptorsNamespaces=...`, its library's does not), now one union of features
+  for all trees; and behind it, the SDK's generators of a `net8.0` project were bound to the newer
+  `Microsoft.Interop.SourceGeneration` linked into csharpc (`TypeLoadException`, CS8784), now loaded from their own directory.
 - **NativeAOT-unsupported, by reason** (29): crashes 15 (most are `System.Text.Json`'s reflection-based serializer,
   which NativeAOT disables; trim/AOT warnings `IL2026`/`IL3050`), output differs 11 (stack-trace lines: NativeAOT
   prints other frames and no file/line; exception messages), publish fails 2 (an XML documentation file NativeAOT's

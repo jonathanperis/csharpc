@@ -23,7 +23,7 @@ built through the fork's `PublishAot`). A milestone is done only when none of it
 | M0, M1 | done | 663 differential samples, 195 conformance programs, benchmarks | |
 | M2 library | open | the surface of [06-roadmap.md](06-roadmap.md#m2--library-in-c) is implemented on Linux; macOS/Windows TLS over OpenSSL | #146 (survey), #143, #144, #89, #95–#104 |
 | M3 platforms | done | five `test (<platform>)` CI jobs green on `main` | |
-| M4 validation | open | NativeAOT parity 242 of 246 (98.4 %) in the latest Compatibility run, 249 of 249 before | #163 |
+| M4 validation | open | NativeAOT parity 242 of 246 (98.4 %) in the latest Compatibility run, 249 of 249 before; the four compile errors are fixed (#163), awaiting a run | #163 |
 | M5 packages and program as IL | open | `csharpc app.dll` and `--via-il` pass every sample; `-g` from the PDB; `calli`; RID assets | #175, #146 |
 | M6 bootstrapping | open | csharpc compiles itself at -O0 and -O2; the native compiler passes every sample | #174, #93 |
 | M7 TechEmpower (CLI) | on hold | harness and performance work on `main`; 288 of 456 metrics ahead on 2026-11-02, none buildable on 2026-11-07 | #164 |
@@ -43,7 +43,7 @@ builds the Platform entry (#164), and the parity figure of the `Compatibility` w
 
 **NativeAOT parity** (`Compatibility` workflow, scheduled run of 2026-11-01, 320 programs from dotnet/samples and
 dotnet/docs): 242 of 246 programs NativeAOT publishes and runs like the JIT also match with csharpc (98.4 %); the four
-others are compile errors (#163), none a wrong output. 249 of 249 on 2026-10-30. Against NativeAOT on the 242: executable
+others are compile errors (fixed in #163, to be confirmed by the next run), none a wrong output. 249 of 249 on 2026-10-30. Against NativeAOT on the 242: executable
 median 143 KiB vs 1,338 KiB (smaller in 239); compile time median 10.3 s vs 8.6 s (faster in 53), slowest 111.2 s vs 24.2 s.
 csharpc passes 22 of the 29 programs NativeAOT can't run. Details: [18-compatibility.md](18-compatibility.md).
 
