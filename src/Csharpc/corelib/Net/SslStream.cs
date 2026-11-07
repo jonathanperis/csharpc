@@ -12,7 +12,7 @@
 // callbacks, cipher suite policies, client certificate renegotiation (NegotiateClientCertificateAsync), the
 // CipherAlgorithm/HashAlgorithm/KeyExchangeAlgorithm properties.
 #nullable disable
-#if CSHARPC_TARGET_LINUX
+#if CSHARPC_OPENSSL
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -682,7 +682,17 @@ namespace CsharpcCoreLib
             Exception validation = session.ValidationException;
             // Our own explicit diagnostics (a revocation mode, say) surface as they are.
             if (validation is NotSupportedException) return validation;
+#if CSHARPC_TARGET_MACOS
+            // .NET on macOS validates after SecureTransport's handshake and throws the validation failure itself; the
+            // OpenSSL callback fails the handshake instead, which .NET on Linux reports wrapped.
+            if (validation != null) return validation;
+#endif
             if (validation != null) return new AuthenticationException("Authentication failed, see inner exception.", validation);
+#if CSHARPC_TARGET_MACOS
+            // SecureTransport's text for a protocol version the peer doesn't speak.
+            if (f.OpenSslText != null && (f.OpenSslText.Contains("protocol version") || f.OpenSslText.Contains("unsupported protocol") || f.OpenSslText.Contains("no protocols available")))
+                return new AuthenticationException("Authentication failed, see inner exception.", new SslException("bad protocol version", null));
+#endif
             return new AuthenticationException("Authentication failed, see inner exception.",
                 new SslException("SSL Handshake failed with OpenSSL error - " + ErrorName(f.Error) + ".", f.OpenSslText == null ? null : new CryptographicException(f.OpenSslText)));
         }

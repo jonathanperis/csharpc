@@ -7,7 +7,7 @@
 // X500DistinguishedName (decoded as .NET prints it: ", " between RDNs, the last RDN first, quotes where needed)
 // and PublicKey. The certificate itself is in X509Certificates.cs (docs/adr/0022-tls.md).
 #nullable disable
-#if CSHARPC_TARGET_LINUX
+#if CSHARPC_OPENSSL
 using System;
 using System.Collections.Generic;
 using System.Security.Cryptography;

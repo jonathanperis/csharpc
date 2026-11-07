@@ -338,14 +338,14 @@ parity run (80.6 %) ranked the in-scope blockers; fixed since, each with a regre
 | `Partitioner`, `Barrier`, `Parallel.ForEach` over enumerables, `AggregateException.Flatten` | `ParallelGrep` | 550 |
 | created tasks (`new Task`, `Start`, `RunSynchronously` — which waits for attached children), `Task.CurrentId` | `RaceConditionExample` | 551 |
 | PLINQ from IL: generic virtual methods overridden in generic classes (dispatched over every instantiation), attached child tasks, `TrySetException(IEnumerable)` | `samples/parallel/PLINQ` (out of scope: NativeAOT differs) | 552, 324 |
-| `RSA` over OpenSSL on Linux (key generation, `RSAParameters`, PKCS#1/PSS signatures, PKCS#1/OAEP encryption, the signature formatters) | `cryptographic-signatures` | 553 |
+| `RSA` over OpenSSL on Linux and macOS (key generation, `RSAParameters`, PKCS#1/PSS signatures, PKCS#1/OAEP encryption, the signature formatters) | `cryptographic-signatures` | 553 |
 
 Along the way: `Monitor.Wait` lost a pulse that met its interrupt-poll timeout (a rare hang of
 `SemaphoreSlim`/`BlockingCollection` producers, sample 555); `Task.RunSynchronously` now waits for attached
 children (PLINQ's merge disposed its barriers early); event waits on WebAssembly run queued work; P/Invoke
 `bool` parameters into the C runtime trapped on WebAssembly; `UnobservedTaskExceptionEventArgs` and
-`GC.WaitForPendingFinalizers` (sample 554). Still open in this area: RSA on macOS and Windows,
-which need Security.framework and CNG.
+`GC.WaitForPendingFinalizers` (sample 554). Still open in this area: RSA on Windows,
+which needs CNG.
 
 ## Bugs: wrong output and crashes
 
@@ -842,7 +842,7 @@ Not yet measured: HttpClient's speed against NativeAOT's (the pool, header parsi
 IL; the sockets under it are csharpc's). A program that does one `GetStringAsync` is 3.2 MB at `-O2` (`tests/size.sh` has
 no HttpClient program yet); the budgets of the programs it has are unchanged.
 
-## SslStream and https (Linux)
+## SslStream and https (Linux and macOS)
 
 `SslStream` (client and server), `AuthenticatedStream` and `HttpClient` over `https://` work on Linux ([ADR 0022](adr/0022-tls.md)):
 libssl 3 under corelib C#, with .NET's validation logic, policy errors and exception messages. Samples `1101_sslstream_loopback`
@@ -857,7 +857,7 @@ difference (client session resumption) and the platforms are in the ADR. Found, 
 for `localhost` when the listener is IPv4-only fails with `Software caused connection abort` instead of falling back from `::1` to
 `127.0.0.1` (plain HTTP too: `HttpClient.GetStringAsync("http://localhost:port")`), so the samples address `127.0.0.1`.
 
-## X.509 certificates (Linux)
+## X.509 certificates (Linux and macOS)
 
 `X509Certificate`, `X509Certificate2`, `X509Certificate2Collection`, `X509CertificateLoader`, `X509Chain` and the pieces under them
 (`X500DistinguishedName`, `AsnEncodedData`, `Oid`, `PublicKey`, `X509ChainPolicy`/`Element`/`Status`) are corelib C# over OpenSSL 3
@@ -875,7 +875,7 @@ PFX password, garbage data, a missing file (OpenSSL's `error:10000080:BIO routin
 Explicit diagnostics: `X509Certificate2.Extensions` and the typed extension classes (X509KeyUsageExtension, ...), `X509Store`,
 PKCS#7, exporting a PFX, `CopyWithPrivateKey`, `ToString(true)` of a `X509Certificate2` (it lists the extensions),
 `GetNameInfo` of names without CN/OU/O, revocation checking (`X509Chain` needs `RevocationMode.NoCheck`), ECDSA/DSA keys.
-macOS and Windows keep the previous `NotSupportedException` for every certificate API.
+On macOS the same code runs over Homebrew's `openssl@3` (ADR 0022, addendum: trust is OpenSSL's plus `/etc/ssl/cert.pem`, not the keychain; the machine needs `brew install openssl@3`). Windows keeps the previous `NotSupportedException` for every certificate API.
 
 ## Expression trees
 
