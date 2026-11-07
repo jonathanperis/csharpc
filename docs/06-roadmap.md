@@ -145,6 +145,10 @@ sockets (`Socket`, `TcpListener`/`TcpClient`, `UdpClient`, `Dns`); library value
 `ArraySegment<T>`, `DateTimeOffset`); `MemoryPool<T>`, `Convert`; `System.Type` reflection basics; globalization (cultures via ICU, as .NET:
 [19-globalization.md](19-globalization.md)). Next: TLS and `HttpClient`; the library surface ranked by the compatibility runs and
 the NuGet survey (`Uri`, `System.Xml.Linq`, `IConvertible`).
+Windows `Uri`: a rooted path without a drive (`"/absolute/path"`) follows .NET's Windows rules (a `UriFormatException` for
+`UriKind.Absolute`, a relative `Uri` otherwise) instead of an explicit error, which unblocks `HttpClient.BaseAddress`
+requests there ([16-interop-io.md](16-interop-io.md#limits), samples 972, 1010, 1210); UNC and drive-less `file:` URIs
+stay explicit diagnostics.
 
 ### M3 — Platforms and per-platform evidence ✅
 Each platform gets a CI job (GitHub Actions) running the full differential suite, conformance corpus
