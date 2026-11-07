@@ -62,6 +62,20 @@ generic delegate types are a `NotSupportedException` / `ArgumentException`. A po
   imports link directly against the UCRT and kernel32 (as strong symbols: a COFF weak external of,
   say, `malloc` would also capture the C runtime's own references to it).
 
+* **.NET's own shims** (`libSystem.IO.Compression.Native`, and `libSystem.Native` for tar and zip permissions)
+  are linked statically from the NativeAOT runtime pack, as NativeAOT does, so framework assemblies compiled from
+  IL (`System.IO.Compression`, `System.Net.Http`'s decompression) call the same zlib-ng, brotli and zstd. On
+  **Windows** the framework's IL names the shim `System.IO.Compression.Native`, and the pack's archives are
+  MSVC libraries (`System.IO.Compression.Native.Aot.lib`, `zlibstatic.lib`, `brotli*.lib`, `zstd_static.lib`)
+  that lld links into the MinGW executable. Three things make that work: `src/runtime/windows-shims/msvc_compat.c`
+  supplies the few vcruntime symbols they name (`__security_cookie` and its check, `__GSHandlerCheck`,
+  `__guard_dispatch_icall_fptr`, `__chkstk`, `__isa_available`, `_fltused`; weak, with the MSVC fail-fast `int 0x29`
+  on a smashed stack cookie), `-nodefaultlib` drops their `LIBCMT`/`OLDNAMES`/`uuid` `/DEFAULTLIB` directives, and
+  the object is compiled and linked only into programs that link a shim, so others are unchanged. Gzip, deflate,
+  zlib and Brotli streams and `HttpClient`'s `AutomaticDecompression` therefore work on every platform
+  (samples 1005, 1211). `ZipArchive` and `ZipFile` do not on Windows yet: they reach `Aes.Create()` (CNG) and
+  `File.SetLastWriteTimeUtc`, both still missing there (samples 537, 540).
+
 `NativeLibrary.Load/TryLoad/GetExport/TryGetExport/Free`, `Marshal.AllocHGlobal/FreeHGlobal`,
 `Marshal.StringToHGlobalAnsi/Uni`, `PtrToStringUTF8/Ansi/Uni`, `Read*/Write*`, `Copy` (every primitive array type, range-checked
 like the span constructors) and `NativeMemory.*` (including the aligned allocators, over a header kept below the aligned

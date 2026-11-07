@@ -325,7 +325,7 @@ parity run (80.6 %) ranked the in-scope blockers; fixed since, each with a regre
 | `Thread.Interrupt` (and an interruptible `Thread.Join` on Windows, as there) | `InterruptThread` | 534 |
 | unreachable unsupported source methods compile as stubs, like IL methods | — | 535 |
 | `[StructLayout(LayoutKind.Explicit)]` / `[FieldOffset]` | — | 536 |
-| `System.IO.Compression` (`BrotliStream`, `ZipArchive`, `ZipFile`) and `System.Formats.Tar` from IL, over .NET's native shims | `zip-tar-best-practices` | 537, 540 |
+| `System.IO.Compression` (`BrotliStream`, `ZipArchive`, `ZipFile`) and `System.Formats.Tar` from IL, over .NET's native shims | `zip-tar-best-practices` | 537, 540, 1211 |
 | `Aes`, `CryptoStream`, `RandomNumberGenerator`, HMAC, PBKDF2 over the OS's crypto library (OpenSSL on Linux, CommonCrypto on macOS, CNG on Windows) | `aesencrypt` | 538 |
 | exceptions overriding `GetObjectData` | — | 539 |
 | `StringInfo`, `TextElementEnumerator`, `Rune` text elements | `RuneSamples` | 541 |
@@ -828,6 +828,9 @@ Explicit diagnostics, never a different behavior:
 - `Dns.GetHostEntry*` (canonical names and aliases are not resolved): `NotSupportedException`.
 - `NetworkChange.NetworkAddressChanged` accepts subscriptions and never fires (the pool only uses it to drop its
   Alt-Svc cache).
+- **Windows:** gzip, deflate and Brotli decompression run over .NET's own zlib-ng and brotli, linked from the NativeAOT
+  win-x64 pack (sample 1005, [16-interop-io.md](16-interop-io.md#binding)). `ZipArchive` and `ZipFile` are still an explicit
+  compile error there (`Aes.Create()` needs CNG; `File.SetLastWriteTimeUtc` is missing: samples 537, 540).
 - **Windows:** a rooted request path (`"/absolute/path"`) is a relative `Uri` there, as in .NET, so `BaseAddress` + path
   works (sample 1010); UNC paths and `file:` URIs without a drive letter stay `NotSupportedException`.
 - `Uri` is the corelib's: a relative request URI that has a query or escaped characters (`"items?id=7"`, `"with space"`) is the
