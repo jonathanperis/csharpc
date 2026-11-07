@@ -354,6 +354,7 @@ public sealed partial class ModuleCodeGen
         if (method.PartialDefinitionPart is { } partialDefinition) method = partialDefinition; // one function per partial member
         if (!_slotReference) NoteReference(method, virtualCall: false);
         if (_functions.TryGetValue(method, out var existing)) return existing;
+        if (method is { MethodKind: MethodKind.PropertyGet, ContainingType.IsAnonymousType: true }) return _functions[method] = AnonymousGetter(method);
         if (generic && TypeSubstitution.IsOpen(method))
             throw CompileError.Unsupported($"open generic instantiation '{method}'", method);
         if (generic) { CheckGenericDepth(method); NoteDynamicallyAccessedInstantiation(method); }
@@ -634,6 +635,15 @@ public sealed partial class ModuleCodeGen
         public long IlTicks, IlDecodeTicks, SourceTicks, CoreLibTicks, CfgTicks, CfgWaitTicks;
         /// <summary>Module-level steps (tables, dispatchers, metadata, reachability), in first-run order.</summary>
         public readonly List<(string Name, long Ticks)> Steps = [];
+
+        /// <summary>Times a part of a step (counted inside it, listed after it as "step/part"); disposed to add the elapsed time.</summary>
+        internal Part Time(string name) => new(this, name);
+
+        internal readonly struct Part(LoweringStats stats, string name) : IDisposable
+        {
+            private readonly long _start = System.Diagnostics.Stopwatch.GetTimestamp();
+            public void Dispose() => stats.AddStep(name, System.Diagnostics.Stopwatch.GetTimestamp() - _start);
+        }
 
         internal void AddStep(string name, long ticks)
         {

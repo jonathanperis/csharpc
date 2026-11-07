@@ -831,6 +831,8 @@ Explicit diagnostics, never a different behavior:
 - **Windows:** gzip, deflate and Brotli decompression run over .NET's own zlib-ng and brotli, linked from the NativeAOT
   win-x64 pack (sample 1005, [16-interop-io.md](16-interop-io.md#binding)). `ZipArchive` and `ZipFile` are still an explicit
   compile error there (`Aes.Create()` needs CNG; `File.SetLastWriteTimeUtc` is missing: samples 537, 540).
+- **Windows:** a rooted request path (`"/absolute/path"`) is a relative `Uri` there, as in .NET, so `BaseAddress` + path
+  works (sample 1010); UNC paths and `file:` URIs without a drive letter stay `NotSupportedException`.
 - `Uri` is the corelib's: a relative request URI that has a query or escaped characters (`"items?id=7"`, `"with space"`) is the
   Uri shadow's explicit `NotSupportedException` ("System.Uri with this relative URI").
 - Stack traces of exceptions thrown by `System.Net.Http` list its frames as .NET does only where csharpc compiles them

@@ -149,6 +149,10 @@ Windows catches up with the other platforms case by case: .NET's zlib-ng and bro
 NativeAOT win-x64 pack (lld over the MSVC libraries plus `src/runtime/windows-shims`), so gzip/deflate/zlib/Brotli
 streams and `HttpClient` decompression work there ([16-interop-io.md](16-interop-io.md#binding), samples 1005,
 1211); `ZipArchive`/`ZipFile` wait for `Aes.Create()` (CNG) and `File.SetLastWriteTimeUtc` on Windows (537, 540).
+Windows `Uri`: a rooted path without a drive (`"/absolute/path"`) follows .NET's Windows rules (a `UriFormatException` for
+`UriKind.Absolute`, a relative `Uri` otherwise) instead of an explicit error, which unblocks `HttpClient.BaseAddress`
+requests there ([16-interop-io.md](16-interop-io.md#limits), samples 972, 1010, 1210); UNC and drive-less `file:` URIs
+stay explicit diagnostics.
 
 ### M3 — Platforms and per-platform evidence ✅
 Each platform gets a CI job (GitHub Actions) running the full differential suite, conformance corpus
@@ -209,6 +213,12 @@ nested types too (the binding compilation reads the program with those types mar
 [ADR 0010](adr/0010-il-frontend.md#the-program-as-il-2026-10-30)). Left as diagnostics from IL: JSON of
 anonymous, file-local and other compiler-generated types, as in source. Gaps between the two front-ends are bugs.
 
+`-g` works from IL too (2026-11-06): `csharpc -g app.dll` (or a library DLL it references) emits the DWARF
+line table, parameter and local names from the assembly's portable PDB — beside the DLL or embedded —
+so gdb breaks on `Counter.cs:10` of a library compiled from its IL, with inlined frames at -O2
+(`tests/debuginfo.sh`, [13-debugging.md](13-debugging.md#from-the-assemblys-pdb)). An assembly without a
+PDB, the precompiled corelib and shared-framework assemblies get no debug info (Windows PDBs aren't read).
+
 **Function pointers and `calli`**: `delegate*<...>` calls and IL `calli` share one lowering (managed signatures:
 csharpc's own convention, `ref`/`out`/`in` and `ref` returns, structs, generics). `delegate* unmanaged` calls and
 `&[UnmanagedCallersOnly]` entries follow the platform's C ABI as a P/Invoke of the same function does: structs
@@ -226,7 +236,7 @@ with the runtime graph's fallbacks (linux-x64 -> linux -> unix-x64 -> unix -> an
 next to the executable, where a P/Invoke probes first (`tests/il.sh`, RidApp, against a package built locally).
 Left: satellite resource assemblies, `ref/` vs `lib/` binding, linking a package's static archives.
 
-Next: `-g` from the assembly's PDB, the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`.
+Next: the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`.
 
 ### M6 — Bootstrapping
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.
@@ -255,8 +265,9 @@ loops with a loop state, `Task.AsyncState`/`CreationOptions`/`Dispose`/`IAsyncRe
 (what `AggregateException.InnerExceptions` is cast to), `Task.Run(Func<Task>)` canceling on an
 `OperationCanceledException` as .NET's unwrap proxy does, the "continuation task" errors of `Start`/`RunSynchronously`,
 a null `AggregateException` message, and lambdas inside a `when` filter (their blocks were taken for the filter's and
-lowered as `unreachable`; samples 1060-1063); `TaskFactory.ContinueWhenAll/ContinueWhenAny/FromAsync` (every overload, #117; samples 1200-1205, [10-async.md](10-async.md)) closed
-afterwards; still open: `EventSource.Write<T>` payloads, type identity of tasks (`GetType()` and `is Task<T>`).
+lowered as `unreachable`; samples 1060-1063); `TaskFactory.ContinueWhenAll/ContinueWhenAny/FromAsync` (every overload, #117; samples 1200-1205, [10-async.md](10-async.md)) and
+`EventSource.Write<T>` payloads (anonymous and `[EventData]` types, #121; samples 1210-1211, [12-corelib.md](12-corelib.md)) closed
+afterwards; still open: type identity of tasks (`GetType()` and `is Task<T>`).
 Roslyn from IL, measured: the `IL survey` workflow's `roslyn` target lowers every method of Roslyn and
 `csharpc.dll` in 16 parallel shards and ranks what stops them
 ([18-compatibility.md](18-compatibility.md#roslyn-and-csharpc)). On branch `m6-roslyn` the Roslyn methods
@@ -299,9 +310,24 @@ bitcode image kept in LLVM's buffer and the partition workers limited by the mem
 free, each further one is estimated at ten times the image): the self-compile peaks at 8.0 GB at -O0 and 7.6 GB at
 -O2 with two workers (9.3 and 8.6 GB before), 5.3 and 5.5 GB with one (backend 219 s instead of 122 s at -O0,
 1076 s instead of 462 s at -O2), executables byte-identical (run 42256286314). What remains is the module itself,
-about 2.7 GB for 9 M instructions, and the managed heap at the end of lowering (3.7 GB). Lowering on several threads is
-an open design question: single-threaded lowering is 75 s of the 238 s self-compile at -O0 and 69 s of 577 s at -O2
-(ADR 0014, "Next hot spots"). Next: the native compiler on the whole differential suite.
+about 2.7 GB for 9 M instructions, and the managed heap at the end of lowering (3.7 GB).
+Lowering on several threads is deferred (owner, 2026-11-06): the single-threaded lowering is 75 s of the 238 s self-compile
+at -O0 and 69 s of 577 s at -O2, so two parallel threads would save about 35 s (15 % / 6 %) for a second set of types,
+declarations and constants in memory (ADR 0014, "Next hot spots"). Instead the module-level steps of that thread were made
+cheaper, with byte-identical output (`tools/bootstrap/compare-compilers.sh`; numbers in
+[#108](https://github.com/jonathanperis/csharpc/issues/108)): generic interface dispatchers look only at the types that implement their
+interface instead of resolving every class's implementation each round, and array interface maps compute their facts once per
+interface and element.
+The native compiler on the whole differential suite (`CSHARPC_NATIVE` in `tests/run.sh`, the `native-suite` jobs of the
+`Bootstrap` workflow, run 42247074061): 582 of 616 samples pass at -O0 and -O2, 34 do not, the same with both native
+compilers (`tools/bootstrap/native-known-failures.txt`). 21 are source generators the SDK ships as assemblies
+(System.Text.Json, LibraryImport), which a csharpc compiled by csharpc cannot load at run time (the single-file path
+was silent about it; it is an explicit CSLLVM0001 now) and are decided (the owner, 2026-11-06): the two generators are linked into csharpc; 11 are stack traces, where the
+native compiler's emit of the program for its PDB stops because Roslyn reads an attribute of System.Private.CoreLib
+(csharpc has none, a NotSupportedException), so the lambda frames are missing (decided: the framework's real attributes); 2 are the built-in `[GeneratedRegex]`
+generator failing to initialize with an ArrayTypeMismatchException in `ArrayBuilder<IIncrementalGeneratorOutputNode>.Add`
+(a store check Roslyn's driver passes under the JIT, cause not found).
+Not done: the suite is not at 100 % yet. Next: the 34 known failures (the generators linked in, the corelib's real assembly attributes for the PDB writer).
 
 ### Runtime tiers — C# for library code, C where it is the right tool
 [ADR 0017](adr/0017-runtime-tiers.md); a C-free runtime is not a goal (owner, 2026-10-30). **Tier 1 (now,

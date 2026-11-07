@@ -9,5 +9,7 @@
   <ItemGroup>
     <!-- A raw manifest resource (IlResources.table.dat), read with Assembly.GetManifestResourceStream. -->
     <EmbeddedResource Include="table.dat" />
+    <!-- A .resources file written with ResourceWriter (primitives by type code, a byte array, Stream entries): ResourceManager.GetResourceSet / GetStream. -->
+    <EmbeddedResource Include="Blobs.resources" LogicalName="IlResources.Blobs.resources" />
   </ItemGroup>
 </Project>

@@ -85,4 +85,25 @@ namespace CsharpcCoreLib
         public string FrameworkName { get; }
         public string FrameworkDisplayName { get; set; }
     }
+
+    [Shadows("System.Runtime.CompilerServices.CompilationRelaxationsAttribute")]
+    public sealed class CompilationRelaxationsAttributeImpl : Attribute
+    {
+        public CompilationRelaxationsAttributeImpl(int relaxations) { CompilationRelaxations = relaxations; }
+        public int CompilationRelaxations { get; }
+    }
+
+    [Shadows("System.Runtime.CompilerServices.RuntimeCompatibilityAttribute")]
+    public sealed class RuntimeCompatibilityAttributeImpl : Attribute
+    {
+        public RuntimeCompatibilityAttributeImpl() { }
+        public bool WrapNonExceptionThrows { get; set; }
+    }
+
+    [Shadows("System.Resources.NeutralResourcesLanguageAttribute")]
+    public sealed class NeutralResourcesLanguageAttributeImpl : Attribute
+    {
+        public NeutralResourcesLanguageAttributeImpl(string cultureName) { CultureName = cultureName ?? throw new ArgumentNullException("cultureName"); }
+        public string CultureName { get; }
+    }
 }

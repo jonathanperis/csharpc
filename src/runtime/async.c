@@ -471,7 +471,9 @@ void csrt_task_mark_queued(csrt_Task* t) {
     __atomic_or_fetch(&t->flags, TF_DELEGATE, __ATOMIC_RELEASE);
 }
 /// Task.CreationOptions of the tasks the runtime creates itself: Task.Run's are DenyChildAttach (the flag survives completion).
-bool csrt_task_denies_children(csrt_Task* t) { return t && (__atomic_load_n(&t->flags, __ATOMIC_ACQUIRE) & TF_DENY_CHILD); }
+/// int32_t, not bool: the corelib imports it as a BOOL (i32), and on wasm32 a call whose IR return type (i32) differs from the
+/// callee's (zeroext i1) compiles to `unreachable`, which trapped Task.CreationOptions of every default task (#118).
+int32_t csrt_task_denies_children(csrt_Task* t) { return t && (__atomic_load_n(&t->flags, __ATOMIC_ACQUIRE) & TF_DENY_CHILD) ? 1 : 0; }
 void csrt_task_mark_waiting_children(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_WAIT_CHILDREN, __ATOMIC_RELEASE); }
 void csrt_task_mark_created(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_CREATED, __ATOMIC_RELEASE); }
 void csrt_task_clear_created(csrt_Task* t) { if (t) __atomic_and_fetch(&t->flags, ~TF_CREATED, __ATOMIC_RELEASE); }

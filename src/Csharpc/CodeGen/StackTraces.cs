@@ -104,7 +104,11 @@ public sealed class StackTraceInfo
             var result = user.Emit(pe, pdb, options: new EmitOptions(debugInformationFormat: DebugInformationFormat.PortablePdb));
             failure = result.Success ? null : result.Diagnostics.FirstOrDefault(d => d.Severity == DiagnosticSeverity.Error)?.ToString() ?? "emit failed";
         }
-        catch (Exception e) when (e is not OutOfMemoryException) { failure = e.Message; }
+        catch (Exception e) when (e is not OutOfMemoryException)
+        {
+            failure = e.Message;
+            if (Environment.GetEnvironmentVariable("CSHARPC_TRACE") == "1") Console.Error.WriteLine($"[csharpc] emitting the program for its stack-trace metadata failed: {e}");
+        }
         if (failure is not null)
         {
             Warnings.Add(new CompileError("CSLLVM0006",
@@ -196,7 +200,7 @@ public sealed class StackTraceInfo
         return module;
     }
 
-    private static MetadataReaderProvider? PdbOf(Frontend.Il.IlAssembly assembly, bool sibling)
+    internal static MetadataReaderProvider? PdbOf(Frontend.Il.IlAssembly assembly, bool sibling)
     {
         if (assembly.Pe.ReadDebugDirectory().FirstOrDefault(e => e.Type == DebugDirectoryEntryType.EmbeddedPortablePdb) is { DataSize: > 0 } embedded)
             return assembly.Pe.ReadEmbeddedPortablePdbDebugDirectoryData(embedded);

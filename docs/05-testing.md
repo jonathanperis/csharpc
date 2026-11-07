@@ -63,6 +63,12 @@ rejects the assembly (exit 1, any diagnostic). `CSHARPC_IL_BUILD=dir` keeps the 
 samples known to fail that way, and a shard fails on a sample outside the list or a listed one that
 passes (`tests/il-main-check.sh`).
 
+`CSHARPC_NATIVE=path/to/csharpc-native` runs the suite with the compiler csharpc built from itself
+(`tools/bootstrap/selfhost.sh`, M6) instead of the managed one: the samples and recordings are the same, so a
+difference is a csharpc that miscompiled csharpc. The [Bootstrap](../.github/workflows/bootstrap.yml) workflow
+runs it in 8 shards for the `-O0` and the `-O2` native compiler, with `tools/bootstrap/native-known-failures.txt`
+as the list (same check as above); `tools/bootstrap/native-diff.sh` shows where the two compilers' IR differs.
+
 Environment: `DOTNET` (path to the `dotnet` executable; the .NET 11 SDK must be first on `PATH`),
 `CSHARPC_OPT`, `CSHARPC_TEST_TIMEOUT`, `CSHARPC_TEST_TARGET` (cross-target runs, see below).
 
@@ -178,15 +184,17 @@ merged PR's head is the second parent of a merge commit) and the heads GitHub li
 candidate counts only when it descends from the commit `main` pointed at before the push: a pull
 request's checks test its merge with the base at that time, which is the head's own tree exactly when
 the head already contained that base, and `main` only moves forward. A PR that was behind `main` when
-it was merged produces a different tree and runs the full suite. Like a docs-only skip, such a run
-does not publish (the Release workflow needs the sharded `diff (` jobs).
+it was merged produces a different tree and runs the full suite. Unlike a docs-only skip, such a run
+publishes: it has a `tree (identical tested tree)` job, which exists only in that mode, and
+`tools/ci-plan.sh release-gate` accepts it in place of the sharded `diff (` jobs (the five `test` checks
+must still be success). The Release workflow builds and smoke-tests the pushed commit itself.
 
 ### Targeted runs
 
 A targeted run is partial. Its jobs are named `partial (<platform>)`, and it does not report
 `test (<platform>)` as success, so it is not the merge bar. Release publishes only after a full
-gate (successful `diff (` shards for every platform and the five `test` checks); a partial or
-docs-only CI success does not publish.
+gate (successful `diff (` shards for every platform, or the `tree` job of an identical-tree skip, and the
+five `test` checks); a partial or docs-only CI success does not publish.
 
 Two ways to start one:
 

@@ -241,7 +241,10 @@ public sealed partial class ModuleCodeGen
                 if (!_damInstantiations.Add(method)) break;
                 for (var i = 0; i < method.TypeParameters.Length; i++)
                     if (DamKindsOf(method.OriginalDefinition.TypeParameters[i].GetAttributes()) is var kinds and not 0)
+                    {
                         MarkDynamicallyAccessed(method.TypeArguments[i], kinds);
+                        if (IsEventSourceWrite(method)) MarkEventPayloadGraph(method.TypeArguments[i]);
+                    }
                 if (method.ContainingType is { } owner) NoteDynamicallyAccessedInstantiation(owner);
                 break;
             case IMethodSymbol { ContainingType: { } declaring }:

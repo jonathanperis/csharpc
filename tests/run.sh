@@ -25,7 +25,9 @@
 # A sample with a NAME.diagnostics file is one csharpc must reject cleanly (explicit diagnostics, no
 # crash): the compiler's stderr, with the samples directory stripped from paths, must equal that file.
 #
-# Environment: CSHARPC_FLAGS="-g" (extra compiler flags, e.g. run the suite with debug info), CSHARPC_OPT=-O0 (same as --opt), CSHARPC_TEST_TIMEOUT=20 (seconds per binary),
+# Environment: CSHARPC_NATIVE=path/to/csharpc-native (run the suite with the compiler csharpc built from itself,
+#              tools/bootstrap/selfhost.sh, instead of the managed one; no build),
+#              CSHARPC_FLAGS="-g" (extra compiler flags, e.g. run the suite with debug info), CSHARPC_OPT=-O0 (same as --opt), CSHARPC_TEST_TIMEOUT=20 (seconds per binary),
 #              DOTNET=path/to/dotnet, CSHARPC_TEST_TARGET=wasm32-wasip1 (compile for WebAssembly and run with
 #              wasmtime; see tests/platform.sh).
 set -uo pipefail
@@ -127,8 +129,14 @@ if (( SHARD_COUNT > 1 || REPEAT > 1 )); then
   echo "selection: ${#selected[@]} samples, shard $SHARD_INDEX/$SHARD_COUNT, repeat $REPEAT, opts ${OPTS[*]}"
 fi
 
-"$DOTNET" build "$ROOT/src/Csharpc" -c Release -v quiet -nologo > /dev/null || { echo "build failed"; exit 1; }
-CSHARPC=("$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll")
+if [[ -n "${CSHARPC_NATIVE:-}" ]]; then
+  # The compiler built by itself (tools/bootstrap/selfhost.sh): the suite is the same, the compiler is not.
+  [[ -x "$CSHARPC_NATIVE" ]] || { echo "CSHARPC_NATIVE=$CSHARPC_NATIVE is not an executable"; exit 1; }
+  CSHARPC=("$CSHARPC_NATIVE")
+else
+  "$DOTNET" build "$ROOT/src/Csharpc" -c Release -v quiet -nologo > /dev/null || { echo "build failed"; exit 1; }
+  CSHARPC=("$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll")
+fi
 
 OUT="$(mktemp -d)"
 trap 'kill $(jobs -p) 2>/dev/null; rm -rf "$OUT"' EXIT
