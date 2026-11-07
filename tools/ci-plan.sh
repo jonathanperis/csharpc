@@ -644,11 +644,17 @@ cmd_release_gate() {
   norm="$(mktemp)"
   sed -E 's/[[:space:]]+(success|failure|cancelled|skipped|neutral|timed_out|startup_failure)$/	\1/' "$tsv" >"$norm"
   local p
+  # An identical-tree skip (mode `tree`, ci.yml) has no sharded diff jobs; its `tree (` job succeeding says the
+  # planner found a commit with this tree and a green gate that descends from main's previous tip. A docs-only
+  # skip has no such job, so it still does not count.
+  local tree_skip=0
+  grep -qx 'tree (identical tested tree)	success' "$norm" && tree_skip=1
   for p in $ALL_PLATFORMS; do
     if ! grep -qx "test (${p})	success" "$norm"; then
       echo "not a full gate: test ($p) is not success"
       fail=1
     fi
+    [[ "$tree_skip" == 1 ]] && continue
     if ! grep -E "^diff \\(${p} .+	success$" "$norm" >/dev/null; then
       echo "not a full gate: no successful diff shard for $p"
       fail=1
@@ -758,6 +764,35 @@ EOF
   printf '%s\n' "plan	success" "test (x86-64)	success" "test (arm64)	success" "test (macos-arm64)	success" "test (windows-x64)	success" "test (wasm32-wasi)	success" 'diff (${{ matrix.job_name }})	skipped' >"$tmp/docs"
   if cmd_release_gate "$tmp/docs" >/dev/null; then
     echo "docs fixture should not pass the release gate"
+    fail=1
+  fi
+
+  # An identical-tree skip: the five checks plus the tree job, no diff shards. Any failing check, a skipped or
+  # missing tree job (a docs skip), or a partial run next to it is not a gate.
+  printf '%s\n' "plan	success" "tree (identical tested tree)	success" 'diff (${{ matrix.job_name }})	skipped' \
+    "test (x86-64)	success" "test (arm64)	success" "test (macos-arm64)	success" "test (windows-x64)	success" "test (wasm32-wasi)	success" >"$tmp/tree"
+  if ! cmd_release_gate "$tmp/tree" >/dev/null; then
+    echo "tree-skip fixture should pass the release gate"
+    fail=1
+  fi
+  sed 's/^test (arm64)	success$/test (arm64)	failure/' "$tmp/tree" >"$tmp/tree-fail"
+  if cmd_release_gate "$tmp/tree-fail" >/dev/null; then
+    echo "tree-skip fixture with a failed test (arm64) should not pass the release gate"
+    fail=1
+  fi
+  sed 's/^tree (identical tested tree)	success$/tree (identical tested tree)	skipped/' "$tmp/tree" >"$tmp/tree-skipped"
+  if cmd_release_gate "$tmp/tree-skipped" >/dev/null; then
+    echo "a skipped tree job (docs-only) should not pass the release gate"
+    fail=1
+  fi
+  sed '/^test (wasm32-wasi)/d' "$tmp/tree" >"$tmp/tree-missing"
+  if cmd_release_gate "$tmp/tree-missing" >/dev/null; then
+    echo "tree-skip fixture without test (wasm32-wasi) should not pass the release gate"
+    fail=1
+  fi
+  { cat "$tmp/tree"; echo "partial (macos-arm64)	success"; } >"$tmp/tree-partial"
+  if cmd_release_gate "$tmp/tree-partial" >/dev/null; then
+    echo "tree-skip fixture with a partial job should not pass the release gate"
     fail=1
   fi
 
