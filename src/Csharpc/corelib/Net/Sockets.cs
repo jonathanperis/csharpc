@@ -123,6 +123,24 @@ namespace CsharpcCoreLib
         }
     }
 
+    /// <summary>
+    /// Socket.InternalShutdown: what NetworkStream and TcpClient do before they close the socket they own, with every
+    /// failure ignored. The FIN then follows the data already sent; a bare close of a descriptor that still holds
+    /// unread received data sends an RST instead, and the peer's kernel discards what it had received but not yet
+    /// read (a TLS client that never read the server's session tickets lost its close_notify, #116).
+    /// </summary>
+    internal static class SocketClose
+    {
+        internal static void ShutdownBeforeClose(Socket socket)
+        {
+            if (socket == null) return;
+            try { socket.Shutdown(SocketShutdown.Both); }
+            catch (SocketException) { }
+            catch (ObjectDisposedException) { }
+            catch (NotSupportedException) { }
+        }
+    }
+
     [Shadows("System.Net.Sockets.Socket")]
     public sealed unsafe class SocketImpl : IDisposable
     {
@@ -1409,7 +1427,11 @@ namespace CsharpcCoreLib
         {
             if (_disposed) return;
             _disposed = true;
-            if (disposing && _ownsSocket) _socket.Dispose();
+            if (disposing && _ownsSocket)
+            {
+                SocketClose.ShutdownBeforeClose(_socket);
+                _socket.Dispose();
+            }
         }
     }
 
@@ -1607,8 +1629,12 @@ namespace CsharpcCoreLib
         {
             if (_disposed) return;
             _disposed = true;
-            if (_stream != null) _stream.Dispose();
-            else _client?.Dispose();
+            if (_stream != null) _stream.Dispose(); // owns the socket: shuts it down, then closes it
+            else
+            {
+                SocketClose.ShutdownBeforeClose(_client);
+                _client?.Dispose();
+            }
         }
     }
 
