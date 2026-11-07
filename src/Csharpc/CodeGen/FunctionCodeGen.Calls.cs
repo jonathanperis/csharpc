@@ -438,7 +438,7 @@ public sealed partial class FunctionCodeGen
         if (!_m.IsUserType(type) && creation.Constructor is { } bclCtor && BclValueTypes.TryGet(bclCtor, out var bclHandler))
             return CallBcl(bclHandler, bclCtor, null, creation.Arguments, creation);
         if (!_m.IsUserType(type) || type.TypeKind != TypeKind.Class)
-            throw CompileError.Unsupported($"creating instances of '{type}'", creation);
+            throw CompileError.Unsupported($"creating instances of '{type}'" + NotCompiledHint(type), creation);
         if (type.IsAbstract) throw CompileError.Unsupported("instantiating an abstract class", creation);
 
         var constructor = S(creation.Constructor!);
@@ -1443,4 +1443,9 @@ public sealed partial class FunctionCodeGen
                 throw CompileError.Unsupported($"pattern {pattern.Kind}", pattern);
         }
     }
+
+    /// <summary>When the type's assembly was skipped by the framework-IL policy, why (so the error is not a bare "not supported").</summary>
+    private static string NotCompiledHint(ITypeSymbol type) =>
+        type.ContainingAssembly is { } asm && Frontend.FrameworkIl.NotCompiledFromIl.TryGetValue(asm.Name, out var why)
+            ? $" ({asm.Name} is not compiled from IL: {why})" : "";
 }

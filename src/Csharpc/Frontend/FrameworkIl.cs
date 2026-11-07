@@ -80,6 +80,12 @@ public static partial class FrameworkIl
     private static string[] Followed(Assembly a) =>
         FollowedReferences.TryGetValue(a.Name, out var followed) ? [.. a.References.Where(r => followed.Contains(r, StringComparer.OrdinalIgnoreCase))] : a.References;
 
+    /// <summary>
+    /// Assemblies the program uses that were not compiled from IL, and why (the NativeAOT runtime pack could not be restored, a shim
+    /// is missing from it ...): the code generator adds it to "creating instances of X is not supported" so the error says what is missing.
+    /// </summary>
+    public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> NotCompiledFromIl = new(StringComparer.OrdinalIgnoreCase);
+
     public static bool IsMixedWithShadows(string? assembly) => assembly is not null && MixedWithShadows.Contains(assembly, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Shared frameworks a project can reference besides Microsoft.NETCore.App.</summary>
@@ -163,7 +169,9 @@ public static partial class FrameworkIl
                             && (owners.GetValueOrDefault(n.Key) == 1 || methodOwners.GetValueOrDefault(n.Key + "." + m) == 1))
                         .Select(m => n.Key + "." + m + "()")))
                 .OrderBy(u => u, StringComparer.Ordinal).FirstOrDefault();
-            if (use is not null && Unusable(a) is null) Add(a, $"the program uses {use}");
+            if (use is null) continue;
+            if (Unusable(a) is { } skipped) NotCompiledFromIl[a.Name] = skipped;
+            else Add(a, $"the program uses {use}");
         }
 
         // Their converters are System.ComponentModel.TypeConverter's (PointConverter, ColorConverter, EnumConverter ...).
