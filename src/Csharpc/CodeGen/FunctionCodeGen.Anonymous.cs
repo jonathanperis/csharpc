@@ -37,6 +37,12 @@ public sealed partial class FunctionCodeGen
         return LoadValue(AnonymousFieldAddress(layout, obj, p.Property), S(p.Property.Type));
     }
 
+    internal void EmitAnonymousGetter(AnonymousLayout layout, IPropertySymbol property)
+    {
+        _b.Ret(LoadValue(AnonymousFieldAddress(layout, _fn.Fn.Param(0), property), property.Type));
+        Finish();
+    }
+
     // "{ Name = Ada, Age = 36 }" (empty: "{ }")
     internal void EmitAnonymousToString(AnonymousLayout layout)
     {

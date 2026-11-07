@@ -347,7 +347,7 @@ interim plaintext/JSON app, ratios within one runner:
 3. M5: user code through the IL front-end (what `csc` hands the fork). `csharpc app.dll` and the
    `--via-il` differential mode exist (471/479 with `ci/il-gaps`: reflection-based JSON, `[GeneratedRegex]`
    and rectangular-array enumeration from IL); `dynamic` from IL with `ci/il-dynamic` (480/481), JSON of private
-   nested types from IL with `feat/m5-via-il-diagnostic` (481/481); then `-g` from the PDB. The Roslyn
+   nested types from IL with `feat/m5-via-il-diagnostic` (481/481); `-g` from the PDB is done (`tests/debuginfo.sh`). The Roslyn
    path stays for standalone use; gaps between the two are bugs.
 4. M6: Roslyn's remaining blockers (non-generic ~170 methods, then generic methods), then csharpc
    compiling itself.

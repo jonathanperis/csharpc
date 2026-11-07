@@ -178,6 +178,20 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
+  # Evidence for the Release workflow (tools/ci-plan.sh release-gate): it needs the sharded `diff (` jobs of a
+  # full run, and an identical-tree skip has none. This job exists only in that mode, which the planner picks
+  # only when a commit with the same tree and a green `test (*)` gate descends from main's previous tip.
+  tree:
+    name: tree (identical tested tree)
+    needs: plan
+    if: needs.plan.result == 'success' && needs.plan.outputs.mode == 'tree'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - run: |
+          echo "Same tree as ${{ needs.plan.outputs.parent_sha }}, which already passed the full gate."
+          echo "${{ needs.plan.outputs.reason }}"
+
   # These names are the merge bar. They run for a full gate and for a docs-only or identical-tree skip, and they are
   # skipped (not passed) for a partial run. A skipped job is not a successful `test (<platform>)`
   # check: when the job-level `if` is false the matrix is not expanded, so the check name stays the

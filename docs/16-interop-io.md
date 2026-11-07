@@ -222,6 +222,11 @@ engine's asynchronous accepts, so `Stop` ends them and closes the listening sock
   ASCII text), and returned native strings are released with `free` (.NET: `CoTaskMemFree`).
 * No delegate parameters on `[DllImport]` (see above for the `[LibraryImport]` path), `SafeHandle` parameters, `[In, Out]` array copy-back of non-blittable
   elements, `StringBuilder` parameters, or variadic functions (same as .NET for the last one).
+* Windows `System.Uri`: a rooted path without a drive (`"/absolute/path"`) is no implicit file path there, as in
+  .NET (only `C:\dir` and UNC paths are): `UriKind.Absolute` throws `UriFormatException` ("The format of the URI could
+  not be determined."), the relative kinds give a relative `Uri`, which `HttpClient` resolves against `BaseAddress`
+  (samples 972, 1010, 1210; the last one is recorded live from .NET on Windows). UNC paths and `file:` URIs without a
+  drive letter (their `LocalPath` and `IsUnc` rules) are an explicit `NotSupportedException` on Windows.
 * `FileStream` is synchronous; the `*Async` file APIs complete synchronously.
 * File times other than last-write time, permissions/attributes, and file locking (`FileShare`)
   are not implemented.

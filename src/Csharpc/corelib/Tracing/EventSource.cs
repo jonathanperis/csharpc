@@ -15,6 +15,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Tracing;
 using System.Runtime.CompilerServices;
 
@@ -233,35 +234,72 @@ namespace CsharpcCoreLib
             if (m_eventSourceEnabled) WriteEventVarargs(eventId, relatedActivityId, args, false, true);
         }
 
-        // Write(...): the self-describing events. Without a payload they are dispatched; a payload is read from the
-        // properties of an anonymous or [EventData] type by reflection in .NET, which csharpc can't do yet.
-        public void Write(string eventName) => WriteSelfDescribing(eventName, default(EventSourceOptions), false);
-        public void Write(string eventName, EventSourceOptions options) => WriteSelfDescribing(eventName, options, false);
-        public void Write<T>(string eventName, T data) => WriteSelfDescribing(eventName, default(EventSourceOptions), true);
-        public void Write<T>(string eventName, EventSourceOptions options, T data) => WriteSelfDescribing(eventName, options, true);
-        public void Write<T>(string eventName, ref EventSourceOptions options, ref T data) => WriteSelfDescribing(eventName, options, true);
-        public void Write<T>(string eventName, ref EventSourceOptions options, ref Guid activityId, ref Guid relatedActivityId, ref T data) =>
-            WriteSelfDescribing(eventName, options, true);
+        // Write(...): the self-describing events. The payload is read from the public properties of T (an anonymous
+        // type or one marked [EventData], SelfDescribing.cs) as .NET reads it by reflection; T's metadata is what
+        // the DynamicallyAccessedMembers annotation keeps (the compiler adds the types of T's own properties).
+        public void Write(string eventName) => WriteSelfDescribing(eventName, default(EventSourceOptions), default(Guid), default(Guid));
+        public void Write(string eventName, EventSourceOptions options) => WriteSelfDescribing(eventName, options, default(Guid), default(Guid));
+        public void Write<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(string eventName, T data) =>
+            WriteSelfDescribing<T>(eventName, default(EventSourceOptions), data, default(Guid), default(Guid));
+        public void Write<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(string eventName, EventSourceOptions options, T data) =>
+            WriteSelfDescribing<T>(eventName, options, data, default(Guid), default(Guid));
+        public void Write<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(string eventName, ref EventSourceOptions options, ref T data) =>
+            WriteSelfDescribing<T>(eventName, options, data, default(Guid), default(Guid));
+        public void Write<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(string eventName, ref EventSourceOptions options, ref Guid activityId, ref Guid relatedActivityId, ref T data) =>
+            WriteSelfDescribing<T>(eventName, options, data, activityId, relatedActivityId);
 
-        private void WriteSelfDescribing(string eventName, EventSourceOptions options, bool hasPayload)
+        // No payload: the listener sees null Payload and PayloadNames.
+        private void WriteSelfDescribing(string eventName, EventSourceOptions options, Guid activityId, Guid relatedActivityId)
         {
             if (!m_eventSourceEnabled || m_eventSourceDisposed) return;
-            if (eventName == null) throw new ArgumentNullException("eventName");
+            DispatchSelfDescribing(eventName, options, activityId, relatedActivityId, null, null);
+        }
+
+        // The layout of T is analyzed (and its failures thrown) whenever the source is enabled, before the listeners'
+        // filters are looked at; reading the values is what .NET reports as an EventSourceException message.
+        private void WriteSelfDescribing<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(
+            string eventName, EventSourceOptions options, T data, Guid activityId, Guid relatedActivityId)
+        {
+            if (!m_eventSourceEnabled || m_eventSourceDisposed) return;
+            SelfDescribing.Layout layout = SelfDescribing.LayoutOf(typeof(T));
+            if (!SelfDescribingEnabled(options)) return;
+            string[] names;
+            object[] values;
+            try { values = SelfDescribing.Read(layout, data, eventName, out names); }
+            catch (Exception e)
+            {
+                ReportOutOfBandMessage("EventSourceException while processing event \"" + eventName + "\": " + e.GetType() + ":" + e.Message, null);
+                return;
+            }
+            DispatchSelfDescribing(eventName, options, activityId, relatedActivityId, names, values);
+        }
+
+        // Write's default level is Verbose; the check is against the widest filter of the source (IsEnabled(level, keywords)).
+        private bool SelfDescribingEnabled(EventSourceOptions options)
+        {
+            ref EventSourceOptionsImpl impl = ref Unsafe.As<EventSourceOptions, EventSourceOptionsImpl>(ref options);
+            return IsEnabled(impl.LevelWasSet ? impl.Level : EventLevel.Verbose, impl.Keywords);
+        }
+
+        private void DispatchSelfDescribing(string eventName, EventSourceOptions options, Guid activityId, Guid relatedActivityId, string[] names, object[] values)
+        {
             ref EventSourceOptionsImpl impl = ref Unsafe.As<EventSourceOptions, EventSourceOptionsImpl>(ref options);
             EventLevel level = impl.LevelWasSet ? impl.Level : EventLevel.Verbose;
             long keywords = (long)impl.Keywords;
+            // Unlike an [Event] method's, a self-describing event is checked once against the widest filter of the
+            // source (IsEnabled(level, keywords)), then goes to every listener that enabled it, whatever its own filter.
+            if (!IsEnabled(level, (EventKeywords)keywords)) return;
             EventWrittenEventArgsImpl args = null;
             foreach (EventListenerImpl listener in EventListenerImpl.Listeners())
             {
-                ListenerEnablement enablement = listener.EnablementOf(this);
-                if (enablement == null || !PassesFilter(enablement.Level, enablement.Keywords, level, keywords)) continue;
-                if (hasPayload)
-                    throw new NotSupportedException("EventSource.Write<T> with a payload is not supported by csharpc yet: .NET reads the payload from the properties of the data type by reflection.");
+                if (listener.EnablementOf(this) == null) continue;
                 args ??= new EventWrittenEventArgsImpl((EventSource)(object)this)
                 {
                     EventId = -1, EventName = eventName, Level = level, Keywords = (EventKeywords)keywords, Opcode = impl.Opcode, Tags = impl.Tags,
-                    ActivityId = CurrentThreadActivityId, Payload = new ReadOnlyCollection<object>(new object[0]),
-                    PayloadNames = new ReadOnlyCollection<string>(new string[0]),
+                    // An explicit empty activity id means the thread's.
+                    ActivityId = activityId == Guid.Empty ? CurrentThreadActivityId : activityId, RelatedActivityId = relatedActivityId,
+                    Payload = values == null || values.Length == 0 ? null : new ReadOnlyCollection<object>(values),
+                    PayloadNames = names == null || names.Length == 0 ? null : new ReadOnlyCollection<string>(names),
                 };
                 DeliverTo(listener, args);
             }

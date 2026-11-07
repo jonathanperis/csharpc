@@ -126,11 +126,20 @@ namespace CsharpcCoreLib
         private static ArgumentException InvalidKind(UriKind uriKind) =>
             new ArgumentException("The value '" + ((int)uriKind).ToString() + "' passed for the UriKind parameter is invalid.");
 
+        // A rooted path ("/dir/x"): relative for UriKind.Relative and RelativeOrAbsolute. On Unix it is also an implicit
+        // file path (so absolute for UriKind.Absolute); on Windows it is not: only "C:\dir" and UNC paths are implicit file
+        // paths there, so scheme parsing fails, which relative kinds accept as a relative reference (see TryParseFile).
         private static bool IsImplicitUnixPath(string s) =>
 #if CSHARPC_TARGET_WINDOWS
-            false; // .NET on Windows takes "/dir/x" for no implicit file path (see TryParseFile)
+            IsWindowsRootedPath(s);
 #else
             s.Length > 0 && s[0] == '/' && !s.StartsWith("file:", StringComparison.OrdinalIgnoreCase);
+#endif
+
+#if CSHARPC_TARGET_WINDOWS
+        // "/x" and "/": one slash, not the "//" or "/\" of a UNC path (those, and "\x", stay explicit diagnostics).
+        private static bool IsWindowsRootedPath(string s) =>
+            s.Length > 0 && s[0] == '/' && (s.Length == 1 || (s[1] != '/' && s[1] != '\\'));
 #endif
 
         // A relative reference is kept as it is: only text .NET neither escapes nor unescapes.
@@ -164,9 +173,14 @@ namespace CsharpcCoreLib
             }
             if (!drive && rest.Length > 1 && (rest[1] == '/' || rest[1] == '\\')) throw Unsupported("UNC paths");
 #if CSHARPC_TARGET_WINDOWS
-            // .NET on Windows takes "/dir/x" for no implicit file path, and gives drive-less file URIs other
-            // local paths than on Unix: not modelled.
-            if (!drive) throw Unsupported("drive-less file paths on Windows");
+            // .NET on Windows takes "/dir/x" for no implicit file path: no scheme can be determined (Parse reports
+            // that, as for "dir/x"). A "file:///dir/x" URI without a drive letter gives other local paths than on
+            // Unix there, which is not modelled.
+            if (!drive)
+            {
+                if (!explicitScheme) return false;
+                throw Unsupported("file: URIs without a drive letter on Windows");
+            }
 #endif
             string slashed = drive ? rest.Replace('\\', '/') : rest;
             if (!IsPlain(slashed, 0, false) || HasDotSegment(slashed) || slashed.Contains("//")) throw Unsupported("file paths .NET escapes or rewrites");
@@ -230,6 +244,9 @@ namespace CsharpcCoreLib
             {
                 // Without a scheme only an implicit file path ("/x", "\\server\share") is absolute.
                 string trimmed = s.Trim();
+#if CSHARPC_TARGET_WINDOWS
+                if (IsWindowsRootedPath(s)) return FormatNotDetermined; // not an implicit file path on Windows
+#endif
                 if (trimmed.Length == 0 || trimmed[0] == '/' || trimmed[0] == '\\') throw Unsupported("implicit file paths or blank strings");
                 return FormatNotDetermined;
             }

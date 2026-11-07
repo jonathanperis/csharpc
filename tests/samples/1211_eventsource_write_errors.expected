@@ -1,0 +1,64 @@
+-- nobody listens: no analysis, no exception
+returned
+enabled: False
+enabled: True
+-- primitive int
+ArgumentNullException: This usually means that the object passed to Write is of a type that does not support being used as the top-level object in an event, e.g. a primitive or built-in type. (Parameter 'name')
+-- enum
+ArgumentNullException: This usually means that the object passed to Write is of a type that does not support being used as the top-level object in an event, e.g. a primitive or built-in type. (Parameter 'name')
+-- nullable
+event id=0 name=EventSourceMessage level=LogAlways names=message payload=EventSourceException while processing event "Nullable": System.InvalidCastException:Unable to cast object of type 'System.Int32' to type 'System.Diagnostics.Tracing.EventPayload'.
+-- int array
+ArgumentNullException: This usually means that the object passed to Write is of a type that does not support being used as the top-level object in an event, e.g. a primitive or built-in type. (Parameter 'name')
+-- dictionary
+ArgumentNullException: This usually means that the object passed to Write is of a type that does not support being used as the top-level object in an event, e.g. a primitive or built-in type. (Parameter 'name')
+-- string
+-- plain class
+ArgumentException: The API supports only anonymous types or types decorated with the EventDataAttribute. Non-compliant type: Plain dataType.
+-- plain struct
+ArgumentException: The API supports only anonymous types or types decorated with the EventDataAttribute. Non-compliant type: PlainStruct dataType.
+-- Version
+ArgumentException: The API supports only anonymous types or types decorated with the EventDataAttribute. Non-compliant type: Version dataType.
+-- object
+ArgumentException: The API supports only anonymous types or types decorated with the EventDataAttribute. Non-compliant type: Object dataType.
+-- property of type Version
+ArgumentException: The API supports only anonymous types or types decorated with the EventDataAttribute. Non-compliant type: Version dataType.
+-- property of type object
+ArgumentException: The API supports only anonymous types or types decorated with the EventDataAttribute. Non-compliant type: Object dataType.
+-- property of a plain class
+ArgumentException: The API supports only anonymous types or types decorated with the EventDataAttribute. Non-compliant type: Plain dataType.
+-- property of type Half
+ArgumentException: The API supports only anonymous types or types decorated with the EventDataAttribute. Non-compliant type: Half dataType.
+-- property of type DateOnly
+ArgumentException: The API supports only anonymous types or types decorated with the EventDataAttribute. Non-compliant type: DateOnly dataType.
+-- property of type Type
+ArgumentException: The API supports only anonymous types or types decorated with the EventDataAttribute. Non-compliant type: Type dataType.
+-- string array property
+NotSupportedException: Arrays of null-terminated string are not supported.
+-- nested array property
+NotSupportedException: Nested arrays/enumerables are not supported.
+-- nullable array property
+-- anonymous with a plain property
+ArgumentException: The API supports only anonymous types or types decorated with the EventDataAttribute. Non-compliant type: Plain dataType.
+-- filtered out, still analyzed
+ArgumentException: The API supports only anonymous types or types decorated with the EventDataAttribute. Non-compliant type: Version dataType.
+-- filtered out, valid
+== failures while reading the data reach the listener (once the level is enabled)
+-- null data
+event id=0 name=EventSourceMessage level=LogAlways names=message payload=EventSourceException while processing event "NullData": System.NullReferenceException:Object reference not set to an instance of an object.
+-- null data, filtered
+-- null nested payload
+event id=0 name=EventSourceMessage level=LogAlways names=message payload=EventSourceException while processing event "NullNested": System.NullReferenceException:Object reference not set to an instance of an object.
+-- getter throws
+event id=0 name=EventSourceMessage level=LogAlways names=message payload=EventSourceException while processing event "Thrower": System.InvalidOperationException:kaboom
+-- null string T
+event id=0 name=EventSourceMessage level=LogAlways names=message payload=EventSourceException while processing event "NullStringT": System.InvalidCastException:Unable to cast object of type 'System.String' to type 'System.Diagnostics.Tracing.EventPayload'.
+-- nullable T
+event id=0 name=EventSourceMessage level=LogAlways names=message payload=EventSourceException while processing event "NullableT": System.InvalidCastException:Unable to cast object of type 'System.Int32' to type 'System.Diagnostics.Tracing.EventPayload'.
+-- null nullable T
+event id=-1 name=NullNullableT level=Informational names=null payload=null
+-- string T
+event id=0 name=EventSourceMessage level=LogAlways names=message payload=EventSourceException while processing event "StringT": System.InvalidCastException:Unable to cast object of type 'System.String' to type 'System.Diagnostics.Tracing.EventPayload'.
+== after dispose
+-- disposed source
+returned

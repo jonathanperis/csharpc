@@ -145,6 +145,10 @@ sockets (`Socket`, `TcpListener`/`TcpClient`, `UdpClient`, `Dns`); library value
 `ArraySegment<T>`, `DateTimeOffset`); `MemoryPool<T>`, `Convert`; `System.Type` reflection basics; globalization (cultures via ICU, as .NET:
 [19-globalization.md](19-globalization.md)). Next: TLS and `HttpClient`; the library surface ranked by the compatibility runs and
 the NuGet survey (`Uri`, `System.Xml.Linq`, `IConvertible`).
+Windows `Uri`: a rooted path without a drive (`"/absolute/path"`) follows .NET's Windows rules (a `UriFormatException` for
+`UriKind.Absolute`, a relative `Uri` otherwise) instead of an explicit error, which unblocks `HttpClient.BaseAddress`
+requests there ([16-interop-io.md](16-interop-io.md#limits), samples 972, 1010, 1210); UNC and drive-less `file:` URIs
+stay explicit diagnostics.
 
 ### M3 — Platforms and per-platform evidence ✅
 Each platform gets a CI job (GitHub Actions) running the full differential suite, conformance corpus
@@ -205,6 +209,12 @@ nested types too (the binding compilation reads the program with those types mar
 [ADR 0010](adr/0010-il-frontend.md#the-program-as-il-2026-10-30)). Left as diagnostics from IL: JSON of
 anonymous, file-local and other compiler-generated types, as in source. Gaps between the two front-ends are bugs.
 
+`-g` works from IL too (2026-11-06): `csharpc -g app.dll` (or a library DLL it references) emits the DWARF
+line table, parameter and local names from the assembly's portable PDB — beside the DLL or embedded —
+so gdb breaks on `Counter.cs:10` of a library compiled from its IL, with inlined frames at -O2
+(`tests/debuginfo.sh`, [13-debugging.md](13-debugging.md#from-the-assemblys-pdb)). An assembly without a
+PDB, the precompiled corelib and shared-framework assemblies get no debug info (Windows PDBs aren't read).
+
 **Function pointers and `calli`**: `delegate*<...>` calls and IL `calli` share one lowering (managed signatures:
 csharpc's own convention, `ref`/`out`/`in` and `ref` returns, structs, generics). `delegate* unmanaged` calls and
 `&[UnmanagedCallersOnly]` entries follow the platform's C ABI as a P/Invoke of the same function does: structs
@@ -222,7 +232,7 @@ with the runtime graph's fallbacks (linux-x64 -> linux -> unix-x64 -> unix -> an
 next to the executable, where a P/Invoke probes first (`tests/il.sh`, RidApp, against a package built locally).
 Left: satellite resource assemblies, `ref/` vs `lib/` binding, linking a package's static archives.
 
-Next: `-g` from the assembly's PDB, the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`.
+Next: the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`.
 
 ### M6 — Bootstrapping
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.
@@ -251,8 +261,9 @@ loops with a loop state, `Task.AsyncState`/`CreationOptions`/`Dispose`/`IAsyncRe
 (what `AggregateException.InnerExceptions` is cast to), `Task.Run(Func<Task>)` canceling on an
 `OperationCanceledException` as .NET's unwrap proxy does, the "continuation task" errors of `Start`/`RunSynchronously`,
 a null `AggregateException` message, and lambdas inside a `when` filter (their blocks were taken for the filter's and
-lowered as `unreachable`; samples 1060-1063); `TaskFactory.ContinueWhenAll/ContinueWhenAny/FromAsync` (every overload, #117; samples 1200-1205, [10-async.md](10-async.md)) closed
-afterwards; still open: `EventSource.Write<T>` payloads, type identity of tasks (`GetType()` and `is Task<T>`).
+lowered as `unreachable`; samples 1060-1063); `TaskFactory.ContinueWhenAll/ContinueWhenAny/FromAsync` (every overload, #117; samples 1200-1205, [10-async.md](10-async.md)) and
+`EventSource.Write<T>` payloads (anonymous and `[EventData]` types, #121; samples 1210-1211, [12-corelib.md](12-corelib.md)) closed
+afterwards; still open: type identity of tasks (`GetType()` and `is Task<T>`).
 Roslyn from IL, measured: the `IL survey` workflow's `roslyn` target lowers every method of Roslyn and
 `csharpc.dll` in 16 parallel shards and ranks what stops them
 ([18-compatibility.md](18-compatibility.md#roslyn-and-csharpc)). On branch `m6-roslyn` the Roslyn methods

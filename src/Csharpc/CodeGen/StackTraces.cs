@@ -200,7 +200,7 @@ public sealed class StackTraceInfo
         return module;
     }
 
-    private static MetadataReaderProvider? PdbOf(Frontend.Il.IlAssembly assembly, bool sibling)
+    internal static MetadataReaderProvider? PdbOf(Frontend.Il.IlAssembly assembly, bool sibling)
     {
         if (assembly.Pe.ReadDebugDirectory().FirstOrDefault(e => e.Type == DebugDirectoryEntryType.EmbeddedPortablePdb) is { DataSize: > 0 } embedded)
             return assembly.Pe.ReadEmbeddedPortablePdbDebugDirectoryData(embedded);

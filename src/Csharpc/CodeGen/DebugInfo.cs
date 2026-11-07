@@ -15,7 +15,7 @@ namespace Csharpc.CodeGen;
 /// - Locals/parameters are described with dbg.declare on their allocas; strings, arrays and classes are
 ///   pointers to structs mirroring the runtime layout (tools/gdb/csharpc.py pretty-prints them).
 /// </summary>
-public sealed class DebugInfo : IDisposable
+public sealed partial class DebugInfo : IDisposable
 {
     private const int DwAteBoolean = 0x02, DwAteFloat = 0x04, DwAteSigned = 0x05, DwAteSignedChar = 0x06,
         DwAteUnsigned = 0x07, DwAteUnsignedChar = 0x08, DwAteUtf = 0x10;
@@ -62,7 +62,7 @@ public sealed class DebugInfo : IDisposable
     {
         if (method is null) return null;
         var location = method.Locations.FirstOrDefault(l => l.IsInSource);
-        if (location is null) return null;
+        if (location is null) return BeginIlFunction(fn, method);
         var span = location.GetLineSpan();
         var file = File(Path.GetFullPath(span.Path));
         var line = (uint)(span.StartLinePosition.Line + 1);
@@ -312,12 +312,34 @@ public sealed class DebugInfo : IDisposable
 
     public void Finish() => LLVMDIBuilderFinalize(_di);
 
-    public void Dispose() => LLVMDisposeDIBuilder(_di);
+    public void Dispose()
+    {
+        DisposePdbs();
+        LLVMDisposeDIBuilder(_di);
+    }
 }
 
 /// <summary>Debug state of one function being lowered.</summary>
 public sealed class FunctionDebug(DebugInfo owner, LLVMMetadataRef scope, LLVMMetadataRef file, int line)
 {
+    /// <summary>For a function lowered from IL: its sequence points and local names from the assembly's PDB.</summary>
+    internal IlMethodLines? Il { get; init; }
+    private readonly Dictionary<string, LLVMMetadataRef> _documentScopes = [];
+
+    /// <summary>-g, IL front-end: the instruction at <paramref name="ilOffset"/> gets the line of the sequence point covering it (line 0 for hidden ones).</summary>
+    internal void SetIlLocation(IrBuilder builder, int ilOffset)
+    {
+        var point = Il!.Find(ilOffset);
+        var scope = Scope;
+        if (point.Document is { } document && !string.Equals(document, Il.Document, StringComparison.Ordinal))
+        {
+            // #line directives: code of another file inside the method.
+            if (!_documentScopes.TryGetValue(document, out scope))
+                _documentScopes[document] = scope = Owner.DocumentScope(Scope, document);
+        }
+        LLVMSetCurrentDebugLocation2(builder.Ref, Owner.Location(point.Line, point.Column, scope));
+    }
+
     public DebugInfo Owner { get; } = owner;
     public LLVMMetadataRef Scope { get; } = scope;
     public LLVMMetadataRef File { get; } = file;

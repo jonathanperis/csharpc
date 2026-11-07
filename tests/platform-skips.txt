@@ -215,8 +215,7 @@ macos 903_stack_trace_socket_connect    live: the socket implementation behind t
 windows 912_directory_not_found_path   live: Path.Combine and the messages use the OS's directory separator
 macos 903_stack_trace_socket_connect  live: a refused connect completes asynchronously on macOS, so .NET's trace takes the ValueTask-to-Task continuation path
 windows 940_expand_environment_variables  live: .NET expands through Win32's ExpandEnvironmentStrings, whose handling of unset names differs from the Unix algorithm
-windows 972_uri_rooted_path_unix     Windows .NET takes "/rel" for an implicit file path (absolute); csharpc reports drive-less file paths there as not supported
-windows 981_uri_file_paths_unix     Windows .NET takes "/rel", "//host/x" and file:///tmp/x paths differently (implicit file paths, UNC); csharpc reports drive-less file paths there as not supported
+windows 981_uri_file_paths_unix     Unix-only: "/tmp/x" is an implicit file path only on Unix (new Uri("/tmp/x") is a UriFormatException on Windows), and "//host/x" (UNC) and file:///tmp/x differ there; csharpc reports those as not supported (1210_uri_rooted_path_platform covers the rooted path on both)
 wasi 1031_blocking_collection_threads  needs threads: tasks block in Take/Add/WaitAny until another task signals them, which one thread can't do
 wasi 1020_task_async_state_options     needs threads: it waits on a started task's AsyncWaitHandle and disposes a task a pool worker is blocked in; WebAssembly runs work items one after another
 wasi 1021_task_exceptions_status       needs threads: it spins until a pool worker's task stops Running, which one thread can't observe
@@ -242,7 +241,6 @@ windows 1007_httpclient_concurrency  known gap: System.Net.Http's system-proxy s
 macos 1009_httpclient_json  known gap: System.Net.Http's system-proxy support (CFNetwork: Marshal.GetFunctionPointerForDelegate) isn't implemented, so HttpClient is an explicit compile error on macOS
 windows 1009_httpclient_json  known gap: System.Net.Http's system-proxy support (HttpWindowsProxy: WinINet, WindowsIdentity, EventWaitHandle) isn't implemented, so HttpClient is an explicit compile error on Windows
 macos 1010_httpclient_base_address  known gap: System.Net.Http's system-proxy support (CFNetwork: Marshal.GetFunctionPointerForDelegate) isn't implemented, so HttpClient is an explicit compile error on macOS
-windows 1010_httpclient_base_address  known gap: System.Net.Http's system-proxy support (HttpWindowsProxy: WinINet, WindowsIdentity, EventWaitHandle) isn't implemented, so HttpClient is an explicit compile error on Windows
 
 # TLS and X.509 (docs/adr/0022-tls.md): over OpenSSL on Linux only.
 macos 1100_x509_certificates  known gap: X.509 certificates, PKCS#12 and chains need Security.framework on macOS, not implemented yet (an explicit NotSupportedException)
@@ -262,7 +260,6 @@ windows 1057_marshal_memory_copy_strings  live: Marshal's ANSI conversions use t
 windows 1058_marshal_variant_bool  known gap: .NET on Windows marshals VARIANT_BOOL fields with its built-in COM support and gives their size; csharpc reports them as unmarshalable there as elsewhere
 windows 1001_httpclient_post            live: the request text it echoes is built with bare "\n"s, next to WriteLine's "\r\n"
 windows 1005_httpclient_handlers        known gap: gzip, deflate and brotli decompression need .NET's native compression shim, which csharpc can't link with MinGW yet (see 537_compression_streams)
-windows 1010_httpclient_base_address    known gap: the corelib's System.Uri rejects drive-less file paths ("/absolute/path") on Windows with an explicit NotSupportedException
 wasi 1141_network_interface_addresses   WASI preview 1 has no network interfaces to enumerate (NotSupportedException)
 macos 1151_unmanaged_function_pointer_libc   loads the Linux sonames "libc.so.6" and "libm.so.6": .NET on macOS throws DllNotFoundException
 windows 1151_unmanaged_function_pointer_libc live: loads the Linux sonames "libc.so.6" and "libm.so.6" (DllNotFoundException on Windows)
@@ -274,3 +271,4 @@ macos 1181_socket_dns_endpoint_failure_messages  the texts and native codes are 
 windows 1181_socket_dns_endpoint_failure_messages  the texts and native codes are the OS's: Winsock says "No connection could be made because the target machine actively refused it." (10061)
 wasi 1204_taskfactory_state_creation_options  known gap (#118): Task.CreationOptions traps on WebAssembly, so the options of the returned tasks can't be observed there
 wasi 1205_taskfactory_from_async_wait_handle  needs threads: FromAsync over an operation that isn't complete waits on its handle through ThreadPool.RegisterWaitForSingleObject (PlatformNotSupportedException on WebAssembly)
+windows 1210_uri_rooted_path_platform live: a rooted path without a drive is an implicit file path on Unix only; on Windows UriKind.Absolute is a UriFormatException (the platform decides the expectation)

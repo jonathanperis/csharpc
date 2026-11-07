@@ -57,6 +57,44 @@ public sealed partial class ModuleCodeGen
         b.Ret(LlvmContext.Null(Llvm.Ptr));
     }
 
+    /// <summary>EventSource.Write&lt;T&gt; (or the corelib's own, EventSourceImpl.WriteSelfDescribing): a payload read by reflection.</summary>
+    private static bool IsEventSourceWrite(IMethodSymbol method) =>
+        method.Name is "Write" or "WriteSelfDescribing" && method.ContainingType is { Name: "EventSource" or "EventSourceImpl" };
+
+    /// <summary>
+    /// The metadata a Write&lt;T&gt; payload needs beyond T's own properties (which the annotation keeps): the public
+    /// properties of the types those properties return, through nullable, array and nested payload types.
+    /// Types of the framework (Guid, DateTime, ...) are scalars the corelib knows without metadata.
+    /// </summary>
+    private void MarkEventPayloadGraph(ITypeSymbol type)
+    {
+        var seen = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
+        var pending = new Stack<ITypeSymbol>();
+        pending.Push(type);
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            if (!seen.Add(current)) continue;
+            for (var t = current as INamedTypeSymbol; t is not null && t.SpecialType != SpecialType.System_Object; t = t.BaseType)
+                foreach (var property in t.GetMembers().OfType<IPropertySymbol>())
+                {
+                    if (property.IsStatic || property.IsIndexer || property.DeclaredAccessibility != Accessibility.Public) continue;
+                    var propertyType = property.Type;
+                    while (true)
+                    {
+                        if (propertyType is IArrayTypeSymbol array) propertyType = array.ElementType;
+                        else if (propertyType is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable) propertyType = nullable.TypeArguments[0];
+                        else break;
+                    }
+                    if (propertyType is not INamedTypeSymbol named || named.TypeKind is TypeKind.Enum || named.SpecialType != SpecialType.None
+                        || named.ContainingNamespace?.ToDisplayString() is { } ns && (ns == "System" || ns.StartsWith("System.", StringComparison.Ordinal)))
+                        continue;
+                    MarkDynamicallyAccessed(named, DamPublicProperties);
+                    pending.Push(named);
+                }
+        }
+    }
+
     private static bool IsEventSourceClass(INamedTypeSymbol type)
     {
         for (var t = type.BaseType; t is not null; t = t.BaseType)
