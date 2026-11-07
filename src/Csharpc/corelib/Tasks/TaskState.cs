@@ -25,7 +25,7 @@ namespace CsharpcCoreLib
         private static readonly ConditionalWeakTable<Task, Info> s_info = new ConditionalWeakTable<Task, Info>();
 
         [DllImport("__Internal", EntryPoint = "csrt_task_denies_children")]
-        private static extern bool DeniesChildren(IntPtr task);
+        private static extern int DeniesChildren(IntPtr task);
 
         /// <summary>Records the state and creation options of a task just created (nothing for the defaults).</summary>
         internal static void Set(Task task, object state, TaskCreationOptions options)
@@ -50,7 +50,7 @@ namespace CsharpcCoreLib
 
         public static TaskCreationOptions CreationOptions(Task task) =>
             s_info.TryGetValue(task, out Info info) ? info.Options
-            : DeniesChildren(CoreIntrinsics.ObjectToPointer(task)) ? TaskCreationOptions.DenyChildAttach : TaskCreationOptions.None;
+            : DeniesChildren(CoreIntrinsics.ObjectToPointer(task)) != 0 ? TaskCreationOptions.DenyChildAttach : TaskCreationOptions.None;
 
         public static void Dispose(Task task)
         {
