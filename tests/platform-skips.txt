@@ -271,3 +271,5 @@ macos 1181_socket_dns_endpoint_failure_messages  the texts and native codes are 
 windows 1181_socket_dns_endpoint_failure_messages  the texts and native codes are the OS's: Winsock says "No connection could be made because the target machine actively refused it." (10061)
 wasi 1205_taskfactory_from_async_wait_handle  needs threads: FromAsync over an operation that isn't complete waits on its handle through ThreadPool.RegisterWaitForSingleObject (PlatformNotSupportedException on WebAssembly)
 windows 1210_uri_rooted_path_platform live: a rooted path without a drive is an implicit file path on Unix only; on Windows UriKind.Absolute is a UriFormatException (the platform decides the expectation)
+wasi 1207_socket_close_unread_data  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+windows 1207_socket_close_unread_data  live: what a close with unread received data sends, and what the peer then reads, is the OS's TCP stack (Winsock)

@@ -1,0 +1,14 @@
+== Socket.Dispose: unread data at the client = True
+  server: SocketException ConnectionReset
+== Socket.Close(0): unread data at the client = True
+  server: SocketException ConnectionReset
+== Socket.Shutdown then Dispose: unread data at the client = True
+  server: read=3 then=0
+== TcpClient.Dispose after GetStream: unread data at the client = True
+  server: read=3 then=0
+== NetworkStream.Dispose: unread data at the client = True
+  server: read=3 then=0
+== NetworkStream that does not own the socket: unread data at the client = True
+  server: SocketException ConnectionReset
+== TcpClient.Dispose without a stream: unread data at the client = True
+  server: read=3 then=0
