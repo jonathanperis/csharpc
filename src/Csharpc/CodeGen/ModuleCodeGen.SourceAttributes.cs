@@ -247,7 +247,7 @@ public sealed partial class ModuleCodeGen
         // readonly members of a non-readonly struct (an auto-property's getter is implicitly readonly) get [IsReadOnly].
         if (m.IsReadOnly && !type.IsReadOnly) return true;
         if (type.TypeKind == TypeKind.Struct && !type.IsReadOnly && !m.IsStatic && m.MethodKind == MethodKind.PropertyGet && IsAutoAccessor(m)) return true;
-        if (!AnnotationsEnabled(m)) return false;
+        if (!AnnotationsEnabled(m) || NullableMethodAttributes(m) is not null) return false;
         return NullableRelevant(m.ReturnType) || m.Parameters.Any(p => NullableRelevant(p.Type))
             || m.TypeParameters.Any(tp => tp.ConstraintTypes.Length > 0 || tp.HasReferenceTypeConstraint || tp.HasNotNullConstraint);
     }
@@ -257,13 +257,13 @@ public sealed partial class ModuleCodeGen
         if (InSynthesizedType(f.ContainingType) || f.IsRequired || f.IsFixedSizeBuffer) return true;
         if (f.IsConst && f.Type.SpecialType == SpecialType.System_Decimal) return true; // [DecimalConstant]
         if (NeedsTypeAttribute(f.Type)) return true;
-        return AnnotationsEnabled(f) && NullableRelevant(f.Type);
+        return AnnotationsEnabled(f) && NullableFieldAttributes(f) is null && NullableRelevant(f.Type);
     }
 
     private bool PropertyHasUnlistedAttributes(IPropertySymbol p)
     {
         if (InSynthesizedType(p.ContainingType) || p.IsRequired || NeedsTypeAttribute(p.Type) || p.Parameters.Any(x => NeedsTypeAttribute(x.Type))) return true;
-        return AnnotationsEnabled(p) && (NullableRelevant(p.Type) || p.Parameters.Any(x => NullableRelevant(x.Type)));
+        return AnnotationsEnabled(p) && NullablePropertyAttributes(p) is null && (NullableRelevant(p.Type) || p.Parameters.Any(x => NullableRelevant(x.Type)));
     }
 
     private bool ParameterHasUnlistedAttributes(IParameterSymbol p)
@@ -275,7 +275,7 @@ public sealed partial class ModuleCodeGen
         if (p.IsParams && p.Type is not IArrayTypeSymbol) return true;                                             // [ParamCollection]
         if (p.HasExplicitDefaultValue && p.Type.SpecialType == SpecialType.System_Decimal) return true;            // [DecimalConstant]
         if (NeedsTypeAttribute(p.Type)) return true;
-        return AnnotationsEnabled(p) && NullableRelevant(p.Type);
+        return AnnotationsEnabled(p) && NullableParameterAttributes(p) is null && NullableRelevant(p.Type);
     }
 
     /// <summary>`{ get; set; }` accessors (no body) of a property csc backs with a field.</summary>
@@ -288,6 +288,8 @@ public sealed partial class ModuleCodeGen
     private AttributeSet SourceMethodAttributes(IMethodSymbol definition)
     {
         var synthesized = new List<AttributeInstance?>();
+        // [NullableContext] comes first (before [CompilerGenerated] and [Extension]).
+        if (NullableMethodAttributes(definition) is { } nullableContext) synthesized.AddRange(nullableContext);
         // The accessors csc synthesizes for a field-like event, and an auto-property's, are [CompilerGenerated]; the
         // metadata lists that before the attributes the source gives them.
         if (definition is { MethodKind: MethodKind.EventAdd or MethodKind.EventRemove, IsImplicitlyDeclared: true }
@@ -304,6 +306,7 @@ public sealed partial class ModuleCodeGen
     private AttributeSet SourceFieldAttributes(IFieldSymbol definition)
     {
         var synthesized = new List<AttributeInstance?>();
+        if (NullableFieldAttributes(definition) is { } nullableField) synthesized.AddRange(nullableField);
         // An auto-property's backing field: the attributes the compiler emits on it, before the property's [field: ...] ones.
         if (definition.IsImplicitlyDeclared && definition.AssociatedSymbol is IPropertySymbol)
         {
@@ -315,13 +318,14 @@ public sealed partial class ModuleCodeGen
     }
 
     private AttributeSet SourcePropertyAttributes(IPropertySymbol definition) =>
-        BuildAttributeSet(definition.GetAttributes(), [], PropertyHasUnlistedAttributes(definition));
+        BuildAttributeSet(definition.GetAttributes(), NullablePropertyAttributes(definition) ?? [], PropertyHasUnlistedAttributes(definition));
 
     private AttributeSet SourceParameterAttributes(IParameterSymbol p)
     {
         // [ParamArray] comes first (csc emits it before the source's attributes).
         var synthesized = new List<AttributeInstance?>();
         if (p.IsParams && p.Type is IArrayTypeSymbol) synthesized.Add(PseudoAttribute("System.ParamArrayAttribute"));
+        if (NullableParameterAttributes(p) is { } nullableParameter) synthesized.AddRange(nullableParameter);
         var declared = p.GetAttributes();
         bool Has(string name) => declared.Any(a => a.AttributeClass?.ToDisplayString() == name);
         // In / Out / Optional are flags in metadata; reflection lists them as pseudo attributes, once.

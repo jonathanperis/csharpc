@@ -1,0 +1,577 @@
+T1: NullableContext(1),Nullable(0)
+  field A: 
+  field B: 
+  field C: Nullable(2)
+  field D: Nullable(2)
+  ctor 0: 
+T2: NullableContext(2),Nullable(0)
+  field A: Nullable(1)
+  field B: 
+  field C: 
+  field D: Nullable(1)
+  field E: 
+  ctor 0: 
+T3: NullableContext(1),Nullable(0)
+  field A: 
+  field B: 
+  field C: Nullable(2)
+  ctor 0: 
+T4: 
+  field A: Nullable(2)
+  field B: Nullable(1)
+  ctor 0: 
+T5: 
+  field M: 
+  field N: 
+  field S: Nullable(1)
+  ctor 0: 
+T6: 
+  field Arr: Nullable(1)
+  field Arr2: Nullable([1 2])
+  field Arr3: Nullable([2 1])
+  field D: Nullable([1 1 1 2])
+  field L: Nullable([1 2])
+  field L2: Nullable([2 1])
+  ctor 0: 
+T7: NullableContext(1),Nullable(0)
+  ctor 0: 
+  method I: 
+    p x: 
+  method M: 
+    p a: 
+    p b: Nullable(2)
+  method N: 
+    p a: 
+  method V: 
+    p a: 
+    p b: 
+  method W: NullableContext(2)
+    p a: 
+    p b: 
+T9`1: NullableContext(1),Nullable(0)
+  field F: 
+  field G: Nullable(2)
+  ctor 0: 
+  method M: 
+    p t: 
+  type parameter T: Nullable(2)
+T10: NullableContext(2),Nullable(0)
+  field <P>k__BackingField: Nullable(1),CompilerGenerated(),DebuggerBrowsable(0)
+  field <Q>k__BackingField: CompilerGenerated(),DebuggerBrowsable(0)
+  ctor 0: 
+  method get_P: NullableContext(1),CompilerGenerated()
+  method get_Q: CompilerGenerated()
+  method get_R: 
+  method set_P: NullableContext(1),CompilerGenerated()
+    p value: 
+  method set_Q: CompilerGenerated()
+    p value: 
+  property P: Nullable(1)
+  property Q: 
+  property R: 
+T11: NullableContext(1),Nullable(0)
+  ctor 1: 
+    p a: 
+  ctor 2: 
+    p a: Nullable(2)
+    p b: 
+Gen`1: 
+  ctor 0: 
+  type parameter T: Nullable(2)
+T12: Nullable([0 2])
+  ctor 0: 
+T13: 
+  ctor 0: 
+  method Equals: NullableContext(2)
+    p other: 
+I1: NullableContext(1)
+  method M: 
+    p x: Nullable(2)
+  method get_P: 
+  property P: 
+T14: NullableContext(1),Nullable(0)
+  field E: Nullable(2),CompilerGenerated(),DebuggerBrowsable(0)
+  field F: CompilerGenerated(),DebuggerBrowsable(0)
+  ctor 0: 
+  method add_E: NullableContext(2),CompilerGenerated()
+    p value: 
+  method add_F: CompilerGenerated()
+    p value: 
+  method remove_E: NullableContext(2),CompilerGenerated()
+    p value: 
+  method remove_F: CompilerGenerated()
+    p value: 
+  event E: Nullable(2)
+  event F: 
+T15: 
+  field Act: Nullable([1 2])
+  field Fn: Nullable([1 1 2])
+  field T: Nullable([0 1 2])
+  ctor 0: 
+T16: NullableContext(1),Nullable(0)
+  field K: 
+  field O: 
+  field OO: Nullable(2)
+  field RO: Nullable(2)
+  field S: 
+  ctor 0: 
+  ctor 0: 
+S1: 
+  field A: Nullable(1)
+  field B: Nullable(2)
+T17: 
+  field JA: Nullable([1 1 2])
+  field K: Nullable([1 1 2])
+  field KV: Nullable([0 1 2])
+  field LI: Nullable(1)
+  field NI: 
+  ctor 0: 
+T18`1: NullableContext(1),Nullable(0)
+  field A: 
+  field B: 
+  field L: 
+  field L2: Nullable([1 2])
+  ctor 0: 
+  type parameter T: Nullable(2)
+T19`1: NullableContext(1),Nullable(0)
+  field A: 
+  field L: 
+  ctor 0: 
+  type parameter T: 
+T20`1: NullableContext(2),Nullable(0)
+  field A: Nullable(1)
+  field B: 
+  ctor 0: 
+  type parameter T: 
+T21`1: NullableContext(1),Nullable(0)
+  field A: 
+  ctor 0: 
+  type parameter T: 
+T24`1: 
+  field A: 
+  field B: 
+  field L: Nullable([1 0])
+  ctor 0: 
+  type parameter T: 
+IA: NullableContext(1)
+  method get_P: 
+  method get_Q: NullableContext(2)
+  method set_P: 
+    p value: 
+  property P: 
+  property Q: Nullable(2)
+T25: NullableContext(2),Nullable(0)
+  ctor 0: 
+  method M: NullableContext(1)
+  method V: 
+  method get_P: 
+  property P: 
+T26: NullableContext(2),Nullable(0)
+  ctor 0: 
+  method M: NullableContext(1)
+  method get_P: 
+  property P: 
+T27: NullableContext(1),Nullable(0)
+  field Next: Nullable(2)
+  field Prev: 
+  field Ty: Nullable(2)
+  field Ty2: 
+  ctor 0: 
+T28: 
+  field A: Nullable([0 1])
+  field B: Nullable([0 2 1])
+  field C: Nullable([0 1 1])
+  field Z: Nullable([1 2 2])
+  ctor 0: 
+T29: 
+  field A: Nullable([1 1 2])
+  field B: Nullable(1)
+  ctor 0: 
+T30: 
+  field E: Nullable([2 1])
+  field L: Nullable([1 2])
+  field M: Nullable(1)
+  field TT: Nullable([1 1 2])
+  ctor 0: 
+T33: NullableContext(1),Nullable(0)
+  ctor 0: 
+  method M: 
+    p a: ParamArray()
+  method N: 
+    p a: Optional()
+    p b: Optional(),Nullable(2)
+T39: NullableContext(2),Nullable(0)
+  field E: CompilerGenerated(),DebuggerBrowsable(0)
+  field F: Nullable(1),CompilerGenerated(),DebuggerBrowsable(0)
+  ctor 0: 
+  method add_E: CompilerGenerated()
+    p value: 
+  method add_F: NullableContext(1),CompilerGenerated()
+    p value: 
+  method add_G: 
+    p value: 
+  method remove_E: CompilerGenerated()
+    p value: 
+  method remove_F: NullableContext(1),CompilerGenerated()
+    p value: 
+  method remove_G: 
+    p value: 
+  event E: 
+  event F: Nullable(1)
+  event G: 
+T40: NullableContext(2),Nullable(0)
+  field K: 
+  field R: Nullable(1)
+  field V: 
+  ctor 0: 
+  ctor 0: 
+T42: NullableContext(1),Nullable(0)
+  field A: 
+  field B: Nullable(2)
+  method M: 
+    p a: 
+U1: NullableContext(1),Nullable(0)
+  field A: My()
+  field B: Nullable(2),My()
+  field C: 
+  ctor 0: 
+U2: NullableContext(1),Nullable(0)
+  ctor 0: 
+  method M: My()
+    p a: My()
+    p b: 
+  method R: 
+U5: NullableContext(2),Nullable(0)
+  field A: Nullable(1)
+  field B: 
+  ctor 0: 
+Outer2: 
+  field A: Nullable(2)
+  field B: Nullable(2)
+  ctor 0: 
+U6: NullableContext(1),Nullable(0)
+  field <IA.P>k__BackingField: CompilerGenerated(),DebuggerBrowsable(0)
+  ctor 0: 
+  method IA.get_P: CompilerGenerated()
+  method IA.get_Q: NullableContext(2)
+  method IA.set_P: CompilerGenerated()
+    p value: 
+  property IA.P: 
+  property IA.Q: Nullable(2)
+U7: NullableContext(1),Nullable(0)
+  field A: 
+  field B: 
+  ctor 0: 
+U8: NullableContext(2),Nullable(0)
+  field A: Nullable(1)
+  field B: 
+  field C: 
+  field D: 
+  ctor 0: 
+U11: NullableContext(1),Nullable(0)
+  ctor 0: 
+  method op_Addition: 
+    p a: 
+    p b: 
+  method op_Explicit: 
+    p a: 
+  method op_Implicit: 
+    p a: 
+U14: NullableContext(1),Nullable(0)
+  field <B>k__BackingField: CompilerGenerated(),DebuggerBrowsable(0)
+  field C: Nullable(2)
+  field D: 
+  ctor 0: 
+  method get_A: NullableContext(2)
+  method get_B: CompilerGenerated()
+  property A: Nullable(2)
+  property B: 
+U15: NullableContext(1),Nullable(0)
+  field A: 
+  field B: Nullable(2)
+  field C: 
+  field D: Nullable(2)
+  field E: Nullable([1 0 1])
+  ctor 0: 
+U16: 
+  ctor 0: 
+  method M: NullableContext(2)
+    p a: 
+U17: NullableContext(1),Nullable(0)
+  field A: 
+  ctor 0: 
+  method M: 
+  method S: 
+    p a: 
+  method T: NullableContext(2)
+    p a: 
+U18`1: NullableContext(1),Nullable(0)
+  ctor 0: 
+  method M: 
+    p a: 
+  method N: NullableContext(2)
+    p a: 
+  method O: 
+    p a: 
+    p b: 
+  type parameter T: Nullable(2)
+U19`1: 
+  ctor 0: 
+  method M: 
+    p a: 
+  method N: 
+    p a: 
+  method S: NullableContext(1)
+    p a: 
+    p t: Nullable(0)
+  type parameter T: 
+IB: NullableContext(2)
+  method M: NullableContext(1)
+    p a: 
+    p b: Nullable(2)
+  method add_E: CompilerGenerated()
+    p value: 
+  method get_N: 
+  method remove_E: CompilerGenerated()
+    p value: 
+  method set_N: 
+    p value: 
+  property N: 
+  event E: 
+IC`1: NullableContext(1)
+  method M: 
+    p a: 
+  type parameter T: Nullable(2)
+V1: 
+  method E: NullableContext(2),Extension()
+    p s: 
+  method F: NullableContext(1),Extension()
+    p s: 
+V2: NullableContext(1),Nullable(0)
+  ctor 0: 
+  method P: 
+    p a: ParamArray(),Nullable([1 2])
+  method Q: 
+    p a: ParamArray(),Nullable([2 1])
+  method R: 
+    p a: ParamArray(),Nullable([1 2]),My()
+  method S: 
+    p a: Optional()
+    p b: Optional(),Nullable(2)
+  method T: 
+    p a: 
+    p b: 
+    p c: ParamArray()
+V3: NullableContext(2),Nullable(0)
+  field <A>k__BackingField: CompilerGenerated(),DebuggerBrowsable(0)
+  field <B>k__BackingField: CompilerGenerated(),DebuggerBrowsable(0)
+  field <C>k__BackingField: CompilerGenerated(),DebuggerBrowsable(0),My()
+  ctor 0: 
+  method get_A: CompilerGenerated()
+  method get_B: CompilerGenerated()
+  method get_C: CompilerGenerated()
+  method set_A: CompilerGenerated()
+    p value: 
+  method set_B: CompilerGenerated()
+    p value: 
+  method set_C: CompilerGenerated()
+    p value: 
+  property A: 
+  property B: My()
+  property C: 
+V4: NullableContext(1),Nullable(0)
+  field A: Nullable(2)
+  field B: Nullable(2),My()
+  field C: 
+  field D: 
+  ctor 0: 
+V5: 
+  ctor 0: 
+  method M: NullableContext(1)
+    p a: Nullable(2),My()
+    p b: 
+    p c: 
+  method N: NullableContext(2),My()
+    p a: 
+V6: NullableContext(2),Nullable(0)
+  field E: CompilerGenerated(),DebuggerBrowsable(0)
+  field F: CompilerGenerated(),DebuggerBrowsable(0)
+  field G: CompilerGenerated(),DebuggerBrowsable(0)
+  ctor 0: 
+  method add_E: CompilerGenerated()
+    p value: 
+  method add_F: CompilerGenerated()
+    p value: 
+  method add_G: CompilerGenerated()
+    p value: 
+  method remove_E: CompilerGenerated()
+    p value: 
+  method remove_F: CompilerGenerated()
+    p value: 
+  method remove_G: CompilerGenerated()
+    p value: 
+  event E: 
+  event F: My()
+  event G: 
+V7: 
+  ctor 0: 
+  method M: NullableContext(1)
+    p a: Out()
+    p b: Out(),Nullable(2)
+    p c: 
+    p d: Nullable(2)
+V8: NullableContext(1),Nullable(0)
+  ctor 0: 
+  method M1: 
+    p a: 
+  method M2: 
+    p a: 
+  method M3: NullableContext(2)
+    p a: 
+  method M4: NullableContext(2)
+    p a: 
+  method M5: 
+  method M6: 
+    p x: 
+    p y: 
+    p z: Nullable(2)
+W1: NullableContext(2),Nullable(0)
+  ctor 0: 
+  method get_P: 
+  property P: 
+W2: NullableContext(2),Nullable(0)
+  ctor 0: 
+  method get_P: 
+  method get_Q: 
+  property P: 
+  property Q: 
+W3: NullableContext(2),Nullable(0)
+  ctor 0: 
+  method get_P: 
+  method set_P: 
+    p value: 
+  property P: 
+W4: NullableContext(2)
+  method get_P: 
+  property P: 
+W5: NullableContext(2)
+  method add_E: CompilerGenerated()
+    p value: 
+  method remove_E: CompilerGenerated()
+    p value: 
+  event E: 
+W8: NullableContext(2),Nullable(0)
+  ctor 1: 
+    p a: 
+  ctor 2: 
+    p a: 
+    p b: 
+W9: NullableContext(1),Nullable(0)
+  field <A>k__BackingField: Nullable(2),CompilerGenerated(),DebuggerBrowsable(0)
+  field <B>k__BackingField: CompilerGenerated(),DebuggerBrowsable(0)
+  field <C>k__BackingField: CompilerGenerated(),DebuggerBrowsable(0)
+  ctor 0: 
+  method get_A: NullableContext(2),CompilerGenerated()
+  method get_B: CompilerGenerated()
+  method get_C: CompilerGenerated()
+  method set_A: NullableContext(2),CompilerGenerated()
+    p value: 
+  method set_B: CompilerGenerated()
+    p value: 
+  method set_C: CompilerGenerated()
+    p value: 
+  property A: Nullable(2)
+  property B: 
+  property C: 
+X1`1: 
+  ctor 0: 
+  method M: 
+    p a: 
+    p b: 
+    p c: Nullable(1)
+  method N: 
+    p a: 
+    p d: Nullable(2)
+  type parameter T: 
+X4: NullableContext(2),Nullable(0)
+  field A: 
+  field B: 
+  field C: 
+  ctor 0: 
+X5: 
+  field A: Nullable(2)
+  field B: Nullable(2)
+  ctor 0: 
+  method Dispose: 
+X6: NullableContext(2),Nullable([0 2])
+  field A: 
+  field B: 
+  ctor 0: 
+X7`1: NullableContext(2),Nullable(0)
+  field A: 
+  field B: 
+  ctor 0: 
+  type parameter T: 
+X8`1: NullableContext(2),Nullable(0)
+  field A: 
+  field B: 
+  ctor 0: 
+  type parameter T: Nullable(1)
+X9: NullableContext(2),Nullable(0)
+  field A: 
+  field B: 
+  field N: 
+  ctor 0: 
+  method M: 
+Y1: 
+  field A: Nullable(2)
+  field B: Nullable(2)
+  ctor 0: 
+  method GetEnumerator: NullableContext(1)
+  method System.Collections.IEnumerable.GetEnumerator: NullableContext(1)
+Y0: 
+  ctor 0: 
+Y2: 
+  field A: Nullable(2)
+  field B: Nullable(2)
+  ctor 0: 
+  method Dispose: 
+Y3: NullableContext(2),Nullable(0)
+  field A: 
+  field B: 
+  ctor 0: 
+  method CompareTo: 
+    p o: 
+Y4: 
+  field A: Nullable(2)
+  field B: Nullable(2)
+  field C: Nullable(2)
+  ctor 0: 
+  method Clone: NullableContext(1)
+  method Dispose: 
+Y5: NullableContext(2),Nullable(0)
+  field A2: 
+  field B2: 
+  ctor 0: 
+Y6: NullableContext(2)
+  method get_P: 
+  method get_Q: 
+  property P: 
+  property Q: 
+Nest: Nullable(0)
+  field X: 
+  field Y: 
+  field Z: 
+  ctor 0: 
+In1: NullableContext(1),Nullable(0)
+  field C: 
+  field D: 
+  ctor 0: 
+In2: NullableContext(2),Nullable(0)
+  field E: 
+  field F: 
+  ctor 0: 
+  method M: NullableContext(1)
+    p a: 
+In3: 
+  field G: Nullable(2)

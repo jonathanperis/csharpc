@@ -764,7 +764,7 @@ What it took, besides library members (all with regression samples 840–849):
   compile error), a `Type` known at compile time stored into a
   `[DynamicallyAccessedMembers]` field keeps those members, `TextEncoder`'s TextWriter/span/UTF-8 members
   (also for encoders derived from it), `Utf8.FromUtf16`/`ToUtf16`, `MetadataUpdater.IsSupported` folded to
-  false (no hot reload, as under NativeAOT); `NullabilityInfoContext.Create` is an explicit error.
+  false (no hot reload, as under NativeAOT); `NullabilityInfoContext.Create` is an explicit error (the members' `[Nullable]` data it reads is reproduced now, [ADR 0018](adr/0018-reflection-metadata.md); the context itself is follow-up work).
 - **Hosting and Kestrel**: hosting startups read `assembly.GetCustomAttributes<T>()`; `UseStartup<T>()`'s
   `Activator.CreateInstance(Type, object[])`; generic method definitions found through reflection are
   described (their signature, invocation and `MakeGenericMethod` are explicit errors);
