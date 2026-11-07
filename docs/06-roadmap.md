@@ -18,7 +18,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Multi-file programs, `.csproj` input, `ProjectReference` | ✅ | whole-program, see [08-drop-in.md](08-drop-in.md) |
 | `dotnet build -p:UseCsharpc=true`, `dotnet publish -p:PublishCsharpc=true` | ✅ | `Csharpc.Sdk` package |
 | File-based apps (`#:property` directives) | ✅ | |
-| Assemblies without sources: `-r X.dll`, `<Reference>`, NuGet `PackageReference` | 🟡 | IL front-end (M5): the IL side is complete except `calli`/TypedReference; packages still hit BCL gaps (M2) |
+| Assemblies without sources: `-r X.dll`, `<Reference>`, NuGet `PackageReference` | 🟡 | IL front-end (M5): the IL side is complete except TypedReference and `jmp` (`calli` and function pointers done); packages still hit BCL gaps (M2) |
 | The program as IL: `csharpc app.dll` (csc's output, the dotnet pipeline's input) | 🟡 | M5: every sample passes through `tests/run.sh --via-il` (`dynamic` and reflection-based JSON of private nested types included) |
 
 ### Types
@@ -180,8 +180,9 @@ through both. With M2 and M4 this is what makes csharpc a drop-in replacement fo
 
 Design: [ADR 0010](adr/0010-il-frontend.md) — IL is a second method-body source for Roslyn's metadata
 symbols, lowered through the same `FunctionCodeGen` (synthetic `IOperation`s for library-facing
-instructions). Done: `-r`, `<Reference>` and `PackageReference` input; all opcodes but `calli`, `jmp`,
-TypedReference ones and `ckfinite`; generics, virtual/interface dispatch across the source/IL
+instructions). Done: `-r`, `<Reference>` and `PackageReference` input; all opcodes but `jmp`,
+TypedReference ones and `ckfinite` (`calli` through managed and unmanaged function pointers works,
+see below); generics, virtual/interface dispatch across the source/IL
 boundary, EH incl. filters, static constructors (`beforefieldinit`), RVA data, P/Invoke, events,
 compiled C# idioms (interpolation handlers, closures, iterators, records, generic math); unreachable
 failures compile to stubs (`CSLLVM0007`); compiled `async` (method builders, awaiters, async
@@ -210,6 +211,14 @@ so gdb breaks on `Counter.cs:10` of a library compiled from its IL, with inlined
 (`tests/debuginfo.sh`, [13-debugging.md](13-debugging.md#from-the-assemblys-pdb)). An assembly without a
 PDB, the precompiled corelib and shared-framework assemblies get no debug info (Windows PDBs aren't read).
 
+**Function pointers and `calli`**: `delegate*<...>` calls and IL `calli` share one lowering (managed signatures:
+csharpc's own convention, `ref`/`out`/`in` and `ref` returns, structs, generics). `delegate* unmanaged` calls and
+`&[UnmanagedCallersOnly]` entries follow the platform's C ABI as a P/Invoke of the same function does: structs
+by value (System V eightbytes, byval/sret, AAPCS64, Win64), `bool` as a 4-byte BOOL, small integers extended by the
+caller (samples 1150-1152, checked against libc/libm and across both ends); `&Math.Sqrt` and other library static
+methods can be pointer targets (sample 1153). Left as diagnostics: `calli` with an instance signature or
+`vararg`, and `char`/`string`/array/delegate in an unmanaged function pointer's signature (.NET marshals them).
+
 **RID-specific and native package assets** (2026-11-06): the packages' `runtimes/<rid>/lib` assemblies and
 `runtimes/<rid>/native` libraries for the target's runtime identifier, as the host and `PublishAot` select them. A
 project with packages is restored for the target's RID (`--target` -> linux-x64, linux-arm64, osx-arm64, win-x64;
@@ -219,7 +228,7 @@ with the runtime graph's fallbacks (linux-x64 -> linux -> unix-x64 -> unix -> an
 next to the executable, where a P/Invoke probes first (`tests/il.sh`, RidApp, against a package built locally).
 Left: satellite resource assemblies, `ref/` vs `lib/` binding, linking a package's static archives.
 
-Next: the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`, `calli`.
+Next: the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`.
 
 ### M6 — Bootstrapping
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.
@@ -242,7 +251,13 @@ facade can't supply from IL (`ConcurrentDictionary` ported so it enumerates in .
 `ValueType`/`Enum`. The rest of that list (`BlockingCollection`'s multi-collection calls, `Partitioner` and the `Parallel`
 loops with a loop state, `Task.AsyncState`/`CreationOptions`/`Dispose`/`IAsyncResult`, `AggregateException.InnerExceptions`,
 `new Task(...)`, `EventListener`) was probed against .NET one type at a time and closed (samples 1020-1044,
-[12-corelib.md](12-corelib.md)); still open: `EventSource.Write<T>` payloads, `TaskFactory.ContinueWhenAll/Any/FromAsync`,
+[12-corelib.md](12-corelib.md)); a second probe round (2026-11-06: Partitioner and OrderablePartitioner with
+`Parallel.ForEach`/PLINQ, `AggregateException`, `Task` status/state and `new Task`, `EventListener`,
+`BlockingCollection`) found and closed the leftovers: `ReadOnlyCollection<T>` as the non-generic `IList`/`ICollection`
+(what `AggregateException.InnerExceptions` is cast to), `Task.Run(Func<Task>)` canceling on an
+`OperationCanceledException` as .NET's unwrap proxy does, the "continuation task" errors of `Start`/`RunSynchronously`,
+a null `AggregateException` message, and lambdas inside a `when` filter (their blocks were taken for the filter's and
+lowered as `unreachable`; samples 1060-1063); still open: `EventSource.Write<T>` payloads, `TaskFactory.ContinueWhenAll/Any/FromAsync`,
 type identity of tasks (`GetType()` and `is Task<T>`).
 Roslyn from IL, measured: the `IL survey` workflow's `roslyn` target lowers every method of Roslyn and
 `csharpc.dll` in 16 parallel shards and ranks what stops them
@@ -277,8 +292,18 @@ instructions on one thread at -O0) and its peak (5.6 GB, 8.4 GB with two threads
 of step 3. (4) Manifest resources, `Assembly.ManifestModule`/`GetReferencedAssemblies`/`GetCustomAttributes`
 are compile-time metadata. (5) csharpc compiles itself (`tools/bootstrap/selfhost.sh`, the `Bootstrap` workflow): 248 s and
 11.6 GB on a CI runner at -O0, and the native compiler compiles hello world and samples exactly as the
-managed one (run 41171411931). Next: the self-compile at -O2, the native compiler on the whole
-differential suite, and code-generation memory.
+managed one (run 41171411931). The self-compile broke on 2026-11-06 when csharpc's own resource reader started
+calling `BinaryReader.ReadDecimal` (which the corelib lacked, `CSLLVM0002`; fixed, sample 1160) and was green
+again at both levels on 2026-11-06 (run 42244078369, 8 samples identical to the managed compiler's):
+**-O0** 238 s, 9.3 GB peak; **-O2** 577 s (optimization and code generation in 8 partitions of the 8.9 M
+instructions, 2 threads), 8.6 GB peak, a 76 MB native compiler (107 MB at -O0). Code-generation memory ([ADR 0014](adr/0014-compile-time.md), section 6): no local value names in the IR, the
+bitcode image kept in LLVM's buffer and the partition workers limited by the memory available (the first one is
+free, each further one is estimated at ten times the image): the self-compile peaks at 8.0 GB at -O0 and 7.6 GB at
+-O2 with two workers (9.3 and 8.6 GB before), 5.3 and 5.5 GB with one (backend 219 s instead of 122 s at -O0,
+1076 s instead of 462 s at -O2), executables byte-identical (run 42256286314). What remains is the module itself,
+about 2.7 GB for 9 M instructions, and the managed heap at the end of lowering (3.7 GB). Lowering on several threads is
+an open design question: single-threaded lowering is 75 s of the 238 s self-compile at -O0 and 69 s of 577 s at -O2
+(ADR 0014, "Next hot spots"). Next: the native compiler on the whole differential suite.
 
 ### Runtime tiers — C# for library code, C where it is the right tool
 [ADR 0017](adr/0017-runtime-tiers.md); a C-free runtime is not a goal (owner, 2026-10-30). **Tier 1 (now,

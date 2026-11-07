@@ -1,0 +1,11 @@
+div 3 2
+ldiv -14 -2
+lldiv 1099511627 776
+cabs 5
+cabsf 13
+conj 1.5 2.25
+conjf -0.5 -8
+csqrt 0 2
+isalpha True False
+abs 3 200 300 60000 1
+toupper Q
