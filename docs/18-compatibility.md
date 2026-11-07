@@ -477,6 +477,12 @@ extracted; no MSBuild, so package scripts and targets never run), and compiles a
 arguments, reachable or not. The `IL survey` workflow runs it whenever the harness changes and
 publishes the full report as an artifact.
 
+A survey item can be an artifact of the consumer rather than a gap: the `System.Xml.Linq` members it lists
+(`XName` operators, `XContainer.Element(XName)`, `XElement.Attribute(XName)`, `XObjectChangeEventArgs.ObjectChange`; 6 packages)
+are called by `MS.Internal.Xml.Linq.ComponentModel` in `System.ComponentModel.TypeConverter`, which the survey lowers
+whole while its trivial consumer references no `System.Xml.Linq`. A program that uses LINQ to XML compiles the
+framework's own `System.Xml.Linq` from IL and behaves as .NET (sample 1235, checked at -O0, -O2, `--via-il` and on WebAssembly).
+
 First run (2026-10-23, CI, branch `il-phase2`): 26 030 diagnostics over 52 packages — 9 980 sites of
 2 150 distinct missing library members, 12 335 unsupported constructs. 2 packages lower completely
 (System.Linq.Async, System.Interactive.Async); DocumentFormat.OpenXml exceeded the survey's per-compile
