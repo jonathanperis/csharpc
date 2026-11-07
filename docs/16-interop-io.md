@@ -72,9 +72,9 @@ generic delegate types are a `NotSupportedException` / `ArgumentException`. A po
   `__guard_dispatch_icall_fptr`, `__chkstk`, `__isa_available`, `_fltused`; weak, with the MSVC fail-fast `int 0x29`
   on a smashed stack cookie), `-nodefaultlib` drops their `LIBCMT`/`OLDNAMES`/`uuid` `/DEFAULTLIB` directives, and
   the object is compiled and linked only into programs that link a shim, so others are unchanged. Gzip, deflate,
-  zlib and Brotli streams and `HttpClient`'s `AutomaticDecompression` therefore work on every platform
-  (samples 1005, 1211). `ZipArchive` and `ZipFile` do not on Windows yet: they reach `Aes.Create()` (CNG) and
-  `File.SetLastWriteTimeUtc`, both still missing there (samples 537, 540).
+  zlib and Brotli streams, `HttpClient`'s `AutomaticDecompression`, `ZipArchive` and `ZipFile` (which reach
+  `Aes.Create()` over CNG and `File.SetLastWriteTimeUtc`) therefore work on every platform with a NativeAOT runtime
+  pack (samples 537, 540, 1005, 1211; not on WebAssembly).
 
 `NativeLibrary.Load/TryLoad/GetExport/TryGetExport/Free`, `Marshal.AllocHGlobal/FreeHGlobal`,
 `Marshal.StringToHGlobalAnsi/Uni`, `PtrToStringUTF8/Ansi/Uni`, `Read*/Write*`, `Copy` (every primitive array type, range-checked
@@ -196,7 +196,7 @@ to a method expecting one) is the corelib object and dispatches virtually.
 `src/Csharpc/corelib/Net/` implements the basic networking types in C# over the OS's BSD socket API
 (libc on Linux and macOS, Winsock/`ws2_32` on Windows): `IPAddress`/`IPEndPoint` (parsing and
 formatting follow .NET: inet_aton-style IPv4 input such as `127.1` or `0x7f.1`, RFC 5952 IPv6
-output with embedded IPv4 for mapped addresses), `Socket` (TCP and UDP, blocking; `new
+output with embedded IPv4 for mapped addresses), `Socket` (TCP and UDP; `new
 Socket(SocketType, ProtocolType)` and `new TcpClient()` are dual-mode IPv6 sockets, so IPv4 peers
 appear as `::ffff:a.b.c.d`, as in .NET), `NetworkStream`, `TcpListener`, `TcpClient`, `UdpClient`
 and `Dns.GetHostAddresses`/`GetHostName` (getaddrinfo). Constants, `sockaddr` layouts (macOS has a
@@ -204,10 +204,12 @@ length byte first) and errno values are per target OS. Errors are `SocketExcepti
 `SocketErrorCode` (Winsock numbering, mapped from errno), the native error as `ErrorCode`/
 `NativeErrorCode`, the OS's message text, and — for failed connects — the endpoint appended, as .NET
 does; `SocketException` derives from `Win32Exception` and `ExternalException` like in .NET. The
-`*Async` methods run the blocking call on the thread pool. TLS (`SslStream`, X.509) works on Linux and macOS (over OpenSSL 3), [ADR 0022](adr/0022-tls.md). Not yet: `HttpClient`
-on macOS and Windows,
-`Socket.Select`/`Poll`, socket flags, most socket options (other members are compile-time
-"not supported" diagnostics). Samples `195_ip_addresses` and `196_sockets_loopback`.
+`*Async` methods are operations of the socket engine (`corelib/Net/SocketEngine.cs`) on Linux, which polls with epoll
+(`src/runtime/sockets.c`) and honours cancellation; on macOS and Windows they are blocking calls on the thread pool (no
+kqueue/IOCP engine), so a pending one cannot be canceled. `Socket.Select`/`Poll` are implemented. `HttpClient` (HTTP/1.1,
+with system proxies) and TLS (`SslStream`, X.509, `https://`; over OpenSSL 3 on Linux, macOS and Windows,
+[ADR 0022](adr/0022-tls.md)) are built on these. Socket flags and most socket options are not implemented (other
+members are compile-time "not supported" diagnostics). Samples `195_ip_addresses` and `196_sockets_loopback`.
 Disposing a `NetworkStream` that owns its socket, or a `TcpClient`, shuts the connection down (both directions, errors ignored)
 before closing the descriptor, as .NET does: a bare `close()` with unread received data sends an RST, and the peer's kernel
 then drops what it had received but not read, such as a TLS `close_notify` (a client that never read the server's TLS 1.3

@@ -1,4 +1,4 @@
-# 13 — Threading
+# 14 — Threading
 
 csharpc programs can run on real OS threads with .NET semantics. This page describes how the
 garbage collector, the runtime and the compiler cooperate, what is supported, and what still
@@ -17,7 +17,8 @@ isn't.
 | `Interlocked` | `Increment`, `Decrement`, `Add`, `Exchange`, `CompareExchange` (int, long, float, double, references, generic `T`), `And`, `Or`, `Read`, `MemoryBarrier` — inline LLVM `atomicrmw`/`cmpxchg`, sequentially consistent |
 | `Volatile` / `volatile` | `Volatile.Read`/`Write` and `volatile` fields lower to acquire loads / release stores |
 | `[ThreadStatic]` | static fields become LLVM `thread_local` globals (one copy per thread, default-initialized on new threads) |
-| `Parallel` | `Parallel.For(int/long, …, Action<int/long>)`, `Parallel.ForEach(T[] , Action<T>)`, `Parallel.Invoke(params Action[])` on a runtime worker pool |
+| `Parallel` | `Parallel.For`/`ForEach`/`Invoke` in every overload: plain loops on the runtime's worker pool, loops with `ParallelOptions`, `ParallelLoopState` (`Stop`, `Break`), thread-local state, partitioners and `ForEachAsync`/`ForAsync` in the corelib (`corelib/Tasks/Parallel*.cs`) |
+| Other synchronization | `ThreadLocal<T>`, `SpinLock`, `Barrier`, `ReaderWriterLockSlim`, `CountdownEvent`, `SemaphoreSlim`, `Thread.Interrupt` |
 | `Environment` | `ProcessorCount`, `CurrentManagedThreadId` |
 | Console | each `Console.Write`/`WriteLine` is atomic with respect to other threads (as `Console.Out` is synchronized in .NET) |
 
@@ -93,18 +94,18 @@ calling thread after the loop drains.
 
 ## Deviations from .NET and known gaps
 
-- `Parallel.For` rethrows the first exception itself; .NET wraps all exceptions in an
-  `AggregateException`. `ParallelLoopState`/`ParallelOptions`/`Break`/`Stop` overloads, `ForEach`
-  over non-array `IEnumerable<T>`, and thread-local `localInit` overloads are not mapped yet.
+- The plain `Parallel.For`/`ForEach` loops on the runtime's pool rethrow the first exception from the calling
+  thread; the overloads with a loop state, options or an enumerable surface every exception in one
+  `AggregateException`, as .NET does. With a loop state, workers claim indices one by one rather than in .NET's
+  growing ranges, so which iterations a `Break` lets through above its index can differ.
 - `Task.Run` and `await` continuations run on the task scheduler's own pool (src/runtime/async.c,
   see [10-async.md](10-async.md)). Those workers are started through `csrt_start_background_thread`
   and are separate from the `Parallel.*` workers here, so `Parallel.For` inside `Task.Run` still
   fans out.
-- `Thread.Sleep(TimeSpan)`, `Join(TimeSpan)`, `Thread.Interrupt`/`Abort` (obsolete), thread
+- `Thread.Sleep(TimeSpan)`, `Join(TimeSpan)`, `Thread.Abort` (obsolete) and thread
   priorities are not supported (the current culture is per thread and flows like in .NET, see
-  [19 — Globalization](19-globalization.md)). `ThreadLocal<T>`, `SpinLock`, `Barrier`,
-  `ReaderWriterLockSlim`, `Mutex`/`Semaphore` (named, OS-level) and concurrent collections are not
-  implemented yet (concurrent collections belong in the C# corelib).
+  [19 — Globalization](19-globalization.md)). `Mutex`/`Semaphore` (named, OS-level) are not
+  implemented. The concurrent collections are in the C# corelib (`corelib/Concurrent`).
 - Monitor `Wait` may wake spuriously (pthread condition variables); idiomatic `while` loops are
   unaffected.
 - With nullable analysis enabled, Roslyn's CFG drops `lock (System.Threading.Lock)` inside lambdas

@@ -270,9 +270,9 @@ The rationale and limitations are in [ADR 0003](adr/0003-roslyn-cfg-as-mir.md).
 `FunctionCodeGen.LowerCfg`:
 
 1. Enqueues local functions found in the graph (`cfg.LocalFunctions`).
-2. Scans regions. Try/catch/finally/filter regions are rejected for now, and locals declared in
-   regions are recorded (a local *not* declared in the current graph means a closure capture, which
-   is also rejected).
+2. Scans regions and records the locals each declares (a local *not* declared in the current graph
+   is a closure capture, read through the closure environment). Try/catch/finally/filter regions
+   become `invoke`/`landingpad` code or selector-routed `finally` blocks ([ADR 0005](adr/0005-exceptions.md)).
 3. Pre-scans for **lvalue captures** (below).
 4. Creates one LLVM block `bb<ordinal>` per reachable CFG block and branches to the entry's
    successor.
@@ -313,8 +313,9 @@ before the capture is read.
   function, method table and static is `internal` except `main` (`ModuleCodeGen.GetFunction`). This
   lets LLVM change calling conventions (`fastcc`), inline across the program, and delete unused
   code. See [ADR 0006](adr/0006-closed-world-compilation.md).
-- **`nounwind` everywhere.** Nothing unwinds yet ([ADR 0005](adr/0005-exceptions.md)), so all
-  functions get `nounwind`. csrt's `csrt_throw*` helpers are declared `noreturn cold`.
+- **`nounwind` where nothing throws.** Exceptions unwind with the Itanium ABI ([ADR 0005](adr/0005-exceptions.md)),
+  so only the runtime functions that cannot throw (`ModuleCodeGen.RuntimeMayThrow`) get `nounwind`, which lets
+  LLVM drop landing pads around them. csrt's `csrt_throw*` helpers are declared `noreturn cold`.
 - **Runtime functions are declared lazily** (`ModuleCodeGen.Runtime`) with the signatures that
   match `src/runtime/csrt.h`. LLVM intrinsics (`llvm.sqrt.f64`, `llvm.fptosi.sat.i32.f64`, …) and libm
   functions are declared the same way.

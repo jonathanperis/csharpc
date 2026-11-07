@@ -1,4 +1,4 @@
-# async/await and iterators
+# 10 — async/await and iterators
 
 csharpc compiles `async` methods, iterators (`yield return`) and async iterators
 (`IAsyncEnumerable<T>`) to **LLVM coroutines**. It uses the switch-resumed lowering, the same
@@ -277,9 +277,9 @@ an `IEnumerable<T>` reach iterators through ordinary interface dispatch.
   directly when the enumerator's concrete iterator is statically known.
 - **Non-generic `IEnumerator.Current`** on a value-type iterator boxes a primitive or a user
   struct. Enums are not supported yet.
-- **Not yet supported:** custom awaitables awaited from *source* (user `GetAwaiter` patterns; IL state
-  machines handle them), `SynchronizationContext`/`TaskScheduler`, `Task.Wait` timeouts,
-  `TaskCreationOptions` (`LongRunning`, `RunContinuationsAsynchronously`). `WithCancellation`/
+- **Not supported:** custom awaitables awaited from *source* (user `GetAwaiter` patterns; IL state
+  machines handle them). `SynchronizationContext`, custom `TaskScheduler`s, `Task.Wait` timeouts and
+  `TaskCreationOptions` are supported (samples 448, 543, 1020). `WithCancellation`/
   `ConfigureAwait` on `IAsyncEnumerable<T>` pass the token to `GetAsyncEnumerator` (IL and hand-written
   enumerables); on csharpc's own (source) async iterators a cancelable token throws
   `NotSupportedException` instead of being ignored: their `[EnumeratorCancellation]` parameter is
