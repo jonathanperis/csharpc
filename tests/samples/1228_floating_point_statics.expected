@@ -1,0 +1,250 @@
+== float, directly
+5 1.4142135E+30 Infinity 2
+1.5 0 3 NaN
+3 4 -2 NaN Infinity 3
+3 -2147483648 1024 -1 1.0000001 0.99999994
+2 1 -4 3 2 1
+3.1415927 180 1 -1 1 (0.70710677, -0.70710677)
+11.314 316.23 0.64872 0.40547 3 2 0.25
+True True True False True True True False
+2 2.67 3 -1.3 -1 0 256
+ArgumentException: '2' cannot be greater than 1.
+ArgumentException: '2' cannot be greater than 1.
+== double, directly
+5 1.4142135623730952E+300 Infinity 2 1.4142135623731E-310
+1.5 0 3 NaN
+3 4 -2 NaN Infinity 3
+3 -2147483648 1024 -1 1.0000000000000002 0.9999999999999999
+2 1 -4 3 2 1
+3.141592653589793 180 1 -1 0.9999999999999999 (0.7071067811865476, -0.7071067811865475)
+11.314 316.23 0.64872 0.40547 3 2 0.25
+True True True False True True True False
+2 2.67 3 -1 0 256 3
+ArgumentException: '2' cannot be greater than 1.
+ArithmeticException: Function does not accept floating point Not-a-Number values.
+== float, generic
+0                        even=True odd=False int=True normal=False sub=False neg=False pos=True real=True
+                         hypot=7 lerp=3.5 next=1E-45 prev=-1E-45 scale=0 ilogb=-2147483648 rem=0
+                         maxn=0.5 minn=0 maxmn=7 minmn=0 copy=0.5 fma=0.5
+                         sinpi=0 cospi=1 tanpi=0 deg=0 rad=0
+                         round=0 r1=0 away=0 r2z=0
+                         sin=0 atan=0 exp2=1 exp10=1 expm1=0 logp1=0 log2p1=0 cbrt=0 root5=0 rootm2=Infinity
+                         sign=0
+                         sincospi=0,1 atan2pi=0 asinpi=0.16667 lg=-Infinity
+-0                       even=True odd=False int=True normal=False sub=False neg=True pos=False real=True
+                         hypot=7 lerp=3.5 next=1E-45 prev=-1E-45 scale=-0 ilogb=-2147483648 rem=-0
+                         maxn=0.5 minn=-0 maxmn=7 minmn=-0 copy=-0.5 fma=0.5
+                         sinpi=-0 cospi=1 tanpi=-0 deg=-0 rad=-0
+                         round=-0 r1=-0 away=-0 r2z=-0
+                         sin=-0 atan=-0 exp2=1 exp10=1 expm1=0 logp1=0 log2p1=0 cbrt=-0 root5=-0 rootm2=Infinity
+                         sign=0
+                         sincospi=-0,1 atan2pi=-0 asinpi=0.16667 lg=-Infinity
+0.5                      even=False odd=False int=False normal=True sub=False neg=False pos=True real=True
+                         hypot=7.017834 lerp=3.75 next=0.50000006 prev=0.49999997 scale=4 ilogb=-1 rem=0.5
+                         maxn=0.5 minn=0.5 maxmn=7 minmn=0.5 copy=0.5 fma=4
+                         sinpi=1 cospi=0 tanpi=Infinity deg=0.008726646 rad=28.64789
+                         round=0 r1=0.5 away=1 r2z=0.5
+                         sin=0.47943 atan=0.46365 exp2=1.4142 exp10=3.1623 expm1=0.64872 logp1=0.40547 log2p1=0.58496 cbrt=0.7937 root5=0.87055 rootm2=1.4142
+                         sign=1
+                         sincospi=1,0 atan2pi=0.022698 asinpi=0.16667 lg=-0.35621
+1                        even=False odd=True int=True normal=True sub=False neg=False pos=True real=True
+                         hypot=7.071068 lerp=4 next=1.0000001 prev=0.99999994 scale=8 ilogb=0 rem=1
+                         maxn=1 minn=0.5 maxmn=7 minmn=1 copy=0.5 fma=7.5
+                         sinpi=0 cospi=-1 tanpi=-0 deg=0.017453292 rad=57.29578
+                         round=1 r1=1 away=1 r2z=1
+                         sin=0.84147 atan=0.7854 exp2=2 exp10=10 expm1=1.7183 logp1=0.69315 log2p1=1 cbrt=1 root5=1 rootm2=1
+                         sign=1
+                         sincospi=0,-1 atan2pi=0.045167 asinpi=0.16667 lg=0
+-1                       even=False odd=True int=True normal=True sub=False neg=True pos=False real=True
+                         hypot=7.071068 lerp=3 next=-0.99999994 prev=-1.0000001 scale=-8 ilogb=0 rem=-1
+                         maxn=0.5 minn=-1 maxmn=7 minmn=-1 copy=-0.5 fma=-6.5
+                         sinpi=-0 cospi=-1 tanpi=0 deg=-0.017453292 rad=-57.29578
+                         round=-1 r1=-1 away=-1 r2z=-1
+                         sin=-0.84147 atan=-0.7854 exp2=0.5 exp10=0.1 expm1=-0.63212 logp1=-Infinity log2p1=-Infinity cbrt=-1 root5=-1 rootm2=NaN
+                         sign=-1
+                         sincospi=-0,-1 atan2pi=-0.045167 asinpi=0.16667 lg=NaN
+1.5                      even=False odd=False int=False normal=True sub=False neg=False pos=True real=True
+                         hypot=7.1589108 lerp=4.25 next=1.5000001 prev=1.4999999 scale=12 ilogb=0 rem=1.5
+                         maxn=1.5 minn=0.5 maxmn=7 minmn=1.5 copy=0.5 fma=11
+                         sinpi=-1 cospi=0 tanpi=-Infinity deg=0.02617994 rad=85.94367
+                         round=2 r1=1.5 away=2 r2z=1.5
+                         sin=0.99749 atan=0.98279 exp2=2.8284 exp10=31.623 expm1=3.4817 logp1=0.91629 log2p1=1.3219 cbrt=1.1447 root5=1.0845 rootm2=0.8165
+                         sign=1
+                         sincospi=-1,0 atan2pi=0.067193 asinpi=0.16667 lg=0.20837
+2.5                      even=False odd=False int=False normal=True sub=False neg=False pos=True real=True
+                         hypot=7.4330344 lerp=4.75 next=2.5000002 prev=2.4999998 scale=20 ilogb=1 rem=2.5
+                         maxn=2.5 minn=0.5 maxmn=7 minmn=2.5 copy=0.5 fma=18
+                         sinpi=1 cospi=0 tanpi=Infinity deg=0.04363323 rad=143.23946
+                         round=2 r1=2.5 away=3 r2z=2.5
+                         sin=0.59847 atan=1.1903 exp2=5.6569 exp10=316.23 expm1=11.182 logp1=1.2528 log2p1=1.8074 cbrt=1.3572 root5=1.2011 rootm2=0.63246
+                         sign=1
+                         sincospi=1,0 atan2pi=0.10919 asinpi=0.16667 lg=0.47088
+-3                       even=False odd=True int=True normal=True sub=False neg=True pos=False real=True
+                         hypot=7.615773 lerp=2 next=-2.9999998 prev=-3.0000002 scale=-24 ilogb=1 rem=-3
+                         maxn=0.5 minn=-3 maxmn=7 minmn=-3 copy=-0.5 fma=-20.5
+                         sinpi=-0 cospi=-1 tanpi=0 deg=-0.05235988 rad=-171.88734
+                         round=-3 r1=-3 away=-3 r2z=-3
+                         sin=-0.14112 atan=-1.249 exp2=0.125 exp10=0.001 expm1=-0.95021 logp1=NaN log2p1=NaN cbrt=-1.4422 root5=-1.2457 rootm2=NaN
+                         sign=-1
+                         sincospi=-0,-1 atan2pi=-0.12888 asinpi=0.16667 lg=NaN
+0.3                      even=False odd=False int=False normal=True sub=False neg=False pos=True real=True
+                         hypot=7.006426 lerp=3.65 next=0.30000004 prev=0.29999998 scale=2.4 ilogb=-2 rem=0.3
+                         maxn=0.5 minn=0.3 maxmn=7 minmn=0.3 copy=0.5 fma=2.6000001
+                         sinpi=0.809017 cospi=0.58778524 tanpi=1.376382 deg=0.005235988 rad=17.188734
+                         round=0 r1=0.3 away=0 r2z=0.3
+                         sin=0.29552 atan=0.29146 exp2=1.2311 exp10=1.9953 expm1=0.34986 logp1=0.26236 log2p1=0.37851 cbrt=0.66943 root5=0.786 rootm2=1.8257
+                         sign=1
+                         sincospi=0.809017,0.58778524 atan2pi=0.013634 asinpi=0.16667 lg=-0.61872
+100.25                   even=False odd=False int=False normal=True sub=False neg=False pos=True real=True
+                         hypot=100.494095 lerp=53.625 next=100.25001 prev=100.24999 scale=802 ilogb=6 rem=2.25
+                         maxn=100.25 minn=0.5 maxmn=100.25 minmn=7 copy=0.5 fma=702.25
+                         sinpi=0.70710677 cospi=0.70710677 tanpi=1 deg=1.7496926 rad=5743.902
+                         round=100 r1=100.2 away=100 r2z=100.25
+                         sin=-0.27728 atan=1.5608 exp2=1.5075E+30 exp10=Infinity expm1=Infinity logp1=4.6176 log2p1=6.6618 cbrt=4.6455 root5=2.5131 rootm2=0.099875
+                         sign=1
+                         sincospi=0.70710677,0.70710677 atan2pi=0.47781 asinpi=0.16667 lg=2.3679
+1E-40                    even=False odd=False int=False normal=False sub=True neg=False pos=True real=True
+                         hypot=7 lerp=3.5 next=1.00001E-40 prev=9.9998E-41 scale=7.99996E-40 ilogb=-133 rem=1E-40
+                         maxn=0.5 minn=1E-40 maxmn=7 minmn=1E-40 copy=0.5 fma=0.5
+                         sinpi=3.14157E-40 cospi=1 tanpi=3.14157E-40 deg=1.746E-42 rad=5.729546E-39
+                         round=0 r1=0 away=0 r2z=0
+                         sin=9.9999E-41 atan=9.9999E-41 exp2=1 exp10=1 expm1=0 logp1=0 log2p1=0 cbrt=4.6416E-14 root5=1E-08 rootm2=1E+20
+                         sign=1
+                         sincospi=3.14157E-40,1 atan2pi=4.5472E-42 asinpi=0.16667 lg=-47.332
+3.4028235E+38            even=True odd=False int=True normal=True sub=False neg=False pos=True real=True
+                         hypot=3.4028235E+38 lerp=1.7014117E+38 next=Infinity prev=3.4028233E+38 scale=Infinity ilogb=127 rem=0
+                         maxn=3.4028235E+38 minn=0.5 maxmn=3.4028235E+38 minmn=7 copy=0.5 fma=Infinity
+                         sinpi=0 cospi=1 tanpi=0 deg=5.9390476E+36 rad=Infinity
+                         round=3.4028235E+38 r1=3.4028235E+38 away=3.4028235E+38 r2z=3.4028235E+38
+                         sin=-0.52188 atan=1.5708 exp2=Infinity exp10=Infinity expm1=Infinity logp1=88.723 log2p1=128 cbrt=6.9815E+12 root5=5.0859E+07 rootm2=5.421E-20
+                         sign=1
+                         sincospi=0,1 atan2pi=0.5 asinpi=0.16667 lg=45.595
+Infinity                 even=False odd=False int=False normal=False sub=False neg=False pos=True real=True
+                         hypot=Infinity lerp=Infinity next=Infinity prev=3.4028235E+38 scale=Infinity ilogb=2147483647 rem=NaN
+                         maxn=Infinity minn=0.5 maxmn=Infinity minmn=7 copy=0.5 fma=Infinity
+                         sinpi=NaN cospi=NaN tanpi=NaN deg=Infinity rad=Infinity
+                         round=Infinity r1=Infinity away=Infinity r2z=Infinity
+                         sin=NaN atan=1.5708 exp2=Infinity exp10=Infinity expm1=Infinity logp1=Infinity log2p1=Infinity cbrt=Infinity root5=Infinity rootm2=0
+                         sign=1
+                         sincospi=NaN,NaN atan2pi=0.5 asinpi=0.16667 lg=Infinity
+NaN                      even=False odd=False int=False normal=False sub=False neg=True pos=False real=False
+                         hypot=NaN lerp=NaN next=NaN prev=NaN scale=NaN ilogb=2147483647 rem=NaN
+                         maxn=0.5 minn=0.5 maxmn=7 minmn=7 copy=-0.5 fma=NaN
+                         sinpi=NaN cospi=NaN tanpi=NaN deg=NaN rad=NaN
+                         round=NaN r1=NaN away=NaN r2z=NaN
+                         sin=NaN atan=NaN exp2=NaN exp10=NaN expm1=NaN logp1=NaN log2p1=NaN cbrt=NaN root5=NaN rootm2=NaN
+                         ArithmeticException: Function does not accept floating point Not-a-Number values.
+                         sincospi=NaN,NaN atan2pi=NaN asinpi=0.16667 lg=NaN
+== double, generic
+0                        even=True odd=False int=True normal=False sub=False neg=False pos=True real=True
+                         hypot=7 lerp=3.5 next=5E-324 prev=-5E-324 scale=0 ilogb=-2147483648 rem=0
+                         maxn=0.5 minn=0 maxmn=7 minmn=0 copy=0.5 fma=0.5
+                         sinpi=0 cospi=1 tanpi=0 deg=0 rad=0
+                         round=0 r1=0 away=0 r2z=0
+                         sin=0 atan=0 exp2=1 exp10=1 expm1=0 logp1=0 log2p1=0 cbrt=0 root5=0 rootm2=Infinity
+                         sign=0
+                         sincospi=0,1 atan2pi=0 asinpi=0.16667 lg=-Infinity
+-0                       even=True odd=False int=True normal=False sub=False neg=True pos=False real=True
+                         hypot=7 lerp=3.5 next=5E-324 prev=-5E-324 scale=-0 ilogb=-2147483648 rem=-0
+                         maxn=0.5 minn=-0 maxmn=7 minmn=-0 copy=-0.5 fma=0.5
+                         sinpi=-0 cospi=1 tanpi=-0 deg=-0 rad=-0
+                         round=-0 r1=-0 away=-0 r2z=-0
+                         sin=-0 atan=-0 exp2=1 exp10=1 expm1=0 logp1=0 log2p1=0 cbrt=-0 root5=-0 rootm2=Infinity
+                         sign=0
+                         sincospi=-0,1 atan2pi=-0 asinpi=0.16667 lg=-Infinity
+0.5                      even=False odd=False int=False normal=True sub=False neg=False pos=True real=True
+                         hypot=7.0178344238090995 lerp=3.75 next=0.5000000000000001 prev=0.49999999999999994 scale=4 ilogb=-1 rem=0.5
+                         maxn=0.5 minn=0.5 maxmn=7 minmn=0.5 copy=0.5 fma=4
+                         sinpi=1 cospi=0 tanpi=Infinity deg=0.008726646259971648 rad=28.64788975654116
+                         round=0 r1=0.5 away=1 r2z=0.5
+                         sin=0.47943 atan=0.46365 exp2=1.4142 exp10=3.1623 expm1=0.64872 logp1=0.40547 log2p1=0.58496 cbrt=0.7937 root5=0.87055 rootm2=1.4142
+                         sign=1
+                         sincospi=1,0 atan2pi=0.022698 asinpi=0.16667 lg=-0.35621
+1                        even=False odd=True int=True normal=True sub=False neg=False pos=True real=True
+                         hypot=7.0710678118654755 lerp=4 next=1.0000000000000002 prev=0.9999999999999999 scale=8 ilogb=0 rem=1
+                         maxn=1 minn=0.5 maxmn=7 minmn=1 copy=0.5 fma=7.5
+                         sinpi=0 cospi=-1 tanpi=-0 deg=0.017453292519943295 rad=57.29577951308232
+                         round=1 r1=1 away=1 r2z=1
+                         sin=0.84147 atan=0.7854 exp2=2 exp10=10 expm1=1.7183 logp1=0.69315 log2p1=1 cbrt=1 root5=1 rootm2=1
+                         sign=1
+                         sincospi=0,-1 atan2pi=0.045167 asinpi=0.16667 lg=0
+-1                       even=False odd=True int=True normal=True sub=False neg=True pos=False real=True
+                         hypot=7.0710678118654755 lerp=3 next=-0.9999999999999999 prev=-1.0000000000000002 scale=-8 ilogb=0 rem=-1
+                         maxn=0.5 minn=-1 maxmn=7 minmn=-1 copy=-0.5 fma=-6.5
+                         sinpi=-0 cospi=-1 tanpi=0 deg=-0.017453292519943295 rad=-57.29577951308232
+                         round=-1 r1=-1 away=-1 r2z=-1
+                         sin=-0.84147 atan=-0.7854 exp2=0.5 exp10=0.1 expm1=-0.63212 logp1=-Infinity log2p1=-Infinity cbrt=-1 root5=-1 rootm2=NaN
+                         sign=-1
+                         sincospi=-0,-1 atan2pi=-0.045167 asinpi=0.16667 lg=NaN
+1.5                      even=False odd=False int=False normal=True sub=False neg=False pos=True real=True
+                         hypot=7.158910531638177 lerp=4.25 next=1.5000000000000002 prev=1.4999999999999998 scale=12 ilogb=0 rem=1.5
+                         maxn=1.5 minn=0.5 maxmn=7 minmn=1.5 copy=0.5 fma=11
+                         sinpi=-1 cospi=0 tanpi=-Infinity deg=0.026179938779914945 rad=85.94366926962348
+                         round=2 r1=1.5 away=2 r2z=1.5
+                         sin=0.99749 atan=0.98279 exp2=2.8284 exp10=31.623 expm1=3.4817 logp1=0.91629 log2p1=1.3219 cbrt=1.1447 root5=1.0845 rootm2=0.8165
+                         sign=1
+                         sincospi=-1,0 atan2pi=0.067193 asinpi=0.16667 lg=0.20837
+2.5                      even=False odd=False int=False normal=True sub=False neg=False pos=True real=True
+                         hypot=7.433034373659253 lerp=4.75 next=2.5000000000000004 prev=2.4999999999999996 scale=20 ilogb=1 rem=2.5
+                         maxn=2.5 minn=0.5 maxmn=7 minmn=2.5 copy=0.5 fma=18
+                         sinpi=1 cospi=0 tanpi=Infinity deg=0.04363323129985824 rad=143.2394487827058
+                         round=2 r1=2.5 away=3 r2z=2.5
+                         sin=0.59847 atan=1.1903 exp2=5.6569 exp10=316.23 expm1=11.182 logp1=1.2528 log2p1=1.8074 cbrt=1.3572 root5=1.2011 rootm2=0.63246
+                         sign=1
+                         sincospi=1,0 atan2pi=0.10919 asinpi=0.16667 lg=0.47088
+-3                       even=False odd=True int=True normal=True sub=False neg=True pos=False real=True
+                         hypot=7.615773105863909 lerp=2 next=-2.9999999999999996 prev=-3.0000000000000004 scale=-24 ilogb=1 rem=-3
+                         maxn=0.5 minn=-3 maxmn=7 minmn=-3 copy=-0.5 fma=-20.5
+                         sinpi=-0 cospi=-1 tanpi=0 deg=-0.05235987755982989 rad=-171.88733853924697
+                         round=-3 r1=-3 away=-3 r2z=-3
+                         sin=-0.14112 atan=-1.249 exp2=0.125 exp10=0.001 expm1=-0.95021 logp1=NaN log2p1=NaN cbrt=-1.4422 root5=-1.2457 rootm2=NaN
+                         sign=-1
+                         sincospi=-0,-1 atan2pi=-0.12888 asinpi=0.16667 lg=NaN
+0.3                      even=False odd=False int=False normal=True sub=False neg=False pos=True real=True
+                         hypot=7.006425622241344 lerp=3.65 next=0.30000000000000004 prev=0.29999999999999993 scale=2.4 ilogb=-2 rem=0.3
+                         maxn=0.5 minn=0.3 maxmn=7 minmn=0.3 copy=0.5 fma=2.6
+                         sinpi=0.8090169943749475 cospi=0.5877852522924731 tanpi=1.3763819204711736 deg=0.005235987755982988 rad=17.188733853924695
+                         round=0 r1=0.3 away=0 r2z=0.29
+                         sin=0.29552 atan=0.29146 exp2=1.2311 exp10=1.9953 expm1=0.34986 logp1=0.26236 log2p1=0.37851 cbrt=0.66943 root5=0.786 rootm2=1.8257
+                         sign=1
+                         sincospi=0.8090169943749475,0.5877852522924731 atan2pi=0.013634 asinpi=0.16667 lg=-0.61872
+100.25                   even=False odd=False int=False normal=True sub=False neg=False pos=True real=True
+                         hypot=100.49409186613907 lerp=53.625 next=100.25000000000001 prev=100.24999999999999 scale=802 ilogb=6 rem=2.25
+                         maxn=100.25 minn=0.5 maxmn=100.25 minmn=7 copy=0.5 fma=702.25
+                         sinpi=0.7071067811865475 cospi=0.7071067811865476 tanpi=0.9999999999999999 deg=1.7496925751243153 rad=5743.901896186503
+                         round=100 r1=100.2 away=100 r2z=100.25
+                         sin=-0.27728 atan=1.5608 exp2=1.5075E+30 exp10=1.7783E+100 expm1=3.4516E+43 logp1=4.6176 log2p1=6.6618 cbrt=4.6455 root5=2.5131 rootm2=0.099875
+                         sign=1
+                         sincospi=0.7071067811865475,0.7071067811865476 atan2pi=0.47781 asinpi=0.16667 lg=2.3679
+1E-310                   even=False odd=False int=False normal=False sub=True neg=False pos=True real=True
+                         hypot=7 lerp=3.5 next=1.00000000000005E-310 prev=9.9999999999995E-311 scale=8E-310 ilogb=-1030 rem=1E-310
+                         maxn=0.5 minn=1E-310 maxmn=7 minmn=1E-310 copy=0.5 fma=0.5
+                         sinpi=3.1415926535898E-310 cospi=1 tanpi=3.1415926535898E-310 deg=1.745329251995E-312 rad=5.729577951308214E-309
+                         round=0 r1=0 away=0 r2z=0
+                         sin=1E-310 atan=1E-310 exp2=1 exp10=1 expm1=0 logp1=0 log2p1=0 cbrt=4.6416E-104 root5=1E-62 rootm2=1E+155
+                         sign=1
+                         sincospi=3.1415926535898E-310,1 atan2pi=4.5473E-312 asinpi=0.16667 lg=-366.82
+1.7976931348623157E+308  even=True odd=False int=True normal=True sub=False neg=False pos=True real=True
+                         hypot=1.7976931348623157E+308 lerp=8.988465674311579E+307 next=Infinity prev=1.7976931348623155E+308 scale=Infinity ilogb=1023 rem=-2
+                         maxn=1.7976931348623157E+308 minn=0.5 maxmn=1.7976931348623157E+308 minmn=7 copy=0.5 fma=Infinity
+                         sinpi=0 cospi=1 tanpi=0 deg=3.137566414384587E+306 rad=Infinity
+                         round=1.7976931348623157E+308 r1=1.7976931348623157E+308 away=1.7976931348623157E+308 r2z=1.7976931348623157E+308
+                         sin=0.004962 atan=1.5708 exp2=Infinity exp10=Infinity expm1=Infinity logp1=709.78 log2p1=1024 cbrt=5.6438E+102 root5=4.4765E+61 rootm2=7.4583E-155
+                         sign=1
+                         sincospi=0,1 atan2pi=0.5 asinpi=0.16667 lg=364.76
+Infinity                 even=False odd=False int=False normal=False sub=False neg=False pos=True real=True
+                         hypot=Infinity lerp=Infinity next=Infinity prev=1.7976931348623157E+308 scale=Infinity ilogb=2147483647 rem=NaN
+                         maxn=Infinity minn=0.5 maxmn=Infinity minmn=7 copy=0.5 fma=Infinity
+                         sinpi=NaN cospi=NaN tanpi=NaN deg=Infinity rad=Infinity
+                         round=Infinity r1=Infinity away=Infinity r2z=Infinity
+                         sin=NaN atan=1.5708 exp2=Infinity exp10=Infinity expm1=Infinity logp1=Infinity log2p1=Infinity cbrt=Infinity root5=Infinity rootm2=0
+                         sign=1
+                         sincospi=NaN,NaN atan2pi=0.5 asinpi=0.16667 lg=Infinity
+NaN                      even=False odd=False int=False normal=False sub=False neg=True pos=False real=False
+                         hypot=NaN lerp=NaN next=NaN prev=NaN scale=NaN ilogb=2147483647 rem=NaN
+                         maxn=0.5 minn=0.5 maxmn=7 minmn=7 copy=-0.5 fma=NaN
+                         sinpi=NaN cospi=NaN tanpi=NaN deg=NaN rad=NaN
+                         round=NaN r1=NaN away=NaN r2z=NaN
+                         sin=NaN atan=NaN exp2=NaN exp10=NaN expm1=NaN logp1=NaN log2p1=NaN cbrt=NaN root5=NaN rootm2=NaN
+                         ArithmeticException: Function does not accept floating point Not-a-Number values.
+                         sincospi=NaN,NaN atan2pi=NaN asinpi=0.16667 lg=NaN

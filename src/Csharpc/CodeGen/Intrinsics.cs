@@ -496,35 +496,31 @@ internal static class Intrinsics
                 var l = g.Module.Llvm;
                 return g.Builder.Cast(LLVMOpcode.BitCast, Arg(g, inv, 0), to switch { "i64" => l.I64, "f64" => l.F64, "i32" => l.I32, _ => l.F32 });
             };
-        t["System.Math.Log2(double)"] = (g, inv) => CallUnaryF64(g, "llvm.log2.f64", Arg(g, inv, 0));
-        foreach (var type in new[] { "int", "long", "double", "float", "short", "sbyte" })
+        // .NET's runtime wrappers answer a negative argument of Log and Log2 with the positive quiet NaN; glibc's log(-1) is
+        // the sign-set one that the hardware produces (the bits show through BitConverter and double.IsNegative).
+        LLVMValueRef logOf(FunctionCodeGen g, IInvocationOperation inv, string function)
+        {
+            var b = g.Builder;
+            var x = Arg(g, inv, 0);
+            var nan = LlvmContext.ConstReal(g.Module.Llvm.F64, BitConverter.Int64BitsToDouble(0x7FF8000000000000));
+            return b.Select(b.FCmp(LLVMRealPredicate.OLT, x, LlvmContext.ConstReal(g.Module.Llvm.F64, 0)), nan, CallUnaryF64(g, function, x));
+        }
+        t["System.Math.Log(double)"] = (g, inv) => logOf(g, inv, "log");
+        t["System.Math.Log2(double)"] = (g, inv) => logOf(g, inv, "llvm.log2.f64");
+        // Math.Sign(double/float) is corelib C# (FloatingPointMath.cs): NaN throws ArithmeticException with .NET's message.
+        foreach (var type in new[] { "int", "long", "short", "sbyte" })
             t[$"System.Math.Sign({type})"] = (g, inv) =>
             {
                 var b = g.Builder;
                 var l = g.Module.Llvm;
                 var v = Arg(g, inv, 0);
-                LLVMValueRef gt, lt;
-                if (v.Type.IsFloatingPoint)
-                {
-                    var zero = LlvmContext.ConstReal(v.Type, 0);
-                    // Math.Sign(NaN) throws ArithmeticException in .NET.
-                    g.FailIf(b.FCmp(LLVMRealPredicate.UNO, v, v), "csrt_throw_overflow");
-                    (gt, lt) = (b.FCmp(LLVMRealPredicate.OGT, v, zero), b.FCmp(LLVMRealPredicate.OLT, v, zero));
-                }
-                else
-                {
-                    var zero = l.ConstInt(v.Type, 0);
-                    (gt, lt) = (b.ICmp(LLVMIntPredicate.SGT, v, zero), b.ICmp(LLVMIntPredicate.SLT, v, zero));
-                }
+                var zero = l.ConstInt(v.Type, 0);
+                var (gt, lt) = (b.ICmp(LLVMIntPredicate.SGT, v, zero), b.ICmp(LLVMIntPredicate.SLT, v, zero));
                 return b.BinOp(LLVMOpcode.Sub, b.Cast(LLVMOpcode.ZExt, gt, l.I32), b.Cast(LLVMOpcode.ZExt, lt, l.I32));
             };
         t["System.Math.Max(float, float)"] = (g, inv) => CallBinary(g, "llvm.maximum.f32", g.Module.Llvm.F32, Arg(g, inv, 0), Arg(g, inv, 1));
         t["System.Math.Min(float, float)"] = (g, inv) => CallBinary(g, "llvm.minimum.f32", g.Module.Llvm.F32, Arg(g, inv, 0), Arg(g, inv, 1));
-        t["System.MathF.Sqrt(float)"] = (g, inv) =>
-        {
-            var f = g.Module.Intrinsic("llvm.sqrt.f32", g.Module.Llvm.F32, g.Module.Llvm.F32);
-            return g.Builder.Call(f.Type, f.Fn, [Arg(g, inv, 0)]);
-        };
+        AddMathF(t);
 
         // IEEE 754-2019 maximum/minimum: NaN-propagating and -0 < +0, exactly .NET Core 3.0+ Math.Max/Min.
         t["System.Math.Max(double, double)"] = (g, inv) => CallBinaryF64(g, "llvm.maximum.f64", Arg(g, inv, 0), Arg(g, inv, 1));
@@ -1335,6 +1331,43 @@ internal static class Intrinsics
             Emit(d2.Name, d2.Type, g.EmitValue(op));
         else
             Emit("csrt_console_write_string", l.Ptr, g.ToStringValue(op));
+    }
+
+    /// <summary>
+    /// System.MathF, and the System.Math members of the same libm functions: the C runtime's functions as .NET calls them
+    /// (sinf, powf, ...), LLVM's exact intrinsics for the IEEE operations. The float versions are the libm's own, so results
+    /// are bit for bit those of .NET on the same machine; the members that are plain C# in .NET are in corelib/FloatingPointMath.cs.
+    /// </summary>
+    private static void AddMathF(Dictionary<string, IntrinsicHandler> t)
+    {
+        static string Cap(string name) => char.ToUpperInvariant(name[0]) + name[1..];
+        foreach (var name in new[] { "acosh", "asinh", "atanh" })
+            t[$"System.Math.{Cap(name)}(double)"] = (g, inv) => CallUnaryF64(g, name, Arg(g, inv, 0));
+        t["System.Math.FusedMultiplyAdd(double, double, double)"] = (g, inv) => CallTernary(g, "llvm.fma.f64", g.Module.Llvm.F64, Arg(g, inv, 0), Arg(g, inv, 1), Arg(g, inv, 2));
+        foreach (var name in new[] { "acos", "acosh", "asin", "asinh", "atan", "atanh", "cbrt", "cos", "cosh", "exp", "log", "log10", "sin", "sinh", "tan", "tanh" })
+            t[$"System.MathF.{Cap(name)}(float)"] = (g, inv) => CallUnary(g, name + "f", g.Module.Llvm.F32, Arg(g, inv, 0));
+        foreach (var name in new[] { "pow", "atan2" })
+            t[$"System.MathF.{Cap(name)}(float, float)"] = (g, inv) => CallBinary(g, name + "f", g.Module.Llvm.F32, Arg(g, inv, 0), Arg(g, inv, 1));
+        foreach (var (name, llvm) in new[] { ("Sqrt", "sqrt"), ("Abs", "fabs"), ("Floor", "floor"), ("Ceiling", "ceil"), ("Truncate", "trunc"),
+                     ("Round", "roundeven") /* MidpointRounding.ToEven */, ("Log2", "log2") })
+            t[$"System.MathF.{name}(float)"] = (g, inv) => CallUnary(g, $"llvm.{llvm}.f32", g.Module.Llvm.F32, Arg(g, inv, 0));
+        t["System.MathF.FusedMultiplyAdd(float, float, float)"] = (g, inv) => CallTernary(g, "llvm.fma.f32", g.Module.Llvm.F32, Arg(g, inv, 0), Arg(g, inv, 1), Arg(g, inv, 2));
+        t["System.MathF.CopySign(float, float)"] = (g, inv) => CallBinary(g, "llvm.copysign.f32", g.Module.Llvm.F32, Arg(g, inv, 0), Arg(g, inv, 1));
+        // IEEE 754-2019 maximum/minimum, as Math.Max/Min above.
+        t["System.MathF.Max(float, float)"] = (g, inv) => CallBinary(g, "llvm.maximum.f32", g.Module.Llvm.F32, Arg(g, inv, 0), Arg(g, inv, 1));
+        t["System.MathF.Min(float, float)"] = (g, inv) => CallBinary(g, "llvm.minimum.f32", g.Module.Llvm.F32, Arg(g, inv, 0), Arg(g, inv, 1));
+    }
+
+    private static LLVMValueRef CallUnary(FunctionCodeGen g, string name, LLVMTypeRef type, LLVMValueRef x)
+    {
+        var f = g.Module.Intrinsic(name, type, type);
+        return g.Builder.Call(f.Type, f.Fn, [x]);
+    }
+
+    private static LLVMValueRef CallTernary(FunctionCodeGen g, string name, LLVMTypeRef type, LLVMValueRef x, LLVMValueRef y, LLVMValueRef z)
+    {
+        var f = g.Module.Intrinsic(name, type, type, type, type);
+        return g.Builder.Call(f.Type, f.Fn, [x, y, z]);
     }
 
     private static LLVMValueRef CallUnaryF64(FunctionCodeGen g, string name, LLVMValueRef x)

@@ -235,7 +235,7 @@ namespace CsharpcCoreLib
         public static bool IsPositiveInfinity(double d) => d == double.PositiveInfinity;
         public static bool IsNegativeInfinity(double d) => d == double.NegativeInfinity;
         public static bool IsFinite(double d) => d == d && !IsInfinity(d);
-        public static bool IsNegative(double d) => d < 0 || (d == 0 && 1 / d < 0);
+        public static bool IsNegative(double d) => BitConverter.DoubleToInt64Bits(d) < 0; // the sign bit: true for -0.0 and for a NaN with the sign set
         public static bool IsInteger(double d) => IsFinite(d) && d == Math.Floor(d);
     }
 
