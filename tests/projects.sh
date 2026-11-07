@@ -9,7 +9,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOTNET="${DOTNET:-dotnet}"
-export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
+export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 NuGetAudit=false
 # Resolved path: on macOS mktemp's /var/folders/... is a symlinked path, and MSBuild's incremental clean
 # deletes outputs it recorded under the other spelling (/private/var/...) of the same directory.
 WORK="$(cd "$(mktemp -d)" && pwd -P)"
@@ -85,6 +85,19 @@ for proj_src in "$ROOT"/tests/projects/cli/*/*.csproj; do
   if "$DOTNET" "$CSHARPC_DLL" "$proj" -o "$WORK/cli/" > "$WORK/log" 2>&1; then
     "$WORK/cli/$app$EXE_SUFFIX" > "$WORK/actual" 2>&1; check "$app: csharpc <project>" "$WORK/expected" "$WORK/actual"
   else echo "FAIL $app: csharpc <project>"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+done
+
+# Projects csharpc must refuse with a diagnostic and exit code 1 (tests/projects/cli-errors/<Name>/expect-error
+# holds the text; App/App.csproj is compiled): a failing referenced project is a diagnostic, never a crash.
+for dir in "$ROOT"/tests/projects/cli-errors/*/; do
+  name="$(basename "$dir")"
+  [[ -f "$dir/expect-error" ]] || continue
+  rm -rf "$WORK/cli-errors"; cp -r "$ROOT/tests/projects/cli-errors" "$WORK/cli-errors"
+  "$DOTNET" "$CSHARPC_DLL" "$WORK/cli-errors/$name/App/App.csproj" -o "$WORK/cli-errors-out/" > "$WORK/log" 2>&1; code=$?
+  if [[ $code != 1 ]]; then echo "FAIL $name: exit code $code, expected 1"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1))
+  elif grep -q "Unhandled exception" "$WORK/log"; then echo "FAIL $name: unhandled exception"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1))
+  elif grep -qF -f "$dir/expect-error" "$WORK/log"; then echo "PASS $name: diagnostic, exit code 1"; pass=$((pass+1))
+  else echo "FAIL $name: wrong diagnostic"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
 done
 
 echo

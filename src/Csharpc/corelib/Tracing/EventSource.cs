@@ -1,17 +1,23 @@
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 //
-// csharpc: System.Diagnostics.Tracing.EventSource without a tracing backend. A csharpc executable has no
-// EventPipe/ETW session and no EventListener (deriving from it is a CSLLVM0001 error), and that is
-// exactly the state in which .NET's EventSource never writes anything: IsEnabled() is false and every
-// WriteEvent/Write returns at once. What is observable without a listener follows dotnet/runtime
-// release/11.0 (EventSource.cs, TraceLoggingEventSource.cs): the IsSupported feature switch (false for
-// file-based apps, whose runtimeconfig turns EventSourceSupport off), Name and Guid from
-// [EventSource] or the type name (Guid derived from the name with .NET's SHA-1 name hashing, ported
-// below), Settings validation, traits, ConstructionException, ToString, Dispose.
+// csharpc: System.Diagnostics.Tracing.EventSource without an EventPipe/ETW backend: only in-process
+// EventListeners (EventListener.cs) can enable it. With no listener enabled it is the state in which .NET's
+// EventSource writes nothing: IsEnabled() is false and every WriteEvent/Write returns before looking at its
+// arguments. A listener's EnableEvents builds the event table from the [Event] methods (the compiler records
+// them: ModuleCodeGen.EventSource.cs), checks it as .NET checks a manifest, calls OnEventCommand, and from then
+// on WriteEvent dispatches to the listeners whose level and keyword filter lets the event through. What is
+// observable without a listener follows dotnet/runtime release/11.0 (EventSource.cs, TraceLoggingEventSource.cs):
+// the IsSupported feature switch (false for file-based apps, whose runtimeconfig turns EventSourceSupport off),
+// Name and Guid from [EventSource] or the type name (Guid derived from the name with .NET's SHA-1 name hashing,
+// ported below), Settings validation, traits, ConstructionException, ToString, Dispose.
 #nullable disable
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Tracing;
+using System.Runtime.CompilerServices;
 
 namespace CsharpcCoreLib
 {
@@ -25,6 +31,15 @@ namespace CsharpcCoreLib
         private Exception m_constructionException;
         private bool m_eventSourceDisposed;
         private EventHandler<EventCommandEventArgs> m_eventCommandExecuted;
+
+        // The listener side (EventListener.cs): the events built at the first EnableEvents, and the state of enabling.
+        private bool m_manifestBuilt;
+        private string m_manifestError;
+        private Dictionary<int, EventDescriptorData> m_eventData;
+        private volatile bool m_eventSourceEnabled;
+        private EventLevel m_level;
+        private EventKeywords m_matchAnyKeyword;
+        [ThreadStatic] private static bool t_reportingMessage;
 
         // 0: not read yet, 1: supported, 2: turned off (System.Diagnostics.Tracing.EventSource.IsSupported).
         private static int s_isSupported;
@@ -86,6 +101,7 @@ namespace CsharpcCoreLib
                 if (eventSourceName == null) throw new ArgumentException("The name of an EventSource must not be null.");
                 m_name = eventSourceName;
                 m_guid = eventSourceGuid;
+                EventListenerImpl.AddEventSource(this); // listeners hear of it (and may enable it) before the derived constructor runs
             }
             catch (Exception e)
             {
@@ -108,10 +124,27 @@ namespace CsharpcCoreLib
         public EventSourceSettings Settings => m_config;
         public Exception ConstructionException => m_constructionException;
 
-        // No session or listener ever enables an EventSource here.
-        public bool IsEnabled() => false;
-        public bool IsEnabled(EventLevel level, EventKeywords keywords) => false;
-        public bool IsEnabled(EventLevel level, EventKeywords keywords, EventChannel channel) => false;
+        public bool IsEnabled() => m_eventSourceEnabled;
+        public bool IsEnabled(EventLevel level, EventKeywords keywords) =>
+            m_eventSourceEnabled && PassesFilter(m_level, m_matchAnyKeyword, level, (long)keywords);
+        public bool IsEnabled(EventLevel level, EventKeywords keywords, EventChannel channel) => IsEnabled(level, keywords);
+
+        /// <summary>EventSource.IsEnabledCommon: a LogAlways level enables everything, a zero event or filter keyword set matches any.</summary>
+        internal static bool PassesFilter(EventLevel currentLevel, EventKeywords currentMatchAnyKeyword, EventLevel eventLevel, long eventKeywords)
+        {
+            if (currentLevel != 0 && currentLevel < eventLevel) return false;
+            if (currentMatchAnyKeyword != 0 && eventKeywords != 0 && ((long)currentMatchAnyKeyword & eventKeywords) == 0) return false;
+            return true;
+        }
+
+        /// <summary>EventSource.GetSources: the live sources, oldest first (here only the program's own).</summary>
+        public static IEnumerable<EventSource> GetSources()
+        {
+            var sources = new List<EventSource>();
+            foreach (EventSourceImpl source in EventListenerImpl.LiveSources())
+                if (!source.m_eventSourceDisposed) sources.Add((EventSource)(object)source);
+            return sources;
+        }
 
         public string GetTrait(string key)
         {
@@ -162,36 +195,336 @@ namespace CsharpcCoreLib
 
         protected virtual void OnEventCommand(EventCommandEventArgs command) { }
 
-        // Writing: nothing is enabled, so .NET returns before looking at the arguments.
-        protected void WriteEvent(int eventId) { }
-        protected void WriteEvent(int eventId, int arg1) { }
-        protected void WriteEvent(int eventId, int arg1, int arg2) { }
-        protected void WriteEvent(int eventId, int arg1, int arg2, int arg3) { }
-        protected void WriteEvent(int eventId, long arg1) { }
-        protected void WriteEvent(int eventId, long arg1, long arg2) { }
-        protected void WriteEvent(int eventId, long arg1, long arg2, long arg3) { }
-        protected void WriteEvent(int eventId, string arg1) { }
-        protected void WriteEvent(int eventId, string arg1, string arg2) { }
-        protected void WriteEvent(int eventId, string arg1, string arg2, string arg3) { }
-        protected void WriteEvent(int eventId, string arg1, int arg2) { }
-        protected void WriteEvent(int eventId, string arg1, int arg2, int arg3) { }
-        protected void WriteEvent(int eventId, string arg1, long arg2) { }
-        protected void WriteEvent(int eventId, long arg1, string arg2) { }
-        protected void WriteEvent(int eventId, int arg1, string arg2) { }
-        protected void WriteEvent(int eventId, byte[] arg1) { }
-        protected void WriteEvent(int eventId, long arg1, byte[] arg2) { }
-        protected void WriteEvent(int eventId, params EventSourcePrimitive[] args) { }
-        protected void WriteEvent(int eventId, params object[] args) { }
-        protected unsafe void WriteEventCore(int eventId, int eventDataCount, EventData* data) { }
-        protected unsafe void WriteEventWithRelatedActivityIdCore(int eventId, Guid* relatedActivityId, int eventDataCount, EventData* data) { }
-        protected void WriteEventWithRelatedActivityId(int eventId, Guid relatedActivityId, params object[] args) { }
+        // Writing: with no listener enabled .NET returns before looking at the arguments.
+        protected void WriteEvent(int eventId) { if (m_eventSourceEnabled) WriteEventTyped(eventId, new object[0]); }
+        protected void WriteEvent(int eventId, int arg1) { if (m_eventSourceEnabled) WriteEventTyped(eventId, new object[] { arg1 }); }
+        protected void WriteEvent(int eventId, int arg1, int arg2) { if (m_eventSourceEnabled) WriteEventTyped(eventId, new object[] { arg1, arg2 }); }
+        protected void WriteEvent(int eventId, int arg1, int arg2, int arg3) { if (m_eventSourceEnabled) WriteEventTyped(eventId, new object[] { arg1, arg2, arg3 }); }
+        protected void WriteEvent(int eventId, long arg1) { if (m_eventSourceEnabled) WriteEventTyped(eventId, new object[] { arg1 }); }
+        protected void WriteEvent(int eventId, long arg1, long arg2) { if (m_eventSourceEnabled) WriteEventTyped(eventId, new object[] { arg1, arg2 }); }
+        protected void WriteEvent(int eventId, long arg1, long arg2, long arg3) { if (m_eventSourceEnabled) WriteEventTyped(eventId, new object[] { arg1, arg2, arg3 }); }
+        protected void WriteEvent(int eventId, string arg1) { if (m_eventSourceEnabled) WriteEventTyped(eventId, new object[] { arg1 }); }
+        protected void WriteEvent(int eventId, string arg1, string arg2) { if (m_eventSourceEnabled) WriteEventTyped(eventId, new object[] { arg1, arg2 }); }
+        protected void WriteEvent(int eventId, string arg1, string arg2, string arg3) { if (m_eventSourceEnabled) WriteEventTyped(eventId, new object[] { arg1, arg2, arg3 }); }
+        protected void WriteEvent(int eventId, string arg1, int arg2) { if (m_eventSourceEnabled) WriteEventTyped(eventId, new object[] { arg1, arg2 }); }
+        protected void WriteEvent(int eventId, string arg1, int arg2, int arg3) { if (m_eventSourceEnabled) WriteEventTyped(eventId, new object[] { arg1, arg2, arg3 }); }
+        protected void WriteEvent(int eventId, string arg1, long arg2) { if (m_eventSourceEnabled) WriteEventTyped(eventId, new object[] { arg1, arg2 }); }
+        protected void WriteEvent(int eventId, long arg1, string arg2) { if (m_eventSourceEnabled) WriteEventTyped(eventId, new object[] { arg1, arg2 }); }
+        protected void WriteEvent(int eventId, int arg1, string arg2) { if (m_eventSourceEnabled) WriteEventTyped(eventId, new object[] { arg1, arg2 }); }
+        protected void WriteEvent(int eventId, byte[] arg1) { if (m_eventSourceEnabled) WriteEventTyped(eventId, new object[] { arg1 }); }
+        protected void WriteEvent(int eventId, long arg1, byte[] arg2) { if (m_eventSourceEnabled) WriteEventTyped(eventId, new object[] { arg1, arg2 }); }
+        protected void WriteEvent(int eventId, params EventSourcePrimitive[] args)
+        {
+            if (!m_eventSourceEnabled) return;
+            object[] values = new object[args.Length];
+            for (int i = 0; i < values.Length; i++) values[i] = args[i].Value;
+            WriteEventVarargs(eventId, default, values);
+        }
+        protected void WriteEvent(int eventId, params object[] args) { if (m_eventSourceEnabled) WriteEventVarargs(eventId, default, args); }
+        protected unsafe void WriteEventCore(int eventId, int eventDataCount, EventData* data)
+        {
+            if (m_eventSourceEnabled) WriteEventVarargs(eventId, default, DecodeEventData(eventId, eventDataCount, data, 0));
+        }
+        protected unsafe void WriteEventWithRelatedActivityIdCore(int eventId, Guid* relatedActivityId, int eventDataCount, EventData* data)
+        {
+            if (m_eventSourceEnabled) WriteEventVarargs(eventId, relatedActivityId == null ? default : *relatedActivityId, DecodeEventData(eventId, eventDataCount, data, 1), false, true);
+        }
+        protected void WriteEventWithRelatedActivityId(int eventId, Guid relatedActivityId, params object[] args)
+        {
+            if (m_eventSourceEnabled) WriteEventVarargs(eventId, relatedActivityId, args, false, true);
+        }
 
-        public void Write(string eventName) { }
-        public void Write(string eventName, EventSourceOptions options) { }
-        public void Write<T>(string eventName, T data) { }
-        public void Write<T>(string eventName, EventSourceOptions options, T data) { }
-        public void Write<T>(string eventName, ref EventSourceOptions options, ref T data) { }
-        public void Write<T>(string eventName, ref EventSourceOptions options, ref Guid activityId, ref Guid relatedActivityId, ref T data) { }
+        // Write(...): the self-describing events. The payload is read from the public properties of T (an anonymous
+        // type or one marked [EventData], SelfDescribing.cs) as .NET reads it by reflection; T's metadata is what
+        // the DynamicallyAccessedMembers annotation keeps (the compiler adds the types of T's own properties).
+        public void Write(string eventName) => WriteSelfDescribing(eventName, default(EventSourceOptions), default(Guid), default(Guid));
+        public void Write(string eventName, EventSourceOptions options) => WriteSelfDescribing(eventName, options, default(Guid), default(Guid));
+        public void Write<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(string eventName, T data) =>
+            WriteSelfDescribing<T>(eventName, default(EventSourceOptions), data, default(Guid), default(Guid));
+        public void Write<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(string eventName, EventSourceOptions options, T data) =>
+            WriteSelfDescribing<T>(eventName, options, data, default(Guid), default(Guid));
+        public void Write<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(string eventName, ref EventSourceOptions options, ref T data) =>
+            WriteSelfDescribing<T>(eventName, options, data, default(Guid), default(Guid));
+        public void Write<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(string eventName, ref EventSourceOptions options, ref Guid activityId, ref Guid relatedActivityId, ref T data) =>
+            WriteSelfDescribing<T>(eventName, options, data, activityId, relatedActivityId);
+
+        // No payload: the listener sees null Payload and PayloadNames.
+        private void WriteSelfDescribing(string eventName, EventSourceOptions options, Guid activityId, Guid relatedActivityId)
+        {
+            if (!m_eventSourceEnabled || m_eventSourceDisposed) return;
+            DispatchSelfDescribing(eventName, options, activityId, relatedActivityId, null, null);
+        }
+
+        // The layout of T is analyzed (and its failures thrown) whenever the source is enabled, before the listeners'
+        // filters are looked at; reading the values is what .NET reports as an EventSourceException message.
+        private void WriteSelfDescribing<[DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicProperties)] T>(
+            string eventName, EventSourceOptions options, T data, Guid activityId, Guid relatedActivityId)
+        {
+            if (!m_eventSourceEnabled || m_eventSourceDisposed) return;
+            SelfDescribing.Layout layout = SelfDescribing.LayoutOf(typeof(T));
+            if (!SelfDescribingEnabled(options)) return;
+            string[] names;
+            object[] values;
+            try { values = SelfDescribing.Read(layout, data, eventName, out names); }
+            catch (Exception e)
+            {
+                ReportOutOfBandMessage("EventSourceException while processing event \"" + eventName + "\": " + e.GetType() + ":" + e.Message, null);
+                return;
+            }
+            DispatchSelfDescribing(eventName, options, activityId, relatedActivityId, names, values);
+        }
+
+        // Write's default level is Verbose; the check is against the widest filter of the source (IsEnabled(level, keywords)).
+        private bool SelfDescribingEnabled(EventSourceOptions options)
+        {
+            ref EventSourceOptionsImpl impl = ref Unsafe.As<EventSourceOptions, EventSourceOptionsImpl>(ref options);
+            return IsEnabled(impl.LevelWasSet ? impl.Level : EventLevel.Verbose, impl.Keywords);
+        }
+
+        private void DispatchSelfDescribing(string eventName, EventSourceOptions options, Guid activityId, Guid relatedActivityId, string[] names, object[] values)
+        {
+            ref EventSourceOptionsImpl impl = ref Unsafe.As<EventSourceOptions, EventSourceOptionsImpl>(ref options);
+            EventLevel level = impl.LevelWasSet ? impl.Level : EventLevel.Verbose;
+            long keywords = (long)impl.Keywords;
+            // Unlike an [Event] method's, a self-describing event is checked once against the widest filter of the
+            // source (IsEnabled(level, keywords)), then goes to every listener that enabled it, whatever its own filter.
+            if (!IsEnabled(level, (EventKeywords)keywords)) return;
+            EventWrittenEventArgsImpl args = null;
+            foreach (EventListenerImpl listener in EventListenerImpl.Listeners())
+            {
+                if (listener.EnablementOf(this) == null) continue;
+                args ??= new EventWrittenEventArgsImpl((EventSource)(object)this)
+                {
+                    EventId = -1, EventName = eventName, Level = level, Keywords = (EventKeywords)keywords, Opcode = impl.Opcode, Tags = impl.Tags,
+                    // An explicit empty activity id means the thread's.
+                    ActivityId = activityId == Guid.Empty ? CurrentThreadActivityId : activityId, RelatedActivityId = relatedActivityId,
+                    Payload = values == null || values.Length == 0 ? null : new ReadOnlyCollection<object>(values),
+                    PayloadNames = names == null || names.Length == 0 ? null : new ReadOnlyCollection<string>(names),
+                };
+                DeliverTo(listener, args);
+            }
+        }
+
+        // ---- the listener side ------------------------------------------------------------------------------------
+
+        internal bool HasEvent(int eventId) => m_eventData != null && m_eventData.ContainsKey(eventId);
+
+        /// <summary>The event table: built on the first EnableEvents; an error is what .NET reports as a manifest error.</summary>
+        private bool EnsureEventData()
+        {
+            lock (EventListenerImpl.s_lock)
+            {
+                if (m_manifestBuilt) return m_manifestError == null;
+                m_manifestBuilt = true;
+                try
+                {
+                    List<EventDescriptorData> events = EventManifest.Parse(CoreIntrinsics.EventSourceAttribute(GetType(), 2), out HashSet<long> keywords, out HashSet<long> opcodes);
+                    EventManifest.Validate(events, keywords, opcodes);
+                    m_eventData = new Dictionary<int, EventDescriptorData>();
+                    foreach (EventDescriptorData e in events) m_eventData[e.Id] = e;
+                }
+                catch (ArgumentException e) { m_manifestError = e.Message; }
+                return m_manifestError == null;
+            }
+        }
+
+        /// <summary>EventListener.EnableEvents / DisableEvents / Dispose for this source (EventSource.SendCommand with a listener).</summary>
+        internal void SendListenerCommand(EventListenerImpl listener, bool enable, EventLevel level, EventKeywords matchAnyKeyword, IDictionary<string, string> arguments)
+        {
+            if (!IsSupported || m_name == null || m_eventSourceDisposed) return;
+            ListenerEnablement enablement = null;
+            if (enable)
+            {
+                if (listener.IsDisposed) throw new ObjectDisposedException("EventListener");
+                if (!EnsureEventData())
+                {
+                    ReportOutOfBandMessage("ERROR: Exception in Command Processing for EventSource " + m_name + ": " + m_manifestError, listener);
+                    return;
+                }
+                enablement = new ListenerEnablement { Level = level, Keywords = matchAnyKeyword };
+                listener.SetEnablement(this, enablement);
+            }
+            else listener.RemoveEnablement(this); // (a command is sent even to a listener that had not enabled it)
+            RecomputeEnabled(enablement);
+            var commandArgs = new EventCommandEventArgsImpl(enable ? EventCommand.Enable : EventCommand.Disable,
+                arguments ?? new Dictionary<string, string>(), this, listener, enablement);
+            EventCommandEventArgs exposed = (EventCommandEventArgs)(object)commandArgs;
+            OnEventCommand(exposed);
+            m_eventCommandExecuted?.Invoke(this, exposed);
+        }
+
+        // IsEnabled(level, keywords) answers for the widest filter enabled since the source was last off: a listener that
+        // enables it widens the level and keywords (LogAlways, no keywords: everything), one that leaves narrows nothing
+        // until none is left (as .NET's m_level / m_matchAnyKeyword).
+        private void RecomputeEnabled(ListenerEnablement enabled)
+        {
+            bool any = false;
+            foreach (EventListenerImpl listener in EventListenerImpl.Listeners())
+                if (listener.EnablementOf(this) != null) { any = true; break; }
+            if (any && enabled != null)
+            {
+                if (!m_eventSourceEnabled) { m_level = enabled.Level; m_matchAnyKeyword = enabled.Keywords; }
+                else
+                {
+                    if (enabled.Level == EventLevel.LogAlways || m_level == EventLevel.LogAlways) m_level = EventLevel.LogAlways;
+                    else if (enabled.Level > m_level) m_level = enabled.Level;
+                    m_matchAnyKeyword = enabled.Keywords == EventKeywords.None || m_matchAnyKeyword == EventKeywords.None
+                        ? EventKeywords.None : m_matchAnyKeyword | enabled.Keywords;
+                }
+            }
+            m_eventSourceEnabled = any;
+        }
+
+        private void WriteEventTyped(int eventId, object[] args) => WriteEventVarargs(eventId, default, args, true);
+
+        private void WriteEventVarargs(int eventId, Guid relatedActivityId, object[] args, bool typed = false, bool withRelated = false)
+        {
+            if (m_eventSourceDisposed) return;
+            EventDescriptorData data;
+            lock (EventListenerImpl.s_lock)
+            {
+                if (m_eventData == null || !m_eventData.TryGetValue(eventId, out data)) return;
+            }
+            // WriteEventWithRelatedActivityId: the event's first parameter is the related activity id, not payload.
+            int skip = withRelated ? 1 : 0;
+            if (withRelated && (data.ParameterNames.Length == 0 || data.ParameterKinds[0] != "G" || data.ParameterNames[0] != "relatedActivityId"))
+            {
+                ReportOutOfBandMessage("EventSourceException while processing event \"" + data.Name + "\": System.ArgumentException:EventSource expects the first parameter of the Event method to be of type Guid and to be named \"relatedActivityId\" when calling WriteEventWithRelatedActivityId.", null);
+                return;
+            }
+            int parameters = data.ParameterNames.Length - skip;
+            if (args.Length != parameters)
+                ReportOutOfBandMessage("Event " + EventManifest.Num(eventId) + " was called with " + EventManifest.Num(args.Length)
+                    + " argument(s), but it is defined with " + EventManifest.Num(parameters) + " parameter(s).", null);
+            int count = Math.Min(args.Length, parameters);
+            object[] payload = new object[count];
+            Array.Copy(args, payload, count);
+            // The fixed-arity overloads write raw values, which .NET reads back as the event's declared parameter types
+            // (a long argument of an int parameter is an Int32 payload); params object[] keeps the boxed values.
+            if (typed)
+                for (int i = 0; i < count; i++) payload[i] = AsParameter(payload[i], data.ParameterKinds[i + skip]);
+            string[] names = new string[count];
+            Array.Copy(data.ParameterNames, skip, names, 0, count);
+            EventWrittenEventArgsImpl eventArgs = null;
+            foreach (EventListenerImpl listener in EventListenerImpl.Listeners())
+            {
+                ListenerEnablement enablement = listener.EnablementOf(this);
+                if (enablement == null) continue;
+                bool enabled;
+                lock (EventListenerImpl.s_lock)
+                    enabled = enablement.Overrides != null && enablement.Overrides.TryGetValue(eventId, out bool overridden)
+                        ? overridden : PassesFilter(enablement.Level, enablement.Keywords, data.Level, data.UserKeywords);
+                if (!enabled) continue;
+                eventArgs ??= new EventWrittenEventArgsImpl((EventSource)(object)this)
+                {
+                    EventId = eventId, EventName = data.Name, Level = data.Level, Keywords = (EventKeywords)(data.UserKeywords | EventDescriptorData.SessionMask),
+                    Opcode = data.Opcode, Task = data.Task, Version = data.Version, Channel = data.Channel, Tags = data.Tags, Message = data.Message,
+                    ActivityId = CurrentThreadActivityId, RelatedActivityId = relatedActivityId,
+                    Payload = new ReadOnlyCollection<object>(payload), PayloadNames = new ReadOnlyCollection<string>(names),
+                };
+                DeliverTo(listener, eventArgs);
+            }
+        }
+
+        private static object AsParameter(object value, string kind)
+        {
+            if (!(value is int || value is long)) return value;
+            long x = value is int i ? i : (long)value;
+            switch (kind)
+            {
+                case "i": return unchecked((int)x);
+                case "ui": return unchecked((uint)x);
+                case "l": return x;
+                case "ul": return unchecked((ulong)x);
+                case "s": return unchecked((short)x);
+                case "us": return unchecked((ushort)x);
+                case "B": return unchecked((byte)x);
+                case "sb": return unchecked((sbyte)x);
+                case "b": return unchecked((int)x) != 0;
+                case "c": return unchecked((char)x);
+                default: return value;
+            }
+        }
+
+        private void DeliverTo(EventListenerImpl listener, EventWrittenEventArgsImpl args)
+        {
+            try { listener.OnEventWritten((EventWrittenEventArgs)(object)args); }
+            catch (Exception e)
+            {
+                if ((m_config & EventSourceSettings.ThrowOnEventWriteErrors) != 0) throw;
+                ReportOutOfBandMessage("ERROR: Exception during EventSource.OnEventWritten: " + e.Message, null);
+            }
+        }
+
+        /// <summary>EventSource.ReportOutOfBandMessage: the text reaches the listeners as an "EventSourceMessage" event.</summary>
+        private void ReportOutOfBandMessage(string message, EventListenerImpl alsoTo)
+        {
+            if (t_reportingMessage) return; // a listener that throws on the message itself
+            t_reportingMessage = true;
+            try
+            {
+                EventWrittenEventArgsImpl args = null;
+                foreach (EventListenerImpl listener in EventListenerImpl.Listeners())
+                {
+                    if (!ReferenceEquals(listener, alsoTo) && listener.EnablementOf(this) == null) continue;
+                    args ??= new EventWrittenEventArgsImpl((EventSource)(object)this)
+                    {
+                        EventId = 0, EventName = "EventSourceMessage", Level = EventLevel.LogAlways, Message = message, ActivityId = CurrentThreadActivityId,
+                        Payload = new ReadOnlyCollection<object>(new object[] { message }), PayloadNames = new ReadOnlyCollection<string>(new[] { "message" }),
+                    };
+                    try { listener.OnEventWritten((EventWrittenEventArgs)(object)args); } catch (Exception) { }
+                }
+            }
+            finally { t_reportingMessage = false; }
+        }
+
+        /// <summary>WriteEventCore's descriptors, read as the event's parameters (ETW's wire format: strings are null-terminated UTF-16, bool is 4 bytes).</summary>
+        private unsafe object[] DecodeEventData(int eventId, int eventDataCount, EventData* data, int skip)
+        {
+            EventDescriptorData d;
+            lock (EventListenerImpl.s_lock)
+            {
+                if (m_eventData == null || !m_eventData.TryGetValue(eventId, out d)) return new object[0];
+            }
+            object[] values = new object[Math.Max(0, Math.Min(eventDataCount, d.ParameterKinds.Length - skip))];
+            for (int i = 0; i < values.Length; i++)
+            {
+                byte* pointer = (byte*)(void*)data[i].m_Ptr;
+                int size = data[i].m_Size;
+                values[i] = DecodeValue(d.ParameterKinds[i + skip], pointer, size);
+            }
+            return values;
+        }
+
+        private static unsafe object DecodeValue(string kind, byte* p, int size)
+        {
+            if (kind.Length > 1 && kind[0] == 'E') kind = kind.Substring(1); // enums are written as their underlying type
+            switch (kind)
+            {
+                case "S":
+                {
+                    int chars = size / 2;
+                    if (chars > 0 && ((char*)p)[chars - 1] == '\0') chars--;
+                    return new string((char*)p, 0, chars);
+                }
+                case "i": return *(int*)p;
+                case "ui": return *(uint*)p;
+                case "l": return *(long*)p;
+                case "ul": return *(ulong*)p;
+                case "s": return *(short*)p;
+                case "us": return *(ushort*)p;
+                case "B": return *p;
+                case "sb": return *(sbyte*)p;
+                case "c": return *(char*)p;
+                case "f": return *(float*)p;
+                case "d": return *(double*)p;
+                case "b": return *(int*)p != 0;
+                case "G": return *(Guid*)p;
+                case "p": return (IntPtr)(*(long*)p);
+                case "up": return (UIntPtr)(*(ulong*)p);
+                default: throw new NotSupportedException("WriteEventCore of a '" + kind + "' parameter is not supported by csharpc yet.");
+            }
+        }
 
         public void Dispose()
         {
@@ -201,7 +534,8 @@ namespace CsharpcCoreLib
         protected virtual void Dispose(bool disposing)
         {
             if (!IsSupported) return;
-            m_eventSourceDisposed = true;
+            // Listeners are not told: the source just stops writing.
+            if (disposing) { m_eventSourceDisposed = true; m_eventSourceEnabled = false; }
         }
 
         /// <summary>The GUID .NET derives from a name (EventSource.GenerateGuidFromName: SHA-1, RFC 4122 version 5).</summary>
@@ -279,11 +613,47 @@ namespace CsharpcCoreLib
     [Shadows("System.Diagnostics.Tracing.EventSourceOptions")]
     public struct EventSourceOptionsImpl
     {
-        public EventLevel Level { get; set; }
-        public EventOpcode Opcode { get; set; }
-        public EventKeywords Keywords { get; set; }
-        public EventTags Tags { get; set; }
-        public EventActivityOptions ActivityOptions { get; set; }
+        private EventKeywords _keywords;
+        private EventTags _tags;
+        private EventActivityOptions _activityOptions;
+        private byte _level;
+        private byte _opcode;
+        private byte _valuesSet;
+
+        private const byte KeywordsSet = 0x1, TagsSet = 0x2, LevelSet = 0x4, OpcodeSet = 0x8, ActivityOptionsSet = 0x10;
+
+        // An option nobody set means the default of Write: Verbose, opcode Info, no keywords or tags.
+        internal bool LevelWasSet => (_valuesSet & LevelSet) != 0;
+
+        public EventLevel Level
+        {
+            get => (EventLevel)_level;
+            set { _level = checked((byte)value); _valuesSet |= LevelSet; }
+        }
+
+        public EventOpcode Opcode
+        {
+            get => (EventOpcode)_opcode;
+            set { _opcode = checked((byte)value); _valuesSet |= OpcodeSet; }
+        }
+
+        public EventKeywords Keywords
+        {
+            get => _keywords;
+            set { _keywords = value; _valuesSet |= KeywordsSet; }
+        }
+
+        public EventTags Tags
+        {
+            get => _tags;
+            set { _tags = value; _valuesSet |= TagsSet; }
+        }
+
+        public EventActivityOptions ActivityOptions
+        {
+            get => _activityOptions;
+            set { _activityOptions = value; _valuesSet |= ActivityOptionsSet; }
+        }
     }
 
     /// <summary>dotnet/runtime src/libraries/Common/src/System/Sha1ForNonSecretPurposes.cs (HashData).</summary>

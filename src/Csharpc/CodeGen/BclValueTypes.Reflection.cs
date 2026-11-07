@@ -109,6 +109,16 @@ internal static partial class BclValueTypes
         t[$"{Type}.GetFields(System.Reflection.BindingFlags)"] = fieldLookup("GetFieldsFlags");
         t[$"{Type}.GetField(string)"] = fieldLookup("GetFieldName");
         t[$"{Type}.GetField(string, System.Reflection.BindingFlags)"] = fieldLookup("GetFieldNameFlags");
+        // Events are described once the program reads any (ModuleCodeGen.NoteEventsQueried).
+        BclHandler eventLookup(string method) => (g, _, self, a, _) =>
+        {
+            g.Module.NoteEventsQueried();
+            return g.CallCoreLib("EventReflection", method, [self, .. a]);
+        };
+        t[$"{Type}.GetEvents()"] = eventLookup("GetEventsAll");
+        t[$"{Type}.GetEvents(System.Reflection.BindingFlags)"] = eventLookup("GetEventsFlags");
+        t[$"{Type}.GetEvent(string)"] = eventLookup("GetEventName");
+        t[$"{Type}.GetEvent(string, System.Reflection.BindingFlags)"] = eventLookup("GetEventNameFlags");
         // A type's own attributes: the program keeps those of every type and generic parameter once it asks.
         BclHandler typeAttributes(string method) => (g, _, self, a, _) =>
         {
@@ -199,6 +209,9 @@ internal static partial class BclValueTypes
         // Assembly objects are corelib C# (corelib/Reflection/Assembly.cs), one per assembly name.
         t[$"{Type}.get_Assembly()"] = (g, _, self, _, _) =>
             g.CallCoreLib("AssemblyImpl", "ForName", TypeResult(g, "csrt_type_assembly_name", self));
+        // A type's module is its assembly's manifest module (assemblies have one module).
+        t[$"{Type}.get_Module()"] = (g, _, self, _, _) =>
+            g.CallCoreLib("AssemblyImpl", "ModuleOf", g.CallCoreLib("AssemblyImpl", "ForName", TypeResult(g, "csrt_type_assembly_name", self)));
         t["System.Reflection.Assembly.GetExecutingAssembly()"] = (g, _, _, _, at) =>
         {
             var owner = g.CurrentMethod?.ContainingType;

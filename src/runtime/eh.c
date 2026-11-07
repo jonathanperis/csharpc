@@ -171,6 +171,18 @@ void* csrt_exception_get_token(void* exception) {
     return ((csrt_Exception*)exception)->token;
 }
 
+void csrt_exception_set_data(void* exception, void* data) { CSRT_STORE_REF(((csrt_Exception*)exception)->data, data); }
+void* csrt_task_cancellation_token(void* task);
+/// new TaskCanceledException(task): the Task, and its cancellation token as CancellationToken.
+void csrt_exception_set_task(void* exception, void* task) {
+    CSRT_STORE_REF(((csrt_Exception*)exception)->data, task);
+    if (task) CSRT_STORE_REF(((csrt_Exception*)exception)->token, csrt_task_cancellation_token(task));
+}
+void* csrt_exception_get_data(void* exception) {
+    if (!exception) csrt_throw_null_reference();
+    return ((csrt_Exception*)exception)->data;
+}
+
 void csrt_exception_set_actual_value(void* exception, csrt_String* actual_value) {
     CSRT_STORE_REF(((csrt_Exception*)exception)->actual_value, actual_value);
 }
@@ -840,9 +852,84 @@ static void* new_exception(const csrt_ExceptionMethodTable* mt, const char* mess
 // Exception traps (thread-pool workers): an exception no C# handler catches on this thread runs
 // its finally blocks (forced unwind) and then returns to the innermost csrt_trap_call instead of
 // terminating the process, so Parallel.For can rethrow it on the calling thread.
-#ifdef _WIN32
-// mingw-w64's longjmp unwinds the stack with RtlUnwindEx; the trap jumps from inside a forced unwind,
-// so it uses the plain register-restoring builtins instead.
+#if defined(_WIN32) && defined(__x86_64__)
+// mingw-w64's longjmp unwinds the stack with RtlUnwindEx, and the trap jumps from inside a forced unwind,
+// so it needs a plain register-restoring pair. __builtin_setjmp/__builtin_longjmp are not one on Windows
+// x64: LLVM's llvm.frameaddress there is the SEH establisher frame (RBP - the .seh_setframe offset, 128 in
+// this function), and __builtin_longjmp loads RBP from that slot. The setjmp receiver then addresses its
+// locals through an RBP that is 128 bytes too low, i.e. in the stale stack below RSP: it returned a garbage
+// "exception" and stored a garbage tl_trap, or faulted (a finalizer's trap at -O0 every time; a Parallel
+// iteration that happens to throw on a pool worker rather than the calling thread). This pair saves the
+// callee-saved registers (including RDI, RSI and XMM6-15, which are callee-saved on Windows) as they are.
+typedef struct { uint64_t regs[10]; uint8_t xmm[160]; } csrt_JmpBuf;
+typedef struct { csrt_JmpBuf env; uintptr_t frame; void* exception; } csrt_Trap;
+int csrt_trap_save(csrt_JmpBuf* env) __attribute__((returns_twice));
+_Noreturn void csrt_trap_restore(csrt_JmpBuf* env);
+#define TRAP_SETJMP(env) csrt_trap_save(&(env))
+#define TRAP_LONGJMP(env) csrt_trap_restore(&(env))
+__asm__(
+    ".text\n"
+    ".globl csrt_trap_save\n"
+    ".def csrt_trap_save; .scl 2; .type 32; .endef\n"
+    ".p2align 4\n"
+    "csrt_trap_save:\n"
+    ".seh_proc csrt_trap_save\n"
+    ".seh_endprologue\n"
+    "    movq (%rsp), %rax\n"       // the return address
+    "    leaq 8(%rsp), %rdx\n"      // RSP once it has returned
+    "    movq %rbx, 0(%rcx)\n"
+    "    movq %rbp, 8(%rcx)\n"
+    "    movq %rdi, 16(%rcx)\n"
+    "    movq %rsi, 24(%rcx)\n"
+    "    movq %r12, 32(%rcx)\n"
+    "    movq %r13, 40(%rcx)\n"
+    "    movq %r14, 48(%rcx)\n"
+    "    movq %r15, 56(%rcx)\n"
+    "    movq %rdx, 64(%rcx)\n"
+    "    movq %rax, 72(%rcx)\n"
+    "    movups %xmm6, 80(%rcx)\n"
+    "    movups %xmm7, 96(%rcx)\n"
+    "    movups %xmm8, 112(%rcx)\n"
+    "    movups %xmm9, 128(%rcx)\n"
+    "    movups %xmm10, 144(%rcx)\n"
+    "    movups %xmm11, 160(%rcx)\n"
+    "    movups %xmm12, 176(%rcx)\n"
+    "    movups %xmm13, 192(%rcx)\n"
+    "    movups %xmm14, 208(%rcx)\n"
+    "    movups %xmm15, 224(%rcx)\n"
+    "    xorl %eax, %eax\n"
+    "    ret\n"
+    ".seh_endproc\n"
+    ".globl csrt_trap_restore\n"
+    ".def csrt_trap_restore; .scl 2; .type 32; .endef\n"
+    ".p2align 4\n"
+    "csrt_trap_restore:\n"
+    ".seh_proc csrt_trap_restore\n"
+    ".seh_endprologue\n"
+    "    movq 0(%rcx), %rbx\n"
+    "    movq 8(%rcx), %rbp\n"
+    "    movq 16(%rcx), %rdi\n"
+    "    movq 24(%rcx), %rsi\n"
+    "    movq 32(%rcx), %r12\n"
+    "    movq 40(%rcx), %r13\n"
+    "    movq 48(%rcx), %r14\n"
+    "    movq 56(%rcx), %r15\n"
+    "    movups 80(%rcx), %xmm6\n"
+    "    movups 96(%rcx), %xmm7\n"
+    "    movups 112(%rcx), %xmm8\n"
+    "    movups 128(%rcx), %xmm9\n"
+    "    movups 144(%rcx), %xmm10\n"
+    "    movups 160(%rcx), %xmm11\n"
+    "    movups 176(%rcx), %xmm12\n"
+    "    movups 192(%rcx), %xmm13\n"
+    "    movups 208(%rcx), %xmm14\n"
+    "    movups 224(%rcx), %xmm15\n"
+    "    movq 72(%rcx), %rdx\n"
+    "    movq 64(%rcx), %rsp\n"
+    "    movl $1, %eax\n"           // csrt_trap_save returns again, nonzero
+    "    jmpq *%rdx\n"
+    ".seh_endproc\n");
+#elif defined(_WIN32)
 typedef struct { void* env[5]; uintptr_t frame; void* exception; } csrt_Trap;
 #define TRAP_SETJMP(env) __builtin_setjmp(env)
 #define TRAP_LONGJMP(env) __builtin_longjmp(env, 1)
@@ -950,6 +1037,15 @@ bool csrt_is_operation_canceled(void* exception) {
 
 void* csrt_task_canceled_exception_new(void) {
     csrt_Exception* e = new_exception(&csrt_MT_System_Threading_Tasks_TaskCanceledException, "A task was canceled.");
+    return e;
+}
+
+// TaskCanceledException(Task): .NET's constructor reports the task's own cancellation token
+// (csrt_task_cancellation_token, async.c: the token of the exception that canceled it).
+void* csrt_task_canceled_exception_for(void* task) {
+    csrt_Exception* e = new_exception(&csrt_MT_System_Threading_Tasks_TaskCanceledException, "A task was canceled.");
+    CSRT_STORE_REF(e->data, task);
+    if (task) CSRT_STORE_REF(e->token, csrt_task_cancellation_token(task));
     return e;
 }
 

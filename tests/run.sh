@@ -17,14 +17,21 @@
 #                             Samples with a .diagnostics file must be rejected (any explicit diagnostic).
 #                             CSHARPC_IL_BUILD=dir keeps the csc builds between runs (rebuilt when the .cs
 #                             is newer); CSHARPC_IL_JOBS=N builds N samples at a time (default 2).
+#   CSHARPC_JOBS=N tests/run.sh   run up to N samples at once (default 1). Output order, PASS/FAIL/SKIP lines,
+#                             timeouts and the exit code are those of a sequential run; samples in
+#                             tests/serial-samples.txt run alone. Ignored with --repeat; --regen and
+#                             --via-il builds keep their own sequencing.
 #
 # A sample with a NAME.diagnostics file is one csharpc must reject cleanly (explicit diagnostics, no
 # crash): the compiler's stderr, with the samples directory stripped from paths, must equal that file.
 #
-# Environment: CSHARPC_FLAGS="-g" (extra compiler flags, e.g. run the suite with debug info), CSHARPC_OPT=-O0 (same as --opt), CSHARPC_TEST_TIMEOUT=20 (seconds per binary),
+# Environment: CSHARPC_NATIVE=path/to/csharpc-native (run the suite with the compiler csharpc built from itself,
+#              tools/bootstrap/selfhost.sh, instead of the managed one; no build),
+#              CSHARPC_FLAGS="-g" (extra compiler flags, e.g. run the suite with debug info), CSHARPC_OPT=-O0 (same as --opt), CSHARPC_TEST_TIMEOUT=20 (seconds per binary),
 #              DOTNET=path/to/dotnet, CSHARPC_TEST_TARGET=wasm32-wasip1 (compile for WebAssembly and run with
 #              wasmtime; see tests/platform.sh).
 set -uo pipefail
+export NuGetAudit=false # NU1903 about Microsoft.DotNet.ILCompiler (file-based apps) would land in recorded stdout
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SAMPLES="$ROOT/tests/samples"
@@ -103,7 +110,7 @@ if [[ $REGEN == 1 ]]; then
     # WarningLevel=0 keeps compiler warnings out of stdout; strip_warnings is a safety net.
     stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
     read -ra test_env <<< "$(platform_env "$SAMPLES" "$name")"
-    (cd "$SAMPLES" && env "${test_env[@]}" "$DOTNET" run "$name.cs" -p:WarningLevel=0 2>/dev/null < "$stdin_file") > "$SAMPLES/$name.raw"
+    (cd "$SAMPLES" && env "${test_env[@]}" "$DOTNET" run "$name.cs" -p:WarningLevel=0 -p:NuGetAudit=false 2>/dev/null < "$stdin_file") > "$SAMPLES/$name.raw"
     code=$?
     strip_warnings < "$SAMPLES/$name.raw" > "$SAMPLES/$name.expected"
     rm -f "$SAMPLES/$name.raw"
@@ -122,11 +129,17 @@ if (( SHARD_COUNT > 1 || REPEAT > 1 )); then
   echo "selection: ${#selected[@]} samples, shard $SHARD_INDEX/$SHARD_COUNT, repeat $REPEAT, opts ${OPTS[*]}"
 fi
 
-"$DOTNET" build "$ROOT/src/Csharpc" -c Release -v quiet -nologo > /dev/null || { echo "build failed"; exit 1; }
-CSHARPC=("$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll")
+if [[ -n "${CSHARPC_NATIVE:-}" ]]; then
+  # The compiler built by itself (tools/bootstrap/selfhost.sh): the suite is the same, the compiler is not.
+  [[ -x "$CSHARPC_NATIVE" ]] || { echo "CSHARPC_NATIVE=$CSHARPC_NATIVE is not an executable"; exit 1; }
+  CSHARPC=("$CSHARPC_NATIVE")
+else
+  "$DOTNET" build "$ROOT/src/Csharpc" -c Release -v quiet -nologo > /dev/null || { echo "build failed"; exit 1; }
+  CSHARPC=("$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll")
+fi
 
 OUT="$(mktemp -d)"
-trap 'rm -rf "$OUT"' EXIT
+trap 'kill $(jobs -p) 2>/dev/null; rm -rf "$OUT"' EXIT
 # A temp dir without symlinks in its path: macOS's $TMPDIR (/var/folders/...) is reached through the
 # /var -> /private/var link, so getcwd() inside it would not match Path.GetTempPath() (under .NET too).
 TMPDIR="$(cd "${TMPDIR:-/tmp}" && pwd -P)/"; export TMPDIR
@@ -149,84 +162,156 @@ if [[ $VIA_IL == 1 ]]; then
   export -f build_il; export IL_BUILD SAMPLES DOTNET
   printf '%s\n' "${selected[@]}" | xargs -P "${CSHARPC_IL_JOBS:-2}" -I{} bash -c 'build_il "$1"' _ {}
 fi
+# One sample at one optimization level. Prints the PASS / FAIL / SKIP line (and the failure details)
+# to stdout and returns 0 (pass), 1 (fail) or 2 (skip); the caller counts. $4 is the directory for the
+# sample's scratch files: $OUT when samples run one at a time, a directory of its own when several
+# run at once (so no two runs can ever share a file).
+sample_label() { # name opt rep
+  if (( REPEAT > 1 )); then echo "$1 [$2] #$3"; else echo "$1 [$2]"; fi
+}
+
+run_sample() { # name opt rep workdir
+  local name="$1" opt="$2" rep="$3" w="$4"
+  local src="$SAMPLES/$name.cs" label reason stdin_file got_code want_code expected pin exe
+  label="$(sample_label "$name" "$opt" "$rep")"
+  if [[ $VIA_IL == 1 ]]; then
+    local dll="$IL_BUILD/$name/$name.dll"
+    if [[ -f "$IL_BUILD/$name.failed" ]]; then
+      echo "FAIL $label (dotnet build failed)"; grep -E "error" "$IL_BUILD/$name.failed" | sed 's/^/     /' | head -5
+      return 1
+    fi
+    src="$dll"
+  fi
+  if [[ -f "$SAMPLES/$name.diagnostics" && $VIA_IL == 1 ]]; then
+    # Rejected programs: from IL, any explicit diagnostic (exit 1) will do; the wording differs from the source path's.
+    "${CSHARPC[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$w/$name$opt$EXE_SUFFIX" > /dev/null 2> "$w/$name.compile"
+    got_code=$?
+    if [[ $got_code == 1 ]]; then echo "PASS $label (rejected)"; return 0; fi
+    echo "FAIL $label (compiler exit $got_code, expected 1 with a diagnostic)"; sed 's/^/     /' "$w/$name.compile" | head -8
+    return 1
+  fi
+  if [[ -f "$SAMPLES/$name.diagnostics" ]]; then
+    "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$w/$name$opt$EXE_SUFFIX" > /dev/null 2> "$w/$name.compile"
+    got_code=$?
+    platform_compiler_output < "$w/$name.compile" | sed "s|^$SAMPLES/||" > "$w/$name.diag"
+    if [[ $got_code == 1 ]] && diff -u "$SAMPLES/$name.diagnostics" "$w/$name.diag" > "$w/$name.diff"; then
+      echo "PASS $label (rejected with the expected diagnostics)"; return 0
+    fi
+    echo "FAIL $label (compiler exit $got_code, expected 1 with the recorded diagnostics)"
+    sed 's/^/     /' "$w/$name.diff" | head -"${CSHARPC_DIFF_LINES:-60}"
+    return 1
+  fi
+  expected="$SAMPLES/$name.expected"
+  # A sample without a recording would otherwise pass every shard and CI's coverage check unrun.
+  [[ -f "$expected" ]] || { echo "FAIL $label (no .expected — record it with --regen)"; return 1; }
+  reason="$(platform_skip "$name")"
+  [[ -n "$reason" ]] && ! platform_is_live "$reason" && { echo "SKIP $label (platform-dependent on $TARGET_OS: $reason)"; return 2; }
+  stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
+  read -ra test_env <<< "$(platform_env "$SAMPLES" "$name")"
+  pin=("${CULTURE_PIN[@]}"); [[ ${#test_env[@]} -gt 0 || $VIA_IL == 1 ]] && pin=()
+  if [[ -n "$reason" ]]; then
+    # Recorded live from real .NET on this machine (once per run; a sample is in one pass at a time,
+    # so a parallel pass never records the same name twice at once).
+    [[ -f "$OUT/$name.live" ]] || platform_live_expected "$SAMPLES" "$name.cs" "$stdin_file" "$OUT/$name.live" "${test_env[@]}" > "$OUT/$name.livecode"
+    cp "$OUT/$name.live" "$w/$name.want"
+    want_code="$(cat "$OUT/$name.livecode")"
+  else
+    platform_expected < "$expected" > "$w/$name.want"
+    want_code=0
+    [[ -f "$SAMPLES/$name.exitcode" ]] && want_code="$(platform_exit_code "$(cat "$SAMPLES/$name.exitcode")")"
+  fi
+
+  exe="$w/$name$opt$EXE_SUFFIX"
+  if ! "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" "${pin[@]}" -o "$exe" 2> "$w/$name.compile"; then
+    echo "FAIL $label (compile error)"; sed 's/^/     /' "$w/$name.compile" | head -8
+    return 1
+  fi
+  # Run in a child bash so the parent shell doesn't print "Aborted (core dumped)" job noise
+  # for samples that intentionally die with an unhandled exception (SIGABRT, exit 134).
+  env "${test_env[@]}" bash -c 'ulimit -c 0 2>/dev/null; t="$1" out="$2" err="$3" in="$4"; shift 4; timeout "$t" "$@" > "$out" 2> "$err" < "$in"' _ \
+    "${CSHARPC_TEST_TIMEOUT:-90}" "$w/$name.stdout" "$w/$name.stderr" "$stdin_file" "${RUN_PREFIX[@]}" "$exe" 2>/dev/null
+  got_code=$?
+  if diff -u "$w/$name.want" "$w/$name.stdout" > "$w/$name.diff" && [[ "$got_code" == "$want_code" ]]; then
+    echo "PASS $label"
+    return 0
+  fi
+  echo "FAIL $label (exit $got_code, expected $want_code)"
+  sed 's/^/     /' "$w/$name.diff" | head -"${CSHARPC_DIFF_LINES:-60}"
+  # What the program printed to stderr (an unhandled exception, a runtime abort) says why.
+  if [[ -s "$w/$name.stderr" ]]; then sed 's/^/     stderr: /' "$w/$name.stderr" | head -10; fi
+  return 1
+}
+
+record() { # rc label
+  case "$1" in
+    0) pass=$((pass + 1)) ;;
+    1) fail=$((fail + 1)); failed+=("$2") ;;
+  esac
+}
+
+# CSHARPC_JOBS=N runs up to N samples at once (default 1: one at a time, as always). The output stays
+# in sample order, line for line what a sequential run prints. Samples listed in tests/serial-samples.txt
+# run alone, and so does the first sample of every pass, which fills the shared runtime/corelib cache
+# in ~/.cache/csharpc once instead of N compilations doing it side by side.
+JOBS="${CSHARPC_JOBS:-1}"
+[[ "$JOBS" =~ ^[1-9][0-9]*$ ]] || { echo "bad CSHARPC_JOBS '$JOBS'" >&2; exit 2; }
+# --repeat is for flake hunts, where concurrent neighbours would change what is measured; --via-il has its own build pool.
+(( REPEAT > 1 || VIA_IL == 1 )) && JOBS=1
+SERIAL=" "
+if (( JOBS > 1 )); then
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    line="${line%%#*}"; line="${line//[[:space:]]/}"
+    [[ -n "$line" ]] && SERIAL+="$line "
+  done < "$ROOT/tests/serial-samples.txt"
+  # The oracle hook (macOS and Windows) is built into a shared directory on first use: build it
+  # before several samples need it at once.
+  platform_oracle_hook || exit 1
+fi
+
+run_pass() { # opt rep
+  local opt="$1" rep="$2" name i n=${#selected[@]} next=0 running=0 res
+  if (( JOBS <= 1 )); then
+    for name in "${selected[@]}"; do
+      run_sample "$name" "$opt" "$rep" "$OUT"
+      record $? "$(sample_label "$name" "$opt" "$rep")"
+    done
+    return
+  fi
+  res="$OUT/pass.$rep.${opt#-}"
+  mkdir -p "$res"
+  flush() { # print, in order, the samples that have finished
+    while (( next < n )) && [[ -f "$res/$next.rc" ]]; do
+      cat "$res/$next.out"
+      record "$(<"$res/$next.rc")" "$(sample_label "${selected[next]}" "$opt" "$rep")"
+      rm -rf "$res/$next.out" "$res/$next.rc" "$res/w$next"
+      next=$((next + 1))
+    done
+  }
+  reap() { wait -n 2>/dev/null; running=$((running - 1)); flush; }
+  for ((i = 0; i < n; i++)); do
+    name="${selected[i]}"
+    if (( i == 0 )) || [[ "$SERIAL" == *" $name "* ]]; then
+      while (( running > 0 )); do reap; done
+    else
+      while (( running >= JOBS )); do reap; done
+    fi
+    mkdir -p "$res/w$i"
+    (
+      run_sample "$name" "$opt" "$rep" "$res/w$i" > "$res/$i.out.tmp" 2>&1
+      echo $? > "$res/$i.rc.tmp"
+      mv "$res/$i.out.tmp" "$res/$i.out"; mv "$res/$i.rc.tmp" "$res/$i.rc"
+    ) &
+    running=$((running + 1))
+    if (( i == 0 )) || [[ "$SERIAL" == *" $name "* ]]; then while (( running > 0 )); do reap; done; fi
+    flush
+  done
+  while (( running > 0 )); do reap; done
+  flush
+}
+
 for ((rep = 1; rep <= REPEAT; rep++)); do
   for opt in "${OPTS[@]}"; do
-    for name in "${selected[@]}"; do
-      src="$SAMPLES/$name.cs"
-      label="$name [$opt]"
-      if (( REPEAT > 1 )); then label="$name [$opt] #$rep"; fi
-      if [[ $VIA_IL == 1 ]]; then
-        dll="$IL_BUILD/$name/$name.dll"
-        if [[ -f "$IL_BUILD/$name.failed" ]]; then
-          echo "FAIL $label (dotnet build failed)"; grep -E "error" "$IL_BUILD/$name.failed" | sed 's/^/     /' | head -5
-          fail=$((fail + 1)); failed+=("$label"); continue
-        fi
-        src="$dll"
-      fi
-      if [[ -f "$SAMPLES/$name.diagnostics" && $VIA_IL == 1 ]]; then
-        # Rejected programs: from IL, any explicit diagnostic (exit 1) will do; the wording differs from the source path's.
-        "${CSHARPC[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$OUT/$name$opt$EXE_SUFFIX" > /dev/null 2> "$OUT/$name.compile"
-        got_code=$?
-        if [[ $got_code == 1 ]]; then echo "PASS $label (rejected)"; pass=$((pass + 1))
-        else
-          echo "FAIL $label (compiler exit $got_code, expected 1 with a diagnostic)"; sed 's/^/     /' "$OUT/$name.compile" | head -8
-          fail=$((fail + 1)); failed+=("$label")
-        fi
-        continue
-      fi
-      if [[ -f "$SAMPLES/$name.diagnostics" ]]; then
-        "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$OUT/$name$opt$EXE_SUFFIX" > /dev/null 2> "$OUT/$name.compile"
-        got_code=$?
-        platform_compiler_output < "$OUT/$name.compile" | sed "s|^$SAMPLES/||" > "$OUT/$name.diag"
-        if [[ $got_code == 1 ]] && diff -u "$SAMPLES/$name.diagnostics" "$OUT/$name.diag" > "$OUT/$name.diff"; then
-          echo "PASS $label (rejected with the expected diagnostics)"; pass=$((pass + 1))
-        else
-          echo "FAIL $label (compiler exit $got_code, expected 1 with the recorded diagnostics)"
-          sed 's/^/     /' "$OUT/$name.diff" | head -20
-          fail=$((fail + 1)); failed+=("$label")
-        fi
-        continue
-      fi
-      expected="$SAMPLES/$name.expected"
-      # A sample without a recording would otherwise pass every shard and CI's coverage check unrun.
-      [[ -f "$expected" ]] || { echo "FAIL $label (no .expected — record it with --regen)"; fail=$((fail + 1)); failed+=("$label"); continue; }
-      reason="$(platform_skip "$name")"
-      [[ -n "$reason" ]] && ! platform_is_live "$reason" && { echo "SKIP $label (platform-dependent on $TARGET_OS: $reason)"; continue; }
-      stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
-      read -ra test_env <<< "$(platform_env "$SAMPLES" "$name")"
-      pin=("${CULTURE_PIN[@]}"); [[ ${#test_env[@]} -gt 0 || $VIA_IL == 1 ]] && pin=()
-      if [[ -n "$reason" ]]; then
-        # Recorded live from real .NET on this machine (once per run).
-        [[ -f "$OUT/$name.live" ]] || platform_live_expected "$SAMPLES" "$name.cs" "$stdin_file" "$OUT/$name.live" "${test_env[@]}" > "$OUT/$name.livecode"
-        cp "$OUT/$name.live" "$OUT/$name.want"
-        want_code="$(cat "$OUT/$name.livecode")"
-      else
-        platform_expected < "$expected" > "$OUT/$name.want"
-        want_code=0
-        [[ -f "$SAMPLES/$name.exitcode" ]] && want_code="$(platform_exit_code "$(cat "$SAMPLES/$name.exitcode")")"
-      fi
-
-      exe="$OUT/$name$opt$EXE_SUFFIX"
-      if ! "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" "${pin[@]}" -o "$exe" 2> "$OUT/$name.compile"; then
-        echo "FAIL $label (compile error)"; sed 's/^/     /' "$OUT/$name.compile" | head -8
-        fail=$((fail + 1)); failed+=("$label"); continue
-      fi
-      # Run in a child bash so the parent shell doesn't print "Aborted (core dumped)" job noise
-      # for samples that intentionally die with an unhandled exception (SIGABRT, exit 134).
-      env "${test_env[@]}" bash -c 'ulimit -c 0 2>/dev/null; t="$1" out="$2" err="$3" in="$4"; shift 4; timeout "$t" "$@" > "$out" 2> "$err" < "$in"' _ \
-        "${CSHARPC_TEST_TIMEOUT:-90}" "$OUT/$name.stdout" "$OUT/$name.stderr" "$stdin_file" "${RUN_PREFIX[@]}" "$exe" 2>/dev/null
-      got_code=$?
-      if diff -u "$OUT/$name.want" "$OUT/$name.stdout" > "$OUT/$name.diff" && [[ "$got_code" == "$want_code" ]]; then
-        echo "PASS $label"
-        pass=$((pass + 1))
-      else
-        echo "FAIL $label (exit $got_code, expected $want_code)"
-        sed 's/^/     /' "$OUT/$name.diff" | head -20
-        # What the program printed to stderr (an unhandled exception, a runtime abort) says why.
-        if [[ -s "$OUT/$name.stderr" ]]; then sed 's/^/     stderr: /' "$OUT/$name.stderr" | head -10; fi
-        fail=$((fail + 1)); failed+=("$label")
-      fi
-    done
+    run_pass "$opt" "$rep"
   done
 done
 echo

@@ -169,6 +169,7 @@ void* csrt_object_memberwise_clone(void* obj) {
     csrt_Object* copy = csrt_alloc(mt, mt->instance_size);
     CSRT_DIRTY(copy, mt->instance_size);
     memcpy((char*)copy + sizeof(csrt_Object), (char*)obj + sizeof(csrt_Object), mt->instance_size - sizeof(csrt_Object));
+    csrt_gc_reregister_finalizer(copy);  // a clone of an object with a finalizer has one too (gc.c)
     return copy;
 }
 
@@ -207,18 +208,20 @@ csrt_Array* csrt_new_array_primitive_noclear(int64_t element_size, int64_t lengt
 /// (a + b, count * n) without wrapping; anything above the CLR limit is an OutOfMemoryException.
 csrt_String* csrt_string_alloc_checked(int64_t length) {
     if (length < 0 || length > CSRT_MAX_STRING_LENGTH) out_of_memory();
-    // Not zeroed: every caller writes all `length` chars, and the GC never scans strings.
-    csrt_String* s = csrt_gc_alloc_noclear(sizeof(csrt_String) + sizeof(uint16_t) * (size_t)length);
+    // Not zeroed: every caller writes all `length` chars, and the GC never scans strings. The char after the last one is
+    // the terminator .NET guarantees (`fixed (char* p = s)` and native code reading wide strings rely on it).
+    csrt_String* s = csrt_gc_alloc_noclear(sizeof(csrt_String) + sizeof(uint16_t) * ((size_t)length + 1));
     if (!s) out_of_memory();
     s->mt = &csrt_String_MT.header;
     s->length = (int32_t)length;
+    s->chars[length] = 0;
     return s;
 }
 
 /// Same limit check, zero-filled (for callers that may not write every char).
 csrt_String* csrt_string_alloc_zeroed(int64_t length) {
     if (length < 0 || length > CSRT_MAX_STRING_LENGTH) out_of_memory();
-    csrt_String* s = csrt_gc_alloc(sizeof(csrt_String) + sizeof(uint16_t) * (size_t)length);
+    csrt_String* s = csrt_gc_alloc(sizeof(csrt_String) + sizeof(uint16_t) * ((size_t)length + 1));  // + the terminator
     if (!s) out_of_memory();
     s->mt = &csrt_String_MT.header;
     s->length = (int32_t)length;
@@ -392,6 +395,11 @@ int32_t csrt_array_rank(void* array) {
     return mt->flags & CSRT_MT_MDARRAY ? (int32_t)mt->reserved : 1;
 }
 
+void* csrt_array_data(void* array) {
+    const csrt_MethodTable* mt = ((csrt_Object*)array)->mt;
+    return (uint8_t*)array + (mt->flags & CSRT_MT_MDARRAY ? sizeof(csrt_Array) + (size_t)mt->reserved * sizeof(int64_t) : sizeof(csrt_Array));
+}
+
 int64_t csrt_array_dimension_length(void* array, int32_t dimension) {
     if (dimension < 0 || dimension >= csrt_array_rank(array)) { csrt_throw_rank_out_of_range(); return 0; }
     const csrt_MethodTable* mt = ((csrt_Object*)array)->mt;
@@ -411,6 +419,8 @@ static void* const s_unsupported_slots[64] = {
 };
 
 static void* const* builtin_interface_slots(const csrt_MethodTable* objmt, const csrt_MethodTable* itf) {
+    // A Task<T> has its own table (derived from csrt_Task_MT); its interfaces are the plain task's.
+    if (objmt->base == &csrt_Task_MT.header) objmt = &csrt_Task_MT.header;
     // Arrays allocated by generated code have a per-element-type MT ("System.Int32[]") whose
     // interface map lists exactly the interfaces of that element type; the shared tables only serve
     // untagged arrays (made by the runtime), whose element type is unknown.
@@ -1060,6 +1070,8 @@ __attribute__((weak)) csrt_String* csrt_string_from_f32(float v) { (void)v; miss
 __attribute__((weak)) csrt_String* csrt_decimal_to_string(const void* d) { (void)d; missing_export("csrt_decimal_to_string"); }
 __attribute__((weak)) int32_t csrt_decimal_compare(const void* a, const void* b) { (void)a; (void)b; missing_export("csrt_decimal_compare"); }
 __attribute__((weak)) int32_t csrt_decimal_get_hash_code(const void* d) { (void)d; missing_export("csrt_decimal_get_hash_code"); }
+__attribute__((weak)) csrt_String* csrt_int128_to_string(uint64_t lo, uint64_t hi) { (void)lo; (void)hi; missing_export("csrt_int128_to_string"); }
+__attribute__((weak)) csrt_String* csrt_uint128_to_string(uint64_t lo, uint64_t hi) { (void)lo; (void)hi; missing_export("csrt_uint128_to_string"); }
 __attribute__((weak)) csrt_String* csrt_bigint_to_string(void* a) { (void)a; missing_export("csrt_bigint_to_string"); }
 __attribute__((weak)) int32_t csrt_bigint_compare(void* a, void* b) { (void)a; (void)b; missing_export("csrt_bigint_compare"); }
 __attribute__((weak)) int32_t csrt_bigint_get_hash_code(void* a) { (void)a; missing_export("csrt_bigint_get_hash_code"); }

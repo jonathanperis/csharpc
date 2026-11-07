@@ -73,17 +73,30 @@ public sealed partial class ModuleCodeGen
             }
     }
 
+    private static readonly HashSet<string> s_arrayGenericInterfaces =
+    [
+        "System.Collections.Generic.IEnumerable<T>", "System.Collections.Generic.ICollection<T>", "System.Collections.Generic.IList<T>",
+        "System.Collections.Generic.IReadOnlyCollection<T>", "System.Collections.Generic.IReadOnlyList<T>",
+    ];
+
+    /// <summary>Per requested interface, once: does every array implement it, and else the (mapped) element type that makes one.</summary>
+    private readonly Dictionary<INamedTypeSymbol, (bool Always, ITypeSymbol? Element)> _arrayInterfaceKinds = new(SymbolEqualityComparer.Default);
+    private readonly Dictionary<ITypeSymbol, ITypeSymbol> _mappedElements = new(SymbolEqualityComparer.Default);
+
     /// <summary>Does an array with this element type implement the (requested) interface?</summary>
     private bool ArrayImplements(ITypeSymbol element, INamedTypeSymbol itf)
     {
-        if (!itf.IsGenericType) return true;
-        if (itf.TypeArguments.Length != 1) return false;
-        var name = itf.OriginalDefinition.ToDisplayString();
-        if (name is not ("System.Collections.Generic.IEnumerable<T>" or "System.Collections.Generic.ICollection<T>" or "System.Collections.Generic.IList<T>"
-            or "System.Collections.Generic.IReadOnlyCollection<T>" or "System.Collections.Generic.IReadOnlyList<T>")) return false;
+        // Every (array, interface) pair is tested once, and there are millions of them in a Roslyn-sized program:
+        // what depends on the interface alone (its name, its mapped type argument) and on the element alone is computed once.
+        if (!_arrayInterfaceKinds.TryGetValue(itf, out var kind))
+            _arrayInterfaceKinds[itf] = kind = !itf.IsGenericType ? (true, null)
+                : itf.TypeArguments.Length == 1 && s_arrayGenericInterfaces.Contains(itf.OriginalDefinition.ToDisplayString()) ? (false, CoreLib.Map(itf.TypeArguments[0]))
+                : (false, null);
+        if (kind.Always) return true;
+        if (kind.Element is not { } u) return false;
         // Compare as codegen sees types: List<T> and its corelib shadow are the same element type.
-        element = CoreLib.Map(element);
-        var u = CoreLib.Map(itf.TypeArguments[0]);
+        if (!_mappedElements.TryGetValue(element, out var mapped)) _mappedElements[element] = mapped = CoreLib.Map(element);
+        element = mapped;
         if (SymbolEqualityComparer.Default.Equals(element, u)) return true;
         // Array covariance: string[] is an IList<object>.
         if (element.IsReferenceType && u.IsReferenceType)
@@ -108,6 +121,15 @@ public sealed partial class ModuleCodeGen
         };
     }
 
+    private readonly Dictionary<INamedTypeSymbol, string> _displayNames = new(SymbolEqualityComparer.Default);
+
+    /// <summary>ToDisplayString of an interface, once: an array's interface map is sorted by it every time the array gains an interface.</summary>
+    private string DisplayNameOf(INamedTypeSymbol type)
+    {
+        if (!_displayNames.TryGetValue(type, out var name)) _displayNames[type] = name = type.ToDisplayString();
+        return name;
+    }
+
     /// <summary>(Re)builds the interface maps of per-element-type array method tables; true if any changed.</summary>
     private bool RefreshArrayInterfaceMaps()
     {
@@ -117,11 +139,14 @@ public sealed partial class ModuleCodeGen
             var array = _taggedArrays[a];
             // Both the arrays and the requested interfaces only grow: test each pair once (every round used to
             // retest all of them, ~100 s of a Roslyn-sized program's lowering).
-            for (; array.InterfacesTested < _arrayInterfaceOrder.Count; array.InterfacesTested++)
-                if (ArrayImplements(array.ElementType, _arrayInterfaceOrder[array.InterfacesTested]))
-                    array.Implemented.Add(_arrayInterfaceOrder[array.InterfacesTested]);
+            using (Stats.Time("builtin interface tables/array implements"))
+                for (; array.InterfacesTested < _arrayInterfaceOrder.Count; array.InterfacesTested++)
+                    if (ArrayImplements(array.ElementType, _arrayInterfaceOrder[array.InterfacesTested]))
+                        array.Implemented.Add(_arrayInterfaceOrder[array.InterfacesTested]);
             if (array.Implemented.Count == array.InterfaceCount) continue;
-            var interfaces = array.Implemented.OrderBy(i => i.ToDisplayString(), StringComparer.Ordinal).ToList();
+            List<INamedTypeSymbol> interfaces;
+            using (Stats.Time("builtin interface tables/array map order"))
+                interfaces = array.Implemented.OrderBy(DisplayNameOf, StringComparer.Ordinal).ToList();
             changed = true;
             var entryType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr);
             var entries = interfaces.Select(i => LlvmContext.ConstNamedStruct(entryType, InterfaceMethodTable(i), ArraySlotTable(i, array))).ToArray();
@@ -229,18 +254,19 @@ public sealed partial class ModuleCodeGen
     private bool EmitPendingBuiltinInterfaceTables()
     {
         var any = false;
-        while (_pendingBuiltinInterfaces.TryDequeue(out var itf))
-        {
-            any = true;
-            if (_arrayInterfaces.Contains(itf) && !_arraySlotTables.ContainsKey(itf))
-                _arraySlotTables[itf] = SlotTable(itf, "ATBL", m => ArraySlotHelper(itf, m));
-            if (_stringInterfaces.Contains(itf) && !_stringSlotTables.ContainsKey(itf))
-                _stringSlotTables[itf] = SlotTable(itf, "STBL", m => StringInterfaceHelper(itf, m));
-            RefreshInterfaceTable(itf);
-        }
+        using (Stats.Time("builtin interface tables/slot tables"))
+            while (_pendingBuiltinInterfaces.TryDequeue(out var itf))
+            {
+                any = true;
+                if (_arrayInterfaces.Contains(itf) && !_arraySlotTables.ContainsKey(itf))
+                    _arraySlotTables[itf] = SlotTable(itf, "ATBL", m => ArraySlotHelper(itf, m));
+                if (_stringInterfaces.Contains(itf) && !_stringSlotTables.ContainsKey(itf))
+                    _stringSlotTables[itf] = SlotTable(itf, "STBL", m => StringInterfaceHelper(itf, m));
+                RefreshInterfaceTable(itf);
+            }
         // CreateInstance may need T[] for newly requested IEnumerable<T> / IList<T> element types.
-        EnsureCreateInstanceArrays();
-        return RefreshArrayInterfaceMaps() || any;
+        using (Stats.Time("builtin interface tables/create-instance arrays")) EnsureCreateInstanceArrays();
+        using (Stats.Time("builtin interface tables/array maps")) return RefreshArrayInterfaceMaps() || any;
     }
 
     private LLVMValueRef SlotTable(INamedTypeSymbol itf, string suffix, Func<IMethodSymbol, IMethodSymbol?> helper) =>

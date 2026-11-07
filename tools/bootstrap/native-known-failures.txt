@@ -1,0 +1,9 @@
+# Samples that fail when the differential suite runs with the native compiler (csharpc compiled by csharpc,
+# tools/bootstrap/selfhost.sh; CSHARPC_NATIVE in tests/run.sh) and pass with the managed one. Measured on the Bootstrap
+# workflow, run 42350479137: all 654 samples pass at -O0 and -O2 with both native compilers, so the list is empty. The
+# 21 samples that needed the SDK's JSON and LibraryImport generators pass since those generators are linked into csharpc
+# (#110), the 2 [GeneratedRegex] ones since a delegate to a struct's instance method receives the struct (#129), and the 11
+# stack-trace ones since the corelib's assembly attributes are known (#111). The check (tests/il-main-check.sh) fails on a
+# sample that is not listed and on a listed one that passes: take a sample off when it passes.
+#
+# <sample>  <why>

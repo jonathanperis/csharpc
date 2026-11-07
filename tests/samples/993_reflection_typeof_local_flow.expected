@@ -1,0 +1,10 @@
+alpha: Id:Int32:Public, Changed:EventHandler:Private, _hidden:Int64:Private, Name:String:Public, Static, Counted:Action`1:Private, Static
+beta: One, Two
+gamma: hello from gamma
+gamma methods: Hello, Other
+zeta: 3
+zeta again: 3
+zeta methods: 2
+Epsilon: X, Moved
+eta: Flag, Named
+raised through the backing field

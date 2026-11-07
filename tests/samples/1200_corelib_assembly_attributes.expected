@@ -1,0 +1,18 @@
+System.Private.CoreLib
+System.Private.CoreLib
+System.Private.CoreLib
+Microsoft Corporation
+Microsoft® .NET
+© Microsoft Corporation. All rights reserved.
+Release
+.NETCoreApp,Version=v11.0 / .NET 11.0
+True
+True
+8
+True
+en-US
+IsTrimmable=True;Serviceable=True
+AssemblyMetadataAttribute: AmbiguousMatchException
+AssemblyCultureAttribute: absent
+0
+True

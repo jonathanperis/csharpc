@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+  </PropertyGroup>
+  <!-- Stands in for any target that fails when csharpc evaluates a referenced project (it runs
+       -t:ResolvePackageAssets;Compile on it): ApiCompat's ValidateAssemblies, for one. -->
+  <Target Name="FailDuringCompile" BeforeTargets="CoreCompile">
+    <Error Text="Lib: simulated failure" />
+  </Target>
+</Project>

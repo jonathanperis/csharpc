@@ -1,0 +1,232 @@
+== Base
+-- Instance, Static, Public: Changed@Base, Hidden@Base, Counted@Base, Overridable@Base
+-- Instance, NonPublic: Secret@Base, Guarded@Base, Internal@Base
+-- DeclaredOnly, Instance, Public: Changed@Base, Hidden@Base, Counted@Base, Overridable@Base
+-- Instance, Static, Public, NonPublic, FlattenHierarchy: Changed@Base, Hidden@Base, Counted@Base, Secret@Base, Guarded@Base, Internal@Base, Overridable@Base
+-- Static, Public, NonPublic: 
+== Derived
+-- Instance, Static, Public: Hidden@Derived, Own@Derived, Overridable@Derived, Changed@Base, Counted@Base
+-- Instance, NonPublic: Guarded@Base, Internal@Base
+-- DeclaredOnly, Instance, Public: Hidden@Derived, Own@Derived, Overridable@Derived
+-- Instance, Static, Public, NonPublic, FlattenHierarchy: Hidden@Derived, Own@Derived, Overridable@Derived, Changed@Base, Counted@Base, Guarded@Base, Internal@Base
+-- Static, Public, NonPublic: 
+== ISignal
+-- Instance, Static, Public: Raised@ISignal
+-- Instance, NonPublic: 
+-- DeclaredOnly, Instance, Public: Raised@ISignal
+-- Instance, Static, Public, NonPublic, FlattenHierarchy: Raised@ISignal
+-- Static, Public, NonPublic: 
+== Impl
+-- Instance, Static, Public: Other@Impl
+-- Instance, NonPublic: ISignal.Raised@Impl
+-- DeclaredOnly, Instance, Public: Other@Impl
+-- Instance, Static, Public, NonPublic, FlattenHierarchy: ISignal.Raised@Impl, Other@Impl
+-- Static, Public, NonPublic: 
+== Statics
+-- Instance, Static, Public: Tick@Statics, PerInstance@Statics
+-- Instance, NonPublic: 
+-- DeclaredOnly, Instance, Public: PerInstance@Statics
+-- Instance, Static, Public, NonPublic, FlattenHierarchy: Tick@Statics, Quiet@Statics, PerInstance@Statics
+-- Static, Public, NonPublic: Tick@Statics, Quiet@Statics
+== StaticsDerived
+-- Instance, Static, Public: Another@StaticsDerived, PerInstance@Statics
+-- Instance, NonPublic: 
+-- DeclaredOnly, Instance, Public: Another@StaticsDerived
+-- Instance, Static, Public, NonPublic, FlattenHierarchy: Another@StaticsDerived, Tick@Statics, PerInstance@Statics
+-- Static, Public, NonPublic: 
+== GetEvents()
+Hidden: type=System.EventHandler multicast=True Event declaring=Derived reflected=Derived attributes=None special=False
+  add=add_Hidden remove=remove_Hidden raise= publicAdd=add_Hidden publicRemove=remove_Hidden publicRaise=
+  addPublic=True static=False virtual=False others=0/0
+  param=1 System.EventHandler return=System.Void
+  System.EventHandler Hidden
+Own: type=System.EventHandler multicast=True Event declaring=Derived reflected=Derived attributes=None special=False
+  add=add_Own remove=remove_Own raise= publicAdd=add_Own publicRemove=remove_Own publicRaise=
+  addPublic=True static=False virtual=False others=0/0
+  param=1 System.EventHandler return=System.Void
+  System.EventHandler Own
+Overridable: type=System.EventHandler multicast=True Event declaring=Derived reflected=Derived attributes=None special=False
+  add=add_Overridable remove=remove_Overridable raise= publicAdd=add_Overridable publicRemove=remove_Overridable publicRaise=
+  addPublic=True static=False virtual=True others=0/0
+  param=1 System.EventHandler return=System.Void
+  System.EventHandler Overridable
+Changed: type=System.EventHandler multicast=True Event declaring=Base reflected=Derived attributes=None special=False
+  add=add_Changed remove=remove_Changed raise= publicAdd=add_Changed publicRemove=remove_Changed publicRaise=
+  addPublic=True static=False virtual=False others=0/0
+  param=1 System.EventHandler return=System.Void
+  System.EventHandler Changed
+Counted: type=System.Action`1[System.Int32] multicast=True Event declaring=Base reflected=Derived attributes=None special=False
+  add=add_Counted remove=remove_Counted raise= publicAdd=add_Counted publicRemove=remove_Counted publicRaise=
+  addPublic=True static=False virtual=False others=0/0
+  param=1 System.Action`1[System.Int32] return=System.Void
+  System.Action`1[System.Int32] Counted
+== GetEvent
+Base.GetEvent(Changed, Instance, Static, Public) = System.EventHandler Changed @Base/Base
+Base.GetEvent(Changed, IgnoreCase, Instance, Public) = System.EventHandler Changed @Base/Base
+Base.GetEvent(Changed, Instance, NonPublic) = null
+Base.GetEvent(Changed, Static, Public, FlattenHierarchy) = null
+Derived.GetEvent(Changed, Instance, Static, Public) = System.EventHandler Changed @Base/Derived
+Derived.GetEvent(Changed, IgnoreCase, Instance, Public) = System.EventHandler Changed @Base/Derived
+Derived.GetEvent(Changed, Instance, NonPublic) = null
+Derived.GetEvent(Changed, Static, Public, FlattenHierarchy) = null
+Derived.GetEvent(changed, Instance, Static, Public) = null
+Derived.GetEvent(changed, IgnoreCase, Instance, Public) = System.EventHandler Changed @Base/Derived
+Derived.GetEvent(changed, Instance, NonPublic) = null
+Derived.GetEvent(changed, Static, Public, FlattenHierarchy) = null
+Base.GetEvent(Hidden, Instance, Static, Public) = System.EventHandler Hidden @Base/Base
+Base.GetEvent(Hidden, IgnoreCase, Instance, Public) = System.EventHandler Hidden @Base/Base
+Base.GetEvent(Hidden, Instance, NonPublic) = null
+Base.GetEvent(Hidden, Static, Public, FlattenHierarchy) = null
+Derived.GetEvent(Hidden, Instance, Static, Public) = System.EventHandler Hidden @Derived/Derived
+Derived.GetEvent(Hidden, IgnoreCase, Instance, Public) = System.EventHandler Hidden @Derived/Derived
+Derived.GetEvent(Hidden, Instance, NonPublic) = null
+Derived.GetEvent(Hidden, Static, Public, FlattenHierarchy) = null
+Derived.GetEvent(Counted, Instance, Static, Public) = System.Action`1[System.Int32] Counted @Base/Derived
+Derived.GetEvent(Counted, IgnoreCase, Instance, Public) = System.Action`1[System.Int32] Counted @Base/Derived
+Derived.GetEvent(Counted, Instance, NonPublic) = null
+Derived.GetEvent(Counted, Static, Public, FlattenHierarchy) = null
+Derived.GetEvent(Missing, Instance, Static, Public) = null
+Derived.GetEvent(Missing, IgnoreCase, Instance, Public) = null
+Derived.GetEvent(Missing, Instance, NonPublic) = null
+Derived.GetEvent(Missing, Static, Public, FlattenHierarchy) = null
+Base.GetEvent(Overridable, Instance, Static, Public) = System.EventHandler Overridable @Base/Base
+Base.GetEvent(Overridable, IgnoreCase, Instance, Public) = System.EventHandler Overridable @Base/Base
+Base.GetEvent(Overridable, Instance, NonPublic) = null
+Base.GetEvent(Overridable, Static, Public, FlattenHierarchy) = null
+Derived.GetEvent(Overridable, Instance, Static, Public) = System.EventHandler Overridable @Derived/Derived
+Derived.GetEvent(Overridable, IgnoreCase, Instance, Public) = System.EventHandler Overridable @Derived/Derived
+Derived.GetEvent(Overridable, Instance, NonPublic) = null
+Derived.GetEvent(Overridable, Static, Public, FlattenHierarchy) = null
+Impl.GetEvent(Raised, Instance, Static, Public) = null
+Impl.GetEvent(Raised, IgnoreCase, Instance, Public) = null
+Impl.GetEvent(Raised, Instance, NonPublic) = null
+Impl.GetEvent(Raised, Static, Public, FlattenHierarchy) = null
+ISignal.GetEvent(Raised, Instance, Static, Public) = System.EventHandler Raised @ISignal/ISignal
+ISignal.GetEvent(Raised, IgnoreCase, Instance, Public) = System.EventHandler Raised @ISignal/ISignal
+ISignal.GetEvent(Raised, Instance, NonPublic) = null
+ISignal.GetEvent(Raised, Static, Public, FlattenHierarchy) = null
+Statics.GetEvent(Tick, Instance, Static, Public) = System.Action`1[System.Int32] Tick @Statics/Statics
+Statics.GetEvent(Tick, IgnoreCase, Instance, Public) = null
+Statics.GetEvent(Tick, Instance, NonPublic) = null
+Statics.GetEvent(Tick, Static, Public, FlattenHierarchy) = System.Action`1[System.Int32] Tick @Statics/Statics
+StaticsDerived.GetEvent(Tick, Instance, Static, Public) = null
+StaticsDerived.GetEvent(Tick, IgnoreCase, Instance, Public) = null
+StaticsDerived.GetEvent(Tick, Instance, NonPublic) = null
+StaticsDerived.GetEvent(Tick, Static, Public, FlattenHierarchy) = System.Action`1[System.Int32] Tick @Statics/StaticsDerived
+Base.GetEvent(Secret, Instance, Static, Public) = null
+Base.GetEvent(Secret, IgnoreCase, Instance, Public) = null
+Base.GetEvent(Secret, Instance, NonPublic) = System.EventHandler Secret @Base/Base
+Base.GetEvent(Secret, Static, Public, FlattenHierarchy) = null
+Derived.GetEvent(Secret, Instance, Static, Public) = null
+Derived.GetEvent(Secret, IgnoreCase, Instance, Public) = null
+Derived.GetEvent(Secret, Instance, NonPublic) = null
+Derived.GetEvent(Secret, Static, Public, FlattenHierarchy) = null
+Derived.GetEvent(Guarded, Instance, Static, Public) = null
+Derived.GetEvent(Guarded, IgnoreCase, Instance, Public) = null
+Derived.GetEvent(Guarded, Instance, NonPublic) = System.EventHandler Guarded @Base/Derived
+Derived.GetEvent(Guarded, Static, Public, FlattenHierarchy) = null
+True
+True
+True
+False
+== handlers
+calls 3
+tick 3
+TargetException: Non-static method requires a target.
+TargetException: Object type Base does not match target type System.Object.
+ArgumentException: Object of type 'System.Action`1[System.Int32]' cannot be converted to type 'System.EventHandler'.
+InvalidOperationException: Cannot add the event handler since no public add method exists for the event.
+InvalidOperationException: Cannot remove the event handler since no public remove method exists for the event.
+System.EventHandler Secret
+ArgumentNullException: Value cannot be null. (Parameter 'name')
+1
+== members
+Changed: type=System.EventHandler multicast=True Event declaring=Base reflected=Base attributes=None special=False
+  add=add_Changed remove=remove_Changed raise= publicAdd=add_Changed publicRemove=remove_Changed publicRaise=
+  addPublic=True static=False virtual=False others=0/0
+  param=1 System.EventHandler return=System.Void
+  System.EventHandler Changed
+Hidden: type=System.EventHandler multicast=True Event declaring=Base reflected=Base attributes=None special=False
+  add=add_Hidden remove=remove_Hidden raise= publicAdd=add_Hidden publicRemove=remove_Hidden publicRaise=
+  addPublic=True static=False virtual=False others=0/0
+  param=1 System.EventHandler return=System.Void
+  System.EventHandler Hidden
+Counted: type=System.Action`1[System.Int32] multicast=True Event declaring=Base reflected=Base attributes=None special=False
+  add=add_Counted remove=remove_Counted raise= publicAdd=add_Counted publicRemove=remove_Counted publicRaise=
+  addPublic=True static=False virtual=False others=0/0
+  param=1 System.Action`1[System.Int32] return=System.Void
+  System.Action`1[System.Int32] Counted
+Secret: type=System.EventHandler multicast=True Event declaring=Base reflected=Base attributes=None special=False
+  add=add_Secret remove=remove_Secret raise= publicAdd= publicRemove= publicRaise=
+  addPublic=False static=False virtual=False others=0/0
+  param=1 System.EventHandler return=System.Void
+  System.EventHandler Secret
+Guarded: type=System.EventHandler multicast=True Event declaring=Base reflected=Base attributes=None special=False
+  add=add_Guarded remove=remove_Guarded raise= publicAdd= publicRemove= publicRaise=
+  addPublic=False static=False virtual=False others=0/0
+  param=1 System.EventHandler return=System.Void
+  System.EventHandler Guarded
+Internal: type=System.EventHandler multicast=True Event declaring=Base reflected=Base attributes=None special=False
+  add=add_Internal remove=remove_Internal raise= publicAdd= publicRemove= publicRaise=
+  addPublic=False static=False virtual=False others=0/0
+  param=1 System.EventHandler return=System.Void
+  System.EventHandler Internal
+Overridable: type=System.EventHandler multicast=True Event declaring=Base reflected=Base attributes=None special=False
+  add=add_Overridable remove=remove_Overridable raise= publicAdd=add_Overridable publicRemove=remove_Overridable publicRaise=
+  addPublic=True static=False virtual=True others=0/0
+  param=1 System.EventHandler return=System.Void
+  System.EventHandler Overridable
+ISignal.Raised: type=System.EventHandler multicast=True Event declaring=Impl reflected=Impl attributes=None special=False
+  add=ISignal.add_Raised remove=ISignal.remove_Raised raise= publicAdd= publicRemove= publicRaise=
+  addPublic=False static=False virtual=True others=0/0
+  param=1 System.EventHandler return=System.Void
+  System.EventHandler ISignal.Raised
+Other: type=System.EventHandler multicast=True Event declaring=Impl reflected=Impl attributes=None special=False
+  add=add_Other remove=remove_Other raise= publicAdd=add_Other publicRemove=remove_Other publicRaise=
+  addPublic=True static=False virtual=False others=0/0
+  param=1 System.EventHandler return=System.Void
+  System.EventHandler Other
+Tick: type=System.Action`1[System.Int32] multicast=True Event declaring=Statics reflected=Statics attributes=None special=False
+  add=add_Tick remove=remove_Tick raise= publicAdd=add_Tick publicRemove=remove_Tick publicRaise=
+  addPublic=True static=True virtual=False others=0/0
+  param=1 System.Action`1[System.Int32] return=System.Void
+  System.Action`1[System.Int32] Tick
+Quiet: type=System.EventHandler multicast=True Event declaring=Statics reflected=Statics attributes=None special=False
+  add=add_Quiet remove=remove_Quiet raise= publicAdd= publicRemove= publicRaise=
+  addPublic=False static=True virtual=False others=0/0
+  param=1 System.EventHandler return=System.Void
+  System.EventHandler Quiet
+PerInstance: type=System.EventHandler multicast=True Event declaring=Statics reflected=Statics attributes=None special=False
+  add=add_PerInstance remove=remove_PerInstance raise= publicAdd=add_PerInstance publicRemove=remove_PerInstance publicRaise=
+  addPublic=True static=False virtual=False others=0/0
+  param=1 System.EventHandler return=System.Void
+  System.EventHandler PerInstance
+Tagged: type=System.EventHandler multicast=True Event declaring=Plain reflected=Plain attributes=None special=False
+  add=add_Tagged remove=remove_Tagged raise= publicAdd=add_Tagged publicRemove=remove_Tagged publicRaise=
+  addPublic=True static=False virtual=False others=0/0
+  param=1 System.EventHandler return=System.Void
+  System.EventHandler Tagged
+Old: type=System.EventHandler multicast=True Event declaring=Plain reflected=Plain attributes=None special=False
+  add=add_Old remove=remove_Old raise= publicAdd=add_Old publicRemove=remove_Old publicRaise=
+  addPublic=True static=False virtual=False others=0/0
+  param=1 System.EventHandler return=System.Void
+  System.EventHandler Old
+Untouched: type=System.EventHandler multicast=True Event declaring=Plain reflected=Plain attributes=None special=False
+  add=add_Untouched remove=remove_Untouched raise= publicAdd=add_Untouched publicRemove=remove_Untouched publicRaise=
+  addPublic=True static=False virtual=False others=0/0
+  param=1 System.EventHandler return=System.Void
+  System.EventHandler Untouched
+== attributes
+Tagged: TagAttribute | defined tag=True obsolete=False | first | TagAttribute(first)
+  accessor attributes: CompilerGeneratedAttribute / CompilerGeneratedAttribute | IL Public, HideBySig, SpecialName
+Old: ObsoleteAttribute | defined tag=False obsolete=True |  | ObsoleteAttribute(old)
+  accessor attributes: CompilerGeneratedAttribute / CompilerGeneratedAttribute | IL Public, HideBySig, SpecialName
+Untouched:  | defined tag=False obsolete=False |  | 
+  accessor attributes: CompilerGeneratedAttribute / CompilerGeneratedAttribute | IL Public, HideBySig, SpecialName
+True
+True
+True
+== dynamically accessed
+dump Plain: Tagged, Old, Untouched
+dump Derived: Hidden, Own, Overridable, Changed, Counted, Guarded, Internal
+2

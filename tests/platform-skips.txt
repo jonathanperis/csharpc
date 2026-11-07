@@ -16,6 +16,9 @@ windows 312_json_reader                 live: indented JSON uses the writer's Ne
 windows 314_json_document               live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
 windows 315_json_node                   live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
 windows 318_json_options                live: indented JSON uses the writer's NewLine handling, not the "\n" -> "\r\n" derivation
+macos 970_objectivec_marshal_platform  live: real .NET on macOS runs ObjectiveCMarshal (argument and state errors included); samples 977 and 978 cover its behaviour
+macos 977_objectivec_tracking  live: real .NET runs ObjectiveCMarshal only on macOS (elsewhere it prints "not macOS"); recorded there
+macos 978_objectivec_msgsend  live: real .NET runs ObjectiveCMarshal only on macOS (elsewhere it prints "not macOS"); recorded there
 windows 199_debug_assert_failfast       known gap: a failed Debug.Assert's fail-fast exit status on Windows isn't matched yet (.NET 35, csharpc 127); stdout matches
 windows 07_arrays                       live: writes a bare "\n" itself, next to WriteLine's "\r\n"
 windows 163_number_parse                live: writes a bare "\n" itself, next to WriteLine's "\r\n"
@@ -90,6 +93,9 @@ macos 376_boxed_datetime_composite   live: culture data comes from the OS's ICU 
 windows 376_boxed_datetime_composite   live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
 # WebAssembly (CSHARPC_TEST_TARGET=wasm32-wasip1, tests/platform.sh): one thread, wasm32 C types, WASI
 # errno numbers, no time zone database. Never "live": there is no .NET for plain WASI to record with.
+windows 967_thread_apartment_state     COM apartments exist on Windows: .NET sets STA/MTA there instead of throwing PlatformNotSupportedException
+wasi 967_thread_apartment_state        needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 969_half_culture_formatting     needs a named culture: WebAssembly runs in globalization-invariant mode, where "de-DE" is a CultureNotFoundException
 wasi 120_threads                  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 121_locks_interlocked        needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 123_monitor_wait_pulse       needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
@@ -161,13 +167,10 @@ windows 532_idn_mapping                live: IDNA comes from the OS's ICU (icu.d
 wasi 532_idn_mapping                   no ICU on WASI (invariant globalization mode; 533_idn_mapping_invariant covers that)
 wasi 534_thread_interrupt              needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 windows 534_thread_interrupt              live: Thread.Join is an alertable wait on Windows (an interrupt ends it), not on Unix
-windows 537_compression_streams        known gap: .NET's native compression shim is linked from the NativeAOT runtime pack, which csharpc can't link with MinGW yet
 wasi 537_compression_streams           known gap: no NativeAOT runtime pack (native compression shim) for WebAssembly
-windows 538_aes_cryptostream           known gap: Aes.Create() needs CNG (BCrypt), not implemented yet
 wasi 538_aes_cryptostream              known gap: no OS cipher on WebAssembly (WASI)
-windows 540_tar_zipfile                known gap: .NET's native shims are linked from the NativeAOT runtime pack, which csharpc can't link with MinGW yet
 wasi 540_tar_zipfile                   known gap: no NativeAOT runtime pack (native shims) for WebAssembly
-macos 553_rsa                          known gap: RSA.Create() needs Security.framework (SecKey), not implemented yet
+macos 553_rsa  live: RSA over OpenSSL 3 on macOS (ADR 0022 addendum), recorded from real .NET there
 windows 553_rsa                        known gap: RSA.Create() needs CNG (BCrypt), not implemented yet
 wasi 553_rsa                           known gap: no OS RSA on WebAssembly (WASI)
 wasi 549_async_local                   needs threads: the sample starts a Thread (Thread.Start throws PlatformNotSupportedException on WebAssembly)
@@ -209,3 +212,63 @@ macos 903_stack_trace_socket_connect    live: the socket implementation behind t
 windows 912_directory_not_found_path   live: Path.Combine and the messages use the OS's directory separator
 macos 903_stack_trace_socket_connect  live: a refused connect completes asynchronously on macOS, so .NET's trace takes the ValueTask-to-Task continuation path
 windows 940_expand_environment_variables  live: .NET expands through Win32's ExpandEnvironmentStrings, whose handling of unset names differs from the Unix algorithm
+windows 981_uri_file_paths_unix     Unix-only: "/tmp/x" is an implicit file path only on Unix (new Uri("/tmp/x") is a UriFormatException on Windows), and "//host/x" (UNC) and file:///tmp/x differ there; csharpc reports those as not supported (1210_uri_rooted_path_platform covers the rooted path on both)
+wasi 1031_blocking_collection_threads  needs threads: tasks block in Take/Add/WaitAny until another task signals them, which one thread can't do
+wasi 1020_task_async_state_options     needs threads: it waits on a started task's AsyncWaitHandle and disposes a task a pool worker is blocked in; WebAssembly runs work items one after another
+wasi 1021_task_exceptions_status       needs threads: it spins until a pool worker's task stops Running, which one thread can't observe
+# HttpClient samples (System.Net.Http from IL over csharpc's sockets): loopback servers in the sample itself.
+wasi 1000_httpclient_get                opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1001_httpclient_post               opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1002_httpclient_errors             opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+macos 1002_httpclient_errors            known gap: asynchronous socket operations are blocking calls on the thread pool on macOS (no kqueue engine yet), so a pending read cannot be canceled
+windows 1002_httpclient_errors          known gap: asynchronous socket operations are blocking calls on the thread pool on Windows (no IOCP engine yet), so a pending read cannot be canceled
+wasi 1005_httpclient_handlers           opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1007_httpclient_concurrency        opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1008_socket_await_then_blocking_call opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1009_httpclient_json               opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1010_httpclient_base_address       opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+macos 1000_httpclient_get  known gap: System.Net.Http's system-proxy support (CFNetwork: Marshal.GetFunctionPointerForDelegate) isn't implemented, so HttpClient is an explicit compile error on macOS
+windows 1000_httpclient_get  known gap: System.Net.Http's system-proxy support (HttpWindowsProxy: WinINet, WindowsIdentity, EventWaitHandle) isn't implemented, so HttpClient is an explicit compile error on Windows
+macos 1001_httpclient_post  known gap: System.Net.Http's system-proxy support (CFNetwork: Marshal.GetFunctionPointerForDelegate) isn't implemented, so HttpClient is an explicit compile error on macOS
+windows 1001_httpclient_post  known gap: System.Net.Http's system-proxy support (HttpWindowsProxy: WinINet, WindowsIdentity, EventWaitHandle) isn't implemented, so HttpClient is an explicit compile error on Windows
+macos 1005_httpclient_handlers  known gap: System.Net.Http's system-proxy support (CFNetwork: Marshal.GetFunctionPointerForDelegate) isn't implemented, so HttpClient is an explicit compile error on macOS
+macos 1007_httpclient_concurrency  known gap: System.Net.Http's system-proxy support (CFNetwork: Marshal.GetFunctionPointerForDelegate) isn't implemented, so HttpClient is an explicit compile error on macOS
+windows 1007_httpclient_concurrency  known gap: System.Net.Http's system-proxy support (HttpWindowsProxy: WinINet, WindowsIdentity, EventWaitHandle) isn't implemented, so HttpClient is an explicit compile error on Windows
+macos 1009_httpclient_json  known gap: System.Net.Http's system-proxy support (CFNetwork: Marshal.GetFunctionPointerForDelegate) isn't implemented, so HttpClient is an explicit compile error on macOS
+windows 1009_httpclient_json  known gap: System.Net.Http's system-proxy support (HttpWindowsProxy: WinINet, WindowsIdentity, EventWaitHandle) isn't implemented, so HttpClient is an explicit compile error on Windows
+macos 1010_httpclient_base_address  known gap: System.Net.Http's system-proxy support (CFNetwork: Marshal.GetFunctionPointerForDelegate) isn't implemented, so HttpClient is an explicit compile error on macOS
+
+# TLS and X.509 (docs/adr/0022-tls.md): over OpenSSL 3 on Linux and macOS (Homebrew openssl@3); Windows and WASI are known gaps.
+macos 1100_x509_certificates  live: X.509 over OpenSSL 3 on macOS (ADR 0022 addendum); chain status texts and some messages come from Security.framework in real .NET, recorded there
+windows 1100_x509_certificates  known gap: X.509 certificates, PKCS#12 and chains need CNG/CryptoAPI on Windows, not implemented yet (an explicit NotSupportedException)
+wasi 1100_x509_certificates  known gap: no OpenSSL on WebAssembly (WASI): certificates throw NotSupportedException
+macos 1101_sslstream_loopback  live: SslStream over OpenSSL 3 on macOS (ADR 0022 addendum); real .NET uses SecureTransport (protocol and cipher facts, messages), recorded there
+windows 1101_sslstream_loopback  known gap: SslStream needs SChannel on Windows, not implemented yet (an explicit NotSupportedException)
+wasi 1101_sslstream_loopback  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+macos 1102_sslstream_validation  live: SslStream over OpenSSL 3 on macOS (ADR 0022 addendum); real .NET uses SecureTransport (protocol and cipher facts, messages), recorded there
+windows 1102_sslstream_validation  known gap: SslStream needs SChannel on Windows, not implemented yet (an explicit NotSupportedException)
+wasi 1102_sslstream_validation  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+macos 1103_httpclient_https  live: https over OpenSSL 3 on macOS (ADR 0022 addendum); real .NET uses SecureTransport, recorded there
+windows 1103_httpclient_https  known gap: https needs SslStream (SChannel on Windows, not implemented yet), and the system-proxy gap of HttpClient applies too
+wasi 1103_httpclient_https  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1053_binary_primitives_native_int  nint/nuint are 4 bytes on wasm32: the bytes written and reversed differ from the 64-bit recording
+windows 1057_marshal_memory_copy_strings  live: Marshal's ANSI conversions use the Windows ANSI code page (1252, where é survives), UTF-8 on Linux and macOS
+windows 1058_marshal_variant_bool  known gap: .NET on Windows marshals VARIANT_BOOL fields with its built-in COM support and gives their size; csharpc reports them as unmarshalable there as elsewhere
+windows 1001_httpclient_post            live: the request text it echoes is built with bare "\n"s, next to WriteLine's "\r\n"
+windows 1010_httpclient_base_address    known gap: the corelib's System.Uri rejects drive-less file paths ("/absolute/path") on Windows with an explicit NotSupportedException
+windows 1005_httpclient_handlers        known gap: gzip, deflate and brotli decompression need .NET's native compression shim, which csharpc can't link with MinGW yet (see 537_compression_streams)
+wasi 1141_network_interface_addresses   WASI preview 1 has no network interfaces to enumerate (NotSupportedException)
+macos 1151_unmanaged_function_pointer_libc   loads the Linux sonames "libc.so.6" and "libm.so.6": .NET on macOS throws DllNotFoundException
+windows 1151_unmanaged_function_pointer_libc live: loads the Linux sonames "libc.so.6" and "libm.so.6" (DllNotFoundException on Windows)
+wasi 1151_unmanaged_function_pointer_libc   WASI has no dynamic loading (NativeLibrary.Load fails), and wasm32 C types differ
+wasi 1180_socket_dns_endpoint_fallback  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1181_socket_dns_endpoint_failure_messages  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+wasi 1182_httpclient_localhost_ipv4_server  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+macos 1181_socket_dns_endpoint_failure_messages  the texts and native codes are the OS's: "Connection refused" and errno 111 are Linux's
+windows 1181_socket_dns_endpoint_failure_messages  the texts and native codes are the OS's: Winsock says "No connection could be made because the target machine actively refused it." (10061)
+wasi 1205_taskfactory_from_async_wait_handle  needs threads: FromAsync over an operation that isn't complete waits on its handle through ThreadPool.RegisterWaitForSingleObject (PlatformNotSupportedException on WebAssembly)
+wasi 1211_compression_codecs           known gap: no NativeAOT runtime pack (native compression shim) for WebAssembly
+windows 1210_uri_rooted_path_platform live: a rooted path without a drive is an implicit file path on Unix only; on Windows UriKind.Absolute is a UriFormatException (the platform decides the expectation)
+wasi 1207_socket_close_unread_data  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
+windows 1207_socket_close_unread_data  live: what a close with unread received data sends, and what the peer then reads, is the OS's TCP stack (Winsock)
+wasi 1230_file_set_last_write_time  known gap: File/Directory.SetLastWriteTime[Utc] have no WASI implementation yet (wasi-libc utimensat / path_filestat_set_times is not bound)

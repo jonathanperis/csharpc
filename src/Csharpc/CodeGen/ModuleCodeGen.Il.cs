@@ -93,9 +93,18 @@ public sealed partial class ModuleCodeGen
         return h;
     }
 
-    public bool IsIlType(ITypeSymbol? type) => type is INamedTypeSymbol && Il.Contains(type.ContainingAssembly);
+    public bool IsIlType(ITypeSymbol? type) => type is INamedTypeSymbol named && Il.Contains(type.ContainingAssembly) && !IsShadowedIlType(named);
 
-    public bool IsIlMethod(IMethodSymbol method) => Il.Contains(method.ContainingAssembly);
+    public bool IsIlMethod(IMethodSymbol method) =>
+        Il.Contains(method.ContainingAssembly) && !(method.ContainingType is { } owner && IsShadowedIlType(owner));
+
+    /// <summary>
+    /// A type of an IL assembly that also holds types csharpc implements itself (FrameworkIl.MixedWithShadows:
+    /// System.Net.Primitives) and that has a corelib shadow: its members are the shadow's, never lowered from IL
+    /// (a member the shadow lacks is "has no implementation" as for a reference-assembly type).
+    /// </summary>
+    internal bool IsShadowedIlType(INamedTypeSymbol type) =>
+        Frontend.FrameworkIl.IsMixedWithShadows(type.ContainingAssembly?.Name) && CoreLib.TryMap(type) is not null;
 
     private List<INamedTypeSymbol>? _ilTypes;
 
@@ -117,6 +126,7 @@ public sealed partial class ModuleCodeGen
             }
             // The precompiled corelib's types stay out, as the source corelib's do (ADR 0015).
             foreach (var assembly in Il.Assemblies.Where(a => !a.IsCoreLib)) Collect(assembly.Symbol.GlobalNamespace);
+            types.RemoveAll(IsShadowedIlType);
             return _ilTypes = types;
         }
     }
@@ -335,8 +345,10 @@ public sealed partial class ModuleCodeGen
     private void ReportIlFailures()
     {
         if (_ilFailures.Count == 0 && _ilBoundaries.Count == 0) return;
+        var edgesTimer = Stats.Time("IL failure reachability/edges");
         var edges = _references.GroupBy(r => (ISymbol?)r.From?.OriginalDefinition, SymbolEqualityComparer.Default)
             .ToDictionary(g => g.Key ?? Compilation.Assembly, g => g.ToList(), SymbolEqualityComparer.Default);
+        edgesTimer.Dispose();
         var reached = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
         var followedVirtually = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
         // CSHARPC_WHY=1: how the program reaches each failing method (the first reference chain found).
@@ -362,12 +374,16 @@ public sealed partial class ModuleCodeGen
         // csharpc generates (method tables, type metadata, main), and by lambdas and local functions
         // (their bodies are reached through closures the graph doesn't follow).
         if (ProgramEntryPoint is { } entry) Reach(entry, null);
-        foreach (var root in RuntimeCalledMethods()) Reach(root, null);
-        foreach (var (from, to, isVirtual) in _references)
-            if (from is null || IsNestedFunction(from) || (IsIlMethod(from) ? Il.IsCoreLib(from) : !IsProgramSourceMethod(from))) Follow(from, to, isVirtual);
-        while (work.TryDequeue(out var method))
-            if (edges.TryGetValue(method.OriginalDefinition, out var outgoing))
-                foreach (var (_, to, isVirtual) in outgoing) Follow(method, to, isVirtual);
+        using (Stats.Time("IL failure reachability/roots"))
+        {
+            foreach (var root in RuntimeCalledMethods()) Reach(root, null);
+            foreach (var (from, to, isVirtual) in _references)
+                if (from is null || IsNestedFunction(from) || (IsIlMethod(from) ? Il.IsCoreLib(from) : !IsProgramSourceMethod(from))) Follow(from, to, isVirtual);
+        }
+        using (Stats.Time("IL failure reachability/propagate"))
+            while (work.TryDequeue(out var method))
+                if (edges.TryGetValue(method.OriginalDefinition, out var outgoing))
+                    foreach (var (_, to, isVirtual) in outgoing) Follow(method, to, isVirtual);
 
         foreach (var (method, message) in _ilBoundaries)
             if (reached.Contains(method.OriginalDefinition))

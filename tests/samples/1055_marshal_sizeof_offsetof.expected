@@ -1,0 +1,53 @@
+8
+8
+8
+8
+24
+7
+12
+16
+24
+24
+1
+4
+8
+1
+4
+1
+8
+8
+16
+16
+enum: ArgumentException: Type 'Color' cannot be marshaled as an unmanaged structure; no meaningful size or offset can be computed.
+string: ArgumentException: Type 'System.String' cannot be marshaled as an unmanaged structure; no meaningful size or offset can be computed.
+object: ArgumentException: Type 'System.Object' cannot be marshaled as an unmanaged structure; no meaningful size or offset can be computed.
+array: ArgumentException: Type 'System.Int32[]' cannot be marshaled as an unmanaged structure; no meaningful size or offset can be computed.
+auto layout class: ArgumentException: Type 'AutoClass' cannot be marshaled as an unmanaged structure; no meaningful size or offset can be computed.
+generic: ArgumentException: The specified Type must not be a generic type. (Parameter 't')
+generic struct: ArgumentException: The specified Type must not be a generic type. (Parameter 'T')
+null: ArgumentNullException: Value cannot be null. (Parameter 'structure')
+null type: ArgumentNullException: Value cannot be null. (Parameter 't')
+8
+16
+0
+4
+8
+16
+1
+5
+2
+10
+8
+2
+16
+20
+4
+8
+12
+16
+4
+missing: ArgumentException: Field passed in is not a marshaled member of the type 'Mixed'. (Parameter 'fieldName')
+null name: ArgumentNullException: Value cannot be null. (Parameter 'name')
+4
+8
+null type: ArgumentNullException: Value cannot be null. (Parameter 't')

@@ -45,6 +45,10 @@ public sealed record ProjectInfo
     public DebugSymbolSettings Symbols { get; init; } = new();
     /// <summary>The source generators csc would run and their inputs (from the csc command line the SDK's Compile target computes).</summary>
     public GeneratorInputs? Generators { get; set; }
+    /// <summary>EmbeddedResource files (csc's /resource: arguments): manifest resource name and file.</summary>
+    public List<(string Name, string Path)> EmbeddedResources { get; } = [];
+    /// <summary>The native libraries NuGet selected for the target's runtime identifier (runtimes/&lt;rid&gt;/native): copied next to the executable.</summary>
+    public List<string> NativeAssets { get; } = [];
     public string ProjectDirectory => Path.GetDirectoryName(ProjectPath)!;
 }
 
@@ -62,7 +66,7 @@ public static class ProjectLoader
         "ImplicitUsings", "TargetFramework", "TargetFrameworks", "MSBuildProjectFullPath",
         "StartupObject", "InvariantGlobalization", "PredefinedCulturesOnly", "JsonSerializerIsReflectionEnabledByDefault",
         "AssemblyVersion", "Version", "GenerateAssemblyInfo", "GenerateAssemblyVersionAttribute", "SignAssembly",
-        "Optimize", "DebugType", "DebugSymbols", "PathMap", "CopyDebugSymbolFilesFromPackages",
+        "Optimize", "DebugType", "DebugSymbols", "PathMap", "CopyDebugSymbolFilesFromPackages", "RuntimeIdentifier",
         "TargetFrameworkMoniker", "TargetFrameworkMonikerDisplayName", "GenerateTargetFrameworkAttribute",
     ];
 
@@ -371,7 +375,7 @@ public static class ProjectLoader
         return (invariant, predefined);
     }
 
-    public static ProjectInfo Evaluate(string projectPath, string configuration, IReadOnlyDictionary<string, string>? globalProperties = null)
+    public static ProjectInfo Evaluate(string projectPath, string configuration, IReadOnlyDictionary<string, string>? globalProperties = null, string? runtimeIdentifier = null)
     {
         projectPath = Path.GetFullPath(projectPath);
         if (!File.Exists(projectPath)) throw new FileNotFoundException($"project file '{projectPath}' not found");
@@ -474,7 +478,14 @@ public static class ProjectLoader
             if (!string.Equals(Meta(p, "IsImplicitlyDefined"), "true", StringComparison.OrdinalIgnoreCase))
                 info.PackageReferences.Add(Meta(p, "Identity") + (Meta(p, "Version") is { } v ? " " + v : ""));
 
-        var (packageAssemblies, generators) = ResolveCompilerInputs(projectPath, configuration, globalProperties, info.PackageReferences.Count > 0);
+        // A project with packages is restored for the target's runtime identifier (what `dotnet build -r` and PublishAot
+        // do), so NuGet selects runtimes/<rid>/lib assemblies and runtimes/<rid>/native libraries for it; the RID a
+        // project or the command line sets wins.
+        var rid = info.PackageReferences.Count > 0 && Prop("RuntimeIdentifier") is null && globalProperties?.ContainsKey("RuntimeIdentifier") != true
+            ? runtimeIdentifier : null;
+        var (packageAssemblies, nativeAssets, generators, resources) = ResolveCompilerInputs(projectPath, configuration, globalProperties, info.PackageReferences.Count > 0, rid);
+        info.EmbeddedResources.AddRange(resources);
+        info.NativeAssets.AddRange(nativeAssets);
         // NuGet packages ship assemblies: the runtime assets NuGet selected for this target framework (the
         // implementation assemblies, transitive closure included), compiled from IL like any other
         // <Reference> (docs/adr/0010-il-frontend.md).
@@ -484,7 +495,8 @@ public static class ProjectLoader
     }
 
     /// <summary>
-    /// Restores the project, then runs the SDK's Compile target (ResolveReferences ... CoreCompile; CoreCompile
+    /// Restores the project, then runs the SDK's PrepareResources (a .resx becomes obj/.../Name.resources, which csc
+    /// then gets as /resource:) and Compile targets (ResolveReferences ... CoreCompile; CoreCompile
     /// alone resolves no references nor targeting-pack analyzers) without running the compiler
     /// (SkipCompilerExecution + ProvideCommandLineArgs, what design-time builds use): the Csc task then
     /// reports the command line csc would get. Its /analyzer, /additionalfile, /analyzerconfig and /features
@@ -499,15 +511,17 @@ public static class ProjectLoader
     /// earlier `dotnet build` can't make it skip; referenced projects aren't built (BuildProjectReferences=false)
     /// nor restored here (RestoreRecursive=false: each is evaluated, and restored, on its own, in parallel).
     /// </summary>
-    private static (List<string> PackageAssemblies, GeneratorInputs? Generators) ResolveCompilerInputs(
-        string projectPath, string configuration, IReadOnlyDictionary<string, string>? globalProperties, bool hasPackages)
+    private static (List<string> PackageAssemblies, List<string> NativeAssets, GeneratorInputs? Generators, List<(string Name, string Path)> Resources) ResolveCompilerInputs(
+        string projectPath, string configuration, IReadOnlyDictionary<string, string>? globalProperties, bool hasPackages, string? runtimeIdentifier)
     {
         var directory = Path.GetDirectoryName(projectPath)!;
         var args = new List<string> { "msbuild", projectPath, "-nologo", "-restore", $"-p:Configuration={configuration}",
-            "-t:ResolvePackageAssets;Compile", "-p:SkipCompilerExecution=true", "-p:ProvideCommandLineArgs=true",
+            "-t:ResolvePackageAssets;PrepareResources;Compile", "-p:SkipCompilerExecution=true", "-p:ProvideCommandLineArgs=true",
             "-p:BuildProjectReferences=false", "-p:RestoreRecursive=false", "-p:NonExistentFile=__csharpc_NonExistentFile__",
-            "-getItem:RuntimeCopyLocalItems", "-getItem:CscCommandLineArgs" };
+            "-getItem:RuntimeCopyLocalItems", "-getItem:NativeCopyLocalItems", "-getItem:CscCommandLineArgs" };
         foreach (var (k, v) in globalProperties ?? new Dictionary<string, string>()) args.Add($"-p:{k}={v}");
+        // The apphost and runtime packs of a RID are not needed to select a package's assets: don't restore them.
+        if (runtimeIdentifier is not null) args.AddRange([$"-p:RuntimeIdentifier={runtimeIdentifier}", "-p:UseAppHost=false", "-p:SelfContained=false"]);
         string json;
         try { json = RunDotnet(args, directory); }
         catch (InvalidOperationException e)
@@ -518,9 +532,14 @@ public static class ProjectLoader
         }
         using var doc = JsonDocument.Parse(json);
         List<string> assemblies = [];
+        List<string> natives = [];
         List<string> cscArgs = [];
         if (doc.RootElement.TryGetProperty("Items", out var items))
         {
+            if (items.TryGetProperty("NativeCopyLocalItems", out var nativeAssets))
+                natives.AddRange(nativeAssets.EnumerateArray()
+                    .Select(a => a.TryGetProperty("FullPath", out var p) ? p.GetString() : null)
+                    .OfType<string>().Where(File.Exists));
             if (items.TryGetProperty("RuntimeCopyLocalItems", out var assets))
                 assemblies.AddRange(assets.EnumerateArray()
                     .Select(a => a.TryGetProperty("FullPath", out var p) ? p.GetString() : null)
@@ -530,7 +549,7 @@ public static class ProjectLoader
                 cscArgs.AddRange(cscItems.EnumerateArray().Select(a => a.TryGetProperty("Identity", out var i) ? i.GetString() : null).OfType<string>());
         }
         // A project whose CoreCompile doesn't run the Csc task: the SDK's implicit generators, as for single files.
-        if (cscArgs.Count == 0) return (assemblies, null);
+        if (cscArgs.Count == 0) return (assemblies, natives, null, []);
         // Roslyn's own csc command-line parser: the same quoting and path rules as csc.
         var parsed = Microsoft.CodeAnalysis.CSharp.CSharpCommandLineParser.Default.Parse(cscArgs, directory, sdkDirectory: null);
         var generators = new GeneratorInputs
@@ -541,7 +560,31 @@ public static class ProjectLoader
             Features = parsed.ParseOptions.Features.ToDictionary(),
             GeneratedFilesDirectory = parsed.GeneratedFilesOutputDirectory ?? parsed.OutputDirectory,
         };
-        return (assemblies, generators);
+        return (assemblies, natives, generators, EmbeddedResourceArguments(cscArgs, directory));
+    }
+
+    /// <summary>
+    /// The /resource:file[,name[,private]] arguments of the csc command line: the SDK's CoreCompile has already run
+    /// GenerateResource (a .resx becomes obj/.../Name.resources) and named each file by its manifest resource name.
+    /// Linked resources (/linkresource) are not embedded.
+    /// </summary>
+    private static List<(string Name, string Path)> EmbeddedResourceArguments(IEnumerable<string> cscArgs, string directory)
+    {
+        List<(string Name, string Path)> resources = [];
+        foreach (var argument in cscArgs)
+        {
+            var text = argument.Trim('"');
+            string? value = null;
+            foreach (var prefix in new[] { "/resource:", "-resource:", "/res:", "-res:" })
+                if (text.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)) { value = text[prefix.Length..]; break; }
+            if (value is null) continue;
+            var parts = value.Split(',');
+            var file = Path.GetFullPath(parts[0].Trim('"'), directory);
+            if (!File.Exists(file)) continue; // the item list repeats entries and carries a stray directory
+            var name = parts.Length > 1 && parts[1].Length > 0 ? parts[1] : Path.GetFileName(file);
+            if (!resources.Any(r => r.Name == name)) resources.Add((name, file));
+        }
+        return resources;
     }
 
     /// <summary>
@@ -552,9 +595,9 @@ public static class ProjectLoader
     /// compilations (RoslynFrontend.ProjectDiagnostics), like `dotnet build`.
     /// </summary>
     public static (FrontendSettings Settings, ProjectInfo Root, IReadOnlyList<ProjectInfo> All) Load(
-        string projectPath, string configuration, TextWriter? log = null, IReadOnlyDictionary<string, string>? globalProperties = null)
+        string projectPath, string configuration, TextWriter? log = null, IReadOnlyDictionary<string, string>? globalProperties = null, string? runtimeIdentifier = null)
     {
-        var root = Evaluate(projectPath, configuration, globalProperties);
+        var root = Evaluate(projectPath, configuration, globalProperties, runtimeIdentifier);
         var all = new List<ProjectInfo> { root };
         var seen = new HashSet<string>(StringComparer.Ordinal) { root.ProjectPath };
         // Breadth-first over the reference graph; each level's evaluations run in parallel
@@ -563,28 +606,23 @@ public static class ProjectLoader
         while (level.Count > 0)
         {
             foreach (var reference in level) log?.WriteLine($"  project reference: {reference}");
-            var evaluated = level.AsParallel().AsOrdered().Select(r => Evaluate(r, configuration, globalProperties)).ToList();
+            List<ProjectInfo> evaluated;
+            try { evaluated = level.AsParallel().AsOrdered().Select(r => Evaluate(r, configuration, globalProperties, runtimeIdentifier)).ToList(); }
+            // PLINQ wraps a failed evaluation; the driver reports the original (as for the root project), not a crash.
+            catch (AggregateException e) when (e.Flatten().InnerExceptions.Count > 0)
+            {
+                System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(e.Flatten().InnerExceptions[0]).Throw();
+                throw;
+            }
             all.AddRange(evaluated);
             level = [.. evaluated.SelectMany(p => p.ProjectReferences).Select(Path.GetFullPath).Where(seen.Add)];
         }
 
         var files = all.SelectMany(p => p.Files).Distinct(StringComparer.Ordinal).ToList();
-        // One generator run over the merged program (generators work per declaration, so their output for all
-        // projects' code at once is the projects' outputs together): the root's options, and the analyzers of
-        // the referenced projects the root doesn't have (by file name: a package's copy of an SDK generator
-        // isn't run twice). Additional files of a referenced project would be read with the root's global
-        // options (RootNamespace...), which can change what is generated: not supported.
+        // Source generators run per project, on that project's own compilation with its own analyzers, options and
+        // additional files (RoslynFrontend.Analyze); the merged settings carry the root's, for the parse
+        // features and the JSON contexts csharpc synthesizes for the merged program.
         var generators = root.Generators;
-        foreach (var p in all.Where(p => !ReferenceEquals(p, root) && p.Generators is not null))
-        {
-            if (p.Generators!.AdditionalFiles.Count > 0)
-                throw new InvalidOperationException($"{Path.GetFileName(p.ProjectPath)}: source generator inputs (additional files such as Razor templates: "
-                    + $"{string.Join(", ", p.Generators.AdditionalFiles.Take(3).Select(Path.GetFileName))}) in a referenced project are not supported by csharpc yet");
-            if (generators is null) continue;
-            var names = generators.Analyzers.Select(Path.GetFileName).ToHashSet(StringComparer.OrdinalIgnoreCase);
-            var extra = p.Generators.Analyzers.Where(a => !names.Contains(Path.GetFileName(a))).ToList();
-            if (extra.Count > 0) generators = generators with { Analyzers = [.. generators.Analyzers, .. extra] };
-        }
         var usings = all.SelectMany(p => p.GlobalUsings).Distinct(StringComparer.Ordinal).ToList();
         var settings = new FrontendSettings
         {
@@ -599,8 +637,10 @@ public static class ProjectLoader
             AssemblyInfo = root.AssemblyInfo,
             MainTypeName = root.StartupObject,
             IlReferencePaths = [.. all.SelectMany(p => p.AssemblyReferences).Distinct(StringComparer.Ordinal)],
+            NativeAssets = [.. all.SelectMany(p => p.NativeAssets).Distinct(StringComparer.Ordinal)],
             SharedFrameworks = [.. all.SelectMany(p => p.FrameworkReferences).Distinct(StringComparer.OrdinalIgnoreCase)],
             RuntimeConfig = root.RuntimeConfig,
+            EmbeddedResources = [.. all.SelectMany(p => p.EmbeddedResources.Select(r => new ProgramResource(p.AssemblyName, r.Name, r.Path)))],
             JsonReflectionEnabled = root.JsonReflectionEnabled,
             Symbols = root.Symbols,
             Generators = generators,

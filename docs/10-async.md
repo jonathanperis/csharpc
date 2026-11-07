@@ -70,6 +70,34 @@ by a pointer to one csrt task object (`TypeMapper` maps these library types to `
 { mt, i32 state, i32 payload_size, conts, i32 ncont, i32 lock, exception, aggregate, i32 id, i32 flags, payload @ +56 }
 ```
 
+**Classes deriving from `TaskCompletionSource(<T>)`** (System.Net.Http's connection waiters, Kestrel's) are laid
+out over that struct (`ModuleCodeGen.TaskSources.cs`): the header, `T`'s payload at the fixed offset, then the
+class's own fields; the method table chains to `csrt_Task_MT` (so every task test accepts them, and
+`csrt_object_is_task` walks the chain) and the base constructor stores the payload size. The task creation options
+passed to `base(...)` are ignored, as for `new TaskCompletionSource(options)`.
+
+**Task<T> is told from Task<U> by the method table the task carries** (`ModuleCodeGen.TaskTypes.cs`). The code that
+creates a `Task<T>` (an async method's task, `Task.FromResult`, `new TaskCompletionSource<T>()`, `Task.Run`,
+`WhenAll`/`WhenAny`, `FromException<T>`, a class deriving from `TaskCompletionSource<T>`) stores a per-`T` table in the
+object's header instead of `csrt_Task_MT`: same flags and `Object` virtuals, the name
+`System.Threading.Tasks.Task`1[System.Int32]`, and `csrt_Task_MT` as its base class, so `is Task`, the await fast
+paths and `csrt_object_is_task` (which walk the chain) accept it unchanged and `x is Task<string>`, `(Task<int>)o`
+(`InvalidCastException` with .NET's message), `as`, patterns and `List<Task<T>>`'s `IList` slots are identity tests like
+any class's. The one stored word is the whole cost of a typed task (an async method's allocation, `Task.FromResult` and
+`new TaskCompletionSource<T>()` store it inline; nothing is called). It is pay for play in size: creation sites store a
+placeholder global, and only a program that can tell task types apart (a type test or cast against a `Task<T>`
+or `TaskCompletionSource<T>`, `typeof(Task<T>)`, or `GetType()` on an object, interface or task) gets the tables
+defined (a name and 64 bytes per `T`, plus the type metadata); any other program has the placeholders replaced by
+`csrt_Task_MT` when code generation ends and emits nothing. The non-generic `Task` and `Task<VoidTaskResult>` (what an
+`async Task` method, `Task.Delay` or a result-less `TaskCompletionSource` make in .NET) are one type, the plain table,
+so `is Task<VoidTaskResult>` holds for every task, as the framework's IL expects of its own tasks.
+
+What the tables don't give: `GetType()` of a task an async method, `WhenAll`, `ContinueWith`... made is `Task`1[T]`, where
+.NET names an internal derived class (`AsyncStateMachineBox`...); the result of `is`/casts agrees, the class name doesn't.
+`Task.CompletedTask.GetType()` is `Task` (.NET: `Task`1[VoidTaskResult]`). A `Task<T>` array doesn't check stores through a
+covariant `object[]` (the element table of a task array is empty), and `x is TaskCompletionSource<T>` is true of any
+`Task<T>`, as a source is its task here.
+
 **`ValueTask<T>` is .NET's struct** (`corelib/Tasks/ValueTaskOfT.cs`, a port of .NET's `ValueTask<T>`,
 `ValueTaskAwaiter<T>` and `ConfiguredValueTaskAwaitable<T>`): `{ object _obj, T _result, short _token, bool
 _continueOnCapturedContext }`, where `_obj` is null (the result is inline: a synchronously completed
@@ -86,6 +114,34 @@ allocated before.
 (+40 on wasm32.) `default(ValueTask)` is a null pointer, meaning "completed". `id` is `Task.Id`, assigned
 on first use from one counter as in .NET; `flags` tells `Task.Status` a pending `Task.Run` delegate task
 (`WaitingToRun`, then `Running`) from a promise-style one (`WaitingForActivation`).
+`flags` also has the bits for `Created` (`new Task`, not started), `WaitingForChildrenToComplete` (a task whose
+body is done while attached children aren't) and "created by `Task.Run`" (`Task.CreationOptions` is
+`DenyChildAttach`).
+
+What the object has no field for lives in a `ConditionalWeakTable` keyed by the task
+(`corelib/Tasks/TaskState.cs`), so only tasks that have it pay: `Task.AsyncState` and `Task.CreationOptions`
+(recorded when a task is created with a state or non-default options: `new Task`, `Task.Factory.StartNew`,
+`ContinueWith`, `TaskCompletionSource(state, options)`), and the `ManualResetEvent` behind
+`IAsyncResult.AsyncWaitHandle`. A task implements `IAsyncResult` through slots csrt registers for its method
+table (`ModuleCodeGen.TaskAsyncResultMember`); `Task.Dispose` only checks that the task has completed, as
+.NET's does. `Task.Exception` and the `AggregateException` that `Wait()`/`Result` throw are new objects on
+every read (the task keeps only the inner-exception list), as in .NET; `TaskCanceledException.Task` is a
+field of the exception (`data` in `csrt_Exception`) and its `CancellationToken` is the canceled task's own.
+The task object is the same csrt struct whatever its type: only the table pointer differs.
+
+**`TaskFactory.ContinueWhenAll` / `ContinueWhenAny` / `FromAsync`** (`corelib/Tasks/TaskFactoryOps.cs`, the public
+overloads in `TaskFactoryMembers.cs`; every overload .NET has on `TaskFactory` and `TaskFactory<TResult>`). A multi-task
+continuation is a gate task over a private copy of the antecedents (completed when all, or the first in order, have
+completed, whatever their outcome) that `TaskSupport.ContinueWith` hooks as for `Task.ContinueWith`: the factory's
+default token, continuation options and scheduler apply when the overload does not name them, a token canceled before
+the antecedents finish cancels the continuation at once, `NotOn*`/`OnlyOn*` are rejected, and the argument checks keep
+.NET's exceptions, messages and order (which differs between All and Any). `FromAsync` over an `IAsyncResult` runs the
+end method as a task: inline when the operation is complete (the scheduler is asked through `TryExecuteTaskInline`,
+else `QueueTask`), otherwise from `ThreadPool.RegisterWaitForSingleObject` on its wait handle (so on WebAssembly, which
+has no threads, an incomplete operation is `PlatformNotSupportedException`); an `OperationCanceledException` from the end
+method cancels the task. Begin/End pairs call Begin at once (its exception propagates), complete the promise from the
+callback or, for a `CompletedSynchronously` result, right after Begin returns, and `AsyncState` is the state argument.
+Left out: the type identity of the returned tasks (`GetType()` names `ContinuationResultTaskFromResultTask<,>` etc.).
 
 **Threading model** (.NET semantics for console apps, `src/runtime/async.c`):
 

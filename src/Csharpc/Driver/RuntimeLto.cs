@@ -28,7 +28,12 @@ public static class RuntimeLto
         Internalize(module);
     }
 
-    private static void LinkFiles(LlvmModule module, LlvmContext context, IEnumerable<string> bitcodeFiles)
+    [ThreadStatic] private static string? s_diagnostic;
+
+    [UnmanagedCallersOnly]
+    private static void OnDiagnostic(nint info, nint context) => s_diagnostic = TakeMessage(LLVMGetDiagInfoDescription(info));
+
+    private static unsafe void LinkFiles(LlvmModule module, LlvmContext context, IEnumerable<string> bitcodeFiles)
     {
         foreach (var path in bitcodeFiles)
         {
@@ -36,8 +41,15 @@ public static class RuntimeLto
                 throw new InvalidOperationException($"cannot read runtime bitcode '{path}': {TakeMessage(message)}");
             try
             {
-                if (LLVMParseBitcodeInContext2(context.Ref, buffer, out var runtime) != 0)
-                    throw new InvalidOperationException($"invalid runtime bitcode '{path}'");
+                s_diagnostic = null;
+                LLVMContextSetDiagnosticHandler(context.Ref, &OnDiagnostic, 0);
+                var parsed = LLVMParseBitcodeInContext2(context.Ref, buffer, out var runtime);
+                LLVMContextSetDiagnosticHandler(context.Ref, null, 0);
+                if (parsed != 0)
+                    throw new InvalidOperationException($"invalid runtime bitcode '{path}' ({s_diagnostic ?? "unreadable"}): libLLVM {Native.LlvmVersion.Major} could not read it. "
+                        + "The C compiler that wrote it is probably newer than libLLVM (Apple clang, or a clang from another LLVM): "
+                        + "set CSHARPC_CC (or --cc) to a clang from the same LLVM as libLLVM"
+                        + (Native.LoadedLibraryPath is { } library ? $" ({library})" : "") + ", e.g. $(brew --prefix llvm@18)/bin/clang.");
                 if (LLVMLinkModules2(module.Ref, runtime) != 0) // consumes `runtime`
                     throw new InvalidOperationException($"failed to link runtime bitcode '{path}'");
             }

@@ -25,13 +25,17 @@ public sealed partial class FunctionCodeGen
         // typeof(X).M(...), or typeof(X).GetTypeInfo().M(...) (GetTypeInfo is the identity).
         var reflectedType = inv.Instance as ITypeOfOperation
             ?? (inv.Instance as IInvocationOperation is { TargetMethod.Name: "GetTypeInfo", Arguments: [{ Value: ITypeOfOperation viaInfo }] } ? viaInfo : null);
-        if (reflectedType is not null) NoteReflectedType(target, S(reflectedType.TypeOperand), inv.Arguments is [{ Value.ConstantValue: { HasValue: true, Value: string name } }, ..] ? name : null);
+        var reflectedName = inv.Arguments is [{ Value.ConstantValue: { HasValue: true, Value: string name } }, ..] ? name : null;
+        if (reflectedType is not null) NoteReflectedType(target, S(reflectedType.TypeOperand), reflectedName);
+        // `var t = typeof(X); t.GetFields()`: a local assigned typeof(X) stands for it (FunctionCodeGen.TypeofLocals.cs).
+        else if (inv.Instance is ILocalReferenceOperation && target.ContainingType is { Name: "Type" or "TypeInfo" })
+            foreach (var known in KnownTypeofValues(inv.Instance)) NoteReflectedType(target, S(known), reflectedName);
         if (inv.Instance is { } shadowReceiver && _m.CoreLib.MapForReceiver(target, TypeOf(shadowReceiver)) is { } shadowMember) target = shadowMember;
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
         if (target.IsStatic) CheckJsonSerializerRoots(target, inv);
         if (TypeObjectMember(inv.TargetMethod, inv.Instance) is { } typeMember) return CallBcl(typeMember, inv.TargetMethod, inv.Instance, inv.Arguments, inv);
         if (UnsafeAccessorOf(target) is { } unsafeAccessor) return EmitUnsafeAccessor(target, unsafeAccessor, inv);
-        if (target.IsStatic && TryUnsafeMethod(target, inv) is { } unsafeResult) return unsafeResult;
+        if (target.IsStatic && (TryUnsafeMethod(target, inv) ?? TryMemoryMarshalReference(target, inv) ?? TryMarshalLayoutMethod(target, inv)) is { } unsafeResult) return unsafeResult;
         // `T.Create()` on a static abstract/virtual interface member: after substitution T is concrete.
         if (ResolveStaticInterfaceMember(target, inv.ConstrainedToType) is { } staticImpl)
             return EmitUserCall(staticImpl, default, true, inv.Arguments, isVirtual: false);
@@ -84,6 +88,8 @@ public sealed partial class FunctionCodeGen
         // `: base()` / `: base(delay)` of a class deriving from CancellationTokenSource (ModuleCodeGen.Cancellation.cs).
         if (target.MethodKind == MethodKind.Constructor && inv.Instance is not null && ModuleCodeGen.IsRuntimeCancellationSource(target.ContainingType))
             return EmitCancellationSourceBaseConstructor(target, inv);
+        if (target.MethodKind == MethodKind.Constructor && inv.Instance is not null && ModuleCodeGen.IsRuntimeTaskSource(target.ContainingType))
+            return EmitTaskSourceBaseConstructor(target, inv);
         if (_m.IsUserMethod(target))
         {
             var arguments = inv.Arguments;
@@ -480,6 +486,9 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef Allocate(LLVMValueRef methodTable, LLVMValueRef size)
     {
         _m.NoteConstructed(methodTable); // its vtable slots can be dispatched now (ModuleCodeGen.VTables.cs)
+        // A class with a finalizer registers each instance with the collector (ModuleCodeGen.Finalizers.cs).
+        if (_m.FinalizerThunk(methodTable) is { } finalizer)
+            return CallRuntime("csrt_alloc_finalizable", L.Ptr, [L.Ptr, L.I64, L.Ptr], methodTable, size, finalizer);
         return CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], methodTable, size);
     }
 
@@ -639,12 +648,23 @@ public sealed partial class FunctionCodeGen
         { SpecialType: SpecialType.System_Enum } => _m.ExternalGlobal("csrt_Enum_MT"),
         { SpecialType: SpecialType.System_Delegate } => _m.ExternalGlobal("csrt_Delegate_MT"),
         { SpecialType: SpecialType.System_MulticastDelegate } => _m.ExternalGlobal("csrt_MulticastDelegate_MT"),
-        // Tasks are runtime objects with one method table (docs/10-async.md): `is Task` holds for every task.
-        // A TaskCompletionSource is its task, so a test against TaskCompletionSource(<T>) accepts any task
-        // object (the cast .NET would reject, of a plain Task, is the one csharpc can't tell apart).
+        // Tasks are runtime objects (docs/10-async.md): `is Task` holds for every task. A TaskCompletionSource is
+        // its task, so a test against TaskCompletionSource<T> is the test against the Task<T> it is (the cast
+        // .NET would reject, of a Task<T> that isn't a source, is the one csharpc can't tell apart).
         INamedTypeSymbol { Name: "Task", TypeArguments.Length: 0, ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } }
-            or INamedTypeSymbol { Name: "TaskCompletionSource", ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } } =>
+            or INamedTypeSymbol { Name: "TaskCompletionSource", TypeArguments.Length: 0, ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } } =>
             _m.ExternalGlobal("csrt_Task_MT"),
+        INamedTypeSymbol { Name: "TaskCompletionSource", TypeArguments.Length: 1, ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } } source
+            when _m.TaskTypeOf(source) is { } sourceTask => _m.TaskMethodTable(sourceTask, observed: true),
+        INamedTypeSymbol { Name: "TaskCompletionSource", ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } } =>
+            _m.ExternalGlobal("csrt_Task_MT"),
+        // Task<T> is told from Task<U> by the table the task carries (ModuleCodeGen.TaskTypes.cs); the non-generic
+        // Task and Task<VoidTaskResult> (what a TaskCompletionSource without a result, an async Task method or
+        // Task.Delay make in .NET) are one type here: the plain task table.
+        INamedTypeSymbol { Name: "Task", TypeArguments.Length: 1, ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } } voidTask
+            when voidTask.TypeArguments[0].Name == "VoidTaskResult" => _m.ExternalGlobal("csrt_Task_MT"),
+        INamedTypeSymbol { Name: "Task", TypeArguments.Length: 1, ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } } typed
+            when _m.TaskTypeOf(typed) is { } taskType => _m.TaskMethodTable(taskType, observed: true),
         // Type objects are runtime objects (src/runtime/type.c), all with one method table.
         // They are csharpc's TypeInfo objects too (GetTypeInfo is the identity), as every RuntimeType is a TypeInfo.
         INamedTypeSymbol { Name: "Type", ContainingType: null, ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } }
@@ -657,7 +677,7 @@ public sealed partial class FunctionCodeGen
         INamedTypeSymbol { Name: "Thread" or "Lock", ContainingType: null, ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } named =>
             _m.ExternalGlobal(named.Name == "Thread" ? "csrt_Thread_MT" : "csrt_Lock_MT"),
         _ when IsBoxablePrimitive(type) => _m.ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"),
-        _ when BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) || BclValueTypes.IsBigInteger(type) => _m.TypeMethodTable(type, at),
+        _ when BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) || BclValueTypes.IsBigInteger(type) || Int128Support.Is128(type) => _m.TypeMethodTable(type, at),
         INamedTypeSymbol { TypeKind: TypeKind.Enum } e => _m.EnumMethodTable(e),
         INamedTypeSymbol { TypeKind: TypeKind.Class } named when _m.IsUserType(named) || _m.IsLibraryException(named) =>
             _m.GetLayout(named).MethodTable,
@@ -730,9 +750,10 @@ public sealed partial class FunctionCodeGen
             "GetMethod" or "GetMethods" => ModuleCodeGen.DamMethods,
             "GetConstructor" or "GetConstructors" => ModuleCodeGen.DamConstructors,
             "GetField" or "GetFields" => ModuleCodeGen.DamFields,
+            "GetEvent" or "GetEvents" => ModuleCodeGen.DamEvents,
             _ => 0,
         };
-        if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds, target.Name is "GetProperty" or "GetMethod" or "GetField" ? name : null);
+        if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds, target.Name is "GetProperty" or "GetMethod" or "GetField" or "GetEvent" ? name : null);
     }
 
     /// <summary>Type.GetType(string, ...) or Assembly.GetType(string, ...): a lookup by name.</summary>

@@ -308,16 +308,53 @@ public sealed partial class ModuleCodeGen
         return true;
     }
 
+    /// <summary>The CLR name of a ValueTuple: more than seven elements nest the rest in the eighth type argument.</summary>
+    private string TupleClrName(IReadOnlyList<ITypeSymbol> elements) =>
+        elements.Count <= 7
+            ? "System.ValueTuple`" + elements.Count + "[" + string.Join(",", elements.Select(ClrName)) + "]"
+            : "System.ValueTuple`8[" + string.Join(",", elements.Take(7).Select(ClrName)) + "," + TupleClrName([.. elements.Skip(7)]) + "]";
+
+    /// <summary>
+    /// csc reaches Item8 and up as `ldflda Rest; ldfld ItemN`. The elements are stored flat, so the address of Rest is the
+    /// address of the eighth element, which is also the rest tuple's address when its elements sit at the same relative
+    /// offsets in both (alignment padding can differ).
+    /// </summary>
+    private (LLVMTypeRef Type, uint Index) RestOf(INamedTypeSymbol tuple, ITypeSymbol restType, IFieldSymbol field)
+    {
+        var outer = Types.Value(tuple);
+        var rest = Types.Value(restType);
+        var target = Types.Target;
+        var count = restType is INamedTypeSymbol { IsTupleType: true } r ? r.TupleElements.Length : 1;
+        var aligned = target.OffsetOf(outer, 7) % target.AlignOf(rest) == 0;
+        for (uint i = 0; aligned && i < count; i++)
+            aligned = target.OffsetOf(outer, 7 + i) - target.OffsetOf(outer, 7) == target.OffsetOf(rest, i);
+        if (!aligned) throw CompileError.Unsupported($"the Rest of tuple '{tuple}' (its elements are laid out differently in csharpc's flat tuple)", field);
+        return (outer, 7);
+    }
+
     /// <summary>LLVM struct type + element index of an instance field of a struct or tuple.</summary>
     public (LLVMTypeRef Type, uint Index) ValueTypeField(IFieldSymbol field)
     {
         var owner = field.ContainingType;
+        // csc names the tuple through its metadata type: System.ValueTuple<T1..T7, TRest> (Rest), and ValueTuple<T1> for a
+        // one-element Rest. The flat tuple of all the elements is what csharpc stores.
+        if (!owner.IsTupleType && TypeMapper.IsSystemStruct(owner, "ValueTuple`1") && field.Name == "Item1")
+            return (Types.Value(owner), 0);
+        if (!owner.IsTupleType && TypeMapper.IsSystemStruct(owner, "ValueTuple`8") && field.Name == "Rest")
+        {
+            var flat = new List<ITypeSymbol>(owner.TypeArguments.Take(7));
+            flat.AddRange(owner.TypeArguments[7] is INamedTypeSymbol { IsTupleType: true } restTuple ? restTuple.TupleElements.Select(e => e.Type) : [owner.TypeArguments[7]]);
+            var tuple = Compilation.CreateTupleTypeSymbol([.. flat]);
+            return RestOf(tuple, owner.TypeArguments[7], field);
+        }
+        if (owner.IsTupleType && (field.CorrespondingTupleField ?? field).Name == "Rest" && owner.TupleElements.Length > 7)
+            return RestOf(owner, field.Type, field);
         if (owner.IsTupleType)
         {
             // Named elements (`t.x`) alias the underlying ItemN field.
             var name = (field.CorrespondingTupleField ?? field).Name;
-            if (!name.StartsWith("Item", StringComparison.Ordinal) || !uint.TryParse(name.AsSpan(4), out var n) || n is 0 or > 7)
-                throw CompileError.Unsupported($"tuple field '{field.Name}'", field);
+            if (!name.StartsWith("Item", StringComparison.Ordinal) || !uint.TryParse(name.AsSpan(4), out var n) || n == 0 || n > owner.TupleElements.Length)
+                throw CompileError.Unsupported($"tuple field '{field.Name}'" + (name == "Rest" ? " (csharpc flattens tuples of more than seven elements)" : ""), field);
             return (Types.Value(owner), n - 1);
         }
         var layout = GetStructLayout(owner);
@@ -386,11 +423,15 @@ public sealed partial class ModuleCodeGen
         return (map, entries.Count);
     }
 
-    /// <summary>thunk(box, args...) => method(box + 8, args...)</summary>
-    private LLVMValueRef UnboxingThunk(IMethodSymbol method)
+    private readonly Dictionary<nint, LLVMValueRef> _unboxingThunks = [];
+
+    /// <summary>thunk(box, args...) => method(box + 8, args...); one per method (vtable and interface slots, delegates share it).</summary>
+    internal LLVMValueRef UnboxingThunk(IMethodSymbol method)
     {
         var target = GetFunction(method);
+        if (_unboxingThunks.TryGetValue(target.Fn.Handle, out var existing)) return existing;
         var fn = Module.AddFunction(Mangler.Method(method) + "$unbox", target.Type);
+        _unboxingThunks[target.Fn.Handle] = fn;
         Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
         using var b = new IrBuilder(Llvm);
         b.PositionAtEnd(b.AppendBlock(fn, "entry"));
@@ -464,7 +505,7 @@ public sealed partial class ModuleCodeGen
         var equals = Make("Equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr);
         var hash = Make("GetHashCode", Llvm.I32, Llvm.Ptr);
         var size = 8 + Types.Target.SizeOf(Types.Value(tuple));
-        var name = "System.ValueTuple`" + tuple.TupleElements.Length + "[" + string.Join(",", tuple.TupleElements.Select(e => ClrName(e.Type))) + "]";
+        var name = TupleClrName(tuple.TupleElements.Select(e => e.Type).ToList());
         Native.LLVMSetInitializer(global, Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(name),
             Llvm.ConstInt(Llvm.I32, (long)size), Llvm.ConstInt(Llvm.I32, 64 /* CSRT_MT_VALUE_TYPE */), LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.ConstArray(Llvm.Ptr, toString.Fn, equals.Fn, hash.Fn)));

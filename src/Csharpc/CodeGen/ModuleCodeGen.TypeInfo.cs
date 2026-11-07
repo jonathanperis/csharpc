@@ -10,7 +10,7 @@ public sealed record ProgramAssembly(string Name, string? Version, IReadOnlySet<
     public static IReadOnlyList<ProgramAssembly> From(FrontendSettings settings, string assemblyName) =>
         settings.Projects.Count > 0
             ? [.. settings.Projects.Select(p => new ProgramAssembly(p.AssemblyName, p.AssemblyVersion,
-                p.Files.Select(Path.GetFullPath).ToHashSet(StringComparer.Ordinal), p.IsRoot))]
+                p.Files.Select(Path.GetFullPath).Concat(RoslynFrontend.GeneratedFilesOf(p.ProjectPath)).ToHashSet(StringComparer.Ordinal), p.IsRoot))]
             : [new ProgramAssembly(assemblyName, settings.AssemblyVersion, new HashSet<string>(), IsRoot: true)];
 }
 
@@ -326,7 +326,7 @@ public sealed partial class ModuleCodeGen
             {
                 // Only types whose FullName differs from the method table's name (ToString's form).
                 if (type is ITypeSymbol symbol && IsOpenInstance(symbol)) continue;
-                if (type is DisplayClassType or RuntimeTypeMarker) continue; // FullName is the method table's name
+                if (type is DisplayClassType or RuntimeTypeMarker or SynthesizedType) continue; // FullName is the method table's name
                 var real = type is GenericParameter ? null : RealType((ITypeSymbol)type);
                 if (real is not null && !HasGenericArguments(real) && !IsCoreLibInternal(real)) continue;
                 var unknown = false;
@@ -576,6 +576,7 @@ public sealed partial class ModuleCodeGen
     [
         ("csrt_Boxed_Decimal_MT", "System.Decimal"), ("csrt_Boxed_TimeSpan_MT", "System.TimeSpan"),
         ("csrt_Boxed_DateTime_MT", "System.DateTime"), ("csrt_Boxed_BigInteger_MT", "System.Numerics.BigInteger"),
+        ("csrt_Boxed_Int128_MT", "System.Int128"), ("csrt_Boxed_UInt128_MT", "System.UInt128"),
     ];
 
     /// <summary>The method table reflection hands out for a type (typeof's).</summary>
@@ -598,6 +599,7 @@ public sealed partial class ModuleCodeGen
     private TypeInfoRecord TypeInfoRecordFor(LLVMValueRef mt, object described)
     {
         if (described is DisplayClassType displayClass) return DisplayClassRecord(mt, displayClass);
+        if (described is SynthesizedType synthesized) return SynthesizedRecord(mt, synthesized);
         if (described is RuntimeTypeMarker) return RuntimeTypeRecord(mt);
         var none = LlvmContext.Null(Llvm.Ptr);
         LLVMValueRef baseMt = none, element = none, definition = none, declaring = none, arguments = none;
@@ -765,7 +767,7 @@ public sealed partial class ModuleCodeGen
                 if (named.ContainingType is null)
                     f |= named.DeclaredAccessibility == Accessibility.Public ? TI.Public : TI.NotPublic;
                 else
-                    f |= TI.Nested | named.DeclaredAccessibility switch
+                    f |= TI.Nested | NestedAccessibility(named) switch
                     {
                         Accessibility.Public => TI.NestedPublic,
                         Accessibility.Private => TI.NestedPrivate,
@@ -805,6 +807,24 @@ public sealed partial class ModuleCodeGen
         };
 
     /// <summary>Type.IsVisible: public all the way out, and so are the type arguments.</summary>
+    /// <summary>
+    /// A nested type's accessibility: the program's own private nested types are bound as internal when its
+    /// reflection-based JSON metadata is generated (JsonReflectionContexts.WithPrivateNestedTypesInternal), so
+    /// those read the real one from the assembly.
+    /// </summary>
+    private Accessibility NestedAccessibility(INamedTypeSymbol type)
+    {
+        if (type.DeclaredAccessibility == Accessibility.Internal && Il.OwnerOf(type) is { IsCoreLib: false } owner && type.OriginalDefinition is { } definition)
+            return (owner.AttributesOf(definition) & System.Reflection.TypeAttributes.VisibilityMask) switch
+            {
+                System.Reflection.TypeAttributes.NestedPrivate => Accessibility.Private,
+                System.Reflection.TypeAttributes.NestedFamily => Accessibility.Protected,
+                System.Reflection.TypeAttributes.NestedFamANDAssem => Accessibility.ProtectedAndInternal,
+                _ => Accessibility.Internal,
+            };
+        return type.DeclaredAccessibility;
+    }
+
     private static bool IsVisible(ITypeSymbol type) => type switch
     {
         IArrayTypeSymbol array => IsVisible(array.ElementType),

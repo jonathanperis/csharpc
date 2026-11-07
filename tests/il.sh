@@ -21,7 +21,7 @@ set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOTNET="${DOTNET:-dotnet}"
-export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1
+export DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1 NuGetAudit=false
 WORK="$(cd "$(mktemp -d)" && pwd -P)"
 trap 'rm -rf "$WORK"' EXIT
 FILTER="${1:-}"
@@ -109,6 +109,24 @@ if [[ -z "$FILTER" || "IlApp" == *"$FILTER"* ]]; then
   else echo "FAIL IlApp: csharpc IlApp.dll"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
 fi
 
+# 3b2. A self-contained build as IL: the framework's implementation assemblies sit next to the app and are
+#      not references (deps.json's runtime pack); csharpc binds and compiles its own framework instead.
+if [[ -z "$FILTER" || "IlSelfContainedApp" == *"$FILTER"* ]]; then
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) rid=osx-arm64 ;; Darwin-*) rid=osx-x64 ;; MINGW*|MSYS*|CYGWIN*) rid=win-x64 ;;
+    Linux-aarch64|Linux-arm64) rid=linux-arm64 ;; *) rid=linux-x64 ;;
+  esac
+  sc="$WORK/il-selfcontained/IlSelfContainedApp"
+  mkdir -p "$WORK/il-selfcontained" && cp -r "$ROOT/tests/projects/il-selfcontained/IlSelfContainedApp" "$sc"
+  (cd "$sc" && "$DOTNET" run -v quiet -p:IlRid="$rid" 2>/dev/null) > "$WORK/expected"
+  rm -rf "$sc/bin" "$sc/obj"
+  if "$DOTNET" build "$sc/IlSelfContainedApp.csproj" -c Release -p:IlRid="$rid" -o "$WORK/scmain" -v quiet -nologo > "$WORK/log" 2>&1 \
+     && [[ -f "$WORK/scmain/System.Private.CoreLib.dll" ]] \
+     && "$DOTNET" "$CSHARPC_DLL" "$WORK/scmain/IlSelfContainedApp.dll" -O0 -o "$WORK/scmain-exe/" > "$WORK/log" 2>&1; then
+    "$WORK/scmain-exe/IlSelfContainedApp" > "$WORK/actual" 2>&1; check "IlSelfContainedApp: csharpc IlSelfContainedApp.dll (a self-contained build)" "$WORK/expected" "$WORK/actual"
+  else echo "FAIL IlSelfContainedApp: csharpc IlSelfContainedApp.dll"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+fi
+
 # 3c. A web app as IL: its runtimeconfig.json lists Microsoft.AspNetCore.App, which csharpc references as the
 #     host would load it (no --framework).
 if [[ -z "$FILTER" || "IlAspNetCoreApp" == *"$FILTER"* ]]; then
@@ -119,6 +137,43 @@ if [[ -z "$FILTER" || "IlAspNetCoreApp" == *"$FILTER"* ]]; then
     (cd "$WORK/il/IlAspNetCoreApp" && "$WORK/webmain-exe/IlAspNetCoreApp") > "$WORK/actual" 2>&1
     check "IlAspNetCoreApp: csharpc IlAspNetCoreApp.dll (frameworks from runtimeconfig.json)" "$WORK/expected" "$WORK/actual"
   else echo "FAIL IlAspNetCoreApp: csharpc IlAspNetCoreApp.dll"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+fi
+
+# 3d. RID-specific package assets: RidPkg (built here into a local feed) ships a portable lib/ assembly, a different
+#     assembly under runtimes/<rid>/lib and a native library under runtimes/<rid>/native. The host picks the
+#     runtime-specific ones; csharpc must too, from the project (NuGet restore for the target's RID) and from the
+#     program as IL (deps.json runtimeTargets), and put the native library next to the executable.
+if [[ -z "$FILTER" || "RidApp" == *"$FILTER"* ]]; then
+  case "$(uname -s)-$(uname -m)" in
+    Darwin-arm64) rid=osx-arm64; native_name=libridnative.dylib; native_flags="-dynamiclib" ;;
+    Darwin-*) rid=osx-x64; native_name=libridnative.dylib; native_flags="-dynamiclib" ;;
+    MINGW*|MSYS*|CYGWIN*) rid=win-x64; native_name=ridnative.dll; native_flags="-shared" ;;
+    Linux-aarch64|Linux-arm64) rid=linux-arm64; native_name=libridnative.so; native_flags="-shared -fPIC" ;;
+    *) rid=linux-x64; native_name=libridnative.so; native_flags="-shared -fPIC" ;;
+  esac
+  rd="$WORK/il-rid"; mkdir -p "$rd" && cp -r "$ROOT/tests/projects/il-rid/." "$rd/"
+  feed="$rd/feed"
+  # (the package is built once; every step below is plain dotnet and clang)
+  if "$DOTNET" build "$rd/RidPkgPortable/RidPkg.csproj" -c Release -o "$rd/out-portable" -v quiet -nologo > "$WORK/log" 2>&1 \
+     && "$DOTNET" build "$rd/RidPkgSpecific/RidPkg.csproj" -c Release -o "$rd/out-specific" -v quiet -nologo >> "$WORK/log" 2>&1 \
+     && clang $native_flags -o "$rd/$native_name" "$rd/native/ridnative.c" >> "$WORK/log" 2>&1 \
+     && "$DOTNET" pack "$rd/RidPackage/RidPkg.Pack.csproj" -c Release -o "$feed" -v quiet -nologo -p:PortableDll="$rd/out-portable/RidPkg.dll" \
+          -p:SpecificDll="$rd/out-specific/RidPkg.dll" -p:PackRid="$rid" -p:NativeLibrary="$rd/$native_name" >> "$WORK/log" 2>&1; then
+    feed_path="$(cd "$feed" && (pwd -W 2>/dev/null || pwd))"
+    printf '<configuration><packageSources><clear/><add key="local" value="%s"/></packageSources></configuration>\n' "$feed_path" > "$rd/RidApp/nuget.config"
+    (cd "$rd/RidApp" && "$DOTNET" run -v quiet 2>/dev/null) > "$WORK/expected"
+    rm -rf "$rd/RidApp/bin" "$rd/RidApp/obj"
+    for opt in -O0 -O2; do
+      if "$DOTNET" "$CSHARPC_DLL" "$rd/RidApp/RidApp.csproj" "$opt" -o "$WORK/rid$opt/RidApp" > "$WORK/log" 2>&1; then
+        "$WORK/rid$opt/RidApp" > "$WORK/actual" 2>&1; check "RidApp $opt: runtimes/<rid> assets from the project" "$WORK/expected" "$WORK/actual"
+      else echo "FAIL RidApp $opt: csharpc RidApp.csproj"; sed 's/^/     /' "$WORK/log" | head -20; fail=$((fail+1)); fi
+    done
+    rm -rf "$rd/RidApp/bin" "$rd/RidApp/obj"
+    if "$DOTNET" build "$rd/RidApp/RidApp.csproj" -c Release -o "$WORK/ridmain" -v quiet -nologo > "$WORK/log" 2>&1 \
+       && "$DOTNET" "$CSHARPC_DLL" "$WORK/ridmain/RidApp.dll" -O0 -o "$WORK/ridmain-exe/RidApp" > "$WORK/log" 2>&1; then
+      "$WORK/ridmain-exe/RidApp" > "$WORK/actual" 2>&1; check "RidApp: runtimes/<rid> assets of the program as IL (deps.json)" "$WORK/expected" "$WORK/actual"
+    else echo "FAIL RidApp: csharpc RidApp.dll"; sed 's/^/     /' "$WORK/log" | head -20; fail=$((fail+1)); fi
+  else echo "FAIL RidApp: building the RidPkg test package"; sed 's/^/     /' "$WORK/log" | head -20; fail=$((fail+1)); fi
 fi
 
 # 4. --framework-il (docs/adr/0013-framework-il.md): framework assemblies the program uses are compiled

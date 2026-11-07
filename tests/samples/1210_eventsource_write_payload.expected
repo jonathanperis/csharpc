@@ -1,0 +1,146 @@
+-- name only
+[wide] event id=-1 nameNull=False name=NameOnly level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=null
+  payload=null
+-- null name
+[wide] event id=-1 nameNull=True name= level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=null
+  payload=null
+-- null name with data
+[wide] event id=-1 nameNull=True name= level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[A]
+  payload=[Int32:1]
+-- name and options only
+[wide] event id=-1 nameNull=False name=OptionsOnly level=Critical kw=3 opcode=Info tags=None act=empty rel=empty
+  names=null
+  payload=null
+-- anonymous
+[wide] event id=-1 nameNull=False name=Anon level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[A,B,C]
+  payload=[Int32:1 | "two" | Double:3.5]
+-- property order
+[wide] event id=-1 nameNull=False name=Ord level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[Z,A,M]
+  payload=[Int32:1 | Int32:2 | Int32:3]
+-- empty anonymous
+[wide] event id=-1 nameNull=False name=Empty level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=null
+  payload=null
+-- EventData class
+[wide] event id=-1 nameNull=False name=Req level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[Url,Status]
+  payload=["u" | Int32:200]
+-- EventData class, ignore and fields
+[wide] event id=-1 nameNull=False name=Req2 level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[Url,Size]
+  payload=["p" | Int64:5]
+-- EventData struct
+[wide] event id=-1 nameNull=False name=Pt level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[X,Y]
+  payload=[Int32:3 | Int32:4]
+-- inherited
+[wide] event id=-1 nameNull=False name=Inh level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[Extra,Url,Status]
+  payload=[Boolean:True | "u" | Int32:200]
+-- accessors
+[wide] event id=-1 nameNull=False name=Acc level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[A,B,C,D,V]
+  payload=[Int32:1 | Int32:2 | Int32:3 | Int32:4 | Int32:7]
+-- scalars
+[wide] event id=-1 nameNull=False name=Scalars level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[B,By,Sb,S,Us,I,U,L,Ul,F,D,C,G,T,Dto,Ts,Dec,P,Up,Col,Perm,Str,NullStr,EmptyStr,NI,NN,NC,NG]
+  payload=[Boolean:True | Byte:1 | SByte:-1 | Int16:-2 | UInt16:3 | Int32:-4 | UInt32:4 | Int64:-5 | UInt64:5 | Single:1.5 | Double:2.5 | Char:x | Guid:01234567-89ab-cdef-0123-456789abcdef | DateTime:01/02/2020 03:04:05 | DateTimeOffset:01/02/2020 03:04:05 +00:00 | TimeSpan:00:00:03 | Decimal:1.25 | IntPtr:7 | UIntPtr:8 | Color:Green | Perms:Read, Write | "text" | "" | "" | Int32:5 | null | Color:Red | null]
+-- arrays
+[wide] event id=-1 nameNull=False name=Arrays level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[Ints,Longs,Doubles,Guids,Bools,Chars,Bytes,Shorts,Floats,Colors,Reqs,NullableInts,Dates,Decimals,Spans,Empty]
+  payload=[Int32[][Int32:1,Int32:2,Int32:3] | Int64[][Int64:4] | null | Guid[][Guid:00000000-0000-0000-0000-000000000000] | Boolean[][Boolean:True] | Char[][Char:a] | Byte[][Byte:1,Byte:2] | Int16[][Int16:-1] | Single[][Single:1.5] | Object[][Color:Red,Color:Green] | Object[][{Url="u", Status=Int32:200},{Url="v", Status=Int32:200}] | Object[][Int32:1,null] | Object[][DateTime:01/01/2020 00:00:00] | Object[][Decimal:1.5] | Object[][TimeSpan:00:00:00] | Int32[][]]
+-- nested
+[wide] event id=-1 nameNull=False name=Nest level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[Name,P,Inner,MaybePt]
+  payload=["n" | {X=Int32:1, Y=Int32:2} | {Url="u", Status=Int32:200} | null]
+-- nested anonymous
+[wide] event id=-1 nameNull=False name=NestAnon level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[Outer,Inner,Items]
+  payload=[Int32:1 | {X=Int32:1, Y="y"} | Object[][{X=Int32:1},{X=Int32:2}]]
+-- anonymous enums, nullables
+[wide] event id=-1 nameNull=False name=AnonEnum level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[C,F,N,M,S]
+  payload=[Color:Red | Perms:Read | null | Int32:3 | ""]
+-- options
+[wide] event id=-1 nameNull=False name=Opt level=Warning kw=10 opcode=Start tags=32 act=empty rel=empty
+  names=[X]
+  payload=[Int32:1]
+-- ref options
+[wide] event id=-1 nameNull=False name=RefOpt level=Error kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[X]
+  payload=[Int32:1]
+-- level LogAlways
+[wide] event id=-1 nameNull=False name=LA level=LogAlways kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[X]
+  payload=[Int32:1]
+-- opcode stop
+[wide] event id=-1 nameNull=False name=Stop level=Verbose kw=0 opcode=Stop tags=None act=empty rel=empty
+  names=[X]
+  payload=[Int32:1]
+-- activity ids
+[wide] event id=-1 nameNull=False name=ActRel level=Verbose kw=0 opcode=Info tags=None act=11111111 rel=22222222
+  names=[X]
+  payload=[Int32:1]
+[wide] event id=-1 nameNull=False name=ThreadAct level=Verbose kw=0 opcode=Info tags=None act=33333333 rel=empty
+  names=[X]
+  payload=[Int32:1]
+[wide] event id=-1 nameNull=False name=ExplicitEmpty level=Verbose kw=0 opcode=Info tags=None act=33333333 rel=22222222
+  names=[X]
+  payload=[Int32:1]
+-- declared and self-describing events mix
+[wide] event id=1 nameNull=False name=Declared level=Informational kw=f00000000000 opcode=Info tags=None act=empty rel=empty
+  names=[what,n]
+  payload=["declared" | Int32:7]
+[wide] event id=-1 nameNull=False name=FromHelper level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[What,Count]
+  payload=["helper" | Int32:3]
+-- default struct
+[wide] event id=-1 nameNull=False name=DefaultPt level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[X,Y]
+  payload=[Int32:0 | Int32:0]
+== a listener with a narrower filter, alone
+[narrow] event id=-1 nameNull=False name=InfoNoKeywords level=Informational kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[A]
+  payload=[Int32:2]
+[narrow] event id=-1 nameNull=False name=InfoKeyword2 level=Informational kw=2 opcode=Info tags=None act=empty rel=empty
+  names=[A]
+  payload=[Int32:3]
+[narrow] event id=-1 nameNull=False name=ErrorKeyword2 level=Error kw=2 opcode=Info tags=None act=empty rel=empty
+  names=[A]
+  payload=[Int32:5]
+== and next to a listener that takes everything: the source-wide filter is the widest
+[wide2] event id=-1 nameNull=False name=DefaultLevelVerbose level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[A]
+  payload=[Int32:1]
+[narrow] event id=-1 nameNull=False name=DefaultLevelVerbose level=Verbose kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[A]
+  payload=[Int32:1]
+[wide2] event id=-1 nameNull=False name=InfoNoKeywords level=Informational kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[A]
+  payload=[Int32:2]
+[narrow] event id=-1 nameNull=False name=InfoNoKeywords level=Informational kw=0 opcode=Info tags=None act=empty rel=empty
+  names=[A]
+  payload=[Int32:2]
+[wide2] event id=-1 nameNull=False name=InfoKeyword2 level=Informational kw=2 opcode=Info tags=None act=empty rel=empty
+  names=[A]
+  payload=[Int32:3]
+[narrow] event id=-1 nameNull=False name=InfoKeyword2 level=Informational kw=2 opcode=Info tags=None act=empty rel=empty
+  names=[A]
+  payload=[Int32:3]
+[wide2] event id=-1 nameNull=False name=InfoKeyword4 level=Informational kw=4 opcode=Info tags=None act=empty rel=empty
+  names=[A]
+  payload=[Int32:4]
+[narrow] event id=-1 nameNull=False name=InfoKeyword4 level=Informational kw=4 opcode=Info tags=None act=empty rel=empty
+  names=[A]
+  payload=[Int32:4]
+[wide2] event id=-1 nameNull=False name=ErrorKeyword2 level=Error kw=2 opcode=Info tags=None act=empty rel=empty
+  names=[A]
+  payload=[Int32:5]
+[narrow] event id=-1 nameNull=False name=ErrorKeyword2 level=Error kw=2 opcode=Info tags=None act=empty rel=empty
+  names=[A]
+  payload=[Int32:5]

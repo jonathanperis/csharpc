@@ -673,9 +673,10 @@ public sealed partial class FunctionCodeGen
         }
         var ret = signature.ReturnType;
         var returnsVoid = !ret.IsByRef && ret.Type.SpecialType == SpecialType.System_Void;
-        var type = L.FunctionType(ret.IsByRef ? L.Ptr : returnsVoid ? L.Void : T.Value(S(ret.Type)),
-            [.. parameters.Select(p => p.IsByRef ? L.Ptr : T.Value(S(p.Type)))]);
-        var result = _b.Call(type, fn, args);
+        // The same function pointer type the C# `delegate*` of this call site has, so both paths share one call lowering.
+        var pointerType = (IFunctionPointerTypeSymbol)_m.Compilation.CreateFunctionPointerTypeSymbol(S(ret.Type), ret.IsByRef ? RefKind.Ref : RefKind.None,
+            [.. parameters.Select(p => S(p.Type))], [.. parameters.Select(p => p.IsByRef ? RefKind.Ref : RefKind.None)], signature.Header.CallingConvention);
+        var result = CallFunctionPointer(pointerType.Signature, fn, args);
         if (returnsVoid) return;
         stack.Push(ret.IsByRef ? new IlEntry(IlKind.ByRef, result, ret.Type) : IlPush(result, ret.Type));
     }
@@ -911,7 +912,8 @@ public sealed partial class FunctionCodeGen
         var local = IlLocal(index);
         var slot = IlLocalSlot(index);
         if (local.IsByRef) return new IlEntry(IlKind.ByRef, _b.Load(L.Ptr, slot), local.Type);
-        return IlPush(LoadValue(slot, S(local.Type)), local.Type);
+        var loaded = IlPush(LoadValue(slot, S(local.Type)), local.Type);
+        return IsSystemType(local.Type) ? loaded with { FromLocal = index } : loaded;
     }
 
     private void IlStoreLocal(int index, IlEntry value)
@@ -1218,8 +1220,7 @@ public sealed partial class FunctionCodeGen
         LLVMValueRef address;
         if (op is ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld)
         {
-            if (TypeSubstitution.IsGenericContext(e.ContainingType)) throw new IlException($"static event '{e}' of a generic type");
-            address = _m.StaticEventField(e);
+            address = StaticEventSlot(e);
         }
         else
         {

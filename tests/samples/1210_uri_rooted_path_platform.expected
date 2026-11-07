@@ -1,0 +1,11 @@
+new Uri(/absolute/path, Absolute): absolute file file:///absolute/path | /absolute/path | /absolute/path | True | TryCreate True True
+new Uri(/absolute/path, Relative): relative [/absolute/path] | TryCreate True False
+new Uri(/absolute/path, RelativeOrAbsolute): relative [/absolute/path] | TryCreate True False
+new Uri(/, Absolute): absolute file file:/// | / | / | True | TryCreate True True
+new Uri(/, Relative): relative [/] | TryCreate True False
+new Uri(/, RelativeOrAbsolute): relative [/] | TryCreate True False
+new Uri(/dir/x?q=1, Relative): relative [/dir/x?q=1] | TryCreate True False
+new Uri(/dir/x?q=1, RelativeOrAbsolute): relative [/dir/x?q=1] | TryCreate True False
+/absolute/path -> http://example.com/absolute/path | http://example.com/absolute/path
+items/1 -> http://example.com/api/v1/items/1 | http://example.com/api/v1/items/1
+/dir/x?q=1 -> http://example.com/dir/x?q=1 | http://example.com/dir/x?q=1

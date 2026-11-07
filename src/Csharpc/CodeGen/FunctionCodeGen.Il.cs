@@ -25,6 +25,8 @@ internal sealed record IlEntry(IlKind Kind, LLVMValueRef Value, ITypeSymbol? Typ
 {
     public ISymbol? Symbol { get; init; }         // MethodPtr: the method; Token: the type/field
     public IlEntry? Target { get; init; }         // ldvirtftn: the receiver
+    /// <summary>The local a System.Type value was loaded from: the `typeof`s stored into it count for reflection (FunctionCodeGen.TypeofLocals.cs).</summary>
+    public int? FromLocal { get; init; }
     public bool IsThis { get; init; }
     public bool NonNull { get; init; }
     /// <summary>
@@ -156,6 +158,9 @@ public sealed partial class FunctionCodeGen
             }
             il.Locals[i] = _allocas.Alloca(storage, $"loc{i}");
             _allocas.Store(LlvmContext.Null(storage), il.Locals[i]);
+            // -g: the PDB's names for the locals.
+            if (_dbg?.Il is { } lines && !local.IsByRef && lines.LocalNames.TryGetValue(i, out var localName))
+                _dbg.Owner.DeclareVariable(_dbg, il.Locals[i], localName, S(local.Type), null, 0, _entry);
         }
 
         if (IsRuntimeAsync(body.Assembly, body.Method)) BeginCoroutine(CoroutineKind.Async);
@@ -335,6 +340,7 @@ public sealed partial class FunctionCodeGen
             var instruction = IlBody.Instructions[i];
             il.Current = instruction;
             _ilIndex = i;
+            if (_dbg?.Il is not null) _dbg.SetIlLocation(_b, instruction.Offset);
             try { terminated = EmitIlInstruction(instruction, stack, block); }
             catch (IlException e) { throw IlError(e.Message); }
             catch (CompileError e) when (!e.Message.Contains(" [in '", StringComparison.Ordinal)) { throw IlError(e.Message, e.Id, e.Location); }
@@ -399,7 +405,12 @@ public sealed partial class FunctionCodeGen
     /// <summary>Hands the current stack to a successor block: its entry slots receive the values.</summary>
     private void IlTransfer(IlBlock target, Stack<IlEntry> stack)
     {
-        var values = stack.Reverse().ToList(); // bottom first
+        // A plain `ldftn` (`&M`) crossing a branch becomes its code pointer: csc pushes the function pointer
+        // argument first and the cached-delegate check (ldsfld; dup; brtrue) comes after it. (A pointer that
+        // feeds a delegate constructor never crosses one.)
+        var values = stack.Reverse().Select(v => v is { Kind: IlKind.MethodPtr, Target: null, Symbol: IMethodSymbol pointed }
+            ? new IlEntry(IlKind.Pointer, FunctionPointerTo(S(pointed), IlAt()), _m.Compilation.CreatePointerTypeSymbol(_m.Compilation.GetSpecialType(SpecialType.System_Void)))
+            : v).ToList(); // bottom first
         if (target.Entry is null)
         {
             if (target.Emitted && values.Count > 0)

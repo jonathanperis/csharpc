@@ -32,7 +32,7 @@ public sealed partial class ModuleCodeGen
     /// imports are linked directly: its "libc" functions are the UCRT's, and kernel32's import library
     /// is always linked.</summary>
     private static readonly HashSet<string> s_coreLibDirectLibrariesWindows =
-        new(["", "libc", "libm", "kernel32", "kernel32.dll", "ole32", "ole32.dll", "ws2_32", "ws2_32.dll"], StringComparer.OrdinalIgnoreCase);
+        new(["", "libc", "libm", "kernel32", "kernel32.dll", "ole32", "ole32.dll", "ws2_32", "ws2_32.dll", "bcrypt", "bcrypt.dll"], StringComparer.OrdinalIgnoreCase);
 
     public static bool IsPInvoke(IMethodSymbol method) => method.OriginalDefinition.GetDllImportData() is not null;
 
@@ -48,6 +48,20 @@ public sealed partial class ModuleCodeGen
         LLVMTypeRef StructType = default, int BoolSize = 4, int StringEncoding = 0);
 
     /// <summary>The managed-ABI stub for a P/Invoke method (params as csharpc passes them; no this/env).</summary>
+    /// <summary>ObjectiveCMarshal.MessageSendFunction of a libobjc entry point (objc_msgSend and its variants), or -1.</summary>
+    private static int ObjcMessageSendKind(string library, string entry) =>
+        library.Contains("libobjc", StringComparison.OrdinalIgnoreCase)
+            ? entry switch
+            {
+                "objc_msgSend" => 0,
+                "objc_msgSend_fpret" => 1,
+                "objc_msgSend_stret" => 2,
+                "objc_msgSendSuper" => 3,
+                "objc_msgSendSuper_stret" => 4,
+                _ => -1,
+            }
+            : -1;
+
     public LoweredFunction PInvokeStub(IMethodSymbol method)
     {
         method = method.OriginalDefinition;
@@ -233,6 +247,13 @@ public sealed partial class ModuleCodeGen
             b.PositionAtEnd(call);
             callee = b.Load(Llvm.Ptr, cache, "fn");
         }
+        // libobjc's message-send functions: ObjectiveCMarshal.SetMessageSendCallback overrides them (ModuleCodeGen.PInvoke).
+        var msgSendKind = Types.Target.IsDarwin ? ObjcMessageSendKind(library, entry) : -1;
+        if (msgSendKind >= 0)
+        {
+            var select = Runtime("csrt_objc_msgsend_select", Llvm.Ptr, Llvm.I32, Llvm.Ptr);
+            callee = b.Call(select.Type, select.Fn, [Llvm.ConstInt(Llvm.I32, msgSendKind), callee]);
+        }
         if (data.SetLastError)
         {
             var clear = Runtime("csrt_pinvoke_clear_errno", Llvm.Void);
@@ -249,6 +270,12 @@ public sealed partial class ModuleCodeGen
         {
             var free = Runtime("csrt_pinvoke_free", Llvm.Void, Llvm.Ptr);
             b.Call(free.Type, free.Fn, [temp]);
+        }
+        if (msgSendKind >= 0)
+        {
+            // The exception ObjectiveCMarshal.SetMessageSendPendingException stored while the call ran is thrown here.
+            var pending = Runtime("csrt_objc_throw_pending", Llvm.Void);
+            b.Call(pending.Type, pending.Fn, []);
         }
 
         // ---- return ----

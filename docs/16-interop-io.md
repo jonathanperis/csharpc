@@ -29,9 +29,21 @@ Return values: primitives, `bool` (non-zero), structs (register pairs or `sret`)
 (`Marshal.GetLastPInvokeError`, `Marshal.GetLastSystemError`, `Marshal.GetLastWin32Error`); on
 Windows it is the Win32 last error (`SetLastError(0)` / `GetLastError()`), as in .NET.
 
-Delegate parameters are not marshalled; pass callbacks as `delegate* unmanaged<...>` pointing to
+Delegate parameters of a `[DllImport]` are not marshalled; pass callbacks as `delegate* unmanaged<...>` pointing to
 an `[UnmanagedCallersOnly]` method (`&Compare`) — that is the supported, allocation-free path in
 .NET too.
+
+`Marshal.GetFunctionPointerForDelegate<TDelegate>` (what `[LibraryImport]` stubs call for a delegate parameter) and
+`Marshal.GetDelegateForFunctionPointer<TDelegate>` work for delegate types known at compile time whose signature is
+blittable (integers, floats, pointers, enums, by-ref blittables; `bool` as a 4-byte BOOL). csharpc generates no code at run
+time, so each such delegate type gets a pool of 32 reverse P/Invoke thunks (`ModuleCodeGen.ReverseThunks.cs`,
+`corelib/DelegateThunks.cs`): thunk *i* calls the delegate in slot *i*, which holds it weakly, as .NET's thunks do (keep
+the delegate reachable while native code can call it; a collected delegate frees its slot, and a full pool is collected
+once before it gives up with an `InvalidOperationException`). Other signatures (strings, structs by value, `char`) are a
+compile-time diagnostic; the non-generic overloads (a delegate known only as `Delegate`, a `Type` argument) and
+generic delegate types are a `NotSupportedException` / `ArgumentException`. A pointer from
+`GetFunctionPointerForDelegate` wrapped again with `GetDelegateForFunctionPointer` is a new delegate that calls it
+(.NET returns the original delegate).
 
 ### Binding
 
@@ -39,8 +51,9 @@ an `[UnmanagedCallersOnly]` method (`&Compare`) — that is the supported, alloc
   suffix), `__Internal` and `csrt` are resolved by the linker. The symbol is declared weak, so a
   missing entry point compiles and throws `EntryPointNotFoundException` at the call, as in .NET.
 * **Everything else** is loaded lazily with `dlopen` on first call and cached per call site.
-  Probing follows .NET: the name as given, `name.so`, `libname.so`, `name`, `libname`. Failures
-  throw `DllNotFoundException` / `EntryPointNotFoundException` with .NET's messages.
+  Probing follows .NET: the executable's directory first (where csharpc copies the native libraries of
+  the program's NuGet packages, `runtimes/<rid>/native`), then the system's search, each with the name as
+  given, `name.so`, `libname.so`, `name`, `libname`. Failures throw `DllNotFoundException` / `EntryPointNotFoundException` with .NET's messages.
 * **Windows**: there is no `libc` to load (`DllImport("libc")` throws `DllNotFoundException` under
   .NET on Windows too), so user code binds everything except `__Internal`/`csrt` through
   `LoadLibraryExW`/`GetProcAddress`, probing `name.dll` then `name`, with .NET's Windows messages
@@ -49,10 +62,37 @@ an `[UnmanagedCallersOnly]` method (`&Compare`) — that is the supported, alloc
   imports link directly against the UCRT and kernel32 (as strong symbols: a COFF weak external of,
   say, `malloc` would also capture the C runtime's own references to it).
 
+* **.NET's own shims** (`libSystem.IO.Compression.Native`, and `libSystem.Native` for tar and zip permissions)
+  are linked statically from the NativeAOT runtime pack, as NativeAOT does, so framework assemblies compiled from
+  IL (`System.IO.Compression`, `System.Net.Http`'s decompression) call the same zlib-ng, brotli and zstd. On
+  **Windows** the framework's IL names the shim `System.IO.Compression.Native`, and the pack's archives are
+  MSVC libraries (`System.IO.Compression.Native.Aot.lib`, `zlibstatic.lib`, `brotli*.lib`, `zstd_static.lib`)
+  that lld links into the MinGW executable. Three things make that work: `src/runtime/windows-shims/msvc_compat.c`
+  supplies the few vcruntime symbols they name (`__security_cookie` and its check, `__GSHandlerCheck`,
+  `__guard_dispatch_icall_fptr`, `__chkstk`, `__isa_available`, `_fltused`; weak, with the MSVC fail-fast `int 0x29`
+  on a smashed stack cookie), `-nodefaultlib` drops their `LIBCMT`/`OLDNAMES`/`uuid` `/DEFAULTLIB` directives, and
+  the object is compiled and linked only into programs that link a shim, so others are unchanged. Gzip, deflate,
+  zlib and Brotli streams and `HttpClient`'s `AutomaticDecompression` therefore work on every platform
+  (samples 1005, 1211). `ZipArchive` and `ZipFile` do not on Windows yet: they reach `Aes.Create()` (CNG) and
+  `File.SetLastWriteTimeUtc`, both still missing there (samples 537, 540).
+
 `NativeLibrary.Load/TryLoad/GetExport/TryGetExport/Free`, `Marshal.AllocHGlobal/FreeHGlobal`,
-`Marshal.StringToHGlobalAnsi/Uni`, `PtrToStringUTF8/Ansi/Uni`, `Read*/Write*`, `Copy`,
-`SizeOf`, `PtrToStructure`, `StructureToPtr` and `NativeMemory.*` are C# in
-`corelib/Interop.cs`.
+`Marshal.StringToHGlobalAnsi/Uni`, `PtrToStringUTF8/Ansi/Uni`, `Read*/Write*`, `Copy` (every primitive array type, range-checked
+like the span constructors) and `NativeMemory.*` (including the aligned allocators, over a header kept below the aligned
+address) are C# in `corelib/Interop.cs`.
+
+### Marshal.SizeOf / OffsetOf / PtrToStructure / StructureToPtr / DestroyStructure
+
+These are resolved at the call site (`FunctionCodeGen.MarshalLayout.cs`), where the type is a type argument, `typeof(X)` or
+the static type of the structure: the unmanaged layout is computed at compile time as the CLR's marshaller lays it out
+(sequential or explicit, `Pack`, `bool` as a 4-byte `BOOL` or one byte with `[MarshalAs(U1/I1)]`, a char as one ANSI
+byte unless the layout says `CharSet.Unicode`, nested structs, enums) and the copies are generated field by field, or as
+one block copy when the unmanaged bytes are the managed ones. A layout with a converted field (`bool`) is written into
+zeroed bytes and cleared by `DestroyStructure`, as the CLR does. The marshaller's own refusals (an enum, string, array
+or auto-layout class given to `SizeOf`, generic types, null arguments) are the same `ArgumentException`s at run time.
+Explicit diagnostics: a type known only at run time (`Type` variables, a structure typed `object` or an unsealed class), fields
+that need real marshalling (strings, arrays, delegates, object references, fixed buffers) and ANSI `char` fields when
+reading or writing memory.
 
 ### `[LibraryImport]` and other source generators
 
@@ -74,9 +114,13 @@ Which generators, with which inputs:
   `build_metadata.*` from `CompilerVisibleItemMetadata`, `.editorconfig`, `.globalconfig`) and the
   `/features` (`InterceptorsNamespaces` for the request-delegate and configuration-binder interceptors).
   Generated files get csc's paths (under the `/out` directory). Analyzers that aren't generators are not
-  run: their findings never change the program. With ProjectReferences, one generator run covers the
-  merged program with the root's options and the union of the projects' analyzers; additional files in a
-  referenced project are reported as not supported.
+  run: their findings never change the program. With ProjectReferences, each project's generators run on
+  that project's own compilation (`RoslynFrontend.BuildProjects`, the compilations `dotnet build` would make:
+  its references, parse options, analyzers, `RootNamespace` and other global options, additional files), and the
+  generated trees are folded into the merged program, attributed to the project for `Type.Assembly`.
+  Post-initialization sources every project's generator emits (identical text) are kept once. The one run
+  over the merged program left is the JSON generator for the contexts csharpc synthesizes for reflection-style
+  `System.Text.Json` calls.
 * **Single files**: the targeting pack's LibraryImport and System.Text.Json generators, when their
   attribute appears in the code, and csharpc's `[GeneratedRegex]`.
 
@@ -85,8 +129,11 @@ csc would compile without its output, so the program would silently differ.
 
 * `CSHARPC_DUMP_GENERATED=dir` writes the generated files to `dir`.
 * `CSHARPC_NO_GENERATORS=1` disables generators.
-* `CSHARPC_ANALYZERS=dir` overrides the single-file analyzer directory
-  (default: `packs/Microsoft.NETCore.App.Ref/<version>/analyzers/dotnet/cs`).
+
+The SDK's generators for `[JsonSerializable]` and `[LibraryImport]` are linked into csharpc, taken from the
+`Microsoft.NETCore.App.Ref` pack of the SDK that builds it (`analyzers/dotnet/cs`), so a csharpc compiled by csharpc
+runs them too; a project's `/analyzer` file of the same assembly version uses the linked copy, any other
+generator assembly is loaded from its file (the native compiler cannot load assemblies: an explicit diagnostic).
 
 ## System.IO
 
@@ -112,6 +159,13 @@ separators, drive, root-relative and UNC roots, case-insensitive `GetRelativePat
 counts as redirected unless it is a console, as in .NET; `Console.Clear` on redirected output throws
 `IOException` like .NET). The local time zone is the Windows one (`GetDynamicTimeZoneInformation` +
 `SystemTimeToTzSpecificLocalTimeEx`); `TZ` is ignored, as .NET does on Windows.
+`File`/`Directory.SetLastWriteTime[Utc]` open the entry with write access, all sharing and backup semantics
+(directories too) and call `SetFileTime`, as .NET's `FileSystem.SetLastWriteTime`; on Unix `utimensat` leaves the
+access time alone (`UTIME_OMIT`). Both go through `Posix.SetWriteTime` (sample 1230), which ZipFile and Tar extraction use.
+`Aes.Create()` on Windows is CNG (`bcrypt.dll`, linked directly by `-lbcrypt`, which only costs a program that
+references it): an `AES` algorithm provider per cipher with `ChainingModeECB`/`CBC`/`CFB` (`MessageBlockLength` for the
+CFB feedback size) and `BCryptEncrypt`/`BCryptDecrypt` without CNG padding, under the same managed transforms as the
+other OSes (`corelib/Crypto/AesNative.cs`).
 
 | Area | Types |
 |---|---|
@@ -150,9 +204,26 @@ length byte first) and errno values are per target OS. Errors are `SocketExcepti
 `SocketErrorCode` (Winsock numbering, mapped from errno), the native error as `ErrorCode`/
 `NativeErrorCode`, the OS's message text, and — for failed connects — the endpoint appended, as .NET
 does; `SocketException` derives from `Win32Exception` and `ExternalException` like in .NET. The
-`*Async` methods run the blocking call on the thread pool. Not yet: TLS/`SslStream`, `HttpClient`,
+`*Async` methods run the blocking call on the thread pool. TLS (`SslStream`, X.509) works on Linux and macOS (over OpenSSL 3), [ADR 0022](adr/0022-tls.md). Not yet: `HttpClient`
+on macOS and Windows,
 `Socket.Select`/`Poll`, socket flags, most socket options (other members are compile-time
 "not supported" diagnostics). Samples `195_ip_addresses` and `196_sockets_loopback`.
+Disposing a `NetworkStream` that owns its socket, or a `TcpClient`, shuts the connection down (both directions, errors ignored)
+before closing the descriptor, as .NET does: a bare `close()` with unread received data sends an RST, and the peer's kernel
+then drops what it had received but not read, such as a TLS `close_notify` (a client that never read the server's TLS 1.3
+session tickets; sample `1207_socket_close_unread_data`). `Socket.Dispose` and `Close(0)` stay bare closes.
+
+Connecting by name follows .NET's rules (samples `1180`-`1182`): `Connect`/`ConnectAsync(host, port)`,
+`(DnsEndPoint)`, `(IPAddress[], port)`, `SocketAsyncEventArgs` with a `DnsEndPoint` (instance and static
+`Socket.ConnectAsync`, `ConnectSocket`, `ConnectByNameError`) and `TcpClient`'s overloads resolve the name and
+try its addresses in turn, `::1` before `127.0.0.1` for `localhost`: a socket of one address family only tries
+that family (a dual-mode one reaches IPv4 too), the failure of the last attempt is the exception, a canceled
+token ends the connect, and no usable address is `ArgumentException`/`NoData` as in .NET. On Unix a socket
+whose connect failed is replaced by a new descriptor with the same options before the next attempt
+(`ReplaceHandleIfNecessaryAfterFailedConnect`, .NET's `SafeSocketHandle.LastConnectFailed`): Linux leaves an
+IPv4-mapped connect's protocol operations on the socket after the peer refused it, so an attempt with a real
+IPv6 address would never complete. `TcpListener.AcceptTcpClientAsync`/`AcceptSocketAsync` are the socket
+engine's asynchronous accepts, so `Stop` ends them and closes the listening socket.
 
 ## Tests and benchmark
 
@@ -174,8 +245,13 @@ does; `SocketException` derives from `Win32Exception` and `ExternalException` li
   uses .NET's per-OS message.
 * Windows: `CharSet.Ansi` strings are marshalled as UTF-8 (.NET uses the ANSI code page; the same for
   ASCII text), and returned native strings are released with `free` (.NET: `CoTaskMemFree`).
-* No delegate marshalling, `SafeHandle` parameters, `[In, Out]` array copy-back of non-blittable
+* No delegate parameters on `[DllImport]` (see above for the `[LibraryImport]` path), `SafeHandle` parameters, `[In, Out]` array copy-back of non-blittable
   elements, `StringBuilder` parameters, or variadic functions (same as .NET for the last one).
+* Windows `System.Uri`: a rooted path without a drive (`"/absolute/path"`) is no implicit file path there, as in
+  .NET (only `C:\dir` and UNC paths are): `UriKind.Absolute` throws `UriFormatException` ("The format of the URI could
+  not be determined."), the relative kinds give a relative `Uri`, which `HttpClient` resolves against `BaseAddress`
+  (samples 972, 1010, 1210; the last one is recorded live from .NET on Windows). UNC paths and `file:` URIs without a
+  drive letter (their `LocalPath` and `IsUnc` rules) are an explicit `NotSupportedException` on Windows.
 * `FileStream` is synchronous; the `*Async` file APIs complete synchronously.
 * File times other than last-write time, permissions/attributes, and file locking (`FileShare`)
   are not implemented.

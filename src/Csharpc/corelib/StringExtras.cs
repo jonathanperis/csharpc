@@ -287,6 +287,49 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Math")]
     internal static class MathExtras
     {
+        /// <summary>x * 2^n computed in steps so intermediate overflow and underflow round once (musl's scalbn, as .NET).</summary>
+        public static double ScaleB(double x, int n)
+        {
+            double y = x;
+            if (n > 1023)
+            {
+                y *= BitConverter.Int64BitsToDouble(0x7FE0000000000000); // 2^1023
+                n -= 1023;
+                if (n > 1023)
+                {
+                    y *= BitConverter.Int64BitsToDouble(0x7FE0000000000000);
+                    n -= 1023;
+                    if (n > 1023) n = 1023;
+                }
+            }
+            else if (n < -1022)
+            {
+                // 2^-1022 * 2^53: keeps the product normal so only the last step rounds
+                y *= BitConverter.Int64BitsToDouble(0x0010000000000000) * 9007199254740992.0;
+                n += 1022 - 53;
+                if (n < -1022)
+                {
+                    y *= BitConverter.Int64BitsToDouble(0x0010000000000000) * 9007199254740992.0;
+                    n += 1022 - 53;
+                    if (n < -1022) n = -1022;
+                }
+            }
+            return y * BitConverter.Int64BitsToDouble((long)(0x3FF + n) << 52);
+        }
+
+        public static (nuint Quotient, nuint Remainder) DivRem(nuint left, nuint right)
+        {
+            nuint quotient = left / right;
+            return (quotient, left - quotient * right);
+        }
+
+        public static (nint Quotient, nint Remainder) DivRem(nint left, nint right)
+        {
+            if (right == -1 && left == unchecked((nint)((nuint)1 << (IntPtr.Size * 8 - 1)))) throw new OverflowException("Arithmetic operation resulted in an overflow.");
+            nint quotient = left / right;
+            return (quotient, left - quotient * right);
+        }
+
         /// <summary>The high 64 bits of the 128-bit product; the low ones through <paramref name="low"/>.</summary>
         public static ulong BigMul(ulong a, ulong b, out ulong low) => CoreDebug.BigMul(a, b, out low);
 
@@ -412,6 +455,59 @@ namespace CsharpcCoreLib
                 }
                 if (index < 0) break;
                 start = end + 1;
+            }
+            return count;
+        }
+
+        /// <summary>text.AsSpan(range): a null string is an empty span only for the whole range.</summary>
+        public static ReadOnlySpan<char> AsSpan(string text, Range range)
+        {
+            if (text == null)
+            {
+                if (!range.Equals(Range.All)) throw new ArgumentNullException("text");
+                return default;
+            }
+            // Range.GetOffsetAndLength
+            int start = range.Start.GetOffset(text.Length);
+            int end = range.End.GetOffset(text.Length);
+            if ((uint)end > (uint)text.Length || (uint)start > (uint)end) throw new ArgumentOutOfRangeException("length");
+            return text.AsSpan(start, end - start);
+        }
+
+        /// <summary>span.Split(separator): the ranges between separators (EnumConverter.ConvertFrom splits flag lists with it).</summary>
+        public static SpanSplitEnumeratorImpl<T> Split<T>(ReadOnlySpan<T> source, T separator) where T : IEquatable<T> =>
+            new SpanSplitEnumeratorImpl<T>(source, separator, default, false);
+
+        /// <summary>span.Split(separatorSequence): the sequence is one separator.</summary>
+        public static SpanSplitEnumeratorImpl<T> Split<T>(ReadOnlySpan<T> source, ReadOnlySpan<T> separator) where T : IEquatable<T> =>
+            new SpanSplitEnumeratorImpl<T>(source, default, separator, true);
+
+        /// <summary>The string-separator form (PointConverter splits "10, 20" on the culture's list separator); an empty separator leaves the source whole.</summary>
+        public static int Split(ReadOnlySpan<char> source, Span<Range> destination, ReadOnlySpan<char> separator, StringSplitOptions options = StringSplitOptions.None)
+        {
+            if ((options & ~(StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) != 0)
+                throw new ArgumentException("Value of flags is invalid.", "options");
+            if (destination.IsEmpty) return 0;
+            bool keepEmpty = (options & StringSplitOptions.RemoveEmptyEntries) == 0;
+            bool trim = (options & StringSplitOptions.TrimEntries) != 0;
+            int count = 0, start = 0;
+            while (true)
+            {
+                int index = separator.IsEmpty || count == destination.Length - 1 ? -1 : source.Slice(start).IndexOf(separator);
+                int end = index < 0 ? source.Length : start + index;
+                int s = start, e = end;
+                if (trim)
+                {
+                    while (s < e && char.IsWhiteSpace(source[s])) s++;
+                    while (e > s && char.IsWhiteSpace(source[e - 1])) e--;
+                }
+                if (keepEmpty || e > s)
+                {
+                    destination[count++] = new Range(s, e);
+                    if (count == destination.Length) break;
+                }
+                if (index < 0) break;
+                start = end + separator.Length;
             }
             return count;
         }
@@ -648,6 +744,31 @@ namespace CsharpcCoreLib
             return false;
         }
 
+        // .NET 11's char overloads: the generic ones' result for one char, without the IEquatable dispatch.
+        public static ReadOnlySpan<char> Trim(ReadOnlySpan<char> span, char trimChar) => TrimEnd(TrimStart(span, trimChar), trimChar);
+
+        public static ReadOnlySpan<char> TrimStart(ReadOnlySpan<char> span, char trimChar)
+        {
+            int start = 0;
+            while (start < span.Length && span[start] == trimChar) start++;
+            return span.Slice(start);
+        }
+
+        public static ReadOnlySpan<char> TrimEnd(ReadOnlySpan<char> span, char trimChar)
+        {
+            int end = span.Length - 1;
+            while (end >= 0 && span[end] == trimChar) end--;
+            return span.Slice(0, end + 1);
+        }
+
+        /// <summary>True when every char is white space (an empty span is).</summary>
+        public static bool IsWhiteSpace(ReadOnlySpan<char> span)
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (!char.IsWhiteSpace(span[i])) return false;
+            return true;
+        }
+
         public static ReadOnlySpan<char> Trim(ReadOnlySpan<char> span, ReadOnlySpan<char> trimChars) =>
             TrimEnd(TrimStart(span, trimChars), trimChars);
 
@@ -859,10 +980,12 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Threading.Tasks.Task")]
     internal static class TaskExtras
     {
-        public static Task<TResult[]> WhenAll<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAll(Enumerable.ToArray(tasks));
-        public static Task WhenAll(IEnumerable<Task> tasks) => Task.WhenAll(Enumerable.ToArray(tasks));
-        public static Task<Task> WhenAny(IEnumerable<Task> tasks) => Task.WhenAny(Enumerable.ToArray(tasks));
-        public static Task<Task<TResult>> WhenAny<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAny(Enumerable.ToArray(tasks));
+        // The checks .NET makes on the collection itself (a null one is ArgumentNullException 'tasks', not 'source').
+        private static T[] TasksArray<T>(IEnumerable<T> tasks) => tasks == null ? throw new ArgumentNullException("tasks") : Enumerable.ToArray(tasks);
+        public static Task<TResult[]> WhenAll<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAll(TasksArray(tasks));
+        public static Task WhenAll(IEnumerable<Task> tasks) => Task.WhenAll(TasksArray(tasks));
+        public static Task<Task> WhenAny(IEnumerable<Task> tasks) => Task.WhenAny(TasksArray(tasks));
+        public static Task<Task<TResult>> WhenAny<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAny(TasksArray(tasks));
     }
 }
 

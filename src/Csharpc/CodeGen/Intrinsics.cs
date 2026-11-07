@@ -31,8 +31,18 @@ internal static class Intrinsics
 
     internal static string TypeName(ITypeSymbol t) => t.WithNullableAnnotation(NullableAnnotation.None).ToDisplayString(s_keyFormat);
 
-    public static bool TryGet(IMethodSymbol method, out IntrinsicHandler handler) =>
-        s_methods.TryGetValue(Key(method.OriginalDefinition), out handler!);
+    public static bool TryGet(IMethodSymbol method, out IntrinsicHandler handler)
+    {
+        if (s_methods.TryGetValue(Key(method.OriginalDefinition), out handler!)) return true;
+        // `base.Finalize()` at the end of a destructor compiled by csc, reaching a library class (CriticalFinalizerObject,
+        // SafeHandle, ...): library classes declare no finalizers here (ADR 0021), so there is nothing to run.
+        if (method is { Name: "Finalize", IsStatic: false, ReturnsVoid: true, Parameters.IsEmpty: true })
+        {
+            handler = (_, _) => default;
+            return true;
+        }
+        return false;
+    }
 
     public static bool TryGetProperty(IPropertySymbol property, out PropertyHandler handler) =>
         s_properties.TryGetValue(PropertyKey(property.OriginalDefinition), out handler!);
@@ -561,14 +571,25 @@ internal static class Intrinsics
             Native.LLVMSetVolatile(g.Builder.Store(value, slot), 1);
             return default;
         };
-        // csharpc runs no finalizers (.NET does not promise to run them either, and never at exit), so
-        // there is nothing to suppress or re-register.
-        t["System.GC.SuppressFinalize(object)"] = (g, inv) => { Arg(g, inv, 0); return default; };
-        t["System.GC.ReRegisterForFinalize(object)"] = (g, inv) => { Arg(g, inv, 0); return default; };
-        // Nothing is pending — unless the program declares finalizers, which .NET would run before returning.
-        t["System.GC.WaitForPendingFinalizers()"] = (g, inv) => g.Module.ProgramHasFinalizers()
-            ? throw CompileError.Unsupported("GC.WaitForPendingFinalizers in a program with finalizers (csharpc runs no finalizers)", inv)
-            : default;
+        // Finalizers (ModuleCodeGen.Finalizers.cs, gc.c): the collector queues unreachable registered objects, a
+        // finalizer thread runs them; .NET does not run them at exit either.
+        t["System.GC.SuppressFinalize(object)"] = (g, inv) =>
+        {
+            g.CallRuntime("csrt_gc_suppress_finalize", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
+            return default;
+        };
+        t["System.GC.ReRegisterForFinalize(object)"] = (g, inv) =>
+        {
+            g.CallRuntime("csrt_gc_reregister_finalizer", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], Arg(g, inv, 0));
+            return default;
+        };
+        // csc ends every destructor with `try { ... } finally { base.Finalize(); }`; the root of the chain does nothing.
+        t["object.Finalize()"] = (_, _) => default;
+        t["System.GC.WaitForPendingFinalizers()"] = (g, inv) =>
+        {
+            g.CallRuntime("csrt_gc_wait_for_pending_finalizers", g.Module.Llvm.Void, []);
+            return default;
+        };
         t["System.GC.GetTotalMemory(bool)"] = (g, inv) =>
         {
             g.EmitValue(inv.Arguments[0].Value);
@@ -648,8 +669,8 @@ internal static class Intrinsics
         {
             var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments.FirstOrDefault();
             var size = result is null ? 0 : (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
-            return g.CallRuntime("csrt_task_from_exception", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], Arg(g, inv, 0),
-                g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
+            return g.StampTask(g.CallRuntime("csrt_task_from_exception", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], Arg(g, inv, 0),
+                g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size)), g.TypeOf(inv));
         };
         t[$"{Tasks}.Task.FromException(System.Exception)"] = fromException;
         t[$"{Tasks}.Task.FromException<TResult>(System.Exception)"] = fromException;
@@ -661,6 +682,14 @@ internal static class Intrinsics
             if (!inv.TargetMethod.IsGenericMethod) return task;
             return g.CallCoreLibGeneric("ValueTaskAwait`1", "OfTask", [g.S(inv.TargetMethod.TypeArguments[0])],
                 g.Builder.Cast(LLVMOpcode.PtrToInt, task, g.Module.Types.NativeInt));
+        };
+
+        t[$"{Tasks}.Task.Dispose()"] = (g, inv) =>
+        {
+            var task = g.EmitValue(inv.Instance!);
+            g.NullCheck(task);
+            g.CallCoreLib("TaskState", "Dispose", task);
+            return default;
         };
 
         // TaskCompletionSource(<T>): the source object is its task.
@@ -838,18 +867,18 @@ internal static class Intrinsics
             var tasks = g.TaskArrayArgument(inv.Arguments[0]);
             var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments.FirstOrDefault() is IArrayTypeSymbol array ? array.ElementType : null;
             var size = result is null ? 0 : (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
-            return g.CallRuntime("csrt_task_when_all", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], tasks, g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
+            return g.StampTask(g.CallRuntime("csrt_task_when_all", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], tasks, g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size)), g.TypeOf(inv));
         };
         t[$"{Tasks}.Task.WhenAll({Tasks}.Task[])"] = whenAll;
         t[$"{Tasks}.Task.WhenAll(System.ReadOnlySpan<{Tasks}.Task>)"] = whenAll;
         t[$"{Tasks}.Task.WhenAll({Tasks}.Task<TResult>[])"] = whenAll;
         t[$"{Tasks}.Task.WhenAll(System.ReadOnlySpan<{Tasks}.Task<TResult>>)"] = whenAll;
         IntrinsicHandler whenAny = (g, inv) =>
-            g.CallRuntime("csrt_task_when_any", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.TaskArrayArgument(inv.Arguments[0]));
+            g.StampTask(g.CallRuntime("csrt_task_when_any", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr], g.TaskArrayArgument(inv.Arguments[0])), g.TypeOf(inv));
         t[$"{Tasks}.Task.WhenAny({Tasks}.Task[])"] = whenAny;
         IntrinsicHandler whenAnyPair = (g, inv) =>
-            g.CallRuntime("csrt_task_when_any", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr],
-                g.ObjectArray([.. inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a => a.Value)]));
+            g.StampTask(g.CallRuntime("csrt_task_when_any", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr],
+                g.ObjectArray([.. inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a => a.Value)])), g.TypeOf(inv));
         t[$"{Tasks}.Task.WhenAny({Tasks}.Task, {Tasks}.Task)"] = whenAnyPair;
         t[$"{Tasks}.Task.WhenAny({Tasks}.Task<TResult>, {Tasks}.Task<TResult>)"] = whenAnyPair;
         t[$"{Tasks}.Task.WhenAny(System.ReadOnlySpan<{Tasks}.Task>)"] = whenAny;
@@ -865,7 +894,7 @@ internal static class Intrinsics
         {
             var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0];
             var size = (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
-            return g.CallRuntime("csrt_task_run_func_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], Arg(g, inv, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
+            return g.StampTask(g.CallRuntime("csrt_task_run_func_task", g.Module.Llvm.Ptr, [g.Module.Llvm.Ptr, g.Module.Llvm.I32], Arg(g, inv, 0), g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size)), g.TypeOf(inv));
         };
         // Func<T> with a non-task T: a compiler-generated per-T thunk runs it on the pool.
         t[$"{Tasks}.Task.Run(System.Func<TResult>)"] = (g, inv) =>
@@ -874,13 +903,16 @@ internal static class Intrinsics
             var result = ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0];
             var size = (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
             var thunk = g.Module.TaskRunThunk(result);
-            return g.CallRuntime("csrt_task_run_thunk", l.Ptr, [l.Ptr, l.Ptr, l.I32], thunk.Fn, Arg(g, inv, 0), l.ConstInt(l.I32, size));
+            return g.StampTask(g.CallRuntime("csrt_task_run_thunk", l.Ptr, [l.Ptr, l.Ptr, l.I32], thunk.Fn, Arg(g, inv, 0), l.ConstInt(l.I32, size)), g.TypeOf(inv));
         };
 
         foreach (var type in new[] { "Task", "Task<TResult>", "ValueTask" })
         {
             t[$"{Tasks}.{type}.GetAwaiter()"] = self;
             t[$"{Tasks}.{type}.ConfigureAwait(bool)"] = self;
+            if (type == "Task<TResult>")
+                t[$"{Tasks}.Task<TResult>.ConfigureAwait({Tasks}.ConfigureAwaitOptions)"] = (g, inv) =>
+                    g.CallCoreLib("TaskConfigureAwaitMembers", "ConfigureAwaitOfT", g.EmitValue(inv.Instance!), Arg(g, inv, 0));
             if (type.StartsWith("ValueTask", StringComparison.Ordinal)) t[$"{Tasks}.{type}.Preserve()"] = self; // the task itself can be awaited again
             t[$"{Tasks}.{type}.Wait()"] = (g, inv) => { ThrowAggregate(g, Wait(g, g.EmitValue(inv.Instance!)), WaitFrames); return default; };
         }
@@ -962,6 +994,14 @@ internal static class Intrinsics
             return g.CallRuntime("csrt_task_status", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], task);
         };
         t[$"{Tasks}.Task.Id"] = (g, p) => g.CallRuntime("csrt_task_id", g.Module.Llvm.I32, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
+        // AsyncState and CreationOptions: kept for the tasks that have them (corelib/Tasks/TaskState.cs).
+        foreach (var name in new[] { "AsyncState", "CreationOptions" })
+            t[$"{Tasks}.Task.{name}"] = (g, p) =>
+            {
+                var task = g.EmitValue(p.Instance!);
+                g.NullCheck(task);
+                return g.CallCoreLib("TaskState", name, task);
+            };
         foreach (var tcs in new[] { $"{Tasks}.TaskCompletionSource", $"{Tasks}.TaskCompletionSource<TResult>" })
             t[$"{tcs}.Task"] = (g, p) => g.EmitValue(p.Instance!);
         const string Th = "System.Threading";
@@ -973,6 +1013,8 @@ internal static class Intrinsics
         t[$"{Th}.CancellationToken.CanBeCanceled"] = (g, p) =>
             g.Builder.ICmp(LLVMIntPredicate.NE, g.EmitValue(p.Instance!), LlvmContext.Null(g.Module.Llvm.Ptr));
         t[$"{Th}.CancellationToken.None"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
+        // A ManualResetEvent per source, set when it is canceled (corelib/Threading/WaitHandles.cs).
+        t[$"{Th}.CancellationToken.WaitHandle"] = (g, p) => g.CallCoreLib("CancellationWaitHandles", "Get", g.EmitValue(p.Instance!));
         PropertyHandler isCompleted = (g, p) => g.CallRuntime("csrt_task_is_completed", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], g.EmitValue(p.Instance!));
         foreach (var type in TaskAwaiterTypes.Concat([$"{Tasks}.Task", $"{Tasks}.ValueTask"]))
             t[$"{type}.IsCompleted"] = isCompleted;
@@ -1007,18 +1049,39 @@ internal static class Intrinsics
                     var value = g.EmitValue(argument.Value);
                     return g.ConvertNumeric(value, from, to, c, isChecked: from is not IPointerTypeSymbol);
                 };
+        // new Int128(ulong upper, ulong lower) / new UInt128(...): the two halves of the i128.
+        foreach (var wide in new[] { "System.Int128", "System.UInt128" })
+            t[$"{wide}..ctor(ulong, ulong)"] = (g, c) =>
+            {
+                var l = g.Module.Llvm;
+                var arguments = c.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a => g.EmitValue(a.Value)).ToArray();
+                var i128 = l.IntTypeOf(128);
+                var upper = g.Builder.BinOp(LLVMOpcode.Shl, g.Builder.Cast(LLVMOpcode.ZExt, arguments[0], i128), l.ConstInt(i128, 64));
+                return g.Builder.BinOp(LLVMOpcode.Or, upper, g.Builder.Cast(LLVMOpcode.ZExt, arguments[1], i128));
+            };
         t[$"{Tasks}.ValueTask..ctor({Tasks}.Task)"] = (g, c) => CtorArg(g, c, 0);
+        // The state and creation options are kept in corelib/Tasks/TaskState.cs (checked there: only
+        // AttachedToParent and RunContinuationsAsynchronously are legal); continuations are always queued.
         ConstructorHandler newTcs = (g, c) =>
         {
-            foreach (var a in c.Arguments) g.EmitValue(a.Value); // TaskCreationOptions / state: ignored (continuations are always queued)
+            var l = g.Module.Llvm;
+            LLVMValueRef Named(string name, LLVMValueRef fallback) =>
+                c.Arguments.FirstOrDefault(a => a.Parameter!.Name == name) is { } argument
+                    ? g.Coerce(g.EmitValue(argument.Value), g.TypeOf(argument.Value), g.S(argument.Parameter!.Type)) : fallback;
+            var state = Named("state", LlvmContext.Null(l.Ptr));
+            var options = Named("creationOptions", l.ConstInt(l.I32, 0));
             var result = ((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments.FirstOrDefault();
             var size = result is null ? 0 : (long)g.Module.Types.Target.SizeOf(g.Module.Types.Storage(result));
-            return g.CallRuntime("csrt_task_new", g.Module.Llvm.Ptr, [g.Module.Llvm.I32], g.Module.Llvm.ConstInt(g.Module.Llvm.I32, size));
+            var task = g.StampTask(g.CallRuntime("csrt_task_new", l.Ptr, [l.I32], l.ConstInt(l.I32, size)), g.TypeOf(c));
+            if (c.Arguments.Length > 0) g.CallCoreLib("TaskState", "Promise", task, state, options);
+            return task;
         };
         foreach (var tcs in new[] { $"{Tasks}.TaskCompletionSource", $"{Tasks}.TaskCompletionSource<TResult>" })
         {
             t[$"{tcs}..ctor()"] = newTcs;
             t[$"{tcs}..ctor({Tasks}.TaskCreationOptions)"] = newTcs;
+            t[$"{tcs}..ctor(object)"] = newTcs;
+            t[$"{tcs}..ctor(object, {Tasks}.TaskCreationOptions)"] = newTcs;
         }
         // new Task(...) / new Task<TResult>(...): a created (cold) task, corelib/Tasks/ColdTasks.cs.
         ConstructorHandler newColdTask = (g, c) =>
@@ -1086,6 +1149,7 @@ internal static class Intrinsics
     {
         Dictionary<string, PropertyHandler> t = [];
         AddTaskProperties(t);
+        t["System.Reflection.Assembly.EntryPoint"] = (g, p) => g.AssemblyEntryPoint(g.EmitValue(p.Instance!), p);
         t["string.Length"] = (g, p) =>
         {
             var s = g.EmitValue(p.Instance!);

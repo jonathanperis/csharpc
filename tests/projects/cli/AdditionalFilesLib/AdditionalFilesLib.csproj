@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net11.0</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Analyzer settings and data no source generator reads: harmless to csharpc (stylecop.json,
+         BannedSymbols.txt and PublicAPI.*.txt are all AdditionalFiles). -->
+    <AdditionalFiles Include="data.txt" />
+    <AdditionalFiles Include="stylecop.json" />
+  </ItemGroup>
+</Project>

@@ -325,8 +325,8 @@ parity run (80.6 %) ranked the in-scope blockers; fixed since, each with a regre
 | `Thread.Interrupt` (and an interruptible `Thread.Join` on Windows, as there) | `InterruptThread` | 534 |
 | unreachable unsupported source methods compile as stubs, like IL methods | — | 535 |
 | `[StructLayout(LayoutKind.Explicit)]` / `[FieldOffset]` | — | 536 |
-| `System.IO.Compression` (`BrotliStream`, `ZipArchive`, `ZipFile`) and `System.Formats.Tar` from IL, over .NET's native shims | `zip-tar-best-practices` | 537, 540 |
-| `Aes`, `CryptoStream`, `RandomNumberGenerator`, HMAC, PBKDF2 over the OS's crypto library | `aesencrypt` | 538 |
+| `System.IO.Compression` (`BrotliStream`, `ZipArchive`, `ZipFile`) and `System.Formats.Tar` from IL, over .NET's native shims | `zip-tar-best-practices` | 537, 540, 1211 |
+| `Aes`, `CryptoStream`, `RandomNumberGenerator`, HMAC, PBKDF2 over the OS's crypto library (OpenSSL on Linux, CommonCrypto on macOS, CNG on Windows) | `aesencrypt` | 538 |
 | exceptions overriding `GetObjectData` | — | 539 |
 | `StringInfo`, `TextElementEnumerator`, `Rune` text elements | `RuneSamples` | 541 |
 | `Utf8Parser`/`Utf8Formatter` for `DateTime`/`DateTimeOffset` | — | 542 |
@@ -338,14 +338,14 @@ parity run (80.6 %) ranked the in-scope blockers; fixed since, each with a regre
 | `Partitioner`, `Barrier`, `Parallel.ForEach` over enumerables, `AggregateException.Flatten` | `ParallelGrep` | 550 |
 | created tasks (`new Task`, `Start`, `RunSynchronously` — which waits for attached children), `Task.CurrentId` | `RaceConditionExample` | 551 |
 | PLINQ from IL: generic virtual methods overridden in generic classes (dispatched over every instantiation), attached child tasks, `TrySetException(IEnumerable)` | `samples/parallel/PLINQ` (out of scope: NativeAOT differs) | 552, 324 |
-| `RSA` over OpenSSL on Linux (key generation, `RSAParameters`, PKCS#1/PSS signatures, PKCS#1/OAEP encryption, the signature formatters) | `cryptographic-signatures` | 553 |
+| `RSA` over OpenSSL on Linux and macOS (key generation, `RSAParameters`, PKCS#1/PSS signatures, PKCS#1/OAEP encryption, the signature formatters) | `cryptographic-signatures` | 553 |
 
 Along the way: `Monitor.Wait` lost a pulse that met its interrupt-poll timeout (a rare hang of
 `SemaphoreSlim`/`BlockingCollection` producers, sample 555); `Task.RunSynchronously` now waits for attached
 children (PLINQ's merge disposed its barriers early); event waits on WebAssembly run queued work; P/Invoke
 `bool` parameters into the C runtime trapped on WebAssembly; `UnobservedTaskExceptionEventArgs` and
-`GC.WaitForPendingFinalizers` (sample 554). Still open in this area: RSA (and Aes) on macOS and Windows,
-which need Security.framework and CNG.
+`GC.WaitForPendingFinalizers` (sample 554). Still open in this area: RSA on Windows,
+which needs CNG.
 
 ## Bugs: wrong output and crashes
 
@@ -765,9 +765,117 @@ What it took, besides library members (all with regression samples 840–849):
   described (their signature, invocation and `MakeGenericMethod` are explicit errors);
   `Assembly.DefinedTypes`/`GetTypes()` are explicit errors (the `startupAssembly` setting).
   `QuicListener.IsSupported` is false where MsQuic isn't installed, as .NET answers, folding Kestrel's
-  HTTP/3 transport away; where MsQuic is installed csharpc stops with an explicit error. TLS client options
-  are a property bag; certificates, SSL streams and the post-quantum keys Kestrel's certificate loader names
-  throw `NotSupportedException` (TLS is not implemented yet).
+  HTTP/3 transport away; where MsQuic is installed csharpc stops with an explicit error. TLS exists on Linux
+  since 2026-11-06 ([ADR 0022](adr/0022-tls.md); Kestrel's HTTPS through it is not tested yet, its certificate
+  loader's post-quantum keys and `SslStreamCertificateContext` are `NotSupportedException`s); elsewhere
+  certificates and SSL streams throw `NotSupportedException`.
+
+## HttpClient (plain HTTP/1.1)
+
+`System.Net.Http.HttpClient` works over plain HTTP/1.1 since 2026-11-06 (M2). `System.Net.Http` is compiled from the
+shared framework's IL ([ADR 0013](adr/0013-framework-il.md)): the whole of SocketsHttpHandler (connection pool,
+header parsing, redirects, cookies, authentication, decompression, proxy support) and `System.Net.Http.Json`
+compile, and what the samples exercise is checked against .NET. Samples 1000-1009 run it against a `TcpListener`
+server in the same program (no network) and compare with `dotnet run`: GET / POST /
+PUT / PATCH / DELETE and custom methods, `StringContent`, `ByteArrayContent`, `FormUrlEncodedContent`,
+`MultipartFormDataContent`, `StreamContent` of known and unknown length, `DefaultRequestHeaders`, response and content
+headers, `HttpCompletionOption.ResponseHeadersRead`, parallel requests over bounded connections, large bodies,
+close-delimited HTTP/1.0 responses, the synchronous `Send`, handlers (`HttpClientHandler`, `SocketsHttpHandler`,
+custom `DelegatingHandler`s), cookies, absolute redirects, gzip and deflate decompression, Basic authentication,
+`GetFromJsonAsync` /
+`PostAsJsonAsync` with a source-generated context, and the exception types and messages of refused connections,
+cancellation, `HttpClient.Timeout`, hung-up and garbage responses, bad URIs and a disposed client.
+
+What it took, besides library members (`Socket.Poll`, `DnsEndPoint` connects, `SpinLock`, `SecureString`,
+`EventCounter`, `NetworkChange`, `Encoding.CreateTranscodingStream`, digest hashing ...):
+
+- **Classes deriving from `TaskCompletionSource(<T>)`**: the connection waiters and write-queue entries of the
+  pool. A derived class is laid out over csrt's task struct ([10-async.md](10-async.md#tasks-and-the-scheduler)).
+- **System.Net.Primitives from IL** next to the corelib's `IPAddress`/`IPEndPoint` shadows (a *mixed* assembly,
+  ADR 0013): `CookieContainer`, `CredentialCache`, `NetworkCredential`, `DnsEndPoint`, `HttpVersion` are .NET's own code.
+- **Awaits on socket operations continue on the thread pool.** The epoll thread used to complete Task-based
+  operations inline, so an `await` continuation (and the rest of `Main`) ran on it; one synchronous socket call there
+  (`HttpClient.Send` after an `await`) blocked the only thread that delivers readiness, a deadlock (sample 1008).
+  `SocketAsyncEventArgs` operations (Kestrel's transport) still complete inline.
+- Found on the way, independent of HTTP: `new Span<T>(null, 0, 0)` and `AsSpan(null, 0)` threw a
+  NullReferenceException instead of being the empty span (sample 1004), and an array viewed as `IList` with no
+  conversion instruction in IL (non-generic `SortedList`, which `CookieContainer` uses) was an InvalidCastException
+  (sample 1006).
+
+**The system proxy on macOS and Windows** is .NET's own code, reading the OS settings the way .NET does (the environment
+variables first, then `MacProxy` over CFNetwork / `HttpWindowsProxy` over WinINet and the registry), since 2026-11-06:
+
+- *macOS:* `Marshal.GetFunctionPointerForDelegate` for CFNetwork's PAC callback (generated reverse P/Invoke thunks, see
+  [16-interop-io.md](16-interop-io.md)), `SafeCreateHandle` and the CoreFoundation imports run as they are.
+- *Windows:* `WinHttpGetIEProxyConfigForCurrentUser` / `WinHttpGetProxyForUrl` (auto-detect and PAC included) run as they
+  are; `RegNotifyChangeKeyValue` signals a real OS event that `WaitHandle.SafeWaitHandle` creates and a bridge thread
+  forwards to the runtime's event, and `ThreadPool.RegisterWaitForSingleObject` (one background waiter per registration)
+  reloads the settings when the registry changes. A `"<local>"` bypass lists the machine's addresses
+  (`NetworkInterface.GetAllNetworkInterfaces`: `GetAdaptersAddresses` on Windows, `getifaddrs` on Linux and macOS;
+  only the unicast addresses are exposed, every other member of those types is CSLLVM0002).
+  `System.Security.Principal.Windows` (`WindowsIdentity`, reached by NTLM/Negotiate code) compiles; creating its
+  `AsyncLocal<SafeAccessTokenHandle>` with a value-changed handler is the `AsyncLocal` shadow's explicit
+  `NotSupportedException` (execution-context switches don't notify handlers yet), so only a program that uses
+  `WindowsIdentity` hits it, not `new HttpClient()`.
+
+Explicit diagnostics, never a different behavior:
+
+- **TLS** works on Linux (see "SslStream and https" below); on macOS and Windows `https://` fails with `NotSupportedException:
+  TLS and X.509 certificates ... are not supported by csharpc yet`. HTTP/2 needs ALPN `h2` negotiated by a server; HTTP/3 and
+  QUIC are stubs (HTTP/2 over TLS and over cleartext "prior knowledge" is not tested).
+- **NTLM / Negotiate** authentication (`NegotiateAuthentication` needs GSSAPI/SSPI): `NotSupportedException` when a
+  server challenges with it and the handler has credentials.
+- `Dns.GetHostEntry*` (canonical names and aliases are not resolved): `NotSupportedException`.
+- `NetworkChange.NetworkAddressChanged` accepts subscriptions and never fires (the pool only uses it to drop its
+  Alt-Svc cache).
+- **Windows:** gzip, deflate and Brotli decompression run over .NET's own zlib-ng and brotli, linked from the NativeAOT
+  win-x64 pack (sample 1005, [16-interop-io.md](16-interop-io.md#binding)). `ZipArchive` and `ZipFile` are still an explicit
+  compile error there (`Aes.Create()` needs CNG; `File.SetLastWriteTimeUtc` is missing: samples 537, 540).
+- **Windows:** a rooted request path (`"/absolute/path"`) is a relative `Uri` there, as in .NET, so `BaseAddress` + path
+  works (sample 1010); UNC paths and `file:` URIs without a drive letter stay `NotSupportedException`.
+- `Uri` is the corelib's: a relative request URI that has a query or escaped characters (`"items?id=7"`, `"with space"`) is the
+  Uri shadow's explicit `NotSupportedException` ("System.Uri with this relative URI").
+- Stack traces of exceptions thrown by `System.Net.Http` list its frames as .NET does only where csharpc compiles them
+  from IL the same way; `ExceptionDispatchInfo.SetCurrentStackTrace` returns its argument unchanged.
+
+Not yet measured: HttpClient's speed against NativeAOT's (the pool, header parsing and `Task` machinery are the same
+IL; the sockets under it are csharpc's). A program that does one `GetStringAsync` is 3.2 MB at `-O2` (`tests/size.sh` has
+no HttpClient program yet); the budgets of the programs it has are unchanged.
+
+## SslStream and https (Linux and macOS)
+
+`SslStream` (client and server), `AuthenticatedStream` and `HttpClient` over `https://` work on Linux ([ADR 0022](adr/0022-tls.md)):
+libssl 3 under corelib C#, with .NET's validation logic, policy errors and exception messages. Samples `1101_sslstream_loopback`
+(handshake properties and callbacks, synchronous and asynchronous I/O, a 1 MB round trip, TLS 1.2/1.3 selection, mutual
+authentication, ALPN, the unauthenticated state, close-notify), `1102_sslstream_validation` (untrusted root, a refusing callback,
+host name mismatch, custom root trust through `CertificateChainPolicy`, protocol mismatch, plain-text and garbage peers, a missing
+client certificate, invalid server certificates, callbacks given twice) and `1103_httpclient_https` (GET/POST and connection reuse over
+one TLS session against an `SslStream` server, `ServerCertificateCustomValidationCallback`, `DangerousAcceptAnyServerCertificateValidator`,
+`SslOptions.CertificateChainPolicy`, the `HttpRequestException` of an untrusted or mismatched certificate and of a server that
+doesn't speak TLS) run against .NET's recordings, in a program with both ends and no network. Explicit diagnostics, a known
+difference (client session resumption) and the platforms are in the ADR. Found, not fixed: `Socket.ConnectAsync(DnsEndPoint)`
+for `localhost` when the listener is IPv4-only fails with `Software caused connection abort` instead of falling back from `::1` to
+`127.0.0.1` (plain HTTP too: `HttpClient.GetStringAsync("http://localhost:port")`), so the samples address `127.0.0.1`.
+
+## X.509 certificates (Linux and macOS)
+
+`X509Certificate`, `X509Certificate2`, `X509Certificate2Collection`, `X509CertificateLoader`, `X509Chain` and the pieces under them
+(`X500DistinguishedName`, `AsnEncodedData`, `Oid`, `PublicKey`, `X509ChainPolicy`/`Element`/`Status`) are corelib C# over OpenSSL 3
+([ADR 0022](adr/0022-tls.md): why not the framework's IL). Sample `1100_x509_certificates` is recorded from .NET and covers: loading a
+PKCS#12 (`X509CertificateLoader.LoadPkcs12*`, the obsolete constructors), DER and PEM (`CreateFromPem` with a key); `Subject`/`Issuer`
+(.NET's `CN=a, O=b, C=c` order and quoting), serial number (both byte orders), thumbprint and `GetCertHash(HashAlgorithmName)`,
+`NotBefore`/`NotAfter`, version, signature and key algorithms, `GetNameInfo` for names with a CN, `RawData`, `Export(Cert)`,
+`ExportCertificatePem`, `GetCertContentType`, equality and hash codes; `GetRSAPrivateKey()` / `GetRSAPublicKey()` (the private key
+stays an OpenSSL `EVP_PKEY`, shared with the RSA object); collections (`Add`, `AddRange`, `Contains`, `IndexOf`, `Remove`,
+`Find` by thumbprint, serial number, subject and issuer); `X509Chain.Build` with OpenSSL's verification: `UntrustedRoot` with
+OpenSSL's text as the status information (what .NET shows on Linux), `CustomRootTrust`, `AllowUnknownCertificateAuthority` (the
+status is still reported, `Build` is true), `VerificationTime` and `NotTimeValid`. Errors keep .NET's types and messages: a wrong
+PFX password, garbage data, a missing file (OpenSSL's `error:10000080:BIO routines::no such file`), a disposed certificate.
+
+Explicit diagnostics: `X509Certificate2.Extensions` and the typed extension classes (X509KeyUsageExtension, ...), `X509Store`,
+PKCS#7, exporting a PFX, `CopyWithPrivateKey`, `ToString(true)` of a `X509Certificate2` (it lists the extensions),
+`GetNameInfo` of names without CN/OU/O, revocation checking (`X509Chain` needs `RevocationMode.NoCheck`), ECDSA/DSA keys.
+On macOS the same code runs over Homebrew's `openssl@3` (ADR 0022, addendum: trust is OpenSSL's plus `/etc/ssl/cert.pem`, not the keychain; the machine needs `brew install openssl@3`). Windows keeps the previous `NotSupportedException` for every certificate API.
 
 ## Expression trees
 

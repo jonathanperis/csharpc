@@ -9,6 +9,10 @@
 #include <objbase.h>  // CoTaskMemFree (ole32)
 #elif !defined(__wasi__)
 #include <dlfcn.h>
+#include <unistd.h>
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 #endif
 #include <errno.h>
 #include <fcntl.h>
@@ -55,7 +59,7 @@ void csrt_set_last_pinvoke_error(int32_t error) { s_last_pinvoke_error = error; 
 #define LIBRARY_SUFFIX ".so"
 #define DLL_NOT_FOUND_HINT "consider using a tool like strace. If you're using glibc, consider setting the LD_DEBUG environment variable: \n%s"
 #endif
-typedef struct { char* name; void* handle; } Library;
+typedef struct { char* name; void* handle; bool app_first; } Library;
 static Library* s_libraries;
 static int s_library_count, s_library_cap;
 static pthread_mutex_t s_library_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -130,24 +134,60 @@ static void* find_symbol(void* handle, const char* entry) { return dlsym(handle,
 #endif
 #define LIBRARY_KIND "shared library"
 
-void* csrt_pinvoke_load_library(const char* name, bool throw_on_error) {
+/// The directory of the executable, with its trailing '/', or NULL (WASI, or the path is unknown).
+static const char* app_directory(void) {
+    static char directory[4096];
+    static int state;  // 0: not yet read, 1: known, -1: unknown; read under s_library_lock
+    if (state == 0) {
+        state = -1;
+#if defined(__wasi__)
+#elif defined(__APPLE__)
+        char path[4096];
+        uint32_t size = sizeof path;
+        if (_NSGetExecutablePath(path, &size) == 0 && realpath(path, directory)) state = 1;
+#else
+        ssize_t n = readlink("/proc/self/exe", directory, sizeof directory - 1);
+        if (n > 0) { directory[n] = 0; state = 1; }
+#endif
+        if (state == 1) {
+            char* slash = strrchr(directory, '/');
+            if (slash) slash[1] = 0; else state = -1;
+        }
+    }
+    return state == 1 ? directory : NULL;
+}
+
+/// .NET's name variations of DllImport("foo") in one directory ("" is the system's search): a name with a path
+/// or suffix as given, foo.so, libfoo.so, foo, libfoo.
+static void* open_variants(const char* directory, const char* name) {
+    void* handle = NULL;
+    char candidate[2048];
+    bool has_suffix = strstr(name, LIBRARY_SUFFIX) != NULL;
+    bool lib = strncmp(name, "lib", 3) == 0;
+    if (strchr(name, '/') || has_suffix) { snprintf(candidate, sizeof candidate, "%s%s", directory, name); handle = try_open(candidate); }
+    if (!handle) { snprintf(candidate, sizeof candidate, "%s%s" LIBRARY_SUFFIX, directory, name); handle = try_open(candidate); }
+    if (!handle && !lib) { snprintf(candidate, sizeof candidate, "%slib%s" LIBRARY_SUFFIX, directory, name); handle = try_open(candidate); }
+    if (!handle) { snprintf(candidate, sizeof candidate, "%s%s", directory, name); handle = try_open(candidate); }
+    if (!handle && !lib) { snprintf(candidate, sizeof candidate, "%slib%s", directory, name); handle = try_open(candidate); }
+    return handle;
+}
+
+static void* load_library(const char* name, bool throw_on_error, bool app_first) {
     pthread_mutex_lock(&s_library_lock);
     for (int i = 0; i < s_library_count; i++)
-        if (strcmp(s_libraries[i].name, name) == 0) { void* h = s_libraries[i].handle; pthread_mutex_unlock(&s_library_lock); return h; }
+        if (strcmp(s_libraries[i].name, name) == 0 && s_libraries[i].app_first == app_first) { void* h = s_libraries[i].handle; pthread_mutex_unlock(&s_library_lock); return h; }
     void* handle = NULL;
-    char candidate[1024];
-    bool has_suffix = strstr(name, LIBRARY_SUFFIX) != NULL;
-    if (strchr(name, '/') || has_suffix) handle = try_open(name);
-    if (!handle) { snprintf(candidate, sizeof candidate, "%s" LIBRARY_SUFFIX, name); handle = try_open(candidate); }
-    if (!handle && strncmp(name, "lib", 3) != 0) { snprintf(candidate, sizeof candidate, "lib%s" LIBRARY_SUFFIX, name); handle = try_open(candidate); }
-    if (!handle) handle = try_open(name);
-    if (!handle && strncmp(name, "lib", 3) != 0) { snprintf(candidate, sizeof candidate, "lib%s", name); handle = try_open(candidate); }
+    // A P/Invoke looks next to the application first (DllImportSearchPath.AssemblyDirectory, .NET's default): where
+    // csharpc puts the native libraries of the program's packages; then the system's search. NativeLibrary.Load
+    // takes the name to the system loader as it is.
+    if (app_first && !strchr(name, '/') && app_directory()) handle = open_variants(app_directory(), name);
+    if (!handle) handle = open_variants("", name);
     if (handle) {
         if (s_library_count == s_library_cap) {
             s_library_cap = s_library_cap ? s_library_cap * 2 : 8;
             s_libraries = realloc(s_libraries, sizeof *s_libraries * (size_t)s_library_cap);
         }
-        s_libraries[s_library_count++] = (Library){ strdup(name), handle };
+        s_libraries[s_library_count++] = (Library){ strdup(name), handle, app_first };
     }
     const char* error = handle ? NULL : dlerror();
     pthread_mutex_unlock(&s_library_lock);
@@ -157,11 +197,18 @@ void* csrt_pinvoke_load_library(const char* name, bool throw_on_error) {
                            "problems, " DLL_NOT_FOUND_HINT, name, error ? error : ""));
     return handle;
 }
+
+void* csrt_pinvoke_load_library(const char* name, bool throw_on_error) { return load_library(name, throw_on_error, false); }
+static void* load_library_for_pinvoke(const char* name) { return load_library(name, true, true); }
+#endif
+#ifdef _WIN32
+// LoadLibrary searches the application's directory itself.
+static void* load_library_for_pinvoke(const char* name) { return csrt_pinvoke_load_library(name, true); }
 #endif
 
 /// Resolves `entry` in `library` (DllImport lazy binding); throws like .NET on failure.
 void* csrt_pinvoke_resolve(const char* library, const char* entry) {
-    void* handle = csrt_pinvoke_load_library(library, true);
+    void* handle = load_library_for_pinvoke(library);
     void* symbol = find_symbol(handle, entry);
     if (!symbol)
         csrt_throw(&csrt_MT_System_EntryPointNotFoundException.header,

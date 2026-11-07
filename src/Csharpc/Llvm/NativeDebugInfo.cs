@@ -22,6 +22,10 @@ internal static unsafe partial class Native
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMMetadataRef LLVMDIBuilderCreateFile(LLVMDIBuilderRef b, string file, nuint fileLen, string dir, nuint dirLen);
 
+    [LibraryImport(Lib)]
+    public static partial LLVMMetadataRef LLVMDIBuilderCreateLexicalBlockFile(LLVMDIBuilderRef b, LLVMMetadataRef scope, LLVMMetadataRef file,
+        uint discriminator);
+
     [LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
     public static partial LLVMMetadataRef LLVMDIBuilderCreateFunction(LLVMDIBuilderRef b, LLVMMetadataRef scope, string name, nuint nameLen,
         string linkageName, nuint linkageNameLen, LLVMMetadataRef file, uint line, LLVMMetadataRef type, int isLocalToUnit,

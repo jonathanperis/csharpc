@@ -1,0 +1,27 @@
+refused: Connection refused (127.0.0.1:PORT) [ConnectionError]
+  inner: ConnectionRefused
+canceled: The operation was canceled. | token matches: True | inner TaskCanceledException
+pre-canceled: TaskCanceledException: A task was canceled. <- TaskCanceledException: A task was canceled.
+hangup: HttpRequestException: An error occurred while sending the request. [ResponseEnded, ] <- HttpIOException: The response ended prematurely. (ResponseEnded)
+garbage: HttpRequestException: Received an invalid status line: 'this is not http'. [InvalidResponse, ]
+truncated body: HttpRequestException: Error while copying content to a stream. [ResponseEnded, ] <- HttpIOException: The response ended prematurely. (ResponseEnded)
+relative uri: InvalidOperationException: An invalid request URI was provided. Either the request URI must be an absolute URI or BaseAddress must be set.
+unsupported scheme: NotSupportedException: The 'ftp' scheme is not supported.
+null uri: InvalidOperationException: An invalid request URI was provided. Either the request URI must be an absolute URI or BaseAddress must be set.
+  ok
+ok: no exception
+timeout after request: This instance has already started one or more requests. Properties can only be modified before sending the first request.
+buffer size after request: This instance has already started one or more requests. Properties can only be modified before sending the first request.
+timeout: 00:00:00.2000000
+timeout: TaskCanceledException: The request was canceled due to the configured HttpClient.Timeout of 0.2 seconds elapsing. <- TimeoutException: The operation was canceled.
+  timeout exception: TaskCanceledException, inner TimeoutException: The operation was canceled.
+over-large response: HttpRequestException: Cannot write more bytes to the buffer than the configured maximum buffer size: 5. [ConfigurationLimitExceeded, ]
+invalid timeout: ArgumentOutOfRangeException: value ('-00:00:05') must be greater than '00:00:00'. (Parameter 'value')
+Actual value was -00:00:05.
+zero timeout: ArgumentOutOfRangeException: value ('00:00:00') must be greater than '00:00:00'. (Parameter 'value')
+Actual value was 00:00:00.
+infinite timeout: no exception
+negative buffer: ArgumentOutOfRangeException: value ('-1') must be a non-negative and non-zero value. (Parameter 'value')
+Actual value was -1.
+disposed: ObjectDisposedException: Cannot access a disposed object.
+Object name: 'System.Net.Http.HttpClient'.

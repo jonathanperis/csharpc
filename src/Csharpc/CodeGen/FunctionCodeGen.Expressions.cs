@@ -32,6 +32,9 @@ public sealed partial class FunctionCodeGen
             // IntPtr.Zero / UIntPtr.Zero: the only static fields interop code reads off these types.
             IFieldReferenceOperation { Field: { IsStatic: true, Name: "Zero", ContainingType.SpecialType: SpecialType.System_IntPtr or SpecialType.System_UIntPtr } } zf =>
                 LlvmContext.Null(T.Value(zf.Field.Type)),
+            // Type.Delimiter: a static readonly char '.' (the separator of a type's namespace), which the SDK's generators read.
+            IFieldReferenceOperation { Field: { IsStatic: true, Name: "Delimiter", ContainingType: { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } } df =>
+                Constant('.', S(df.Field.Type), df),
             IFieldReferenceOperation f when TryLowLevelLibraryMember(f, out var libraryField) => libraryField,
             // Library constants IL reads as fields: decimal's (decimal.Zero/One/MinusOne/MaxValue/MinValue are
             // `const` in C#, static readonly fields with [DecimalConstant] in metadata).
@@ -182,6 +185,7 @@ public sealed partial class FunctionCodeGen
         IPropertyReferenceOperation { Property.RefKind: not RefKind.None } p => RefPropertyAddress(p),
         IImplicitIndexerReferenceOperation ii => ImplicitIndexerAddress(ii),
         IInvocationOperation { TargetMethod.RefKind: not RefKind.None } i => EmitInvocation(i),
+        IFunctionPointerInvocationOperation { Target.Type: IFunctionPointerTypeSymbol { Signature.RefKind: not RefKind.None } } f => EmitFunctionPointerInvocation(f, address: true),
         _ when TryAddressOfNone(target, out var pointee) => pointee,
         _ => throw CompileError.Unsupported($"assignment to {target.Kind}", target),
     };
@@ -782,7 +786,8 @@ public sealed partial class FunctionCodeGen
             // Implicit T[]/string -> BCL interface (argument passing, spreads...): ensure the corelib slot tables exist.
             if (to is INamedTypeSymbol { TypeKind: TypeKind.Interface } itf)
             {
-                if (from is IArrayTypeSymbol { Rank: 1 }) _m.RequestArrayInterface(itf);
+                // (An Array is an IList too: IL converts it with no instruction, Array.BinarySearch's IList view.)
+                if (from is IArrayTypeSymbol { Rank: 1 } || from.SpecialType == SpecialType.System_Array) _m.RequestArrayInterface(itf);
                 else if (from.SpecialType == SpecialType.System_String) _m.RequestStringInterface(itf);
             }
             return value;

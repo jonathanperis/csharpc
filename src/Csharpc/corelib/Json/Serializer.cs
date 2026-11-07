@@ -354,6 +354,16 @@ namespace CsharpcCoreLib
             catch (Exception ex) { return Task.FromException(ex); }
         }
 
+        public static Task SerializeAsync(Stream utf8Json, object value, JsonTypeInfoImpl jsonTypeInfo, CancellationToken cancellationToken = default)
+        {
+            try
+            {
+                WriteToStream(utf8Json, value, Checked(jsonTypeInfo));
+                return Task.CompletedTask;
+            }
+            catch (Exception ex) { return Task.FromException(ex); }
+        }
+
         public static Task SerializeAsync(Stream utf8Json, object value, Type inputType, JsonSerializerOptionsImpl options = null, CancellationToken cancellationToken = default)
         {
             try
@@ -390,6 +400,10 @@ namespace CsharpcCoreLib
         }
 
         public static JsonNodeImpl SerializeToNode<TValue>(TValue value, JsonTypeInfoImpl<TValue> jsonTypeInfo) =>
+            JsonNodeImpl.Parse(ToUtf8Bytes(value, Checked(jsonTypeInfo)), null);
+
+        /// <summary>JsonSerializer.SerializeToNode(object, JsonTypeInfo): a value known only through its untyped metadata.</summary>
+        internal static JsonNodeImpl SerializeToNodeUntyped(object value, JsonTypeInfoImpl jsonTypeInfo) =>
             JsonNodeImpl.Parse(ToUtf8Bytes(value, Checked(jsonTypeInfo)), null);
 
         // ---------------------------------------------------------------- Deserialize
@@ -711,6 +725,15 @@ namespace CsharpcCoreLib
             if (type == typeof(DateTimeOffset)) return JsonMetadataServicesImpl.DateTimeOffsetConverter;
             if (type == typeof(TimeSpan)) return JsonMetadataServicesImpl.TimeSpanConverter;
             if (type == typeof(byte[])) return JsonMetadataServicesImpl.ByteArrayConverter;
+            if (type == typeof(Int128)) return JsonMetadataServicesImpl.Int128Converter;
+            if (type == typeof(UInt128)) return JsonMetadataServicesImpl.UInt128Converter;
+            if (type == typeof(Half)) return JsonMetadataServicesImpl.HalfConverter;
+            if (type == typeof(DateOnly)) return JsonMetadataServicesImpl.DateOnlyConverter;
+            if (type == typeof(TimeOnly)) return JsonMetadataServicesImpl.TimeOnlyConverter;
+            if (type == typeof(Uri)) return JsonMetadataServicesImpl.UriConverter;
+            if (type == typeof(Version)) return JsonMetadataServicesImpl.VersionConverter;
+            if (type == typeof(ReadOnlyMemory<byte>)) return JsonMetadataServicesImpl.ReadOnlyMemoryByteConverter;
+            if (type == typeof(Memory<byte>)) return JsonMetadataServicesImpl.MemoryByteConverter;
             if (type == typeof(object)) return JsonMetadataServicesImpl.ObjectConverter;
             if (type == typeof(JsonElement)) return JsonMetadataServicesImpl.JsonElementConverter;
             if (type == typeof(JsonDocument)) return JsonMetadataServicesImpl.JsonDocumentConverter;

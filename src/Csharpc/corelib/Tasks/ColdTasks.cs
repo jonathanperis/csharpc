@@ -26,6 +26,9 @@ namespace CsharpcCoreLib
         [DllImport("__Internal", EntryPoint = "csrt_task_mark_created")]
         private static extern void MarkCreated(IntPtr task);
 
+        [DllImport("__Internal", EntryPoint = "csrt_task_is_continuation")]
+        private static extern int IsContinuation(IntPtr task);
+
         [DllImport("__Internal", EntryPoint = "csrt_task_clear_created")]
         private static extern void ClearCreated(IntPtr task);
 
@@ -53,40 +56,42 @@ namespace CsharpcCoreLib
         public static Task Create(Action action, CancellationToken token, TaskCreationOptions options)
         {
             if (action == null) throw new ArgumentNullException("action");
-            return Build(action, token, options);
+            return Build(action, token, options, null);
         }
 
         public static Task CreateWithState(Action<object> action, object state, CancellationToken token, TaskCreationOptions options)
         {
             if (action == null) throw new ArgumentNullException("action");
-            return Build(() => action(state), token, options);
+            return Build(() => action(state), token, options, state);
         }
 
-        private static Task Build(Action body, CancellationToken token, TaskCreationOptions options)
+        private static Task Build(Action body, CancellationToken token, TaskCreationOptions options, object state)
         {
             CheckOptions(options);
             var tcs = new TaskCompletionSource();
             TaskSupport.AttachToParent(tcs.Task, options);
+            TaskState.Set(tcs.Task, state, options);
             return Register(tcs.Task, scheduler => TaskSupport.Work(body, tcs, token, options, scheduler), () => tcs.TrySetCanceled(), token);
         }
 
         public static Task<TResult> CreateFunc<TResult>(Func<TResult> function, CancellationToken token, TaskCreationOptions options)
         {
             if (function == null) throw new ArgumentNullException("function");
-            return BuildFunc(function, token, options);
+            return BuildFunc(function, token, options, null);
         }
 
         public static Task<TResult> CreateFuncWithState<TResult>(Func<object, TResult> function, object state, CancellationToken token, TaskCreationOptions options)
         {
             if (function == null) throw new ArgumentNullException("function");
-            return BuildFunc(() => function(state), token, options);
+            return BuildFunc(() => function(state), token, options, state);
         }
 
-        private static Task<TResult> BuildFunc<TResult>(Func<TResult> body, CancellationToken token, TaskCreationOptions options)
+        private static Task<TResult> BuildFunc<TResult>(Func<TResult> body, CancellationToken token, TaskCreationOptions options, object state)
         {
             CheckOptions(options);
             var tcs = new TaskCompletionSource<TResult>();
             TaskSupport.AttachToParent(tcs.Task, options);
+            TaskState.Set(tcs.Task, state, options);
             Register(tcs.Task, scheduler => TaskSupport.Work(body, tcs, token, options, scheduler), () => tcs.TrySetCanceled(), token);
             return tcs.Task;
         }
@@ -119,14 +124,15 @@ namespace CsharpcCoreLib
             lock (s_pending) return s_pending.Remove(task, out Pending pending) ? pending : null;
         }
 
-        private static Pending TakeForStart(Task task, string startedMessage, string promiseMessage)
+        private static Pending TakeForStart(Task task, string startedMessage, string promiseMessage, string continuationMessage)
         {
             if (Take(task) is { } pending)
             {
                 pending.Registration.Dispose();
                 return pending;
             }
-            throw new InvalidOperationException(task.Status is TaskStatus.WaitingToRun or TaskStatus.Running ? startedMessage : promiseMessage);
+            throw new InvalidOperationException(task.Status is TaskStatus.WaitingToRun or TaskStatus.Running ? startedMessage
+                : IsContinuation(CoreIntrinsics.ObjectToPointer(task)) != 0 ? continuationMessage : promiseMessage);
         }
 
         public static void Start(Task task) => Start(task, TaskScheduler.Current);
@@ -136,7 +142,7 @@ namespace CsharpcCoreLib
             if (task.IsCompleted) throw new InvalidOperationException("Start may not be called on a task that has completed.");
             if (scheduler == null) throw new ArgumentNullException("scheduler");
             Pending pending = TakeForStart(task, "Start may not be called on a task that was already started.",
-                "Start may not be called on a promise-style task.");
+                "Start may not be called on a promise-style task.", "Start may not be called on a continuation task.");
             var impl = (TaskSchedulerImpl)(object)scheduler;
             impl.Schedule(task, pending.Work(impl));
         }
@@ -148,7 +154,8 @@ namespace CsharpcCoreLib
             if (scheduler == null) throw new ArgumentNullException("scheduler");
             if (task.IsCompleted) throw new InvalidOperationException("RunSynchronously may not be called on a task that has already completed.");
             Pending pending = TakeForStart(task, "RunSynchronously may not be called on a task that was already started.",
-                "RunSynchronously may not be called on a task not bound to a delegate, such as the task returned from an asynchronous method.");
+                "RunSynchronously may not be called on a task not bound to a delegate, such as the task returned from an asynchronous method.",
+                "RunSynchronously may not be called on a continuation task.");
             var impl = (TaskSchedulerImpl)(object)scheduler;
             TaskSupport.MarkQueued(task);
             // .NET runs it inline when the scheduler lets it (the default one does); its exception stays in the task.

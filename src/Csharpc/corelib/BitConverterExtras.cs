@@ -11,6 +11,12 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.BitConverter")]
     internal static class BitConverterExtras
     {
+        // Half <-> its bits (HalfImpl.cs): the value is a 16-bit pattern.
+        public static short HalfToInt16Bits(Half value) => (short)HalfImpl.BitsOf(value);
+        public static ushort HalfToUInt16Bits(Half value) => HalfImpl.BitsOf(value);
+        public static Half Int16BitsToHalf(short value) => HalfImpl.FromBits((ushort)value);
+        public static Half UInt16BitsToHalf(ushort value) => HalfImpl.FromBits(value);
+
         public static string ToString(byte[] value)
         {
             if (value == null) throw new ArgumentNullException("value");
@@ -108,6 +114,25 @@ namespace CsharpcCoreLib
         public static byte[] GetBytes(ulong value) => Bytes(value, 8);
         public static byte[] GetBytes(float value) => Bytes((uint)CoreIntrinsics.SingleToBits(value), 4);
         public static byte[] GetBytes(double value) => Bytes((ulong)CoreIntrinsics.DoubleToBits(value), 8);
+
+        // TryWriteBytes: false (nothing written) when the destination is shorter than the value.
+        private static bool TryWrite(Span<byte> destination, ulong value, int size)
+        {
+            if (destination.Length < size) return false;
+            for (int i = 0; i < size; i++) destination[i] = (byte)(value >> (8 * i));
+            return true;
+        }
+
+        public static bool TryWriteBytes(Span<byte> destination, bool value) => TryWrite(destination, value ? 1UL : 0UL, 1);
+        public static bool TryWriteBytes(Span<byte> destination, char value) => TryWrite(destination, value, 2);
+        public static bool TryWriteBytes(Span<byte> destination, short value) => TryWrite(destination, (ushort)value, 2);
+        public static bool TryWriteBytes(Span<byte> destination, ushort value) => TryWrite(destination, value, 2);
+        public static bool TryWriteBytes(Span<byte> destination, int value) => TryWrite(destination, (uint)value, 4);
+        public static bool TryWriteBytes(Span<byte> destination, uint value) => TryWrite(destination, value, 4);
+        public static bool TryWriteBytes(Span<byte> destination, long value) => TryWrite(destination, (ulong)value, 8);
+        public static bool TryWriteBytes(Span<byte> destination, ulong value) => TryWrite(destination, value, 8);
+        public static bool TryWriteBytes(Span<byte> destination, float value) => TryWrite(destination, (uint)CoreIntrinsics.SingleToBits(value), 4);
+        public static bool TryWriteBytes(Span<byte> destination, double value) => TryWrite(destination, (ulong)CoreIntrinsics.DoubleToBits(value), 8);
 
         private static char ToCharUpper(int value)
         {

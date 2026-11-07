@@ -37,7 +37,9 @@ public sealed class IlAssemblySet : IDisposable
     public bool IsCoreLib(ISymbol? symbol) => OwnerOf(symbol) is { IsCoreLib: true };
 
     /// <summary>Opens and validates the assemblies; throws <see cref="InvalidOperationException"/> with a user-facing message.</summary>
-    public static IlAssemblySet Load(IEnumerable<string> paths)
+    /// <param name="nestedTypesVisibleIn">The program whose private nested types the binding compilation must be able to name
+    /// (reflection-based JSON metadata for them is generated in another assembly; JsonReflectionContexts.Il.cs).</param>
+    public static IlAssemblySet Load(IEnumerable<string> paths, string? nestedTypesVisibleIn = null)
     {
         var set = new IlAssemblySet();
         foreach (var path in paths.Select(Path.GetFullPath).Distinct(StringComparer.Ordinal))
@@ -54,7 +56,9 @@ public sealed class IlAssemblySet : IDisposable
             if (!reader.IsAssembly) throw new InvalidOperationException($"'{path}' is a module, not an assembly");
             if (IsReferenceAssembly(reader))
                 throw new InvalidOperationException($"'{path}' is a reference assembly (no method bodies); reference the implementation assembly instead");
-            var reference = MetadataReference.CreateFromImage(bytes, filePath: path);
+            var image = nestedTypesVisibleIn is not null && string.Equals(path, Path.GetFullPath(nestedTypesVisibleIn), StringComparison.Ordinal)
+                ? JsonReflectionContexts.WithPrivateNestedTypesInternal(bytes, pe, reader) : bytes;
+            var reference = MetadataReference.CreateFromImage(image, filePath: path);
             set._assemblies.Add(new IlAssembly(path, pe, reader, reference));
         }
         return set;
@@ -146,6 +150,9 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
     /// <summary>The precompiled corelib (ADR 0015): lowered from IL, but with the source corelib's policies.</summary>
     public bool IsCoreLib { get; }
 
+    /// <summary>An assembly of a shared framework (Microsoft.NETCore.App, Microsoft.AspNetCore.App) rather than a package or the program's own.</summary>
+    public bool IsFramework { get; }
+
     /// <summary>Decoded bodies by generic definition (IlMethodBody.For).</summary>
     internal Dictionary<IMethodSymbol, IlMethodBody> DecodedBodies { get; } = new(SymbolEqualityComparer.Default);
 
@@ -161,6 +168,8 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         Reader = reader;
         Reference = reference;
         IsCoreLib = Name == CoreLibAssembly.Name;
+        var normalized = path.Replace('\\', '/');
+        IsFramework = normalized.Contains("/shared/Microsoft.", StringComparison.Ordinal);
     }
 
     internal void Bind(Compilation compilation, IAssemblySymbol symbol, Dictionary<string, IAssemblySymbol> referenced)
@@ -196,37 +205,34 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
     /// </summary>
     public IEnumerable<(string BaseName, string Key, string Value)> ReadStringResources()
     {
-        if (Pe.PEHeaders.CorHeader is not { } cor || cor.ResourcesDirectory.Size == 0) yield break;
-        var directory = Pe.GetSectionData(cor.ResourcesDirectory.RelativeVirtualAddress);
-        foreach (var handle in Reader.ManifestResources)
-        {
-            var resource = Reader.GetManifestResource(handle);
-            if (!resource.Implementation.IsNil) continue; // linked or in another assembly
-            var name = Reader.GetString(resource.Name);
-            if (!name.EndsWith(".resources", StringComparison.Ordinal)) continue;
-            var block = directory.GetReader((int)resource.Offset, directory.Length - (int)resource.Offset);
-            var bytes = block.ReadBytes(block.ReadInt32());
-            List<(string, string, string)> entries = [];
-            try
-            {
-                using var reader = new System.Resources.ResourceReader(new MemoryStream(bytes));
-                var e = reader.GetEnumerator();
-                while (e.MoveNext())
-                {
-                    var key = (string)e.Key;
-                    reader.GetResourceData(key, out var type, out var data);
-                    if (type != "ResourceTypeCode.String") continue;
-                    using var value = new BinaryReader(new MemoryStream(data));
-                    entries.Add((name[..^".resources".Length], key, value.ReadString()));
-                }
-            }
-            catch (Exception ex) when (ex is BadImageFormatException or InvalidOperationException or IOException or ArgumentException or FormatException)
-            {
-                throw new IlException($"embedded resource '{name}' of {Name}.dll is not in the .resources format: {ex.Message}");
-            }
-            foreach (var entry in entries) yield return entry;
-        }
+        foreach (var (name, bytes) in ReadManifestResources())
+            foreach (var entry in StringResources(name, bytes, $"{Name}.dll")) yield return entry;
     }
+
+    /// <summary>
+    /// The entries of one embedded resource, when it is a `.resources` file (others: none): the base name, the key and
+    /// the string value, or, for an entry of another type, the marker NonStringPrefix + the type's name (so the runtime
+    /// can tell GetString/GetObject why it has no text instead of reporting a missing key).
+    /// </summary>
+    public static IEnumerable<(string BaseName, string Key, string Value)> StringResources(string name, byte[] bytes, string owner)
+    {
+        if (!name.EndsWith(".resources", StringComparison.Ordinal)) yield break;
+        List<ResourcesFile.Entry> entries;
+        try { entries = [.. ResourcesFile.Read(bytes)]; }
+        catch (Exception ex) when (ex is InvalidDataException or EndOfStreamException or IOException or ArgumentException or FormatException)
+        {
+            throw new IlException($"embedded resource '{name}' of {owner} is not in the .resources format: {ex.Message}");
+        }
+        var baseName = name[..^".resources".Length];
+        foreach (var entry in entries)
+            // A preserialized user type is marked with "\u0002<format>" after the type name (3: the value is the type converter's
+            // string, else a byte array, an activator stream or BinaryFormatter output the runtime can't create), so the runtime
+            // can tell it from a primitive stored by type code and say how it is stored.
+            yield return (baseName, entry.Name, entry.Text ?? NonStringPrefix + entry.TypeName + (entry.Format != 0 ? "\u0002" + entry.Format : "") + "\u0001" + entry.Value);
+    }
+
+    /// <summary>Starts the value of a resource entry that is not a string: the prefix, the type's full name, U+0001 and the value's text (corelib/Resources.cs reads it).</summary>
+    public const string NonStringPrefix = "\uFFFF\u0001";
 
     public void Dispose() => Pe.Dispose();
 
@@ -270,6 +276,9 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
 
     public PropertyDefinition PropertyDefinitionOf(IPropertySymbol property) =>
         Reader.GetPropertyDefinition(MetadataTokens.PropertyDefinitionHandle(MetadataTokens.GetRowNumber(MetadataTokens.EntityHandle(property.OriginalDefinition.MetadataToken))));
+
+    public EventDefinition EventDefinitionOf(IEventSymbol e) =>
+        Reader.GetEventDefinition(MetadataTokens.EventDefinitionHandle(MetadataTokens.GetRowNumber(MetadataTokens.EntityHandle(e.OriginalDefinition.MetadataToken))));
 
     public FieldDefinition FieldDefinitionOf(IFieldSymbol field) =>
         Reader.GetFieldDefinition(MetadataTokens.FieldDefinitionHandle(MetadataTokens.GetRowNumber(MetadataTokens.EntityHandle(field.OriginalDefinition.MetadataToken))));
@@ -340,6 +349,18 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         foreach (var handle in type.GetFields())
             if (Reader.StringComparer.Equals(Reader.GetFieldDefinition(handle).Name, e.Name)) return true;
         return false;
+    }
+
+    /// <summary>The FieldDef behind a field-like event (the field named like the event), or null.</summary>
+    public (FieldDefinitionHandle Handle, FieldDefinition Definition)? BackingFieldOf(IEventSymbol e)
+    {
+        var type = TypeDefinitionOf(e.ContainingType);
+        foreach (var handle in type.GetFields())
+        {
+            var definition = Reader.GetFieldDefinition(handle);
+            if (Reader.StringComparer.Equals(definition.Name, e.Name)) return (handle, definition);
+        }
+        return null;
     }
 
     /// <summary>Explicit class size (.size) of a type, 0 if none.</summary>
@@ -469,6 +490,8 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                 var field = t.GetMembers(name).OfType<IFieldSymbol>().FirstOrDefault(f => SameType(f.Type, fieldType.Type))
                     ?? t.GetMembers(name).OfType<IFieldSymbol>().FirstOrDefault();
                 if (field is not null) return OnConstructed(owner, field);
+                // A field-like event's backing field (hidden from Roslyn's symbols), as a FieldDef token resolves.
+                if (t.GetMembers(name).OfType<IEventSymbol>().FirstOrDefault() is { } backed) return OnConstructed(owner, backed);
             }
             throw new IlException($"field '{owner}.{name}' not found");
         }
@@ -540,7 +563,14 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         {
             if (!SymbolEqualityComparer.Default.Equals(t.OriginalDefinition, definitionMember.ContainingType.OriginalDefinition)) continue;
             if (SymbolEqualityComparer.Default.Equals(t, t.OriginalDefinition)) return definitionMember;
-            return t.GetMembers(definitionMember.Name).First(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, definitionMember.OriginalDefinition));
+            var match = t.GetMembers(definitionMember.Name).FirstOrDefault(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, definitionMember.OriginalDefinition));
+            // A tuple type of more than seven elements wraps the first seven fields of ValueTuple`8 in its own symbols, which
+            // don't compare equal to the definition's; its field names are unique.
+            if (match is null && t.IsTupleType && definitionMember is IFieldSymbol)
+                match = t.GetMembers(definitionMember.Name).OfType<IFieldSymbol>().FirstOrDefault();
+            // ... and doesn't list ValueTuple's Rest field: it is the underlying type's.
+            match ??= t.TupleUnderlyingType?.GetMembers(definitionMember.Name).FirstOrDefault(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, definitionMember.OriginalDefinition));
+            return match ?? throw new IlException($"member '{definitionMember.Name}' of '{t}' not found");
         }
         return definitionMember;
     }

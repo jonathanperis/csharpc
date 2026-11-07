@@ -9,7 +9,9 @@ namespace Csharpc.Frontend;
 /// from IL (FrameworkIl) and their calls bind directly to the shim, which carries the same native code
 /// (zlib-ng, brotli, zstd) as a NativeAOT executable: compressed bytes are .NET's. The pack is taken from
 /// the NuGet packages folder, or downloaded into it once with `dotnet restore` (a PackageDownload, which
-/// honours the user's NuGet configuration).
+/// honours the user's NuGet configuration). On Windows the archives are the pack's MSVC-built .lib files,
+/// which lld links into the MinGW executable next to Toolchain's msvc_compat.c (the few vcruntime symbols
+/// they reference); the shim's IL module name has no "lib" prefix there.
 /// </summary>
 public static class NativeAotPack
 {
@@ -17,6 +19,9 @@ public static class NativeAotPack
     public static readonly IReadOnlyDictionary<string, string[]> Shims = new Dictionary<string, string[]>(StringComparer.Ordinal)
     {
         ["libSystem.IO.Compression.Native"] = ["libSystem.IO.Compression.Native.a", "libbrotlienc.a", "libbrotlidec.a", "libbrotlicommon.a", "libz.a", "libzstd.a"],
+        // Windows: the same code, named without the "lib" prefix in the framework's IL; zlib-ng, brotli and zstd as
+        // separate MSVC libraries (System.IO.Compression.Native.Aot.lib holds only the entry points).
+        ["System.IO.Compression.Native"] = ["System.IO.Compression.Native.Aot.lib", "brotlienc.lib", "brotlidec.lib", "brotlicommon.lib", "zlibstatic.lib", "zstd_static.lib"],
         // POSIX file metadata and the like (System.Formats.Tar, ZipFile's permissions), on NativeAOT's minipal.
         ["libSystem.Native"] = ["libSystem.Native.a", "libaotminipal.a"],
     };
@@ -42,11 +47,12 @@ public static class NativeAotPack
     private static readonly Lock s_lock = new();
     private static readonly Dictionary<string, string?> s_directories = new(StringComparer.Ordinal);
 
-    /// <summary>The runtime identifier NativeAOT publishes for on this target, or null where csharpc can't link its archives (Windows: MSVC libraries; WebAssembly).</summary>
+    /// <summary>The runtime identifier NativeAOT publishes for on this target, or null where csharpc can't link its archives (Windows on Arm; WebAssembly).</summary>
     public static string? Rid(string triple) => triple switch
     {
         _ when triple.Contains("-apple-", StringComparison.Ordinal) => triple.StartsWith("arm64", StringComparison.Ordinal) || triple.StartsWith("aarch64", StringComparison.Ordinal) ? "osx-arm64" : null,
-        _ when triple.Contains("windows", StringComparison.Ordinal) || triple.Contains("wasm", StringComparison.Ordinal) || triple.Contains("musl", StringComparison.Ordinal) => null,
+        _ when triple.Contains("windows", StringComparison.Ordinal) => triple.StartsWith("x86_64", StringComparison.Ordinal) ? "win-x64" : null,
+        _ when triple.Contains("wasm", StringComparison.Ordinal) || triple.Contains("musl", StringComparison.Ordinal) => null,
         _ when triple.Contains("-linux", StringComparison.Ordinal) => triple.StartsWith("x86_64", StringComparison.Ordinal) ? "linux-x64"
             : triple.StartsWith("aarch64", StringComparison.Ordinal) || triple.StartsWith("arm64", StringComparison.Ordinal) ? "linux-arm64" : null,
         _ => null,
@@ -72,7 +78,16 @@ public static class NativeAotPack
                 if (known is null) reason = $"the NativeAOT runtime pack {PackageId(rid)} {version} could not be restored";
                 return known;
             }
-            var dir = Find(rid, version) ?? (Restore(rid, version) ? Find(rid, version) : null);
+            // A restore can fail for reasons that pass (a network hiccup, NuGet's own locking while a compile running in
+            // parallel restores the same pack): retry, and look in the packages folder again each time, because that other
+            // compile may have finished it.
+            var dir = Find(rid, version);
+            for (var attempt = 0; dir is null && attempt < 3; attempt++)
+            {
+                if (attempt > 0) System.Threading.Thread.Sleep(2000 * attempt);
+                Restore(rid, version);
+                dir = Find(rid, version);
+            }
             s_directories[key] = dir;
             if (dir is null) reason = $"the NativeAOT runtime pack {PackageId(rid)} {version} could not be restored";
             return dir;

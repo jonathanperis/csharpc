@@ -49,6 +49,39 @@ public static partial class FrameworkIl
         public Dictionary<string, string[]> Extensions { get; } = new(StringComparer.Ordinal);
     }
 
+    /// <summary>
+    /// Assemblies with some types csharpc implements itself (corelib shadows) and the rest portable IL:
+    /// eligible anyway. Every member of a shadowed type is redirected to its shadow (the IL of those types
+    /// is never lowered, so the native calls in them are not either), and the other types are compiled
+    /// from IL. System.Net.Primitives: IPAddress, IPEndPoint and EndPoint are shadows (their IL calls
+    /// libSystem.Native's socket-address shims); Cookie, CookieContainer, CredentialCache,
+    /// NetworkCredential, DnsEndPoint and HttpVersion are plain C#. System.Collections.NonGeneric:
+    /// CollectionBase is a shadow (X509CertificateCollection derives from it); SortedList, Queue and
+    /// Stack, which CookieContainer and others use, come from IL.
+    /// </summary>
+    private static readonly string[] MixedWithShadows = ["System.Net.Primitives", "System.Collections.NonGeneric", "System.ComponentModel.TypeConverter"];
+
+    /// <summary>
+    /// Mixed assemblies that are taken for the types csharpc doesn't implement only: naming a shadowed type (System.ComponentModel's
+    /// TypeConverter) is served by the corelib alone.
+    /// </summary>
+    private static readonly string[] UsedOnlyForOtherTypes = ["System.ComponentModel.TypeConverter"];
+
+    /// <summary>
+    /// The references of an assembly that are followed when it is chosen, where not all are: System.ComponentModel.TypeConverter
+    /// names System.Xml, System.Net.Http ... for a few designer types that no converter reaches, and the closure must not
+    /// load (and link the native shims of) them for a program that creates a PointConverter.
+    /// </summary>
+    private static readonly Dictionary<string, string[]> FollowedReferences = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["System.ComponentModel.TypeConverter"] = ["System.ComponentModel.Primitives", "System.Collections.NonGeneric", "System.Collections.Specialized", "System.Drawing.Primitives"],
+    };
+
+    private static string[] Followed(Assembly a) =>
+        FollowedReferences.TryGetValue(a.Name, out var followed) ? [.. a.References.Where(r => followed.Contains(r, StringComparer.OrdinalIgnoreCase))] : a.References;
+
+    public static bool IsMixedWithShadows(string? assembly) => assembly is not null && MixedWithShadows.Contains(assembly, StringComparer.OrdinalIgnoreCase);
+
     /// <summary>Shared frameworks a project can reference besides Microsoft.NETCore.App.</summary>
     public static readonly string[] SupportedFrameworks = ["Microsoft.AspNetCore.App"];
 
@@ -112,6 +145,10 @@ public static partial class FrameworkIl
 
         // Uses: a namespace named by the sources (every segment is one of their identifiers) and one of its types.
         var identifiers = SourceIdentifiers(settings);
+        // The types of preserialized resources are created by name at run time (ResourceConverters): the assemblies that define
+        // them are used as if the sources named them.
+        foreach (var type in settings.ResourceTypes)
+            foreach (var segment in type.Split('.', '+')) identifiers.Add(segment);
         bool Named(string ns) => ns.Split('.').All(identifiers.Contains);
         var owners = index.Values.SelectMany(a => a.Types.Keys).GroupBy(n => n, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
         // In a namespace several assemblies share (System.Linq), an extension method only one of them defines
@@ -129,10 +166,24 @@ public static partial class FrameworkIl
             if (use is not null && Unusable(a) is null) Add(a, $"the program uses {use}");
         }
 
+        // Their converters are System.ComponentModel.TypeConverter's (PointConverter, ColorConverter, EnumConverter ...).
+        if (settings.ResourceTypes.Count > 0 && index.TryGetValue("System.ComponentModel.TypeConverter", out var converters) && Unusable(converters) is null)
+            Add(converters, $"a resource of type {settings.ResourceTypes[0]} is created by its TypeConverter");
+
+        // TypeDescriptor.GetConverter(typeof(X)) in the sources: the converters it gives (ResourceConverters) are that assembly's.
+        if (identifiers.Contains("GetConverter") && Named("System.ComponentModel") && index.TryGetValue("System.ComponentModel.TypeConverter", out var described) && Unusable(described) is null)
+            Add(described, "the program calls TypeDescriptor.GetConverter");
+
+        // The corelib's sockets (shadows) take and test types of System.Net.Primitives that are plain IL there
+        // (DnsEndPoint, for Socket.Connect(EndPoint)): a program that names System.Net.Sockets needs them, even
+        // when it never names System.Net.
+        if (Named("System.Net.Sockets") && index.TryGetValue("System.Net.Primitives", out var primitives) && primitives.Ineligible is null)
+            Add(primitives, "the corelib's sockets use its DnsEndPoint");
+
         // Closure: what the IL assemblies (the program's and the chosen framework ones) reference.
         var queue = new Queue<(string Name, string[] References)>();
         foreach (var path in ilPaths.Where(File.Exists)) queue.Enqueue((Path.GetFileNameWithoutExtension(path), ReferencesOf(path)));
-        foreach (var choice in result.ToList()) queue.Enqueue((choice.Name, index[choice.Name].References));
+        foreach (var choice in result.ToList()) queue.Enqueue((choice.Name, Followed(index[choice.Name])));
         while (queue.Count > 0)
         {
             var (from, references) = queue.Dequeue();
@@ -140,7 +191,7 @@ public static partial class FrameworkIl
             {
                 if (chosen.Contains(reference) || given.Contains(reference) || !index.TryGetValue(reference, out var a) || Unusable(a) is not null) continue;
                 Add(a, $"referenced by {from}");
-                queue.Enqueue((a.Name, a.References));
+                queue.Enqueue((a.Name, Followed(a)));
             }
         }
 
@@ -280,6 +331,11 @@ public static partial class FrameworkIl
         foreach (var (ns, list) in extensions) a.Extensions[ns] = [.. list.Distinct(StringComparer.Ordinal)];
 
         var known = KnownTypes();
+        // Naming TypeConverter or TypeDescriptor (the shadows Configuration.Binder and friends use) must not take the
+        // whole assembly: only a program that names one of the rest (PointConverter, EnumConverter, ITypeDescriptorContext ...)
+        // does, so programs that only convert strings compile as before.
+        if (UsedOnlyForOtherTypes.Contains(a.Name, StringComparer.OrdinalIgnoreCase))
+            foreach (var ns in a.Types.Keys.ToList()) a.Types[ns] = [.. a.Types[ns].Where(n => !known.Contains(ns + "." + n))];
         // Native code of the .NET runtime it calls: the shims csharpc links from the NativeAOT pack are
         // recorded (eligible where that works), any other (QCalls, libSystem.Native ...) rules it out.
         var shims = new List<string>();
@@ -298,6 +354,7 @@ public static partial class FrameworkIl
         // System.Private.* assemblies (Xml, Xml.Linq, DataContractSerialization, Uri) are ordinary libraries
         // behind facades and get the same checks as any other assembly.
         a.Ineligible = a.Name.Equals("System.Private.CoreLib", StringComparison.OrdinalIgnoreCase) ? "it is part of the runtime itself"
+            : MixedWithShadows.Contains(a.Name, StringComparer.OrdinalIgnoreCase) ? null
             : ModuleOfRuntime() is { } native ? $"it calls native code of the .NET runtime ({native})"
             : fullNames.FirstOrDefault(known.Contains) is { } shadowed ? $"csharpc implements its type '{shadowed}' itself"
             : null;

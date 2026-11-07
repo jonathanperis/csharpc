@@ -1,0 +1,5 @@
+/rel: True False /rel
+/dir/x?q=1: True False /dir/x?q=1
+rel/x: True False rel/x
+https://example.com/x: True True https://example.com/x
+False

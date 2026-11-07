@@ -154,6 +154,41 @@ namespace CsharpcCoreLib
             return p;
         }
         public static void Free(void* ptr) => Libc.free(ptr);
+
+        // Aligned blocks over plain malloc, the same on every OS (Windows would need _aligned_free for blocks from
+        // _aligned_malloc, so the portable form keeps its own header): [original pointer][size] sit just below the
+        // aligned address, and AlignedFree/AlignedRealloc read them back.
+        private const int AlignedHeader = 16;
+
+        public static void* AlignedAlloc(nuint byteCount, nuint alignment)
+        {
+            if (alignment == 0 || (alignment & (alignment - 1)) != 0) throw new ArgumentException("The alignment must be a power of two.");
+            if (alignment < 8) alignment = 8;
+            byte* raw = (byte*)Libc.Alloc(checked(byteCount + alignment + AlignedHeader));
+            nuint aligned = ((nuint)raw + AlignedHeader + alignment - 1) & ~(alignment - 1);
+            ((nuint*)aligned)[-1] = (nuint)raw;
+            ((nuint*)aligned)[-2] = byteCount;
+            return (void*)aligned;
+        }
+
+        public static void AlignedFree(void* ptr)
+        {
+            if (ptr != null) Libc.free((void*)((nuint*)ptr)[-1]);
+        }
+
+        public static void* AlignedRealloc(void* ptr, nuint byteCount, nuint alignment)
+        {
+            if (alignment == 0 || (alignment & (alignment - 1)) != 0) throw new ArgumentException("The alignment must be a power of two.");
+            void* result = AlignedAlloc(byteCount, alignment);
+            if (ptr != null)
+            {
+                nuint old = ((nuint*)ptr)[-2];
+                Libc.memmove(result, ptr, old < byteCount ? old : byteCount);
+                AlignedFree(ptr);
+            }
+            return result;
+        }
+
         public static void Clear(void* ptr, nuint byteCount) => Libc.memset(ptr, 0, byteCount);
         public static void Fill(void* ptr, nuint byteCount, byte value) => Libc.memset(ptr, value, byteCount);
         public static void Copy(void* source, void* destination, nuint byteCount) => Libc.memmove(destination, source, byteCount);
@@ -209,6 +244,21 @@ namespace CsharpcCoreLib
         private static NotSupportedException BuiltInComNotSupported() => new NotSupportedException("Built-in COM interop is not supported by csharpc yet.");
 #endif
 
+        // Delegates as native callbacks (DelegateThunks.cs): a pool of generated reverse P/Invoke thunks per delegate
+        // type, so only a delegate type known at compile time can be marshalled.
+        public static IntPtr GetFunctionPointerForDelegate<TDelegate>(TDelegate d) =>
+            DelegateThunks.GetPointer((Delegate)(object)d, CoreIntrinsics.ReverseThunkTable<TDelegate>());
+        public static IntPtr GetFunctionPointerForDelegate(Delegate d) => DelegateThunks.GetPointerUntyped(d);
+        public static TDelegate GetDelegateForFunctionPointer<TDelegate>(IntPtr ptr) =>
+            CoreIntrinsics.CastOrThrow<TDelegate>(DelegateThunks.FromPointer<TDelegate>(ptr));
+        public static Delegate GetDelegateForFunctionPointer(IntPtr ptr, Type t)
+        {
+            if (ptr == IntPtr.Zero) throw new ArgumentNullException("ptr");
+            if (t == null) throw new ArgumentNullException("t");
+            throw new NotSupportedException("Marshal.GetDelegateForFunctionPointer(IntPtr, Type) is not supported by csharpc yet:"
+                + " use the generic overload GetDelegateForFunctionPointer<TDelegate>, whose delegate type is known at compile time.");
+        }
+
         /// <summary>Marshal.InitHandle: a SafeHandle created by marshalling code takes the native handle.</summary>
         public static void InitHandle(SafeHandle safeHandle, IntPtr handle) => ((SafeHandleImpl)(object)safeHandle).SetHandle(handle);
 #if CSHARPC_TARGET_WINDOWS
@@ -223,11 +273,13 @@ namespace CsharpcCoreLib
             WindowsMarshal.Check(WindowsMarshal.LocalReAlloc((void*)pv, (nuint)(nint)cb, 2 /* LMEM_MOVEABLE */));
         public static void FreeHGlobal(IntPtr hglobal) { if (hglobal != IntPtr.Zero) WindowsMarshal.LocalFree((void*)hglobal); }
         public static IntPtr AllocCoTaskMem(int cb) => WindowsMarshal.Check(WindowsMarshal.CoTaskMemAlloc((nuint)cb));
+        public static IntPtr ReAllocCoTaskMem(IntPtr pv, int cb) => WindowsMarshal.Check(WindowsMarshal.CoTaskMemRealloc((void*)pv, (nuint)cb));
         public static void FreeCoTaskMem(IntPtr ptr) => WindowsMarshal.CoTaskMemFree((void*)ptr);
 
         public static IntPtr StringToHGlobalAnsi(string s) => WindowsMarshal.ToAnsi(s, coTaskMem: false);
         public static IntPtr StringToCoTaskMemAnsi(string s) => WindowsMarshal.ToAnsi(s, coTaskMem: true);
         public static IntPtr StringToHGlobalAuto(string s) => StringToHGlobalUni(s);
+        public static IntPtr StringToCoTaskMemAuto(string s) => StringToCoTaskMemUni(s);
         public static IntPtr StringToHGlobalUni(string s) => WindowsMarshal.ToUtf16(s, coTaskMem: false);
         public static IntPtr StringToCoTaskMemUni(string s) => WindowsMarshal.ToUtf16(s, coTaskMem: true);
         public static IntPtr StringToCoTaskMemUTF8(string s) => WindowsMarshal.ToUtf8(s);
@@ -246,10 +298,12 @@ namespace CsharpcCoreLib
         public static IntPtr ReAllocHGlobal(IntPtr pv, IntPtr cb) => (IntPtr)Libc.realloc((void*)pv, (nuint)(nint)cb);
         public static void FreeHGlobal(IntPtr hglobal) => Libc.free((void*)hglobal);
         public static IntPtr AllocCoTaskMem(int cb) => (IntPtr)Libc.Alloc((nuint)cb);
+        public static IntPtr ReAllocCoTaskMem(IntPtr pv, int cb) => (IntPtr)Libc.realloc((void*)pv, cb == 0 ? 1 : (nuint)cb);
         public static void FreeCoTaskMem(IntPtr ptr) => Libc.free((void*)ptr);
 
         public static IntPtr StringToHGlobalAnsi(string s) => (IntPtr)Utf8.ToNative(s);
         public static IntPtr StringToHGlobalAuto(string s) => (IntPtr)Utf8.ToNative(s);
+        public static IntPtr StringToCoTaskMemAuto(string s) => (IntPtr)Utf8.ToNative(s);
         public static IntPtr StringToCoTaskMemUTF8(string s) => (IntPtr)Utf8.ToNative(s);
         public static IntPtr StringToCoTaskMemAnsi(string s) => (IntPtr)Utf8.ToNative(s);
         public static IntPtr StringToHGlobalUni(string s) => (IntPtr)Utf16.ToNative(s);
@@ -261,6 +315,50 @@ namespace CsharpcCoreLib
         public static string PtrToStringAnsi(IntPtr ptr, int len) => ptr == IntPtr.Zero ? null : Utf8.Decode((byte*)ptr, len);
         public static string PtrToStringAuto(IntPtr ptr) => Utf8.FromNative((byte*)ptr);
 #endif
+        // BSTR: a 4-byte byte-length prefix, the UTF-16 text and a terminating NUL, the pointer at the text.
+        // Windows allocates it with oleaut32 (native code frees it with SysFreeString); elsewhere .NET's PAL
+        // does the same with malloc, so the layout is built here.
+        public static IntPtr StringToBSTR(string s)
+        {
+            if (s == null) return IntPtr.Zero;
+#if CSHARPC_TARGET_WINDOWS
+            fixed (char* text = s) return (IntPtr)SysAllocStringLen(text, (uint)s.Length);
+#else
+            byte* block = (byte*)Libc.Alloc((nuint)(4 + (s.Length + 1) * 2));
+            *(int*)block = s.Length * 2;
+            char* chars = (char*)(block + 4);
+            for (int i = 0; i < s.Length; i++) chars[i] = s[i];
+            chars[s.Length] = '\0';
+            return (IntPtr)chars;
+#endif
+        }
+
+        public static string PtrToStringBSTR(IntPtr ptr) => ptr == IntPtr.Zero ? null : new string((char*)ptr, 0, *(int*)((byte*)ptr - 4) >> 1);
+
+        public static void FreeBSTR(IntPtr ptr)
+        {
+            if (ptr == IntPtr.Zero) return;
+#if CSHARPC_TARGET_WINDOWS
+            SysFreeString((void*)ptr);
+#else
+            Libc.free((byte*)ptr - 4);
+#endif
+        }
+
+#if CSHARPC_TARGET_WINDOWS
+        [DllImport("oleaut32")] private static extern void* SysAllocStringLen(char* text, uint length);
+        [DllImport("oleaut32")] private static extern void SysFreeString(void* bstr);
+#endif
+
+        // The ZeroFree forms wipe the NUL-terminated text (secrets) before releasing it with the matching allocator.
+        public static void ZeroFreeCoTaskMemUTF8(IntPtr s) { if (s != IntPtr.Zero) { Wipe((byte*)s, (nuint)Libc.strlen((byte*)s)); FreeCoTaskMem(s); } }
+        public static void ZeroFreeCoTaskMemAnsi(IntPtr s) { if (s != IntPtr.Zero) { Wipe((byte*)s, (nuint)Libc.strlen((byte*)s)); FreeCoTaskMem(s); } }
+        public static void ZeroFreeCoTaskMemUnicode(IntPtr s) { if (s != IntPtr.Zero) { Wipe((byte*)s, WideLength((char*)s) * 2); FreeCoTaskMem(s); } }
+        public static void ZeroFreeGlobalAllocAnsi(IntPtr s) { if (s != IntPtr.Zero) { Wipe((byte*)s, (nuint)Libc.strlen((byte*)s)); FreeHGlobal(s); } }
+        public static void ZeroFreeGlobalAllocUnicode(IntPtr s) { if (s != IntPtr.Zero) { Wipe((byte*)s, WideLength((char*)s) * 2); FreeHGlobal(s); } }
+        private static nuint WideLength(char* p) { nuint n = 0; while (p[n] != '\0') n++; return n; }
+        private static void Wipe(byte* p, nuint length) { for (nuint i = 0; i < length; i++) System.Threading.Volatile.Write(ref p[i], (byte)0); }
+
         public static string PtrToStringUni(IntPtr ptr) => Utf16.FromNative((char*)ptr);
         public static string PtrToStringUni(IntPtr ptr, int len) => ptr == IntPtr.Zero ? null : new string((char*)ptr, 0, len);
 
@@ -285,32 +383,46 @@ namespace CsharpcCoreLib
         public static void WriteIntPtr(IntPtr ptr, IntPtr val) => *(IntPtr*)ptr = val;
         public static void WriteIntPtr(IntPtr ptr, int ofs, IntPtr val) => *(IntPtr*)((byte*)ptr + ofs) = val;
 
-        public static void Copy(byte[] source, int startIndex, IntPtr destination, int length)
-        { fixed (byte* s = source) Libc.memmove((void*)destination, s + startIndex, (nuint)length); }
-        public static void Copy(IntPtr source, byte[] destination, int startIndex, int length)
-        { fixed (byte* d = destination) Libc.memmove(d + startIndex, (void*)source, (nuint)length); }
-        public static void Copy(int[] source, int startIndex, IntPtr destination, int length)
-        { fixed (int* s = source) Libc.memmove((void*)destination, s + startIndex, (nuint)length * 4); }
-        public static void Copy(IntPtr source, int[] destination, int startIndex, int length)
-        { fixed (int* d = destination) Libc.memmove(d + startIndex, (void*)source, (nuint)length * 4); }
-        public static void Copy(long[] source, int startIndex, IntPtr destination, int length)
-        { fixed (long* s = source) Libc.memmove((void*)destination, s + startIndex, (nuint)length * 8); }
-        public static void Copy(IntPtr source, long[] destination, int startIndex, int length)
-        { fixed (long* d = destination) Libc.memmove(d + startIndex, (void*)source, (nuint)length * 8); }
-        public static void Copy(double[] source, int startIndex, IntPtr destination, int length)
-        { fixed (double* s = source) Libc.memmove((void*)destination, s + startIndex, (nuint)length * 8); }
-        public static void Copy(IntPtr source, double[] destination, int startIndex, int length)
-        { fixed (double* d = destination) Libc.memmove(d + startIndex, (void*)source, (nuint)length * 8); }
-        public static void Copy(char[] source, int startIndex, IntPtr destination, int length)
-        { fixed (char* s = source) Libc.memmove((void*)destination, s + startIndex, (nuint)length * 2); }
-        public static void Copy(IntPtr source, char[] destination, int startIndex, int length)
-        { fixed (char* d = destination) Libc.memmove(d + startIndex, (void*)source, (nuint)length * 2); }
+        /// <summary>The address of an array element, not bounds-checked as in .NET (the collector never moves arrays).</summary>
+        public static IntPtr UnsafeAddrOfPinnedArrayElement<T>(T[] arr, int index)
+        {
+            ArgumentNullException.ThrowIfNull(arr);
+            return (IntPtr)((byte*)System.Runtime.CompilerServices.Unsafe.AsPointer(ref System.Runtime.InteropServices.MemoryMarshal.GetArrayDataReference(arr))
+                + (nuint)index * (nuint)CoreIntrinsics.SizeOf<T>());
+        }
 
-#pragma warning disable CS8500 // blittable structs only, like StructureToPtr for blittable types
-        public static int SizeOf<T>() => sizeof(T);
-        public static T PtrToStructure<T>(IntPtr ptr) => *(T*)ptr;
-        public static void StructureToPtr<T>(T structure, IntPtr ptr, bool fDeleteOld) => *(T*)ptr = structure;
-#pragma warning restore CS8500
+        // Marshal.Copy between arrays of primitives and native memory: the array range is checked like the span
+        // constructor does (ArgumentOutOfRangeException), a null array or pointer is an ArgumentNullException (the span constructors report the rest).
+        private static void CopyToNative<T>(T[] source, int startIndex, IntPtr destination, int length) where T : unmanaged
+        {
+            ArgumentNullException.ThrowIfNull(source);
+            if (destination == IntPtr.Zero) throw new ArgumentNullException("destination");
+            new ReadOnlySpan<T>(source, startIndex, length).CopyTo(new Span<T>((void*)destination, length));
+        }
+
+        private static void CopyFromNative<T>(IntPtr source, T[] destination, int startIndex, int length) where T : unmanaged
+        {
+            if (source == IntPtr.Zero) throw new ArgumentNullException("source");
+            ArgumentNullException.ThrowIfNull(destination);
+            new ReadOnlySpan<T>((void*)source, length).CopyTo(new Span<T>(destination, startIndex, length));
+        }
+
+        public static void Copy(byte[] source, int startIndex, IntPtr destination, int length) => CopyToNative(source, startIndex, destination, length);
+        public static void Copy(IntPtr source, byte[] destination, int startIndex, int length) => CopyFromNative(source, destination, startIndex, length);
+        public static void Copy(short[] source, int startIndex, IntPtr destination, int length) => CopyToNative(source, startIndex, destination, length);
+        public static void Copy(IntPtr source, short[] destination, int startIndex, int length) => CopyFromNative(source, destination, startIndex, length);
+        public static void Copy(int[] source, int startIndex, IntPtr destination, int length) => CopyToNative(source, startIndex, destination, length);
+        public static void Copy(IntPtr source, int[] destination, int startIndex, int length) => CopyFromNative(source, destination, startIndex, length);
+        public static void Copy(long[] source, int startIndex, IntPtr destination, int length) => CopyToNative(source, startIndex, destination, length);
+        public static void Copy(IntPtr source, long[] destination, int startIndex, int length) => CopyFromNative(source, destination, startIndex, length);
+        public static void Copy(float[] source, int startIndex, IntPtr destination, int length) => CopyToNative(source, startIndex, destination, length);
+        public static void Copy(IntPtr source, float[] destination, int startIndex, int length) => CopyFromNative(source, destination, startIndex, length);
+        public static void Copy(double[] source, int startIndex, IntPtr destination, int length) => CopyToNative(source, startIndex, destination, length);
+        public static void Copy(IntPtr source, double[] destination, int startIndex, int length) => CopyFromNative(source, destination, startIndex, length);
+        public static void Copy(char[] source, int startIndex, IntPtr destination, int length) => CopyToNative(source, startIndex, destination, length);
+        public static void Copy(IntPtr source, char[] destination, int startIndex, int length) => CopyFromNative(source, destination, startIndex, length);
+        public static void Copy(IntPtr[] source, int startIndex, IntPtr destination, int length) => CopyToNative(source, startIndex, destination, length);
+        public static void Copy(IntPtr source, IntPtr[] destination, int startIndex, int length) => CopyFromNative(source, destination, startIndex, length);
     }
 
     /// <summary>UTF-16 native strings (NUL-terminated copies: csharpc strings carry no terminator).</summary>
@@ -555,6 +667,42 @@ namespace CsharpcCoreLib
         [Shadows("System.Runtime.InteropServices.Marshalling.ArrayMarshaller`2+ManagedToUnmanagedIn")]
         internal ref struct ManagedToUnmanagedIn
         {
+            // The stack buffer the generated stub offers (a 512-byte budget), as in .NET.
+            public static int BufferSize => 0x200 / sizeof(TUnmanaged);
+
+            private T[] _managedArray;
+            private TUnmanaged* _allocatedMemory;
+            private Span<TUnmanaged> _span;
+
+            public void FromManaged(T[] array, Span<TUnmanaged> buffer)
+            {
+                _managedArray = array;
+                if (array == null) return;
+                // Always at least one byte when the array is empty.
+                int spaceToAllocate = Math.Max(checked(array.Length * sizeof(TUnmanaged)), 1);
+                if (spaceToAllocate <= buffer.Length * sizeof(TUnmanaged))
+                {
+                    _span = buffer.Slice(0, array.Length);
+                }
+                else
+                {
+                    _allocatedMemory = (TUnmanaged*)Libc.Alloc((nuint)spaceToAllocate);
+                    _span = new Span<TUnmanaged>(_allocatedMemory, array.Length);
+                }
+            }
+
+            public ReadOnlySpan<T> GetManagedValuesSource() => _managedArray;
+            public Span<TUnmanaged> GetUnmanagedValuesDestination() => _span;
+
+            public ref TUnmanaged GetPinnableReference()
+            {
+                if (_span.Length == 0) return ref *(TUnmanaged*)null;
+                return ref _span[0];
+            }
+
+            public TUnmanaged* ToUnmanaged() => (TUnmanaged*)CoreIntrinsics.SpanAddress<TUnmanaged>(_span);
+            public void Free() => Libc.free(_allocatedMemory);
+
             public static ref T GetPinnableReference(T[] array)
             {
                 if (array == null || array.Length == 0) return ref *(T*)null;
@@ -573,6 +721,7 @@ namespace CsharpcCoreLib
         [DllImport("kernel32")] public static extern void* LocalFree(void* mem);
         [DllImport("ole32")] public static extern void* CoTaskMemAlloc(nuint bytes);
         [DllImport("ole32")] public static extern void CoTaskMemFree(void* mem);
+        [DllImport("ole32")] public static extern void* CoTaskMemRealloc(void* mem, nuint bytes);
         [DllImport("kernel32")] private static extern int WideCharToMultiByte(uint codePage, uint flags, char* wide, int wideCount,
             byte* multi, int multiCount, byte* defaultChar, int* usedDefault);
         [DllImport("kernel32")] private static extern int MultiByteToWideChar(uint codePage, uint flags, byte* multi, int multiCount,

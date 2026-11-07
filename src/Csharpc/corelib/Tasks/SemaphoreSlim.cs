@@ -2,8 +2,7 @@
 // under a monitor; synchronous waiters wait on it, asynchronous ones are a FIFO list of tasks that
 // Release completes once no synchronous waiter takes the count. Timeouts and cancellation of an
 // asynchronous wait race the waiter task against Task.Delay, as .NET does. (csharpc: the waiters are
-// TaskCompletionSources rather than Task subclasses; no spinning before blocking; AvailableWaitHandle is
-// not supported yet.)
+// TaskCompletionSources rather than Task subclasses; no spinning before blocking.)
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 #nullable disable
@@ -23,6 +22,7 @@ namespace CsharpcCoreLib
         private int _countOfWaitersPulsedToWake;
         private readonly object _lock = new object();
         private bool _disposed;
+        private ManualResetEvent _waitHandle; // AvailableWaitHandle, created on first use
         private readonly LinkedList<TaskCompletionSource<bool>> _asyncWaiters = new LinkedList<TaskCompletionSource<bool>>();
 
         private static Task<bool> s_trueTask, s_falseTask;
@@ -43,7 +43,17 @@ namespace CsharpcCoreLib
 
         public int CurrentCount => _currentCount;
 
-        public WaitHandle AvailableWaitHandle => throw new NotSupportedException("SemaphoreSlim.AvailableWaitHandle is not supported by csharpc yet.");
+        /// <summary>A ManualResetEvent that is set while the count is above zero (kept in step by Wait and Release).</summary>
+        public WaitHandle AvailableWaitHandle
+        {
+            get
+            {
+                CheckDispose();
+                if (_waitHandle != null) return _waitHandle;
+                lock (_lock) _waitHandle ??= new ManualResetEvent(_currentCount != 0);
+                return _waitHandle;
+            }
+        }
 
         private void CheckDispose()
         {
@@ -117,6 +127,7 @@ namespace CsharpcCoreLib
                                 _currentCount--;
                             }
                             else if (oce != null) throw oce;
+                            if (_waitHandle != null && _currentCount == 0) _waitHandle.Reset();
                         }
                     }
                     finally { _waitCount--; }
@@ -165,6 +176,7 @@ namespace CsharpcCoreLib
             if (_currentCount > 0)
             {
                 _currentCount--;
+                if (_waitHandle != null && _currentCount == 0) _waitHandle.Reset();
                 return TrueTask;
             }
             if (millisecondsTimeout == 0) return FalseTask;
@@ -232,6 +244,7 @@ namespace CsharpcCoreLib
                     (granted ??= new List<TaskCompletionSource<bool>>()).Add(waiter);
                 }
                 _currentCount = currentCount;
+                if (_waitHandle != null && returnCount == 0 && currentCount > 0) _waitHandle.Set();
             }
             // RunContinuationsAsynchronously: completing them here doesn't run their continuations inline.
             if (granted != null) foreach (var waiter in granted) waiter.TrySetResult(true);

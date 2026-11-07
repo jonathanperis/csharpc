@@ -95,18 +95,41 @@ public sealed partial class FunctionCodeGen
         e.ContainingType.GetMembers().OfType<IFieldSymbol>()
             .FirstOrDefault(f => SymbolEqualityComparer.Default.Equals(f.AssociatedSymbol, e));
 
+    /// <summary>
+    /// The event's slot in the layout. The layout of a constructed generic type is keyed by that type's own
+    /// event symbols, the layout of a plain class by the definitions (the same symbols).
+    /// </summary>
+    private static bool TryEventFieldIndex(ClassLayout layout, IEventSymbol e, out uint index)
+    {
+        if (layout.EventFieldIndex.TryGetValue(e, out index) || layout.EventFieldIndex.TryGetValue(e.OriginalDefinition, out index)) return true;
+        foreach (var (key, slot) in layout.EventFieldIndex)
+            if (key.Name == e.Name && SymbolEqualityComparer.Default.Equals(key.OriginalDefinition, e.OriginalDefinition)) { index = slot; return true; }
+        index = 0;
+        return false;
+    }
+
+    /// <summary>The slot of a static field-like event; in a generic class one per instantiation.</summary>
+    internal LLVMValueRef StaticEventSlot(IEventSymbol e)
+    {
+        var owner = (INamedTypeSymbol)S(e.ContainingType);
+        EnsureClassInitialized(owner);
+        if (!SymbolEqualityComparer.Default.Equals(owner, e.ContainingType))
+            e = owner.GetMembers(e.Name).OfType<IEventSymbol>().First(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, e.OriginalDefinition));
+        return _m.StaticEventField(e);
+    }
+
     private static bool IsFieldLikeEvent(IEventSymbol e) => e.AddMethod is null or { IsImplicitlyDeclared: true };
 
     private LLVMValueRef EventFieldAddress(IEventReferenceOperation reference)
     {
         var e = reference.Event;
         if (!_m.IsUserType(e.ContainingType)) throw CompileError.Unsupported($"event '{e}' of a library type", reference);
-        if (e.IsStatic) return EventBackingField(e) is { } staticField ? StaticFieldAddress(staticField) : _m.StaticEventField(e);
+        if (e.IsStatic) return EventBackingField(e) is { } staticField ? StaticFieldAddress(staticField) : StaticEventSlot(e);
         var instance = EmitValue(reference.Instance!);
         if (reference.Instance is not IInstanceReferenceOperation) NullCheck(instance);
         if (EventBackingField(e) is { } field) return FieldAddressOn(instance, field);
-        var layout = _m.GetLayout(e.ContainingType);
-        if (!layout.EventFieldIndex.TryGetValue(e.OriginalDefinition, out var index))
+        var layout = _m.GetLayout((INamedTypeSymbol)S(e.ContainingType));
+        if (!TryEventFieldIndex(layout, e, out var index))
             throw CompileError.Unsupported($"event '{e.Name}' without a backing field", reference);
         return _b.StructGep(layout.InstanceType, instance, index, e.Name);
     }
@@ -120,9 +143,14 @@ public sealed partial class FunctionCodeGen
     {
         var e = (IEventSymbol)_method!.AssociatedSymbol!;
         LLVMValueRef address;
-        if (e.IsStatic) address = EventBackingField(e) is { } staticField ? _m.StaticField(staticField) : _m.StaticEventField(e);
+        if (e.IsStatic) address = EventBackingField(e) is { } staticField ? _m.StaticField(staticField) : StaticEventSlot(e);
         else if (EventBackingField(e) is { } field) address = FieldAddressOn(_this, field);
-        else address = _b.StructGep(_m.GetLayout(e.ContainingType).InstanceType, _this, _m.GetLayout(e.ContainingType).EventFieldIndex[e.OriginalDefinition], e.Name);
+        else
+        {
+            var layout = _m.GetLayout((INamedTypeSymbol)S(e.ContainingType));
+            if (!TryEventFieldIndex(layout, e, out var index)) throw CompileError.Unsupported($"event '{e.Name}' without a backing field", e);
+            address = _b.StructGep(layout.InstanceType, _this, index, e.Name);
+        }
         var handler = _fn.Fn.Param(e.IsStatic ? 0u : 1u);
         var old = _b.Load(L.Ptr, address);
         _b.Store(_method.MethodKind == MethodKind.EventAdd ? CombineDelegates(old, handler) : RemoveDelegate(old, handler), address);

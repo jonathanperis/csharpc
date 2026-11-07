@@ -1727,7 +1727,7 @@ namespace CsharpcCoreLib
             ModeValue = CipherMode.CBC;
         }
 
-#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+#if !CSHARPC_TARGET_WASI
         public static new Aes Create()
         {
             return new AesImplementation();

@@ -29,6 +29,12 @@
     <_CsharpcCommand Condition="'$(_CsharpcTargetTriple)' != ''">$(_CsharpcCommand) --target $(_CsharpcTargetTriple)</_CsharpcCommand>
   </PropertyGroup>
 
+  <!-- The project's own RuntimeIdentifier reaches csharpc's package restore (runtimes/<rid>/lib and native assets);
+       without one csharpc restores for its target. -->
+  <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
+    <_CsharpcCommand>$(_CsharpcCommand) -p:RuntimeIdentifier=$(RuntimeIdentifier)</_CsharpcCommand>
+  </PropertyGroup>
+
   <PropertyGroup>
     <_CsharpcIsExe Condition="'$(OutputType)' == 'Exe' or '$(OutputType)' == 'WinExe'">true</_CsharpcIsExe>
   </PropertyGroup>
@@ -77,6 +83,8 @@
     <ItemGroup>
       <!-- Remove the managed payload: the native executable is self-contained. -->
       <_CsharpcManagedPublished Include="$(PublishDir)*.dll;$(PublishDir)*.pdb;$(PublishDir)*.deps.json;$(PublishDir)*.runtimeconfig.json" />
+      <!-- ... but not the packages' native libraries (Windows ones are .dll too), which the program loads at run time. -->
+      <_CsharpcManagedPublished Remove="@(NativeCopyLocalItems->'$(PublishDir)%(Filename)%(Extension)')" />
     </ItemGroup>
     <Delete Files="@(_CsharpcManagedPublished)" Condition="'$(CsharpcKeepManagedPublishOutput)' != 'true'" />
     <Message Importance="high" Text="$(MSBuildProjectName) -> $(_CsharpcPublishOutput) (native, csharpc)" />

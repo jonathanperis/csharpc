@@ -142,7 +142,7 @@ Roslyn `ControlFlowGraph` (its classes are sealed) but sharing `FunctionCodeGen`
 ### Out of scope
 
 `Reflection.Emit`, `System.Linq.Expressions` compilation, mixed-mode/C++/CLI assemblies (native
-code inside the PE), `calli` (until function pointers from IL are needed), `arglist`/`mkrefany`/
+code inside the PE), `calli` with an instance or `vararg` signature, `arglist`/`mkrefany`/
 `refanyval`/`refanytype` (TypedReference), `jmp`, multi-module assemblies. `tail.` is compiled as an
 ordinary call (warning `CSLLVM0006`: deep tail recursion can overflow where CoreCLR would not).
 
@@ -176,7 +176,7 @@ assets bind fine because they are a superset of the reference surface.)
 
 Measured 2026-10-23 on the branch that introduced the IL front-end.
 
-**Opcodes.** All of ECMA-335 partition III except `calli`, `jmp`, `arglist`, `mkrefany`, `refanyval`,
+**Opcodes.** All of ECMA-335 partition III except `jmp`, `arglist`, `mkrefany`, `refanyval`,
 `refanytype` and `ckfinite`, which are diagnosed. Prefixes: `constrained.`, `volatile.` (acquire/release
 accesses), `readonly.`, `unaligned.` (ignored: x86-64/AArch64 handle unaligned access), `tail.` (warning).
 
@@ -321,8 +321,11 @@ Semantics that sources gave the lowering and IL has to restate:
 - **Reflection-based `System.Text.Json`** gets the source path's synthesized contexts, with the roots read
   from the program's bodies, and the program grants csharpc's binding compilation internals access so the
   JSON generator sees its types as it does from source (docs/12-corelib.md#systemtextjson). A call on a
-  root the contexts can't cover (a private nested type, a compiler-generated one) is a diagnostic where it
-  is lowered. **`[GeneratedRegex]`** members (`ldsfld <Generated>::Instance; ret`, the SDK generator's
+  root the contexts can't cover (a compiler-generated type) is a diagnostic where it is lowered. The
+  program's private and protected nested types are marked internal in the copy of its image that the binding
+  compilation reads (the type-definition flags only; IL, `Type.IsNestedPrivate` and the like come from the
+  original), which the internals access then makes visible to the generator, as a source context nested
+  beside them is. **`[GeneratedRegex]`** members (`ldsfld <Generated>::Instance; ret`, the SDK generator's
   output built on RegexRunner internals) become cached corelib interpreters built from their attribute.
 - What IL can't reach yet is explicit: `dynamic` (ADR 0019 binds from source; see its "From IL" note),
   and turning an exception into text in IL that names no exception type (no traces were recorded).
@@ -361,10 +364,17 @@ Toward **arbitrary pure-IL NuGet packages** (ordered; size in focused days):
    `is Array`), `CultureInfo`/`NumberFormatInfo` objects (invariant), `BitConverter`, more `Math`
    overloads, `string.GetHashCode` overloads, `InlineArray`. A survey harness (`tools/compat`-style)
    turns this into a ranked list. (ongoing, M2)
-4. `calli` and function pointers from IL; `ckfinite`; TypedReference only if a package needs it. (1)
-5. Package assets beyond `lib/`: RID-specific runtime assets (`runtimes/<rid>/lib`), native assets
-   linked or copied for P/Invoke, satellite resource assemblies; `ref/` vs `lib/` binding (bind
-   against `ref/` symbols, map to `lib/` bodies by name) for packages whose surfaces differ. (2)
+4. `calli` and function pointers from IL (done: managed and unmanaged signatures, the C ABI for unmanaged ones, library
+   methods as targets; instance and `vararg` signatures stay diagnostics); `ckfinite`; TypedReference only if a package needs it. (1)
+5. Package assets beyond `lib/`. Done (2026-11-06): RID-specific runtime assets (`runtimes/<rid>/lib`) and
+   native assets (`runtimes/<rid>/native`) for the target's runtime identifier, from a project (a project with
+   packages is restored for the target's RID, as `dotnet build -r`/PublishAot do, so NuGet's own selection
+   applies: the RID-specific assembly replaces the portable one, `RuntimeCopyLocalItems`/`NativeCopyLocalItems`)
+   and from the program as IL (deps.json `runtimeTargets`, with the RID fallbacks linux-x64 -> linux -> unix-x64 ->
+   unix -> any). The native libraries are copied next to the executable, where a P/Invoke is probed first (as
+   .NET probes the assembly directory); `NativeLibrary.Load` keeps the system loader's rules. Left: satellite
+   resource assemblies; `ref/` vs `lib/` binding (bind against `ref/` symbols, map to `lib/` bodies by name)
+   for packages whose surfaces differ; statically linking a package's `.a` archives. (2)
 6. Compile-time scale: decoding once per definition and cached token resolution are done. Next, in
    order of measured payoff: ship csharpc ReadyToRun (halves Roslyn binding; NativeAOT once M6
    compiles csharpc), parallel LLVM code generation (full-LTO-style module partitioning, e.g.

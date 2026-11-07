@@ -121,8 +121,10 @@ public sealed partial class FunctionCodeGen
             "ObjectToPointer" => args[0].Type.Kind == LLVMTypeKind.Pointer
                 ? _b.Cast(LLVMOpcode.PtrToInt, args[0], T.Value(_m.Compilation.GetSpecialType(SpecialType.System_IntPtr))) : args[0],
             "ReinterpretAs" => args[0],
+            "ReverseThunkTable" or "NativeInvokeThunk" or "DelegateTypeTable" => DelegateThunkIntrinsic(target.Name, S(t!), inv),
             "SizeOf" => L.ConstInt(L.I32, (long)T.Target.SizeOf(T.Storage(S(t!)))),
             "SpanAddress" => _b.Cast(LLVMOpcode.PtrToInt, SpanPointer(args[0]), T.NativeInt),
+            "SpanOf" or "ReadOnlySpanOf" => MakeSpan(args[0], args[1]),
             "RefAddress" => _b.Cast(LLVMOpcode.PtrToInt, args[0], T.NativeInt),
             "PointerToObject" => args[0].Type.Kind == LLVMTypeKind.Pointer ? args[0] : _b.Cast(LLVMOpcode.IntToPtr, args[0], L.Ptr),
             "EnumToUInt64" => EnumToUInt64(t!, args[0]),
@@ -131,6 +133,7 @@ public sealed partial class FunctionCodeGen
             "IsFlagsEnum" => t!.GetAttributes().Any(a => a.AttributeClass is { Name: "FlagsAttribute", ContainingNamespace.Name: "System" }) ? L.True : L.False,
             "EnumMemberJsonNames" => EnumMemberJsonNames(t!),
             "IsAbstractType" => t!.IsAbstract ? L.True : L.False,
+            "IsObsoleteType" => t!.GetAttributes().Any(a => a.AttributeClass is { Name: "ObsoleteAttribute", ContainingNamespace.Name: "System" }) ? L.True : L.False,
             "IsEnumType" => JsonEnumSwitch(args[0], null),
             "BuiltInJsonConverter" => BuiltInJsonConverter(S(t!)),
             "IsInstanceOfType" => CallRuntime("csrt_type_is_instance", L.I1, [L.Ptr, L.Ptr], args[0], args[1]),
@@ -150,6 +153,8 @@ public sealed partial class FunctionCodeGen
             "ManifestResourceIndex" => _m.ManifestResourceIndex(),
             "ModuleVersionIds" => _m.ModuleVersionIdsBlob(),
             "AssemblyReferences" => _m.AssemblyReferencesBlob(),
+            "AssemblyTypeNames" => _m.AssemblyTypeNamesBlob(),
+            "AssemblyTypeTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.AssemblyTypeTable(), T.NativeInt),
             "ManifestResourceData" => _m.ManifestResourceData(),
             // The shared framework the program was compiled against ("11.0.0-rc.2.26504.105"), as NativeAOT
             // bakes in its System.Private.CoreLib's version.
@@ -173,6 +178,8 @@ public sealed partial class FunctionCodeGen
             "CompareStringsWith" => CallRuntime("csrt_string_compare_with", L.I32, [L.Ptr, L.Ptr, L.I32], args[0], args[1], args[2]),
             "JsonConfigureHook" => ProgramHook("JsonConfigure", target, args),
             "JsonBuiltInHook" => ProgramHook("JsonBuiltIn", target, args),
+            "ResourceObjectHook" => ProgramHook("ResourceObject", target, args),
+            "TypeConverterHook" => ProgramHook("TypeConverterFor", target, args),
             "EventSourceAttribute" => _b.Call(_m.EventSourceAttributeFunction().Type, _m.EventSourceAttributeFunction().Fn, [args[0], args[1]]),
             // A CancellationToken is its source object (null: None), so these are reinterpretations.
             "TokenSource" or "SourceToken" => args[0],
@@ -305,6 +312,15 @@ public sealed partial class FunctionCodeGen
             INamedTypeSymbol n => n.ToDisplayString() switch
             {
                 "System.TimeSpan" => "TimeSpanConverter",
+                "System.Int128" => "Int128Converter",
+                "System.UInt128" => "UInt128Converter",
+                "System.Half" or CoreLib.Namespace + ".HalfImpl" => "HalfConverter",
+                "System.DateOnly" or CoreLib.Namespace + ".DateOnlyImpl" => "DateOnlyConverter",
+                "System.TimeOnly" or CoreLib.Namespace + ".TimeOnlyImpl" => "TimeOnlyConverter",
+                "System.Uri" or CoreLib.Namespace + ".UriImpl" => "UriConverter",
+                "System.Version" or CoreLib.Namespace + ".VersionImpl" => "VersionConverter",
+                "System.ReadOnlyMemory<byte>" => "ReadOnlyMemoryByteConverter",
+                "System.Memory<byte>" => "MemoryByteConverter",
                 "System.DateTimeOffset" or CoreLib.Namespace + ".DateTimeOffsetImpl" => "DateTimeOffsetConverter",
                 "System.Text.Json.JsonElement" or CoreLib.Namespace + ".JsonElementImpl" => "JsonElementConverter",
                 "System.Text.Json.JsonDocument" or CoreLib.Namespace + ".JsonDocumentImpl" => "JsonDocumentConverter",
@@ -683,6 +699,7 @@ public sealed partial class FunctionCodeGen
             case SpecialType.System_Int32 or SpecialType.System_UInt32: return a;
             case SpecialType.System_Int64 or SpecialType.System_UInt64 or SpecialType.System_IntPtr or SpecialType.System_UIntPtr:
             {
+                if (a.Type.IntWidth == 32) return a; // nint/nuint on wasm32: (int)value — shifting an i32 by 32 is poison
                 var lo = _b.Cast(LLVMOpcode.Trunc, a, i32);
                 var hi = _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.LShr, a, L.ConstInt(a.Type, 32)), i32);
                 return _b.BinOp(LLVMOpcode.Xor, lo, hi);

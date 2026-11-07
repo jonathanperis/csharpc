@@ -685,6 +685,9 @@ namespace CsharpcCoreLib
 
         protected abstract IEnumerable<TElement> Elements(TCollection collection);
 
+        /// <summary>A JSON null reads as default(TCollection) even though it is a struct (ReadOnlyMemory&lt;T&gt;).</summary>
+        protected virtual bool NullIsDefault => false;
+
         /// <summary>A new collection for the elements read (in JSON order).</summary>
         protected abstract TCollection FromElements(List<TElement> elements, JsonReadState state);
 
@@ -741,7 +744,7 @@ namespace CsharpcCoreLib
         {
             if (reader.TokenType == JsonTokenType.Null)
             {
-                if (default(TCollection) != null) throw JsonSerializerHelpers.UnableToConvert(state.CurrentValueType ?? typeof(TCollection));
+                if (!NullIsDefault && default(TCollection) != null) throw JsonSerializerHelpers.UnableToConvert(state.CurrentValueType ?? typeof(TCollection));
                 return default(TCollection);
             }
             string referenceId = null;

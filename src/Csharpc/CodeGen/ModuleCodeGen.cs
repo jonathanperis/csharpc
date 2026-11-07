@@ -120,10 +120,12 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>Compiled by csharpc: defined in the program's sources (incl. the corelib) or in an IL assembly (ADR 0010).</summary>
     public bool IsUserType(ITypeSymbol? type) =>
-        type is INamedTypeSymbol && (SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, Compilation.Assembly) || Il.Contains(type.ContainingAssembly));
+        type is INamedTypeSymbol named && (SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, Compilation.Assembly)
+            || (Il.Contains(type.ContainingAssembly) && !IsShadowedIlType(named)));
 
     public bool IsUserMethod(IMethodSymbol method) =>
-        SymbolEqualityComparer.Default.Equals(method.ContainingAssembly, Compilation.Assembly) || Il.Contains(method.ContainingAssembly);
+        SymbolEqualityComparer.Default.Equals(method.ContainingAssembly, Compilation.Assembly)
+        || (Il.Contains(method.ContainingAssembly) && !(method.ContainingType is { } owner && IsShadowedIlType(owner)));
 
     // ======================================================================================
     // Driver
@@ -221,6 +223,7 @@ public sealed partial class ModuleCodeGen
             FinishEnumParseTable();
             FinishEventSourceAttributes();
             FinishPInvokeResolver();
+            ResolveTaskMethodTables();
         }
         finally { Timed("IL failure reachability", ReportIlFailures); ReportWhyLowered(); }
         // Every call site is known now: the stack-trace tables main registers.
@@ -351,6 +354,7 @@ public sealed partial class ModuleCodeGen
         if (method.PartialDefinitionPart is { } partialDefinition) method = partialDefinition; // one function per partial member
         if (!_slotReference) NoteReference(method, virtualCall: false);
         if (_functions.TryGetValue(method, out var existing)) return existing;
+        if (method is { MethodKind: MethodKind.PropertyGet, ContainingType.IsAnonymousType: true }) return _functions[method] = AnonymousGetter(method);
         if (generic && TypeSubstitution.IsOpen(method))
             throw CompileError.Unsupported($"open generic instantiation '{method}'", method);
         if (generic) { CheckGenericDepth(method); NoteDynamicallyAccessedInstantiation(method); }
@@ -607,7 +611,7 @@ public sealed partial class ModuleCodeGen
 
     private static readonly HashSet<string> s_noThrowRuntime =
     [
-        "csrt_init", "csrt_shutdown", "csrt_get_args", "csrt_alloc", "csrt_begin_catch", "csrt_personality",
+        "csrt_init", "csrt_shutdown", "csrt_get_args", "csrt_alloc", "csrt_alloc_finalizable", "csrt_begin_catch", "csrt_personality",
         "csrt_isinst_class", "csrt_string_concat", "csrt_string_equals", "csrt_string_is_null_or_empty",
         "csrt_console_newline", "csrt_console_flush", "csrt_object_to_string_default", "csrt_object_equals_default",
         "csrt_object_get_hash_code_default", "csrt_exception_init", "csrt_environment_tick_count64",
@@ -631,6 +635,15 @@ public sealed partial class ModuleCodeGen
         public long IlTicks, IlDecodeTicks, SourceTicks, CoreLibTicks, CfgTicks, CfgWaitTicks;
         /// <summary>Module-level steps (tables, dispatchers, metadata, reachability), in first-run order.</summary>
         public readonly List<(string Name, long Ticks)> Steps = [];
+
+        /// <summary>Times a part of a step (counted inside it, listed after it as "step/part"); disposed to add the elapsed time.</summary>
+        internal Part Time(string name) => new(this, name);
+
+        internal readonly struct Part(LoweringStats stats, string name) : IDisposable
+        {
+            private readonly long _start = System.Diagnostics.Stopwatch.GetTimestamp();
+            public void Dispose() => stats.AddStep(name, System.Diagnostics.Stopwatch.GetTimestamp() - _start);
+        }
 
         internal void AddStep(string name, long ticks)
         {
@@ -698,7 +711,7 @@ public sealed partial class ModuleCodeGen
         }
         if (method.MethodKind is not (MethodKind.Ordinary or MethodKind.Constructor or MethodKind.StaticConstructor
             or MethodKind.PropertyGet or MethodKind.PropertySet or MethodKind.UserDefinedOperator or MethodKind.Conversion
-            or MethodKind.EventAdd or MethodKind.EventRemove or MethodKind.ExplicitInterfaceImplementation))
+            or MethodKind.EventAdd or MethodKind.EventRemove or MethodKind.ExplicitInterfaceImplementation or MethodKind.Destructor))
             return;
         // Field-like events have synthesized accessors; `+=`/`-=` update the backing field inline, so a
         // function is only lowered when something references it (interface slots, virtual calls).
@@ -769,7 +782,7 @@ public sealed partial class ModuleCodeGen
             case AccessorDeclarationSyntax { Body: null, ExpressionBody: null }:
                 gen.EmitAutoPropertyAccessor(); // `{ get; set; }`
                 break;
-            case MethodDeclarationSyntax or ConstructorDeclarationSyntax or AccessorDeclarationSyntax
+            case MethodDeclarationSyntax or ConstructorDeclarationSyntax or DestructorDeclarationSyntax or AccessorDeclarationSyntax
                 or ArrowExpressionClauseSyntax or CompilationUnitSyntax or OperatorDeclarationSyntax
                 or ConversionOperatorDeclarationSyntax:
                 var cfg = CfgFor(syntax)
@@ -927,7 +940,9 @@ public sealed partial class ModuleCodeGen
                 ? GetLibraryExceptionLayout(type)
                 : IsRuntimeCancellationSource(type)
                     ? GetCancellationSourceLayout(type)
-                    : throw CompileError.Unsupported($"instances of library class '{type}'", type);
+                    : IsRuntimeTaskSource(type)
+                        ? GetTaskSourceLayout(type)
+                        : throw CompileError.Unsupported($"instances of library class '{type}'", type);
         if (TypeSubstitution.IsOpen(type)) throw CompileError.Unsupported($"open generic type '{type}'", type);
         NoteDynamicallyAccessedInstantiation(type);
         RejectCustomLayout(type);
@@ -973,7 +988,7 @@ public sealed partial class ModuleCodeGen
         if (type.BaseType is { SpecialType: not SpecialType.System_Object } declaredBase)
         {
             var baseType = CoreLib.TryMap(declaredBase) ?? declaredBase; // e.g. `class ByLength : Comparer<string>`
-            if (!IsUserType(baseType) && !IsLibraryException(baseType) && !IsRuntimeCancellationSource(baseType))
+            if (!IsUserType(baseType) && !IsLibraryException(baseType) && !IsRuntimeCancellationSource(baseType) && !IsRuntimeTaskSource(baseType))
                 throw CompileError.Unsupported($"deriving from library class '{baseType}'", type);
             baseLayout = GetLayout(baseType);
         }
@@ -1051,12 +1066,6 @@ public sealed partial class ModuleCodeGen
     /// an ordinary method): Exception.GetObjectData was only called by BinaryFormatter, which .NET 9
     /// removed. Most exception classes in framework IL still override it.
     /// </summary>
-    private bool? _programHasFinalizers;
-
-    /// <summary>Whether a type of the program's own source declares a finalizer (~T()).</summary>
-    internal bool ProgramHasFinalizers() => _programHasFinalizers ??= Compilation.SyntaxTrees
-        .Any(tree => tree.GetRoot().DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.DestructorDeclarationSyntax>().Any());
-
     internal static bool IsUndispatchedLibraryVirtual(IMethodSymbol root) =>
         root is { Name: "GetObjectData", ContainingType: { Name: "Exception", ContainingNamespace.Name: "System" } };
 
@@ -1118,11 +1127,11 @@ public sealed partial class ModuleCodeGen
         var baseLayout = type.BaseType is { SpecialType: not SpecialType.System_Object } b ? GetLibraryExceptionLayout(b) : null;
 
         var structType = Llvm.NamedStruct("class." + name);
-        // { mt, message, inner, paramName, actualValue, trace, inners, token, hresult, ehClause, ehFrame } — csrt_Exception
+        // { mt, message, inner, paramName, actualValue, trace, inners, token, hresult, ehClause, ehFrame, data } — csrt_Exception
         // in src/runtime/csrt.h.
-        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr);
+        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
         var layout = new ClassLayout { Type = type, InstanceType = structType, Base = baseLayout, IsLibrary = true };
-        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr]);
+        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr]);
         layout.InstanceSize = Types.Target.SizeOf(structType);
         AddObjectSlots(layout);
         layout.VTable.Add(null);
@@ -1160,6 +1169,7 @@ public sealed partial class ModuleCodeGen
         var global = Module.AddGlobal(Mangler.TypeSymbol(layout.Type, "MT"), layout.MethodTableType,
             constant: true, linkage: LLVMLinkage.Internal);
         layout.MethodTable = global; // set before initializing: methods may reference it
+        _layoutByMethodTable[global.Handle] = layout;
         // The initializer (vtable and interface slots) is set by FinishMethodTables (ModuleCodeGen.VTables.cs).
         var table = new PendingMethodTable { Layout = layout, Global = global };
         EmitInterfaceMap(table);
@@ -1230,7 +1240,9 @@ public sealed partial class ModuleCodeGen
     public LLVMValueRef StringLiteral(string value)
     {
         if (_strings.TryGetValue(value, out var g)) return g;
-        var chars = value.Select(c => Llvm.ConstInt(Llvm.I16, c)).ToArray();
+        // The char after the last one is 0, as in .NET (`fixed (char* p = s)` and native code reading wide strings rely on it);
+        // padding often provides it for free, but not on every layout (wasm32's 4-byte header).
+        var chars = value.Select(c => Llvm.ConstInt(Llvm.I16, c)).Append(Llvm.ConstInt(Llvm.I16, 0)).ToArray();
         var init = Llvm.ConstStruct(ExternalGlobal("csrt_String_MT"), Llvm.ConstInt(Llvm.I32, value.Length),
             LlvmContext.ConstArray(Llvm.I16, chars));
         g = Module.AddGlobal(".str", Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Private);
@@ -1478,12 +1490,16 @@ public sealed partial class ModuleCodeGen
         // Registering doesn't box anything either: it doesn't count as a reference that triggers the
         // corelib's runtime exports for that type (ModuleCodeGen.RuntimeExports.cs).
         var builtins = new List<(ITypeSymbol Type, string MT)> { (Compilation.GetSpecialType(SpecialType.System_String), "csrt_String_MT") };
+        // A Task is a runtime object with one method table (docs/10-async.md): it implements IAsyncResult, whose slots
+        // are corelib/Tasks/TaskState.cs (IDisposable is the method table's flag, not a registration).
+        var taskType = Compilation.GetTypeByMetadataName("System.Threading.Tasks.Task");
+        if (taskType is not null) builtins.Add((taskType, "csrt_Task_MT"));
         foreach (var sp in primitives) builtins.Add((Compilation.GetSpecialType(sp), $"csrt_Boxed_{Compilation.GetSpecialType(sp).MetadataName}_MT"));
         // decimal, DateTime and TimeSpan boxes are runtime method tables too (decimal.c, datetime.c), registered
         // only once the program boxes one (EmitDeferredBclBoxRegistrations): most programs never do, and a
         // registration per interface they use is code in main.
         ITypeSymbol?[] bclBoxes = [Compilation.GetSpecialType(SpecialType.System_Decimal), Compilation.GetSpecialType(SpecialType.System_DateTime),
-            Compilation.GetTypeByMetadataName("System.TimeSpan")];
+            Compilation.GetTypeByMetadataName("System.TimeSpan"), Compilation.GetTypeByMetadataName("System.Int128"), Compilation.GetTypeByMetadataName("System.UInt128")];
         var registerBcl = Module.AddFunction("csharpc.register.bclboxes", Llvm.FunctionType(Llvm.Void));
         Native.LLVMSetLinkage(registerBcl, LLVMLinkage.Internal);
         using (var rb = new IrBuilder(Llvm)) { rb.PositionAtEnd(rb.AppendBlock(registerBcl, "entry")); rb.RetVoid(); }
@@ -1498,13 +1514,16 @@ public sealed partial class ModuleCodeGen
             {
                 var conversion = Compilation.ClassifyCommonConversion(builtinType, itf);
                 if (!conversion.Exists || !conversion.IsImplicit || conversion.IsUserDefined) continue;
+                var isTask = mtName == "csrt_Task_MT";
+                if (isTask && itf.ToDisplayString() != "System.IAsyncResult") continue;
                 // Registering doesn't box anything: it mustn't count as a reference for the runtime exports.
                 if (!_globals.ContainsKey(mtName)) _registrationOnlyGlobals.Add(mtName);
                 var mt = _globals.TryGetValue(mtName, out var existing) ? existing : _globals[mtName] = Module.AddGlobal(mtName, Llvm.I8, constant: true);
                 if (builtinType is IArrayTypeSymbol { Rank: 1 }) RequestArrayInterface(itf);
                 else if (builtinType.SpecialType == SpecialType.System_String) RequestStringInterface(itf);
                 var registerBuiltin = Runtime("csrt_register_builtin_interface", Llvm.Void, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
-                var slots = builtinType.SpecialType != SpecialType.System_String && builtinType is not IArrayTypeSymbol
+                var slots = isTask ? BuiltinSlotTable(itf, "csrt.tasktbl.IAsyncResult", LLVMLinkage.Private, TaskAsyncResultMember)
+                    : builtinType.SpecialType != SpecialType.System_String && builtinType is not IArrayTypeSymbol
                     ? DeferredPrimitiveInterfaceSlots(builtinType, itf, mtName) : LlvmContext.Null(Llvm.Ptr);
                 b.Call(registerBuiltin.Type, registerBuiltin.Fn, [mt, InterfaceMethodTable(itf), slots]);
             }

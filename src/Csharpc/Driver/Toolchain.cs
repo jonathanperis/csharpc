@@ -47,9 +47,22 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
     private static string WasiSdk => Environment.GetEnvironmentVariable("WASI_SDK_PATH") is { Length: > 0 } sdk ? sdk : "/opt/wasi-sdk";
 
     /// <summary>The C compiler and linker driver: --cc / $CSHARPC_CC, else clang (the WASI SDK's for wasm32).</summary>
-    private string CC => target.IsWasm && options.CC == "clang" && Environment.GetEnvironmentVariable("CSHARPC_CC") is null
-        ? Path.Combine(WasiSdk, "bin", OperatingSystem.IsWindows() ? "clang.exe" : "clang")
-        : options.CC;
+    private string CC => options.CC != "clang" || Environment.GetEnvironmentVariable("CSHARPC_CC") is not null ? options.CC
+        : target.IsWasm ? Path.Combine(WasiSdk, "bin", OperatingSystem.IsWindows() ? "clang.exe" : "clang")
+        : SiblingClang() ?? options.CC;
+
+    /// <summary>
+    /// The clang of the LLVM install csharpc loaded libLLVM from (Homebrew's llvm@18/bin, /usr/lib/llvm-18/bin):
+    /// the runtime's bitcode is read by that libLLVM, so a clang of the same install is the one that always
+    /// matches, where the clang on PATH (Apple clang, a newer LLVM) may write bitcode it can't read.
+    /// </summary>
+    private static string? SiblingClang()
+    {
+        if (Csharpc.Llvm.Native.LoadedLibraryPath is not { } library || !Path.IsPathRooted(library)) return null;
+        var bin = Path.Combine(Path.GetDirectoryName(Path.GetFullPath(library))!, "..", "bin");
+        var clang = Path.GetFullPath(Path.Combine(bin, OperatingSystem.IsWindows() ? "clang.exe" : "clang"));
+        return File.Exists(clang) ? clang : null;
+    }
 
     /// <summary>macOS: headers and libSystem stubs come from the SDK (clang also honours $SDKROOT).</summary>
     private string[] SysrootFlags => target.IsDarwin && MacSdk is { } sdk ? ["-isysroot", sdk] : [];
@@ -105,6 +118,7 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         // WASI has no dynamic loading, so no ICU: programs run in invariant globalization mode there and the
         // ICU shim isn't built (the corelib's Interop.Globalization has stubs for it).
         foreach (var source in files.Where(f => f.EndsWith(".c")
+                     && Path.GetFileName(Path.GetDirectoryName(f)) != WindowsShimsDirectory
                      && !(target.IsWasm && Path.GetFileName(Path.GetDirectoryName(f)) == "globalization")))
         {
             var output = Path.Combine(cacheDir, $"{Path.GetFileNameWithoutExtension(source)}-{hash}{(bitcode ? ".bc" : ".o")}");
@@ -115,6 +129,26 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         try { Parallel.ForEach(missing, Parallelism.Options, file => CompileRuntimeFile(file.Source, file.Output, bitcode, triple)); }
         catch (AggregateException e) { throw e.InnerExceptions[0]; }
         return [.. outputs];
+    }
+
+    /// <summary>src/runtime/windows-shims: code that only goes into a program that links .NET's Windows shims.</summary>
+    private const string WindowsShimsDirectory = "windows-shims";
+
+    /// <summary>
+    /// The object with the MSVC runtime symbols .NET's Windows shim archives reference (msvc_compat.c), compiled
+    /// once per (source, target, cc) and cached like the runtime. Separate from the runtime so that a program
+    /// that links no shim doesn't carry it.
+    /// </summary>
+    private string WindowsShimSupport(string triple)
+    {
+        var source = Path.Combine(RuntimeDir, WindowsShimsDirectory, "msvc_compat.c");
+        var hash = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(File.ReadAllText(source) + triple + CC)))[..16].ToLowerInvariant();
+        var output = Path.Combine(CacheDir, $"msvc_compat-{hash}.o");
+        if (File.Exists(output)) return output;
+        var tmp = output + "." + Environment.ProcessId + "." + Environment.CurrentManagedThreadId + ".tmp";
+        Run(CC, ["-c", "-O2", "-ffreestanding", "-fno-stack-protector", $"--target={triple}", source, "-o", tmp]);
+        File.Move(tmp, output, overwrite: true);
+        return output;
     }
 
     private void CompileRuntimeFile(string source, string output, bool bitcode, string triple)
@@ -173,7 +207,7 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
             // Apple's linker rejects undefined symbols even when weak; -U lets each bind to null at
             // run time (EntryPointNotFoundException at the call, as on Linux).
             var weak = (weakImports ?? []).SelectMany(name => new[] { "-Wl,-U,_" + name });
-            Run(options.CC, [$"--target={triple}", .. SysrootFlags, .. programObjects, .. runtime, .. DarwinLinkFlags(), .. weak, .. sanitize, "-o", output]);
+            Run(CC, [$"--target={triple}", .. SysrootFlags, .. programObjects, .. runtime, .. DarwinLinkFlags(), .. weak, .. sanitize, "-o", output]);
             // DWARF stays in the object files on macOS (the executable only records where): collect it
             // into output.dSYM before the temporary program object is deleted.
             if (options.Debug) Run(Environment.GetEnvironmentVariable("CSHARPC_DSYMUTIL") ?? "dsymutil", [output]);
@@ -187,10 +221,16 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         }
         if (target.IsWindows)
         {
-            Run(options.CC, [$"--target={triple}", .. programObjects, .. runtime, .. WindowsLinkFlags(), .. Hardening.WindowsLinkFlags(options.Hardening), .. sanitize, "-o", output]);
+            // .NET's shims are MSVC libraries: they name vcruntime symbols msvc_compat.c defines, and their
+            // /DEFAULTLIB directives (LIBCMT, OLDNAMES, uuid) make MinGW's lld look for libraries that
+            // don't exist there; the UCRT and kernel32 the shims also call are linked anyway.
+            string[] shimSupport = archives is { Count: > 0 }
+                ? [WindowsShimSupport(triple), "-Wl,--Xlink=-nodefaultlib:LIBCMT", "-Wl,--Xlink=-nodefaultlib:OLDNAMES", "-Wl,--Xlink=-nodefaultlib:uuid"]
+                : [];
+            Run(CC, [$"--target={triple}", .. programObjects, .. runtime, .. shimSupport, .. WindowsLinkFlags(), .. Hardening.WindowsLinkFlags(options.Hardening), .. sanitize, "-o", output]);
             return;
         }
-        Run(options.CC, [$"--target={triple}", .. programObjects, .. runtime, "-lm", "-pthread", .. LinkFlags(), .. Hardening.LinkFlags(options.Hardening, SegmentOrderFile()), .. sanitize, "-o", output]);
+        Run(CC, [$"--target={triple}", .. programObjects, .. runtime, "-lm", "-pthread", .. LinkFlags(), .. Hardening.LinkFlags(options.Hardening, SegmentOrderFile()), .. sanitize, "-o", output]);
     }
 
     /// <summary>
@@ -226,6 +266,7 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         // CoTaskMemAlloc/CoTaskMemFree: P/Invoke string returns and Marshal.*CoTaskMem*, as in .NET.
         yield return "-lole32";
         yield return "-lws2_32";  // System.Net.Sockets over Winsock
+        yield return "-lbcrypt";  // CNG: Aes.Create() (referenced imports only, so programs without it carry nothing)
         if (options.Strip ?? !options.Debug) yield return "-s";
     }
 

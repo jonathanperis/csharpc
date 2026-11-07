@@ -1,0 +1,8 @@
+before: 0
+plain: most finalized True, none twice True
+suppressed: odd finalized True, even finalized 0
+chain: most finalized True, base always after derived True
+resurrected: most survived True
+finalized again: True
+clones: originals and copies finalized True
+disposed: only the leaked one may report True

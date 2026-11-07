@@ -1,0 +1,27 @@
+file:///tmp/a/b.txt -> file:///tmp/a/c.txt: [c.txt] absolute=False
+file:///tmp/a/b.txt -> file:///TMP/a/c.txt: [../../TMP/a/c.txt] absolute=False
+file:///tmp/a/b.txt -> file:///tmp/x/c.txt: [../x/c.txt] absolute=False
+file:///tmp/a/b.txt -> file:///tmp/a/: [./] absolute=False
+file:///tmp/a/b.txt -> http://h/a/c: [http://h/a/c] absolute=True
+/tmp/a/b -> /tmp/a/c: [c] absolute=False
+/tmp/a/b -> file:///tmp/a/b/c: [b/c] absolute=False
+file:///tmp/x/y | file:///tmp/x/y | /tmp/x/y | /tmp/x/y | /tmp/x/y | [file://] [file://] [file:///tmp/x/y] | True
+/tmp/x | file:///tmp/x | /tmp/x | /tmp/x | /tmp/x | [file://] [file://] [file:///tmp/x] | False
+file:///C:/dir/x.txt | file:///C:/dir/x.txt | C:/dir/x.txt | C:/dir/x.txt | C:\dir\x.txt | [file://] [] [file:///C:/dir/x.txt] | True
+C:\dir\x.txt | file:///C:/dir/x.txt | C:/dir/x.txt | C:/dir/x.txt | C:\dir\x.txt | [file://] [] [file:///C:/dir/x.txt] | False
+C:/dir/x | file:///C:/dir/x | C:/dir/x | C:/dir/x | C:\dir\x | [file://] [] [file:///C:/dir/x] | False
+True
+False
+True
+/tmp/x: True False True True
+//h/x: True False True True
+/dir/x?q=1: True False True True
+False
+False
+/g: http://host:8080/g | http://host:8080/g
+//g: http://g/ | http://g
+//g/x?y: http://g/x?y | http://g/x?y
+//g:99/z: http://g:99/z | http://g:99/z
+/./g: http://host:8080/g | http://host:8080/./g
+/../g: http://host:8080/g | http://host:8080/../g
+/a/b/../../x: http://host:8080/x | http://host:8080/a/b/../../x
