@@ -167,6 +167,12 @@ namespace CsharpcCoreLib
             SetProtocols(a.EnabledProtocols);
             if (!a.AllowTlsResume) Ossl.SSL_CTX_set_options(Ctx, 0x4000 /* SSL_OP_NO_TICKET */);
             if (!a.AllowTlsResume) Ossl.SSL_CTX_ctrl(Ctx, 44 /* SSL_CTRL_SET_SESS_CACHE_MODE */, 0, IntPtr.Zero);
+#if CSHARPC_TARGET_WINDOWS
+            // No TLS 1.3 tickets: a client that closes without reading them makes Windows reset the connection, which throws
+            // away the server's unread close_notify (the peer sees a reset instead of the end of the stream); .NET's SChannel
+            // servers send none in that situation.
+            if (IsServer) Ossl.SSL_CTX_set_num_tickets(Ctx, 0);
+#endif
 
             X509Certificate2Impl local = a.LocalCertificate;
             if (local != null)
@@ -682,7 +688,13 @@ namespace CsharpcCoreLib
             Exception validation = session.ValidationException;
             // Our own explicit diagnostics (a revocation mode, say) surface as they are.
             if (validation is NotSupportedException) return validation;
+#if CSHARPC_TARGET_WINDOWS
+            // SChannel validates the certificate after the handshake: .NET throws the validation failure itself on Windows,
+            // where OpenSSL's callback makes it the inner exception of "Authentication failed, see inner exception.".
+            if (validation != null) return validation;
+#else
             if (validation != null) return new AuthenticationException("Authentication failed, see inner exception.", validation);
+#endif
             return new AuthenticationException("Authentication failed, see inner exception.",
                 new SslException("SSL Handshake failed with OpenSSL error - " + ErrorName(f.Error) + ".", f.OpenSslText == null ? null : new CryptographicException(f.OpenSslText)));
         }

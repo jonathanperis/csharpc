@@ -117,6 +117,7 @@ namespace CsharpcCoreLib
         [DllImport(Ssl)] internal static extern int SSL_CTX_set_alpn_protos(IntPtr ctx, byte* protos, uint protosLen);
         [DllImport(Ssl)] internal static extern void SSL_CTX_set_alpn_select_cb(IntPtr ctx, delegate* unmanaged<IntPtr, byte**, byte*, byte*, uint, IntPtr, int> cb, IntPtr arg);
         [DllImport(Ssl)] internal static extern int SSL_select_next_proto(byte** output, byte* outlen, byte* server, uint serverLen, byte* client, uint clientLen);
+        [DllImport(Ssl)] internal static extern int SSL_CTX_set_num_tickets(IntPtr ctx, nuint tickets);
         [DllImport(Ssl)] internal static extern IntPtr SSL_new(IntPtr ctx);
         [DllImport(Ssl)] internal static extern void SSL_free(IntPtr ssl);
         [DllImport(Ssl)] internal static extern void SSL_set_bio(IntPtr ssl, IntPtr rbio, IntPtr wbio);
