@@ -1,10 +1,30 @@
 # 06 — Roadmap
 
-Status legend: ✅ supported (differential-tested against .NET 11) · 🟡 partial · 🚧 in progress (branch open) · ⬜ planned · ❌ out of scope (same limits as NativeAOT)
+Status legend: ✅ supported (differential-tested against .NET 11) · 🟡 partial · ⬜ planned · ❌ out of scope (same limits as NativeAOT)
 
-The measuring stick is the conformance corpus ([09-conformance.md](09-conformance.md)): **100 %** of 195
-feature programs at the time of writing (41 % at the start of the day), with **zero wrong-output cases** —
-every failure is a clean "not supported by csharpc yet" diagnostic.
+The measuring stick is the conformance corpus ([09-conformance.md](09-conformance.md)): **100 %** of its 195
+feature programs, with **zero wrong-output cases** — every failure is a clean "not supported by csharpc yet"
+diagnostic. The differential suite (`tests/samples`, 663 programs recorded from real .NET) runs at -O0 and -O2 on
+five platforms in CI ([05-testing.md](05-testing.md)).
+
+## Milestone status
+
+The order is fixed by the owner: M2–M6 first, then M7, M8, M9. **A milestone is done only when none of its bullets
+is open**; M7 and later are not worked on until M2–M6 are done. Where a bullet has no issue of its own, the section
+of the milestone below says where it is tracked.
+
+| Milestone | Status | What is open |
+|---|---|---|
+| M0 Spike | ✅ done | |
+| M1 Real programs | ✅ done | |
+| M2 Library in C# | 🟡 open | BCL surface ranked by the NuGet survey (#146: #152 `MathF` PR #156, #157 PR #158, #159, #160 PR #161, #162); TLS and X.509 on macOS and Windows run over OpenSSL, the native routes are the spikes #143 and #144; the gap lists #89, #95–#104 |
+| M3 Platforms | ✅ done | per-platform limits are documented, see M3 below |
+| M4 Real-world validation | 🟡 open | parity is 98.4 % (242 of 246) in the latest Compatibility run, down from 100 % (#163) |
+| M5 Binary packages and the program as IL | 🟡 open | the IL front-end leftovers (#168), the BCL surface packages use (#146) |
+| M6 Bootstrapping | 🟡 open | re-measure the Roslyn-from-IL survey and decide on threaded lowering (#169), quadratic lowering on very large programs (#93) |
+| M7 TechEmpower with the `csharpc` CLI | ⏸ on hold (owner) | started 2026-10-31 before M2–M6 were done, against the owner's rule; on hold since 2026-11-05. Last good measurement 288 of 456 metrics ahead of NativeAOT; on `main` today csharpc does not build the entry (#164) |
+| M8 The dotnet fork | ⬜ not started | |
+| M9 TechEmpower through the fork | ⬜ not started | |
 
 ## Feature-support matrix
 
@@ -15,32 +35,32 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Top-level statements, `Main` (void/int, `string[] args`) | ✅ | |
 | `async Task Main` / `async Task<int> Main` | ✅ | |
 | Namespaces, nested types, partial classes/methods/properties | ✅ | |
-| Multi-file programs, `.csproj` input, `ProjectReference` | ✅ | whole-program, see [08-drop-in.md](08-drop-in.md) |
+| Multi-file programs, `.csproj` input, `ProjectReference` | ✅ | whole-program, see [08-drop-in.md](08-drop-in.md); each referenced project's source generators run on that project's own compilation, with its options and additional files |
 | `dotnet build -p:UseCsharpc=true`, `dotnet publish -p:PublishCsharpc=true` | ✅ | `Csharpc.Sdk` package |
 | File-based apps (`#:property` directives) | ✅ | |
-| Assemblies without sources: `-r X.dll`, `<Reference>`, NuGet `PackageReference` | 🟡 | IL front-end (M5): the IL side is complete except TypedReference and `jmp` (`calli` and function pointers done); packages still hit BCL gaps (M2) |
-| The program as IL: `csharpc app.dll` (csc's output, the dotnet pipeline's input) | 🟡 | M5: every sample passes through `tests/run.sh --via-il` (`dynamic` and reflection-based JSON of private nested types included) |
+| Assemblies without sources: `-r X.dll`, `<Reference>`, NuGet `PackageReference` | 🟡 | IL front-end (M5): the IL side is complete except TypedReference, `jmp` and `ckfinite`; RID-specific assemblies and native assets are selected for the target; packages can still hit BCL gaps (#146) |
+| The program as IL: `csharpc app.dll` (csc's output, the dotnet pipeline's input) | ✅ | every sample passes through `tests/run.sh --via-il` (`tests/il-main-known-failures.txt` is empty); gaps between the two front-ends are bugs |
 
 ### Types
 
 | Feature | Status | Notes |
 |---|---|---|
 | Primitives, enums (incl. names in `ToString`) | ✅ | |
-| `decimal`, `DateTime`, `TimeSpan`, `BigInteger` | ✅ | |
-| Strings, `StringBuilder`, string library, `char` | ✅ | culture-aware comparison and casing via ICU |
+| `decimal`, `DateTime`, `TimeSpan`, `BigInteger`, `Half`, `Int128`/`UInt128` | ✅ | explicit `NotSupportedException` for `Half.Parse` of text within a double's precision of a rounding midpoint, and for `Int128`/`UInt128` format strings, culture-specific signs and parse styles beyond sign and white space |
+| Strings, `StringBuilder`, string library, `char` | ✅ | culture-aware comparison and casing via ICU; `StringBuilder` is .NET's chunked builder |
 | Cultures (`CultureInfo`, `RegionInfo`, calendars), invariant mode | ✅ | .NET's ICU implementation ([19](19-globalization.md)); no NLS on Windows |
 | Arrays (1-D, jagged, multi-dimensional), `Index`/`Range` | ✅ | |
 | Classes, inheritance, virtual/abstract/sealed, `base` | ✅ | |
 | Primary constructors, `required`, `init`, `field` keyword | ✅ | |
 | Structs, `readonly`/`ref struct`, generic structs | ✅ | |
 | `Nullable<T>` incl. lifted operators and three-valued `bool?` | ✅ | |
-| Tuples, deconstruction (tuples and user `Deconstruct`) | ✅ | any number of elements: stored flat, `Rest` only through IL's `ldflda` (explicit diagnostic where the layouts differ) |
+| Tuples, deconstruction (tuples and user `Deconstruct`) | ✅ | any number of elements: stored flat, the `Rest` nesting is only the CLR type name; `Rest` through IL's `ldflda` only where the layouts agree (explicit diagnostic otherwise); sample 975 |
 | Records (class and struct), `with` | ✅ | synthesized members generated by csharpc |
 | Anonymous types | ✅ | |
 | Interfaces, default methods, static abstract members | ✅ | |
 | Generics (types, methods, constraints, generic math, variance) | ✅ | monomorphized |
-| Delegates, lambdas, closures, events, multicast | ✅ | |
-| Pointers, `fixed`, `stackalloc`, function pointers | ✅ | |
+| Delegates, lambdas, closures, events (also in generic classes), multicast | ✅ | |
+| Pointers, `fixed`, `stackalloc`, function pointers, `calli` | ✅ | managed and unmanaged signatures, see M5 |
 | `Span<T>`, `ReadOnlySpan<T>`, `Memory<T>`, UTF-8 literals | ✅ | |
 | `dynamic` | ✅ | bound at compile time with Roslyn, per run-time type that can reach the operation, with the runtime binder's rules and `RuntimeBinderException` messages; ExpandoObject and DynamicObject ([ADR 0019](adr/0019-dynamic.md)); from IL too (csc's call sites decoded into the same bindings) |
 
@@ -49,7 +69,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Feature | Status | Notes |
 |---|---|---|
 | All loops, `switch` statements/expressions, `goto` | ✅ | |
-| Patterns: type, constant, relational, logical, property, positional, list, `var` | ✅ | slice sub-patterns ⬜ |
+| Patterns: type, constant, relational, logical, property, positional, list, `var` | ✅ | list patterns with `.. var rest` slices on arrays, strings and spans (sample 133); a slice capture on any other type is an explicit diagnostic |
 | `try`/`catch`/`finally`, filters, rethrow, custom exceptions | ✅ | Itanium EH |
 | `Exception.StackTrace`, traces in `ToString()` | 🟡 | user and IL-compiled frames exact incl. lambdas, async, inlining, hidden frames, async markers ([ADR 0012](adr/0012-stack-traces.md)); frames inside the corelib's BCL code only for common members (`CSLLVM0006`) |
 | `checked`/`unchecked` | ✅ | |
@@ -66,13 +86,13 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 
 | Feature | Status | Notes |
 |---|---|---|
-| Garbage collection | ✅ | conservative, non-moving mark-sweep; thread-safe (stop-the-world) |
-| Multithreading (`Thread`, `Monitor`, `Interlocked`, `Parallel`) | ✅ | `Task.Run` still on the single-threaded scheduler |
-| Unhandled exceptions (message + exit 134) | ✅ | |
-| Static initialization | ✅ | lazy per type with CoreCLR's triggers, `TypeInitializationException`; generic types ❌ |
-| Reflection | 🟡 | `GetType()`, `typeof`, names; `System.Type` predicates, generics, assignability and `Type.Assembly` over compile-time metadata ([12-corelib.md](12-corelib.md#type-metadata-systemtype-reflection)); constructors, methods, properties, attributes (including the `[Nullable]`/`[NullableContext]` csc writes for `#nullable enable` source, [ADR 0018](adr/0018-reflection-metadata.md)), `Invoke`, `CreateDelegate`, closed-world `MakeGenericType`, fields (with `GetValue`/`SetValue`, including the compiler-generated backing field of field-like events, as `Type.GetFields` lists it), events and `GetInterfaces`, for the types `[DynamicallyAccessedMembers]` or a constant `typeof(C).GetX(...)` pattern reaches, also through a local assigned `typeof(C)` ([ADR 0018](adr/0018-reflection-metadata.md)). Explicit `NotSupportedException` where csharpc can't answer as .NET does: a type no such flow reaches (also `typeof(C)` reached through a field, a parameter without the annotation or `obj.GetType()`, a lambda-captured local in IL), non-public fields of reference-assembly types, fixed buffers and ref fields, the `[Nullable]`/`[NullableContext]` attributes of the shapes csharpc doesn't model (records, delegates, indexers, primary constructors, constrained type parameters, type aliases...: the untyped attribute queries throw), a struct's event field, `FieldInfo.FieldHandle`, `MakeByRefType`, `Reflection.Emit` |
+| Garbage collection | ✅ | conservative, non-moving mark-sweep; thread-safe (stop-the-world); opt-in nursery and concurrent marker ([ADR 0004](adr/0004-memory-management.md), [ADR 0020](adr/0020-concurrent-marking.md)) |
 | Finalizers | ✅ | `~T()` and IL `Finalize` overrides of the program's classes, `GC.SuppressFinalize`/`ReRegisterForFinalize`/`WaitForPendingFinalizers`, resurrection, a finalizer thread ([ADR 0021](adr/0021-finalizers.md)); the corelib's own types declare none |
-| Debug info (DWARF, gdb/lldb) | ✅ | `-g` |
+| Multithreading (`Thread`, `Monitor`, `Interlocked`, `Parallel`, thread pool) | ✅ | `Task.Run` and continuations run on the runtime's thread pool |
+| Unhandled exceptions (message + exit 134) | ✅ | |
+| Static initialization | ✅ | lazy per type with CoreCLR's triggers, `TypeInitializationException`, separate statics per generic instantiation (sample 381) |
+| Reflection | 🟡 | `GetType()`, `typeof`, names; `System.Type` predicates, generics, assignability and `Type.Assembly` over compile-time metadata ([12-corelib.md](12-corelib.md#type-metadata-systemtype-reflection)); constructors, methods, properties, attributes (including the `[Nullable]`/`[NullableContext]` csc writes for `#nullable enable` source, [ADR 0018](adr/0018-reflection-metadata.md)), `Invoke`, `CreateDelegate`, closed-world `MakeGenericType`, fields (with `GetValue`/`SetValue`, including the compiler-generated backing field of field-like events, as `Type.GetFields` lists it), events and `GetInterfaces`, for the types `[DynamicallyAccessedMembers]` or a constant `typeof(C).GetX(...)` pattern reaches, also through a local assigned `typeof(C)`. Explicit `NotSupportedException` where csharpc can't answer as .NET does: a type no such flow reaches (also `typeof(C)` reached through a field, a parameter without the annotation or `obj.GetType()`, a lambda-captured local in IL), non-public fields of reference-assembly types, fixed buffers and ref fields, the `[Nullable]`/`[NullableContext]` attributes of the shapes csharpc doesn't model (records, delegates, indexers, primary constructors, constrained type parameters, type aliases...: the untyped attribute queries throw), a struct's event field, `FieldInfo.FieldHandle`, `MakeByRefType`, `Reflection.Emit` |
+| Debug info (DWARF, gdb/lldb) | ✅ | `-g`; from IL, line tables and names come from the assembly's portable PDB ([13-debugging.md](13-debugging.md)) |
 
 ### Library (BCL)
 
@@ -80,11 +100,13 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 |---|---|---|
 | `Console`, `Math`, `Environment`, `GC` | ✅ | intrinsics + csrt |
 | Parsing/formatting numbers | ✅ | standard + custom format strings |
-| `System.Collections.Generic` (`List`, `Dictionary`, `HashSet`, ...) | ✅ | shadow corelib in C# |
+| `System.Collections.Generic` (`List`, `Dictionary`, `HashSet`, ...), concurrent collections, `BlockingCollection`, `Partitioner` | ✅ | shadow corelib in C# |
 | `System.Linq` | ✅ | shadow corelib in C# |
 | `System.Text.RegularExpressions` | ✅ | port of .NET's engine (interpreter; no `NonBacktracking`), [12-corelib.md](12-corelib.md#regular-expressions) |
-| `System.Text.Json` | ✅ | writer, reader, DOM, nodes; serializer over source-generated metadata, reflection-style calls included ([12-corelib.md](12-corelib.md#systemtextjson)) |
-| File I/O, networking | 🟡 | System.IO and sockets (TCP/UDP, `TcpListener`/`TcpClient`, `Dns`) done; TLS/HTTP next |
+| `System.Text.Json` | ✅ | writer, reader, DOM, nodes, `JsonSchemaExporter`; serializer over source-generated metadata, reflection-style calls included ([12-corelib.md](12-corelib.md#systemtextjson)); gaps in #89, #100 |
+| `Task`, `TaskFactory`, `EventSource`/`EventListener` | ✅ | [10-async.md](10-async.md), [12-corelib.md](12-corelib.md) |
+| File I/O, sockets, `HttpClient` | ✅ | System.IO, sockets (TCP/UDP, `TcpListener`/`TcpClient`, `Dns`), `HttpClient` over HTTP/1.1 with system proxies and gzip/deflate/brotli ([16-interop-io.md](16-interop-io.md)); gaps in #102 |
+| TLS: `SslStream`, X.509, `https://` | 🟡 | Linux over OpenSSL 3 ([ADR 0022](adr/0022-tls.md)); the same code on macOS and Windows as an interim (#143, #144); not on WebAssembly; gaps in #101 |
 
 ## Standing goal: better than .NET in every area, always
 
@@ -114,9 +136,12 @@ bug like a wrong output.
   commit, budget raised with that reason); size never buys a speed loss or weaker hardening.
 
 Evidence comes from CI ([benchmarks/RESULTS.md](../benchmarks/RESULTS.md), the compatibility runs), not
-claims. Known gaps today: NativeAOT is ahead on `asyncfanout` (x86-64 and arm64) and on `fileio`,
+claims. Known gaps: NativeAOT is ahead on `asyncfanout` (x86-64 and arm64) and on `fileio`,
 `quicksort`, `shapes` and `spectralnorm` on arm64; macOS executables have a ~50 KiB floor (three
-16 KiB-page segments: code, read-only-after-binding data, data); compile time of async- and generic-heavy programs; benchmarks run on Linux only so far;
+16 KiB-page segments: code, read-only-after-binding data, data); benchmarks run on Linux only so far;
+compile time: in the latest Compatibility run (2026-11-01) the median is 10.3 s against NativeAOT's 8.6 s (csharpc faster in 53
+of 242 programs; earlier runs measured it the other way, 5.7 s against 7.1 s, so part of the difference may be the
+runner), and async- and generic-heavy programs are the slowest to compile;
 culture-sensitive formatting (any number, even a negative `int` written with `Console.WriteLine`) links the culture
 model and the ICU shim (~85 KiB; formatting dates ~210 KiB, all calendars included) and adds 3–4 s of compile time
 (mostly Roslyn binding the corelib's culture code), and loading ICU costs ~3.5–5 ms at first use, ~1.7 ms of it
@@ -124,63 +149,98 @@ model and the ICU shim (~85 KiB; formatting dates ~210 KiB, all calendars includ
 
 ## Milestones
 
-### M0 — Spike ✅
+### M0 — Spike
+**Status:** ✅ done.
+
 Roslyn front-end, CFG → LLVM lowering, csrt runtime, differential tests, docs.
 
-### M1 — "Real programs" ✅
+### M1 — "Real programs"
+**Status:** ✅ done.
+
 Structs, generics, interfaces, exceptions, closures, async/iterators, GC, records, spans, unsafe,
 drop-in MSBuild integration, conformance corpus, threads, debug info; benchmarks ahead of the .NET JIT
 on every program and of NativeAOT on nearly all ([benchmarks/RESULTS.md](../benchmarks/RESULTS.md)).
 
-### M2 — Library in C# (🚧)
+### M2 — Library in C#
+**Status:** 🟡 open (bullets below).
+
 The BCL surface written in C# and compiled by csharpc together with the program; library symbols that
 Roslyn binds against the real reference assemblies are redirected to it
-([12-corelib.md](12-corelib.md)). Done: collections, LINQ, tasks, `System.Text.RegularExpressions`,
-`System.Text.Json` (ported from dotnet/runtime; `JsonSerializer` runs on compile-time metadata from the
-JSON source generator, which csharpc also synthesizes for reflection-style calls; with `ProjectReference`s each
-project's source generators run on that project's own compilation, with its options and additional files,
-[16-interop-io.md](16-interop-io.md#libraryimport-and-other-source-generators)); formatting, parsing,
-`decimal`, `BigInteger` and `DateTime` (moved from the C runtime into C#); P/Invoke and `System.IO`;
-sockets (`Socket`, `TcpListener`/`TcpClient`, `UdpClient`, `Dns`); library value types (`Guid`, `Vector2`/`Vector3`/`Vector4`,
-`ArraySegment<T>`, `DateTimeOffset`); `MemoryPool<T>`, `Convert`; `System.Type` reflection basics; globalization (cultures via ICU, as .NET:
-[19-globalization.md](19-globalization.md)). Next: TLS and `HttpClient`; the library surface ranked by the compatibility runs and
-the NuGet survey (`Uri`, `System.Xml.Linq`, `IConvertible`).
-Windows catches up with the other platforms case by case: .NET's zlib-ng and brotli shims now link from the
-NativeAOT win-x64 pack (lld over the MSVC libraries plus `src/runtime/windows-shims`), so gzip/deflate/zlib/Brotli
-streams and `HttpClient` decompression work there ([16-interop-io.md](16-interop-io.md#binding), samples 1005,
-1211); `ZipArchive`/`ZipFile` wait for `Aes.Create()` (CNG) and `File.SetLastWriteTimeUtc` on Windows (537, 540).
-Windows `Uri`: a rooted path without a drive (`"/absolute/path"`) follows .NET's Windows rules (a `UriFormatException` for
-`UriKind.Absolute`, a relative `Uri` otherwise) instead of an explicit error, which unblocks `HttpClient.BaseAddress`
-requests there ([16-interop-io.md](16-interop-io.md#limits), samples 972, 1010, 1210); UNC and drive-less `file:` URIs
-stay explicit diagnostics.
+([12-corelib.md](12-corelib.md)).
 
-### M3 — Platforms and per-platform evidence ✅
+Implemented: collections (concurrent ones and `BlockingCollection` included), LINQ, tasks, `TaskFactory`
+continuations, `System.Text.RegularExpressions`, `System.Text.Json` (ported from dotnet/runtime; `JsonSerializer`
+runs on compile-time metadata from the JSON source generator, which csharpc also synthesizes for
+reflection-style calls; with `ProjectReference`s each project's source generators run on that project's own
+compilation, with its options and additional files,
+[16-interop-io.md](16-interop-io.md#libraryimport-and-other-source-generators)); formatting, parsing,
+`decimal`, `BigInteger` and `DateTime`; P/Invoke and `System.IO`; sockets; `HttpClient` (HTTP/1.1, system proxies,
+decompression); TLS ([ADR 0022](adr/0022-tls.md)); library value types (`Guid`, `Vector2`/`Vector3`/`Vector4`,
+`ArraySegment<T>`, `DateTimeOffset`, `Half`, `Int128`); `Unsafe`, `MemoryMarshal`, `BinaryPrimitives`;
+`MemoryPool<T>`, `Convert`; `Uri`; finalizers and `ObjectiveCMarshal` ([ADR 0021](adr/0021-finalizers.md));
+`EventSource`/`EventListener`; `ResourceManager` (`GetObject`, `GetResourceSet`, `GetStream`, TypeConverter
+resources; `.resx` EmbeddedResources in project mode); `System.Type` reflection ([ADR 0018](adr/0018-reflection-metadata.md));
+globalization (cultures via ICU, as .NET: [19-globalization.md](19-globalization.md)).
+
+Windows catches up with the other platforms case by case: .NET's zlib-ng and brotli shims link from the
+NativeAOT win-x64 pack (lld over the MSVC libraries plus `src/runtime/windows-shims`), so gzip/deflate/zlib/Brotli
+streams, `HttpClient` decompression and `ZipArchive`/`ZipFile` (`Aes.Create()` over CNG) work there
+([16-interop-io.md](16-interop-io.md#binding)); `Uri` follows .NET's Windows rules for rooted paths without a drive, while UNC
+and drive-less `file:` URIs stay explicit diagnostics ([16-interop-io.md](16-interop-io.md#limits)). On macOS
+and Windows `HttpClient`'s system-proxy code is .NET's own, compiled from the shared framework's IL.
+
+Open:
+- The library surface the NuGet survey ranks (#146): `System.Numerics` vectors and `MathF` (#152, PR #156), the
+  reflection lookups (#157, PR #158; #159), a sample for the `System.Xml.Linq` members the survey lists (#160, PR #161: they
+  already work, the framework's own `System.Xml.Linq` is compiled from IL) and a generic local-function codegen bug (#162).
+- TLS and X.509 on macOS and Windows run over OpenSSL (Homebrew's `openssl@3`, the OpenSSL 3 DLLs). That is an interim
+  state, decided by the owner on 2026-11-07, with the native routes as the end state: the native routes (macOS: the runtime pack's Apple crypto shim and .NET's code from IL, #144;
+  Windows: .NET's SSPI/CNG code from IL, #143) are spikes.
+- The gap lists from a large WinForms/macOS application: #89 (JSON numbers written with the current culture), #95
+  (`Container`/`ComponentResourceManager`), #96–#99 (tasks, threading primitives, `TimeZoneInfo`, interop), #100–#104
+  (JSON, cryptography/TLS, IO/process/networking, text, reflection/collections).
+- Platform limits that are explicit diagnostics: asynchronous socket operations are blocking calls on the thread pool on macOS and
+  Windows (no kqueue/IOCP engine, so a pending one can't be canceled); `FileSystemWatcher` only on Linux;
+  `PosixSignalRegistration` on Windows; on WebAssembly no sockets, TLS, compression or OS ciphers.
+
+### M3 — Platforms and per-platform evidence
+**Status:** ✅ done.
+
 Each platform gets a CI job (GitHub Actions) running the full differential suite, conformance corpus
 and real-world programs against real .NET on that machine, plus the benchmark comparison:
 
 | platform | runner | work |
 |---|---|---|
-| Linux x86-64 | `ubuntu-24.04` | ✅ today |
+| Linux x86-64 | `ubuntu-24.04` | ✅ |
 | Linux ARM64 | `ubuntu-24.04-arm` | ✅ AAPCS64 P/Invoke, `statx`, BTI/PAC hardening |
 | macOS ARM64 | `macos-15` | ✅ Mach-O via Apple's ld, compact unwind + libunwind, per-OS corelib constants, Apple arm64 P/Invoke ABI, Mach-O GC roots/TLV, `.dylib` probing (no `--static`, no gdb debug-info suite) |
 | Windows x64 | `windows-2025` | ✅ PE/COFF via LLVM-MinGW (lld, libunwind, UCRT; `x86_64-w64-windows-gnu`), Itanium EH on SEH unwind tables, Microsoft x64 P/Invoke ABI, `SuspendThread` stop-the-world, kernel32-based System.IO, `"\r\n"` line ends, .NET's Windows exit codes (no gdb debug-info suite; MSVC environment not supported) |
 | wasm32 (WASI preview 1) | `ubuntu-24.04` + wasmtime 36 | ✅ `--target wasm32-wasip1` via the WASI SDK (wasm-ld, wasi-libc): exceptions as explicit propagation (no unwinder), GC roots spilled to linear-memory stack slots by the compiler, one thread (`Thread.Start` throws `PlatformNotSupportedException`; tasks and timers run while the main thread blocks), WASI System.IO; samples, both conformance corpora, real-world programs and a GC stress run under wasmtime ([ADR 0011](adr/0011-wasm32.md); no sockets, dynamic P/Invoke, time zones or exit codes above 125) |
 
+Per-platform gaps that remain are listed with their reason in `tests/platform-skips.txt` (`known gap`) and are the
+platform limits named under M2.
+
 ### M4 — Real-world validation
+**Status:** 🟡 open (#163).
+
 Compile unmodified open-source C# console applications and tools, publish a compatibility report
 (what builds, what matches .NET, what is missing and why), and turn every gap into a regression test.
-First report (2026-10-22, 323 programs from dotnet/samples and dotnet/docs, 40.6 % identical to
-.NET): [18-compatibility.md](18-compatibility.md); harness in `tools/compat/`, re-run on CI by the
-`Compatibility` workflow. The headline metric is now **parity with NativeAOT** (ADR 0016): the harness
-also publishes each program with `PublishAot` and runs it; programs NativeAOT can't build or run
-identically are out of scope, and parity is the share of NativeAOT-working programs csharpc matches
-(target: 100 %). Latest (2026-10-30, run 41152809617): **100 % parity (249 of 249)** — the target —
-up from 97.2 %, 95.9 % (`parity-blockers`), 88.7 % (`aot-parity`) and 80.6 % at the first parity run; no
-in-scope program differs from .NET ([18](18-compatibility.md#nativeaot-parity)). (The 2026-10-25 run's figures below.) csharpc also passes 21 of the 28 programs NativeAOT
-can't run. Against NativeAOT on the 236: compile time median 5.7 s vs 7.1 s, executables a tenth of the size
-(136 KiB vs 1,335 KiB median). JIT-based pass rate 93.8 % (from 86.2 %).
+The corpus is 320 programs from dotnet/samples and dotnet/docs; the harness is `tools/compat/`, run on CI by the
+`Compatibility` workflow, and the report is [18-compatibility.md](18-compatibility.md). The headline metric is
+**parity with NativeAOT** (ADR 0016): the harness also publishes each program with `PublishAot` and runs it; programs
+NativeAOT can't build or run identically are out of scope, and parity is the share of NativeAOT-working programs csharpc
+matches (target: 100 %).
 
-### M5 — Drop-in: binary packages and the program as IL (🚧)
+State: 249 of 249 (100 %) on 2026-10-30, **242 of 246 (98.4 %)** in the latest run (2026-11-01, scheduled), with no wrong
+output and no crash among the in-scope programs. Four in-scope programs fail to compile: three because the built-in regex
+generator's output uses `#nullable` under `LangVersion` 6/7.2, one for a reason not yet analysed (#163). csharpc also
+passes 22 of the 29 programs NativeAOT can't run. Against NativeAOT on the 242: executables a tenth of the size
+(143 KiB vs 1,338 KiB median); compile time is the open comparison (see the standing goal). M4 is done when #163 is
+fixed and a run is at 100 % again.
+
+### M5 — Drop-in: binary packages and the program as IL
+**Status:** 🟡 open (#168, #146).
+
 An IL front-end (IL → the same lowering) so NuGet packages that ship only assemblies can be linked
 into the closed-world program, and so the program itself can come as IL — the input csharpc gets inside
 the dotnet pipeline (ADR 0016). The source front-end stays for standalone use; every feature must work
@@ -188,161 +248,109 @@ through both. With M2 and M4 this is what makes csharpc a drop-in replacement fo
 
 Design: [ADR 0010](adr/0010-il-frontend.md) — IL is a second method-body source for Roslyn's metadata
 symbols, lowered through the same `FunctionCodeGen` (synthetic `IOperation`s for library-facing
-instructions). Done: `-r`, `<Reference>` and `PackageReference` input; all opcodes but `jmp`,
-TypedReference ones and `ckfinite` (`calli` through managed and unmanaged function pointers works,
-see below); generics, virtual/interface dispatch across the source/IL
-boundary, EH incl. filters, static constructors (`beforefieldinit`), RVA data, P/Invoke, events,
-compiled C# idioms (interpolation handlers, closures, iterators, records, generic math); unreachable
-failures compile to stubs (`CSLLVM0007`); compiled `async` (method builders, awaiters, async
-iterators, `IValueTaskSource`); embedded resource strings (`ResourceManager`, framework `SR`
+instructions).
+
+Implemented: `-r`, `<Reference>` and `PackageReference` input; all opcodes but `jmp`, TypedReference ones and
+`ckfinite`; generics, virtual/interface dispatch across the source/IL boundary, EH incl. filters, static constructors
+(`beforefieldinit`), RVA data, P/Invoke, events, compiled C# idioms (interpolation handlers, closures, iterators,
+records, generic math); unreachable failures compile to stubs (`CSLLVM0007`); compiled `async` (method builders,
+awaiters, async iterators, `IValueTaskSource`); embedded resource strings (`ResourceManager`, framework `SR`
 messages) and the objects of a preserialized `.resx` (`GetObject` of `System.Drawing.Point`/`Size`/`Rectangle`/`Color`,
 enums, dates, `[TypeConverter]` types: the converters are System.ComponentModel.TypeConverter's own IL, created for the
-types the resources and `typeof` + `GetConverter` name, #53); `AppContext` with runtimeconfig defaults; `System.Collections.Immutable` compiled from the
-shared framework's IL. `tests/il.sh` checks library projects consumed as DLLs, a nuget.org package
-(Ardalis.GuardClauses) and a framework assembly against `dotnet run`; `tools/il-survey` ranks what the
-top pure-IL packages still need ([18-compatibility.md](18-compatibility.md#il-front-end-survey)).
+types the resources and `typeof` + `GetConverter` name); `AppContext` with runtimeconfig defaults;
+`System.Collections.Immutable` compiled from the shared framework's IL. `tests/il.sh` checks library projects consumed as
+DLLs, a nuget.org package (Ardalis.GuardClauses) and a framework assembly against `dotnet run`; `tools/il-survey` ranks
+what the top pure-IL packages still need ([18-compatibility.md](18-compatibility.md#il-front-end-survey)).
 
 **The program as IL** (what csc hands the fork, ADR 0016): `csharpc app.dll` compiles a program from its
 main assembly — entry point from the CLI header, identity, module initializers and runtimeconfig.json
 from the build ([ADR 0010](adr/0010-il-frontend.md#the-program-as-il-2026-10-30)). `tests/run.sh --via-il`
 runs every sample through `dotnet build` → csharpc against the same recordings (CI: the informational
-`il-main.yml`): **all** pass (2026-11-06, -O0 and -O2), stack traces included (names from the
-assembly, lines from its PDB), reflection-based JSON, `[GeneratedRegex]` and `dynamic` (csc's call sites decoded
-and bound like source sites, ADR 0019 "From IL") included; reflection-based JSON of private and protected
-nested types too (the binding compilation reads the program with those types marked internal, see
-[ADR 0010](adr/0010-il-frontend.md#the-program-as-il-2026-10-30)). Left as diagnostics from IL: JSON of
-anonymous, file-local and other compiler-generated types, as in source. Gaps between the two front-ends are bugs.
+`il-main.yml`) and all of them pass at -O0 and -O2: stack traces (names from the assembly, lines from its PDB),
+reflection-based JSON (private and protected nested types included: the binding compilation reads the program with those
+types marked internal), `[GeneratedRegex]` and `dynamic` (csc's call sites decoded and bound like source sites, ADR 0019
+"From IL"). Left as diagnostics from IL: JSON of anonymous, file-local and other compiler-generated types, as in source.
 
-`-g` works from IL too (2026-11-06): `csharpc -g app.dll` (or a library DLL it references) emits the DWARF
-line table, parameter and local names from the assembly's portable PDB — beside the DLL or embedded —
-so gdb breaks on `Counter.cs:10` of a library compiled from its IL, with inlined frames at -O2
-(`tests/debuginfo.sh`, [13-debugging.md](13-debugging.md#from-the-assemblys-pdb)). An assembly without a
-PDB, the precompiled corelib and shared-framework assemblies get no debug info (Windows PDBs aren't read).
+**Debug info from IL**: `csharpc -g app.dll` (or a library DLL it references) emits the DWARF line table, parameter and
+local names from the assembly's portable PDB — beside the DLL or embedded — so gdb breaks on `Counter.cs:10` of a library
+compiled from its IL, with inlined frames at -O2 (`tests/debuginfo.sh`,
+[13-debugging.md](13-debugging.md#from-the-assemblys-pdb)). An assembly without a PDB, the precompiled corelib and
+shared-framework assemblies get no debug info (Windows PDBs aren't read).
 
 **Function pointers and `calli`**: `delegate*<...>` calls and IL `calli` share one lowering (managed signatures:
 csharpc's own convention, `ref`/`out`/`in` and `ref` returns, structs, generics). `delegate* unmanaged` calls and
 `&[UnmanagedCallersOnly]` entries follow the platform's C ABI as a P/Invoke of the same function does: structs
 by value (System V eightbytes, byval/sret, AAPCS64, Win64), `bool` as a 4-byte BOOL, small integers extended by the
 caller (samples 1150-1152, checked against libc/libm and across both ends); `&Math.Sqrt` and other library static
-methods can be pointer targets (sample 1153). Left as diagnostics: `calli` with an instance signature or
+methods can be pointer targets (sample 1153). Diagnostics: `calli` with an instance signature or
 `vararg`, and `char`/`string`/array/delegate in an unmanaged function pointer's signature (.NET marshals them).
 
-**RID-specific and native package assets** (2026-11-06): the packages' `runtimes/<rid>/lib` assemblies and
+**RID-specific and native package assets**: the packages' `runtimes/<rid>/lib` assemblies and
 `runtimes/<rid>/native` libraries for the target's runtime identifier, as the host and `PublishAot` select them. A
 project with packages is restored for the target's RID (`--target` -> linux-x64, linux-arm64, osx-arm64, win-x64;
 the host's by default; a RID the project or `-p:RuntimeIdentifier` sets wins), so NuGet's own selection applies: the
 RID-specific assembly replaces the portable `lib/` one. The program as IL reads deps.json's `runtimeTargets`
 with the runtime graph's fallbacks (linux-x64 -> linux -> unix-x64 -> unix -> any). The native libraries are copied
 next to the executable, where a P/Invoke probes first (`tests/il.sh`, RidApp, against a package built locally).
-Left: satellite resource assemblies, `ref/` vs `lib/` binding, linking a package's static archives.
 
-BCL surface packages use, ranked by the sharded IL survey of 2026-11-07 (all 52 packages, #146): the small members
-(`Exception.GetObjectData`, `HelpLink` and `Source`, `string.ToCharArray(int, int)`, `Math.Log(a, newBase)`,
-`WebUtility.UrlEncode(string)`, `Thread.GetCurrentProcessorId`, `HashCode.AddBytes`, `IPAddress` from a span and its
-`Address`, `Int128`/`UInt128.ToString(IFormatProvider)`, `Task.Delay(TimeSpan[, token])`) are done; ahead of the rest in
-that ranking are the `System.Numerics` vector structs (26 packages), the reflection lookups (`Type.GetMember` with member
-types, `TypeInfo.GetDeclaredProperty`) and the `System.Xml.Linq` members.
+**Open (#168, #146):** TypedReference opcodes, `jmp` and `ckfinite`; `calli` with an instance or `vararg` signature;
+satellite resource assemblies, `ref/` against `lib/` binding and linking a package's static archives; the BCL surface
+packages use — the sharded IL survey of all 52 packages (#146) puts the `System.Numerics` vector structs first (26
+packages), then the reflection lookups (`Type.GetMember`, `TypeInfo.GetDeclaredProperty`).
 
 ### M6 — Bootstrapping
+**Status:** 🟡 open (#169, #93).
+
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.
 
-Status: framework assemblies the program uses are compiled from the shared framework's IL whenever
-csharpc implements none of their types ([ADR 0013](adr/0013-framework-il.md), `--framework-il`).
-System.Reflection.Metadata (with System.Collections.Immutable) reads PE headers, metadata tables,
-signatures, custom attributes and IL bodies, from memory, streams and memory-mapped files, and the
-Microsoft.Extensions Primitives/Options/DependencyInjection/Logging abstractions work, all matching
-`dotnet run` (`tests/il.sh`); the SRM program lowers 1318 IL methods in ~9 s at `-O0` (~20 s at `-O2`,
-peak 314 MB). Done of the plan: (1) the library surface those libraries need (Unsafe from IL, GC
-handles, ArrayPool, BinaryPrimitives, BitConverter, memory-mapped views, generic interface methods,
-variant delegate type tests) and (2) the framework-IL policy. Blockers found compiling framework code
-from IL, closed since: `CancellationTokenRegistration` and every `Register`/`UnsafeRegister` overload
-(.NET's callback order and exception aggregation; Microsoft.Extensions.Primitives change tokens from IL,
-`tests/il.sh` IlChangeTokenApp), the concurrent collections System.Collections.Concurrent's partial
-facade can't supply from IL (`ConcurrentDictionary` ported so it enumerates in .NET's order,
-`ConcurrentQueue`/`Stack`/`Bag`), `EventSource` (no backend: never enabled, .NET's names and GUIDs),
-`TaskScheduler`/`Task.Factory.StartNew`/`ContinueWith` with custom schedulers, and type tests against
-`ValueType`/`Enum`. The rest of that list (`BlockingCollection`'s multi-collection calls, `Partitioner` and the `Parallel`
-loops with a loop state, `Task.AsyncState`/`CreationOptions`/`Dispose`/`IAsyncResult`, `AggregateException.InnerExceptions`,
-`new Task(...)`, `EventListener`) was probed against .NET one type at a time and closed (samples 1020-1044,
-[12-corelib.md](12-corelib.md)); a second probe round (2026-11-06: Partitioner and OrderablePartitioner with
-`Parallel.ForEach`/PLINQ, `AggregateException`, `Task` status/state and `new Task`, `EventListener`,
-`BlockingCollection`) found and closed the leftovers: `ReadOnlyCollection<T>` as the non-generic `IList`/`ICollection`
-(what `AggregateException.InnerExceptions` is cast to), `Task.Run(Func<Task>)` canceling on an
-`OperationCanceledException` as .NET's unwrap proxy does, the "continuation task" errors of `Start`/`RunSynchronously`,
-a null `AggregateException` message, and lambdas inside a `when` filter (their blocks were taken for the filter's and
-lowered as `unreachable`; samples 1060-1063); `TaskFactory.ContinueWhenAll/ContinueWhenAny/FromAsync` (every overload, #117; samples 1200-1205, [10-async.md](10-async.md)) and
-`EventSource.Write<T>` payloads (anonymous and `[EventData]` types, #121; samples 1210-1211, [12-corelib.md](12-corelib.md)) closed
-afterwards; still open: type identity of tasks (`GetType()` and `is Task<T>`).
-Roslyn from IL, measured: the `IL survey` workflow's `roslyn` target lowers every method of Roslyn and
-`csharpc.dll` in 16 parallel shards and ranks what stops them
-([18-compatibility.md](18-compatibility.md#roslyn-and-csharpc)). On branch `m6-roslyn` the Roslyn methods
-that fail to lower went from 994 to 170 (csharpc's own: 102 → 77): struct layouts that are the sequential
-one, unions of primitives, fixed-size buffers and `[InlineArray]` structs from IL, rectangular arrays from
-IL, devirtualization to a generic base class's instantiation, boxed and hashed `Memory<T>`, weak
-references and `ConditionalWeakTable` (collector-cleared weak slots and ephemerons), `StrongBox<T>`,
-`ReferenceEqualityComparer`, `HashAlgorithmName`, SHA-1/SHA-256/`IncrementalHash`, `LazyInitializer`,
-`Task.Run` with a token, delegates bound to library methods (with .NET's delegate equality and cached
-static method groups), and `Assembly.GetCustomAttribute<T>()` from IL metadata (part of step 4). A
-program that parses C# with Roslyn from IL can reach 33 methods csharpc can't compile yet (121 before).
-(3) Compile-time scale, first part ([ADR 0014](adr/0014-compile-time.md)): csharpc and Roslyn are
-ReadyToRun-compiled in Release builds, a compilation uses several threads (`-j`, `CSHARPC_THREADS`) to
-parse, bind, build Roslyn's CFGs ahead of lowering (each built once per body) and generate machine code
-per module partition after whole-program optimization; the output is the same at every `-j`. The SRM
-program compiles in 5.5 s at `-O0` and 15.3 s at `-O2` instead of 7.5 s and 18.1 s (shared VPS,
-`-j 2`), hello world in 1.4 s instead of 3.1 s. The corelib is compiled to IL once (cached per
-corelib version and symbol set) and lowered through the IL front-end instead of parsed and bound
-into every program ([ADR 0015](adr/0015-corelib-il.md)): at `-O0` hello world compiles in 0.9 s
-instead of 1.5 s, the SRM program in 3.7 s instead of 4.6 s, with 30–40 MB less memory. Next, in
-order: (3, continued) lowering on several threads, bounded code-generation memory; (4) reflection Roslyn needs at startup
-(`typeof(X).Assembly`, resource lookup, analyzer activation) as compile-time metadata with diagnostics
-for the rest; (5) csharpc compiled by csharpc, LLVM C API P/Invokes included.
-Branch `ci/m6-bootstrap` (2026-10-31): a program hosting Roslyn from its package — parse, rewrite,
-bind, diagnostics, deterministic in-memory emit read back with SRM — compiles and prints exactly what
-`dotnet run` prints (`tests/projects/il/IlRoslynHostApp`, run by the `Bootstrap` workflow); the Roslyn
-survey's failing methods went from 101 to 38 ([18](18-compatibility.md#roslyn-and-csharpc)).
-(3) Lowering that program went from 255 s to 106 s (array interface maps and IL-failure reachability
-were quadratic), with a per-step breakdown in `csharpc -v`; LLVM's backend (284 s for 8.1 M
-instructions on one thread at -O0) and its peak (5.6 GB, 8.4 GB with two threads) are what's left
-of step 3. (4) Manifest resources, `Assembly.ManifestModule`/`GetReferencedAssemblies`/`GetCustomAttributes`
-are compile-time metadata. (5) csharpc compiles itself (`tools/bootstrap/selfhost.sh`, the `Bootstrap` workflow): 248 s and
-11.6 GB on a CI runner at -O0, and the native compiler compiles hello world and samples exactly as the
-managed one (run 41171411931). The self-compile broke on 2026-11-06 when csharpc's own resource reader started
-calling `BinaryReader.ReadDecimal` (which the corelib lacked, `CSLLVM0002`; fixed, sample 1160) and was green
-again at both levels on 2026-11-06 (run 42244078369, 8 samples identical to the managed compiler's):
-**-O0** 238 s, 9.3 GB peak; **-O2** 577 s (optimization and code generation in 8 partitions of the 8.9 M
-instructions, 2 threads), 8.6 GB peak, a 76 MB native compiler (107 MB at -O0). Code-generation memory ([ADR 0014](adr/0014-compile-time.md), section 6): no local value names in the IR, the
-bitcode image kept in LLVM's buffer and the partition workers limited by the memory available (the first one is
-free, each further one is estimated at ten times the image): the self-compile peaks at 8.0 GB at -O0 and 7.6 GB at
--O2 with two workers (9.3 and 8.6 GB before), 5.3 and 5.5 GB with one (backend 219 s instead of 122 s at -O0,
-1076 s instead of 462 s at -O2), executables byte-identical (run 42256286314). What remains is the module itself,
-about 2.7 GB for 9 M instructions, and the managed heap at the end of lowering (3.7 GB).
-Lowering on several threads is deferred (owner, 2026-11-06): the single-threaded lowering is 75 s of the 238 s self-compile
-at -O0 and 69 s of 577 s at -O2, so two parallel threads would save about 35 s (15 % / 6 %) for a second set of types,
-declarations and constants in memory (ADR 0014, "Next hot spots"). Instead the module-level steps of that thread were made
-cheaper, with byte-identical output (`tools/bootstrap/compare-compilers.sh`; numbers in
-[#108](https://github.com/jonathanperis/csharpc/issues/108)): generic interface dispatchers look only at the types that implement their
-interface instead of resolving every class's implementation each round, and array interface maps compute their facts once per
-interface and element.
-The native compiler on the whole differential suite (`CSHARPC_NATIVE` in `tests/run.sh`, the `native-suite` jobs of the
-`Bootstrap` workflow): at first 582 of 616 samples passed at -O0 and -O2 and 34 did not, the same with both native
-compilers (run 42247074061). The causes, all closed: 21 samples needed the SDK's source generators (System.Text.Json,
-LibraryImport), which a csharpc compiled by csharpc cannot load at run time (the single-file path was silent about it; it is
-an explicit CSLLVM0001 now) and are linked into csharpc instead (owner decision, 2026-11-06; #106); 11 were stack traces,
-where the native compiler's emit of the program for its PDB stopped because Roslyn reads an attribute of System.Private.CoreLib,
-which csharpc now answers with the framework's real ones (#107); 2 were the built-in `[GeneratedRegex]` generator failing with an
-ArrayTypeMismatchException. That one was no store-check problem: Roslyn hands `IncrementalGeneratorInitializationContext.RegisterOutput`,
-a method of a readonly struct, to its nodes as a delegate, and csharpc called the method with the box instead of the struct, so it
-read the syntax-input builder instead of the output builder (any delegate over a struct's instance method; #129, sample 1220). It
-hid the same failure in the linked JSON and LibraryImport generators, and the JSON generator then needed open instance delegates
-(`MethodInfo.CreateDelegate` without a target, the receiver as first parameter, an enum for its underlying type; #130, sample 1221).
-With all four the native compiler passes all 654 samples at -O0 and -O2, with the -O0 and the -O2 native compiler
-(`tools/bootstrap/native-known-failures.txt` is empty; Bootstrap run 42350479137 on the merge of the branches). The self-compile
-takes 192 s at -O0 and 610 s at -O2 on a CI runner (8.7 GB peak in both), the native compilers are 124 MB and 89 MB (76 MB at -O2
-before the two generators were linked in). That M6 bullet is met once the branches of #105, #110 and #111 are merged; alone, #110 leaves the 11 stack-trace samples of #107 in the list.
+**How it works.** Framework assemblies the program uses are compiled from the shared framework's IL whenever csharpc
+implements none of their types ([ADR 0013](adr/0013-framework-il.md), `--framework-il`). System.Reflection.Metadata (with
+System.Collections.Immutable) reads PE headers, metadata tables, signatures, custom attributes and IL bodies, and the
+Microsoft.Extensions Primitives/Options/DependencyInjection/Logging abstractions work, all matching `dotnet run`
+(`tests/il.sh`). A program hosting Roslyn from its package — parse, rewrite, bind, diagnostics, deterministic in-memory
+emit read back with SRM — compiles and prints exactly what `dotnet run` prints
+(`tests/projects/il/IlRoslynHostApp`, run by the `Bootstrap` workflow). The corelib surface these programs need is
+implemented (`Unsafe` from IL, GC handles, `ArrayPool`, `BinaryPrimitives`, `BitConverter`, memory-mapped views, weak
+references and `ConditionalWeakTable`, `CancellationTokenRegistration` with .NET's callback order, the concurrent
+collections, `EventSource`, custom `TaskScheduler`s, `Partitioner` and the `Parallel` loops, `BlockingCollection`,
+`TaskFactory.ContinueWhenAll/ContinueWhenAny/FromAsync`, `EventSource.Write<T>` payloads, struct layouts LLVM's types can't
+express, unions of primitives, fixed-size buffers, `[InlineArray]`), each checked against .NET one type at a time
+(samples 1020-1063, 1200-1211; [12-corelib.md](12-corelib.md), [10-async.md](10-async.md)). The Roslyn-from-IL survey
+([18-compatibility.md](18-compatibility.md#roslyn-and-csharpc)) ranks what still fails to lower.
+
+**Self-compile.** `tools/bootstrap/selfhost.sh` (the `Bootstrap` workflow) compiles csharpc with csharpc, at -O0 and -O2.
+On a CI runner it takes 192 s at -O0 and 610 s at -O2 with a peak of 8.7 GB; the native compilers are 124 MB (-O0) and
+89 MB (-O2). The native compiler passes **every sample of the differential suite at -O0 and -O2**, built with the -O0 and
+the -O2 native compiler (`CSHARPC_NATIVE` in `tests/run.sh`, the `native-suite` jobs of the `Bootstrap` workflow;
+`tools/bootstrap/native-known-failures.txt` is empty). Getting there took: the SDK's JSON and `LibraryImport`
+source generators linked into csharpc (a csharpc compiled by csharpc cannot load assemblies at run time, so loading one is
+the explicit diagnostic CSLLVM0001); the framework's real assembly attributes for `typeof(object).Assembly`; delegates
+over a struct's instance method (called with the struct, not the box); and open instance delegates
+(`MethodInfo.CreateDelegate` without a target).
+
+**Compile time** ([ADR 0014](adr/0014-compile-time.md)): csharpc and Roslyn are ReadyToRun-compiled in Release builds; a
+compilation uses several threads (`-j`, `CSHARPC_THREADS`) to parse, bind, build Roslyn's CFGs ahead of lowering and
+generate machine code per module partition after whole-program optimization; the output is the same at every `-j`. The
+corelib is compiled to IL once (cached per corelib version and symbol set) and lowered through the IL front-end instead
+of being parsed and bound into every program ([ADR 0015](adr/0015-corelib-il.md)). Code-generation memory is bounded
+(ADR 0014, section 6): no local value names in the IR, the bitcode image kept in LLVM's buffer and the partition workers
+limited by the memory available (the first one is free, each further one is estimated at ten times the image), so the
+self-compile peaks at 8.0 GB at -O0 and 7.6 GB at -O2 with two workers and 5.3 and 5.5 GB with one (slower backend),
+with byte-identical executables. What remains is the module itself, about 2.7 GB for 9 M instructions, and the managed
+heap at the end of lowering (3.7 GB). The module-level lowering steps are cheaper (generic interface dispatchers look only at
+the types that implement their interface, array interface maps compute their facts once per interface and element;
+`tools/bootstrap/compare-compilers.sh` checks byte-identical output). Lowering on several threads is deferred by the owner:
+the single-threaded lowering is 75 s of the 238 s -O0 self-compile and 69 s of 577 s at -O2, so two threads would save
+about 35 s (15 % / 6 %) for a second set of types, declarations and constants in memory.
+
+**Open (#169, #93):** the Roslyn-from-IL survey was last measured on 2026-10-31 (38 methods failed to lower: Roslyn 32,
+`csharpc.dll` 2, framework IL 2, corelib 2) and has to be re-run and closed out; threaded lowering is a decision still to be
+recorded; lowering scales quadratically on a very large program (#93: a ~250-assembly application, the builtin interface
+tables are the largest step left).
 
 ### Runtime tiers — C# for library code, C where it is the right tool
-[ADR 0017](adr/0017-runtime-tiers.md); a C-free runtime is not a goal (owner, 2026-10-30). **Tier 1 (now,
-alongside M2/M4):** move the C runtime's ordinary
+[ADR 0017](adr/0017-runtime-tiers.md); a C-free runtime is not a goal (owner, 2026-10-30). **Tier 1 (alongside
+M2/M4):** move the C runtime's ordinary
 code to the C# corelib — task scheduler, thread pool and timers, type/interface/delegate helpers and the
 remaining library helpers — with identical behaviour, sizes within budgets and benchmarks not slower.
 **Tier 2 (optional, measured):** the GC, exception dispatch and thread management stay in C; a
@@ -354,12 +362,17 @@ faster and as safe on the benchmarks, the GC stress run and dotnet's own AOT tes
 (`System.Native`, `System.Globalization.Native`), as NativeAOT does.
 
 ### M7 — TechEmpower: the csharpc CLI beats NativeAOT
-Started 2026-10-31, once M2–M6 were complete (the owner's rule, 2026-10-30). The ASP.NET Core entries of the
+**Status:** ⏸ on hold (owner).
+
+The ASP.NET Core entries of the
 [TechEmpower Framework Benchmarks](https://github.com/TechEmpower/FrameworkBenchmarks) that .NET runs
 with NativeAOT, built by the standalone `csharpc` CLI from the same sources (the fork is M8, and M9
 repeats this through it), run in TechEmpower's benchmark environment and beat the NativeAOT-compiled
-entries. Same sources, same
-test types, same harness; only the AOT compiler differs.
+entries. Same sources, same test types, same harness; only the AOT compiler differs.
+
+The owner's rule is that M7 starts once M2–M6 are done. The harness and the performance work below were started on
+2026-10-31, before that; since 2026-11-05 no M7 work is done, and none starts without the owner's go. What is on `main`
+stays and is measured by CI.
 
 **Done when** the csharpc build beats the NativeAOT build on every metric measured, held over repeated CI
 runs; the set is open-ended, and anything TechEmpower's toolset or the harness reports joins it. Planned:
@@ -367,150 +380,60 @@ TechEmpower's own results for every test type (plaintext, JSON, single query, mu
 updates, cached queries) at every concurrency and query-count level they use (requests per second, the
 latency distribution, zero errors); resources under load (peak and steady RSS, CPU time per request,
 threads, GC pauses); and deployment (start-up to the first response, idle RSS, executable size, build time,
-container image size). A tie or a loss on any of them means M7 isn't done. The harness reports all of them
-side by side with a verdict each (below). Baseline when this was set, on the interim app (TechEmpower run
-41187053942, 4-vCPU runner): behind on plaintext (0.92 / 0.95 of NativeAOT), JSON (0.98 / 1.00 / 0.99), RSS
-after load (84.4 vs 64.3 MiB), size (11.1 vs 8.9 MiB) and build (240 vs 20 s); ahead on JSON p99 (4.20 vs
-6.04 ms), start-up (21 vs 27 ms) and idle RSS (12.8 vs 17.4 MiB).
+container image size). A tie or a loss on any of them means M7 isn't done.
 
-What it takes, beyond M2–M6: ASP.NET Core and Kestrel compiled from IL (hosting, dependency
-injection, configuration, logging, `System.IO.Pipelines`, the HTTP/1.1 parser, `System.Text.Json`
-source generation), the entry's libraries (Npgsql, RazorSlices, `Microsoft.Extensions.Caching.Memory`)
-and, for the project input, the source generators its build runs (Razor, RazorSlices), the thread pool,
-sockets and async I/O at production throughput on Linux (epoll), and allocation/GC behaviour under
-sustained load.
+**The harness** (`benchmarks/techempower/harness.py`, the `TechEmpower` workflow). The app is TechEmpower's ASP.NET Core
+[Platform] entry itself, the one its `aspnetcore-aot` test publishes with NativeAOT
+(`frameworks/CSharp/aspnetcore/src/Platform` at `57d92fb`, unchanged but for net11.0), on PostgreSQL in TechEmpower's own
+database image. Builds: NativeAOT and the JIT as the entry's dockerfiles build them (`OptimizationPreference=Speed`,
+`GarbageCollectionAdaptationMode=0`; the JIT with ReadyToRun and hill climbing off); csharpc from the same IL NativeAOT
+compiles (`dotnet build` with the AOT properties, then `csharpc Platform.dll`), with `csharpc Platform.csproj` checked
+alongside. Every build is verified with TechEmpower's own verification code from the pinned checkout (real-run rules:
+exact query and row counts through `pg_stat_statements`), and csharpc's normalized answers must equal NativeAOT's and the
+JIT's; a build that fails isn't loaded and fails the run. Load: TechEmpower's scripts (primer, warm-up at 512
+connections, then each level for 15 s) at every level it uses: plaintext 256–16384 connections pipelined ×16, JSON,
+single query and fortunes 16–512 connections, multiple queries and updates 1–20 queries and cached queries 1–100 at 512
+connections, 37 levels. Metrics per level: requests/s; latency average, stdev, max, p50, p75, p90, p99; socket errors
+and non-2xx answers; from `/proc`, the server's peak and steady RSS, threads and CPU time per request. Per run: peak RSS
+and csharpc's GC pause total (NativeAOT reports its pause time only in-process). Deployment: start-up to the first
+response (5 starts per round), idle RSS, executable size, build time and a minimal runtime image per build (chiseled
+runtime-deps for the native builds, chiseled aspnet for the JIT, smoke-tested). Each measure job runs one test type for
+all builds on one runner, 3 rounds for NativeAOT and csharpc in alternating order (the JIT once). The verdict per metric
+compares medians: better or worse only when the difference exceeds both builds' run-to-run range (max − min; beyond 5
+samples, as for the 15 start-ups, the 10th–90th percentile spread) and 1 % (exact metrics such as sizes: any difference;
+single samples such as the build time: 5 %); errors are a requirement (zero), not a comparison. `results.json` holds
+every sample; `results.md` opens with "M7 finish line: X of Y metrics beat NativeAOT". There are 456 compared metrics; a
+full run takes about 50 minutes of wall time in 13 jobs. The plaintext/JSON app the harness measured first is kept as
+`benchmarks/techempower/interim` and measured outside the verdict.
 
-**The harness** (`benchmarks/techempower/harness.py`, the `TechEmpower` workflow; branch `ci/m7-harness`,
-2026-10-31). The app is TechEmpower's ASP.NET Core [Platform] entry itself, the one its `aspnetcore-aot`
-test publishes with NativeAOT (`frameworks/CSharp/aspnetcore/src/Platform` at `57d92fb`, unchanged but
-for net11.0), on PostgreSQL in TechEmpower's own database image. Builds: NativeAOT and the JIT as the
-entry's dockerfiles build them (`OptimizationPreference=Speed`, `GarbageCollectionAdaptationMode=0`;
-the JIT with ReadyToRun and hill climbing off); csharpc from the same IL NativeAOT compiles (`dotnet
-build` with the AOT properties, then `csharpc Platform.dll`), with `csharpc Platform.csproj` checked
-alongside. Every build is verified with TechEmpower's own verification code from the pinned checkout
-(real-run rules: exact query and row counts through `pg_stat_statements`), and csharpc's normalized
-answers must equal NativeAOT's and the JIT's; a build that fails isn't loaded and fails the run. Load:
-TechEmpower's scripts (primer, warm-up at 512 connections, then each level for 15 s) at every level it
-uses: plaintext 256–16384 connections pipelined ×16, JSON, single query and fortunes 16–512
-connections, multiple queries and updates 1–20 queries and cached queries 1–100 at 512 connections, 37
-levels. Metrics per level: requests/s; latency average, stdev, max, p50, p75, p90, p99; socket errors
-and non-2xx answers; from `/proc`, the server's peak and steady RSS, threads and CPU time per request.
-Per run: peak RSS and csharpc's GC pause total (NativeAOT reports its pause time only in-process).
-Deployment: start-up to the first response (5 starts per round), idle RSS, executable size, build time and a minimal runtime image
-per build (chiseled runtime-deps for the native builds, chiseled aspnet for the JIT, smoke-tested). Each
-measure job runs one test type for all builds on one runner, 3 rounds for NativeAOT and csharpc in
-alternating order (the JIT once). The verdict per metric compares medians: better or worse only when
-the difference exceeds both builds' run-to-run range (max − min; beyond 5 samples, as for the 15 start-ups,
-the 10th–90th percentile spread) and 1 % (exact metrics such as sizes:
-any difference; single samples such as the build time: 5 %); errors are a requirement (zero), not a
-comparison. `results.json` holds every sample; `results.md` opens with "M7 finish line: X of Y metrics
-beat NativeAOT". 456 compared metrics; a full run takes about 50 minutes of wall time in 13 jobs.
+**State.**
+- Last measurement of `main` that built the entry (scheduled run, 2026-11-02, csharpc `9812e64`, AMD EPYC 7763, 4 vCPUs):
+  **288 of 456 metrics beat NativeAOT** (135 ties, 33 worse), csharpc error-free at all 37 load levels, all test
+  types verified. Ahead: start-up to the first response (521 vs 611 ms), plaintext latency, JSON, multiple queries and
+  fortunes. Worse: idle RSS (42.4 vs 37.6 MiB), executable size (18.3 vs 16.4 MiB), build time (134 vs 29 s), container
+  image (34.6 vs 32.7 MiB), plaintext at 256 connections (0.93 of NativeAOT's requests/s), 12 of 61 cached-query metrics.
+- **Today csharpc does not build the entry on `main`** (workflow run of 2026-11-07: 0 of 456, 456 without a csharpc result):
+  four methods fail to compile, a regression since 2026-11-02 (#164).
+- Tried and kept off by default, because speed comes first and they cost speed elsewhere: the concurrent marker
+  (`--gc-concurrent`, [ADR 0020](adr/0020-concurrent-marking.md): pauses p50 0.4 ms instead of 13–23 ms, about 5 % of
+  plaintext throughput and 13–23 % wall time on arm64's allocation-heavy programs) and the generational nursery.
+- What it takes beyond M2–M6: ASP.NET Core and Kestrel compiled from IL (hosting, dependency injection, configuration,
+  logging, `System.IO.Pipelines`, the HTTP/1.1 parser, `System.Text.Json` source generation), the entry's libraries
+  (Npgsql, RazorSlices, `Microsoft.Extensions.Caching.Memory`) and, for the project input, the source generators its build
+  runs (Razor, RazorSlices), the thread pool, sockets and async I/O at production throughput on Linux (epoll), and
+  allocation/GC behaviour under sustained load. All of it builds and answers like NativeAOT's build when #164 is not in
+  the way ([18-compatibility.md](18-compatibility.md#aspnet-core-and-the-techempower-app)).
 
-Status (2026-10-31, branch `ci/m7-harness`, TechEmpower run 41214295059): **M7 finish line: 0 of 456
-metrics beat NativeAOT. csharpc doesn't build the entry yet**, so every metric is "no csharpc result".
-NativeAOT and the JIT pass TechEmpower's verification for all seven test types with identical answers.
-From IL, csharpc stops at 44 methods (32 items; [18-compatibility.md](18-compatibility.md#techempowers-platform-entry)):
-Npgsql (`Dns.GetHostAddressesAsync`, setting `Socket.Blocking`, `ConcurrentExclusiveSchedulerPair`,
-`EncodingExtensions.GetString(ReadOnlySequence<byte>)`, `SslStream`/`SslClientAuthenticationOptions`
-members, `PollingCounter`, `Version(string)`, `string.Normalize`, `decimal.Scale`/`CreateChecked`,
-`Array.GetValue/SetValue(int[])`, culture string comparers), `MemoryCache` (the `AlternateLookup` struct of
-`ConcurrentDictionary`), RazorSlices' hot-reload and nullability reflection, hosting's `UseStartup` reflection
-(`Activator.CreateInstance(Type, object[])`, `Assembly.DefinedTypes`, assembly attributes), and Kestrel's
-certificate and QUIC paths. The project input runs the Razor and RazorSlices source generators like the
-build does, and stops at the same items plus RazorSlices' HTML encoding. `csharpc Platform.dll` also needs
-`--framework Microsoft.AspNetCore.App`: it doesn't take the frameworks from `Platform.runtimeconfig.json`.
-NativeAOT on the entry (ratios to the JIT within each job; runners differ by up to 2× between jobs):
-plaintext 2.46 M / 1.90 M / 1.58 M / 1.31 M req/s at 256 / 1024 / 4096 / 16384 connections (the JIT at 1.00 /
-0.98 / 0.92 / 1.04 of that), JSON 165 k–157 k req/s (0.95–0.99 of the JIT), database tests at 0.89–1.02 of
-the JIT except updates (0.56–0.82: the JIT ran after NativeAOT's first round on the same database), start-up
-551 ms (the entry fills its cache with 10 000 queries first; JIT 1 186 ms), idle RSS 37.7 MiB (JIT 76.3),
-executable 16.4 MiB, build 31 s, image 32.7 MiB (chiseled runtime-deps; JIT 125.2 MiB). The harness also
-found a csharpc socket difference: `Socket.Bind` doesn't set `SO_REUSEADDR` as .NET does on Unix, so a
-server can't rebind a port with TIME_WAIT connections, and Linux then refuses even a .NET server the port
-csharpc just served (the harness gives every start its own port). The interim app, measured alongside:
-23 of 106 metrics beat NativeAOT (41 ties, 42 worse; zero errors at all 10 levels); the next run, on other
-runners, counted 46 (run 41216274917), which is why M7 asks for wins held over repeated runs. Ahead: start-up
-11 vs 23 ms, idle RSS 12.9 vs 17.7 MiB, threads (8 vs 13–14), RSS at JSON 512 (57 vs 81 MiB). Behind:
-pipelined plaintext 0.93–0.97 of NativeAOT's requests/s above 256 connections (a tie at 256), JSON 0.90–0.93 (a tie at
-512), CPU per JSON request (+5–10 %), RSS under pipelined load (58 vs 28 MiB at 256 connections, 744 vs 260
-MiB at 16384), executable 11.0 vs 8.9 MiB, image 27.3 vs 25.2 MiB, build 154 vs 16 s. Next: the
-blockers above (the other M7 work), then the gaps the verdicts list.
-
-History, on the interim app (the plaintext/JSON middleware app the harness measured until 2026-10-31,
-now `benchmarks/techempower/interim`):
-
-Status (2026-10-24, branch `m8-harness`): the harness exists — `benchmarks/techempower/app` (plaintext
-and JSON on Kestrel, System.Text.Json source generation) and the `TechEmpower` workflow, which builds it
-with NativeAOT, csharpc and the JIT, checks each build with TechEmpower's requests and loads it with wrk
-(NativeAOT on a 4-vCPU runner: 530 000–750 000 plaintext req/s pipelined, 86 000–119 000 JSON req/s,
-8.9 MiB, 65 MiB peak RSS under load, 23–27 ms to the first response; the JIT is 5–30 % ahead on throughput). csharpc compiles Microsoft.NET.Sdk.Web
-projects, taking the ASP.NET Core assemblies a program uses from the shared framework's IL, and lowers
-.NET 11's runtime-async methods; the TechEmpower app doesn't build yet: 43 methods it reaches fail
-to compile, most of them dependency injection's reflection (`GetConstructors`, `ConstructorInfo.Invoke`,
-`MakeGenericType`). The IL survey's `aspnetcore` target ranks the rest: of the methods of the 48 ASP.NET
-Core / Extensions / Pipelines / System.Net assemblies the app reaches, 1 691 fail to lower (2 888 at the
-start of the branch) — reflection (524), TLS (170), `DateTimeOffset` (156), `MemoryPool<T>`/`MemoryManager<T>`
-(120), `Uri` (78) lead ([18-compatibility.md](18-compatibility.md#aspnet-core-and-the-techempower-app)).
-Next, in order: reflection metadata for DI (constructors and parameters of the types DI's
-`[DynamicallyAccessedMembers]` annotations name, closed generic instantiations of registered open
-generics), `DateTimeOffset` and `MemoryPool<T>` (in progress elsewhere), async sockets on epoll for
-Kestrel's transport (`SocketAsyncEventArgs`), then the first csharpc build of the app and its numbers.
-
-Status (2026-10-25, branch `m8-kestrel`): csharpc builds the TechEmpower app with no stubbed method and its
-responses pass TechEmpower's checks identically to NativeAOT. This took member reflection over compile-time
-metadata ([ADR 0018](adr/0018-reflection-metadata.md)), async sockets on an epoll engine (blocking calls on
-the thread pool on macOS and Windows for now), and the library surface Kestrel, hosting and routing reach.
-The first load runs also exposed two collector bugs that only show under sustained load: coroutine frames
-skipped by marking, and large arrays missed by `TryGetArray`. First numbers (`TechEmpower` workflow, one
-run, csharpc at -O2):
-
-| | NativeAOT | csharpc | JIT |
-|---|---:|---:|---:|
-| plaintext, 256 connections, pipeline 16 | 545 000 req/s | 268 000 req/s | 696 000 req/s |
-| plaintext, 1024 connections, pipeline 16 | 526 000 req/s | 243 000 req/s | 692 000 req/s |
-| JSON, 16 / 64 / 256 connections | 69 000 / 84 000 / 87 000 req/s | 38 000 / 50 000 / 55 000 req/s | 75 000 / 93 000 / 97 000 req/s |
-| peak RSS, idle → after load | 17.7 → 64.9 MiB | 13.0 → 80.3 MiB | 54.0 → 141.3 MiB |
-| executable | 8.9 MiB | 14.5 MiB | (framework-dependent) |
-| start-up to the first response | 26 ms | 20 ms | 157 ms |
-
-csharpc starts faster and idles smaller, but reaches about half of NativeAOT's plaintext throughput and
-60 % of its JSON throughput, with a larger binary. Next: profile the request path (the socket engine's
-locking and completions, the async state machines lowered from IL, the conservative collector under
-load), then the binary size.
-
-Status (2026-10-25, branch `m8-perf`): throughput at NativeAOT's level. The TechEmpower workflow gained
-a `profile` input (perf profiles, annotated hot functions and an allocation profile of both servers
-under load), and each round of fixes followed what it showed. Runner speed varies by up to 40 % between
-runs, so the comparison is the csharpc/NativeAOT ratio within one run:
-
-| csharpc / NativeAOT | first run (40169226460) | `m8-perf` (40193556960) |
-|---|---:|---:|
-| plaintext, 256 / 1024 connections | 49 % / 46 % | 99 % / 98 % |
-| JSON, 16 / 64 / 256 connections | 55 % / 60 % / 63 % | 105 % / 102 % / 104 % |
-| JSON p99 latency, 256 connections | 9.7 vs 5.2 ms | 4.0 vs 5.4 ms |
-| peak RSS after load | 80.3 vs 64.9 MiB | 74.9 vs 65.0 MiB |
-| executable / build time | 14.5 vs 8.9 MiB, 306 vs 22 s | 14.3 vs 8.9 MiB, 313 vs 21 s |
-
-(Profiling runs on the same branch measured plaintext at 100–102 % of NativeAOT.) Latest on `main`
-(2026-10-30, `9406394`, run 41089947567): plaintext 94 % / 95 %, JSON 97 % / 95 % / 97 % of NativeAOT, JSON p99
-4.8 vs 6.4 ms and start-up 23 vs 30 ms ahead, peak RSS after load 76.5 vs 65.1 MiB, executable 15.6 vs
-8.9 MiB, build 410 vs 24 s. Speed first: the throughput gap is M7 work, started once M2–M6 are done. What the profiles
-found, in the order they were fixed: every task completion woke the main thread blocked in
-`app.Run()` (18 % of the CPU in futex wake-ups); `lock`/`Monitor` allocated an entry per `Enter` and
-`System.Threading.Lock` went through the same table (11–15 %: Lock now keeps its state in the object,
-one compare-and-swap per `Enter`); interface calls scanned 30+-entry interface maps (4–8 %: per-call-site
-caches); the thread pool woke a thread per work item and allocated a closure per item; the corelib's
-`ConcurrentQueue` was one lock (now .NET's lock-free segments); `typeof(T) == typeof(X)` and
-`(T)(object)value` weren't folded in generic code; byte/char span searches were scalar (now 16-byte
-vector loops); variance descriptors were searched linearly on failed interface tests; and allocations
-per request (a task and a coroutine frame per async call, now one object; continuation arrays; socket
-operations; JSON writers). Next: the allocations that remain (one task object per async method call,
-even when it completes without suspending: 90 % of the bytes allocated under load), the collector's
-pause (about 5 ms per collection, single-threaded marking), then the binary size (`.data.rel.ro` method
-tables and vtables, 3.4 MiB; the corelib's code, 3 MiB) and the build time (one whole-module `default<O2>`
-pass over 1.6 M instructions is most of it).
+**History.** 2026-10-24: csharpc builds the first TechEmpower app (plaintext and JSON on Kestrel) at half of NativeAOT's
+throughput; profile-driven fixes (task completion wake-ups, `Monitor`/`Lock` entries, interface-call caches, thread-pool
+wake-ups, lock-free `ConcurrentQueue`, vectorized span searches, allocation per request) bring it to NativeAOT's level
+by 2026-10-25. 2026-10-31: the harness switches to TechEmpower's real Platform entry and the verdict per metric
+(0 of 456 while csharpc could not build it; 242 once it did; 308 on the concurrent-marking branch). 2026-11-01..02: `ValueTask<T>` as .NET's struct, `ArrayPool<T>.Shared` pools, parallel per-partition
+optimization, idle trimming, start-up polling fixed (288 on `main`).
 
 ### M8 — csharpc as dotnet's AOT backend: the fork
+**Status:** ⬜ not started.
+
 A fork of dotnet in which `dotnet publish -p:PublishAot=true` runs csharpc where NativeAOT's ILCompiler
 runs today: the same IL inputs from `csc`, the same MSBuild properties (`OptimizationPreference`,
 `IlcInstructionSet`, `InvariantGlobalization`, `StackTraceSupport`, `StripSymbols`, `NativeLib`,
@@ -530,6 +453,8 @@ Done when NativeAOT's code is removed from the fork, csharpc takes its place, th
 acceptance gate passes.
 
 ### M9 — The finish line: TechEmpower through the fork
+**Status:** ⬜ not started.
+
 The project's definition of done: the dotnet fork of M8 — NativeAOT's code removed, csharpc in its place
 behind `PublishAot` — builds the ASP.NET Core TechEmpower entries .NET runs with NativeAOT, through the
 ordinary `dotnet publish -p:PublishAot=true`, and they beat the NativeAOT-compiled entries in the
