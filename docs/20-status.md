@@ -142,7 +142,7 @@ workflow runs on a branch come from a push.
 1. #163 and #164: the two regressions the CI measurements found (the regex generator's `#nullable` under old language
    versions, and four methods that stop the TechEmpower Platform entry).
 2. The open M2–M6 bullets, with their issues, in [the list above](#what-is-open): the survey-ranked library surface (#146 and
-   its in-flight pull requests), #168 for M5, #169 and #93 for M6, the native TLS spikes #144 and #143.
+   its in-flight pull requests), #175 for M5, #174 and #93 for M6, the native TLS spikes #144 and #143.
 3. Then the gap lists #89, #95–#104.
 4. Housekeeping found while auditing: `tests/platform-skips.txt` still has `known gap` entries for features that now work
    (`HttpClient` system proxies on macOS and Windows, Windows decompression and rooted `Uri` paths), so those samples are
