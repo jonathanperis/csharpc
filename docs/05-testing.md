@@ -136,16 +136,26 @@ fails if any shard or the suites job failed, or if the shard manifests do not li
 `-O0` and at `-O2` exactly once (`tools/ci-plan.sh coverage`). Shards are a round-robin over the
 `LC_ALL=C` sorted sample names (`tests/run.sh --shard INDEX/COUNT`).
 
-Shard counts are chosen from the unsharded step times on run
-[40310822368](https://github.com/jonathanperis/csharpc/actions/runs/40310822368) (x86-64 differential
-38.5 min, Windows 49.1 min, arm64 35.4 min, macOS 29.5 min, wasm 21.5 min; wall clock 69 min on
-Windows). x86-64 and Windows use 4 shards. arm64, macOS and wasm use 2: arm and macOS runners queue,
-and wasm shares `ubuntu-24.04` with x86-64, so more shards wait instead of finishing sooner.
-Run [40324256805](https://github.com/jonathanperis/csharpc/actions/runs/40324256805) measured the
-split: with a runner free, x86-64 shards take 8–9 min (suites 14 min), Windows shards 9–14 min
-(suites 20 min), arm64 shards 18 min, macOS shards 19–22 min, wasm shards 12–14 min. The full gate
-is then about 22 min. That run's 3 h end-to-end was queue time behind other workflows, not the
-shard work.
+Each shard compiles and runs several samples at once (`CSHARPC_JOBS`, 3 per platform), which makes it
+2-3x faster than the sequential shard the counts were first chosen for, so a platform needs fewer
+of them: x86-64 3, the other platforms 2 (14 diff jobs became 11). The queue, not the work, was the
+delay (runner minutes are capped across the repository), so the counts aim at finishing near the
+platform's `suites` job rather than at the shortest shard. Measured before (run
+[42216047679](https://github.com/jonathanperis/csharpc/actions/runs/42216047679), sequential shards,
+4/4/2/2/2) and after (runs [42269384295](https://github.com/jonathanperis/csharpc/actions/runs/42269384295)
+and [42308195548](https://github.com/jonathanperis/csharpc/actions/runs/42308195548), 3 jobs per shard):
+
+| differential shards | before | after |
+|---|---|---|
+| jobs | 14 | 11 |
+| x86-64 shard | 15-20 min (4 shards) | 9-17 min (3 shards) |
+| Windows shard | 22-24 min (4 shards) | 22-26 min (2 shards) |
+| arm64 shard | 35-38 min | 14-16 min |
+| wasm shard | 32-33 min | 11-19 min |
+| shard minutes, all platforms | 366 | see the pull request |
+
+The suites jobs (size, conformance, programs, projects, IL; 11-21 min) are unchanged and now set the
+wall clock of an unqueued gate on every platform except macOS.
 
 A push or pull request that only touches `docs/**`, `*.md`, or `LICENSE` / `COPYING` / `NOTICE` /
 `AUTHORS` skips the compiler suite when some ancestor of that commit already has the five `test`
