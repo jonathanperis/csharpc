@@ -1,0 +1,437 @@
+E=2.7182817 PI=3.1415927 Tau=6.2831855
+-- unary
+0            abs=0 ceil=0 floor=0 trunc=0 round=0 sqrt=0 next=1E-45 prev=-1E-45 ilogb=-2147483648
+-0           abs=0 ceil=-0 floor=-0 trunc=-0 round=-0 sqrt=-0 next=1E-45 prev=-1E-45 ilogb=-2147483648
+1            abs=1 ceil=1 floor=1 trunc=1 round=1 sqrt=1 next=1.0000001 prev=0.99999994 ilogb=0
+-1           abs=1 ceil=-1 floor=-1 trunc=-1 round=-1 sqrt=NaN next=-0.99999994 prev=-1.0000001 ilogb=0
+0.5          abs=0.5 ceil=1 floor=0 trunc=0 round=0 sqrt=0.70710677 next=0.50000006 prev=0.49999997 ilogb=-1
+-0.5         abs=0.5 ceil=-0 floor=-1 trunc=-0 round=-0 sqrt=NaN next=-0.49999997 prev=-0.50000006 ilogb=-1
+1.5          abs=1.5 ceil=2 floor=1 trunc=1 round=2 sqrt=1.2247449 next=1.5000001 prev=1.4999999 ilogb=0
+2.5          abs=2.5 ceil=3 floor=2 trunc=2 round=2 sqrt=1.5811388 next=2.5000002 prev=2.4999998 ilogb=1
+-2.5         abs=2.5 ceil=-2 floor=-3 trunc=-2 round=-2 sqrt=NaN next=-2.4999998 prev=-2.5000002 ilogb=1
+3.5          abs=3.5 ceil=4 floor=3 trunc=3 round=4 sqrt=1.8708287 next=3.5000002 prev=3.4999998 ilogb=1
+0.1          abs=0.1 ceil=1 floor=0 trunc=0 round=0 sqrt=0.31622776 next=0.10000001 prev=0.099999994 ilogb=-4
+0.3          abs=0.3 ceil=1 floor=0 trunc=0 round=0 sqrt=0.5477226 next=0.30000004 prev=0.29999998 ilogb=-2
+-0.7         abs=0.7 ceil=-0 floor=-1 trunc=-0 round=-1 sqrt=NaN next=-0.6999999 prev=-0.70000005 ilogb=-1
+1.005        abs=1.005 ceil=2 floor=1 trunc=1 round=1 sqrt=1.0024968 next=1.0050001 prev=1.0049999 ilogb=0
+2.675        abs=2.675 ceil=3 floor=2 trunc=2 round=3 sqrt=1.6355428 next=2.6750002 prev=2.6749997 ilogb=1
+123456.79    abs=123456.79 ceil=123457 floor=123456 trunc=123456 round=123457 sqrt=351.3642 next=123456.8 prev=123456.78 ilogb=16
+8388607.5    abs=8388607.5 ceil=8388608 floor=8388607 trunc=8388607 round=8388608 sqrt=2896.3093 next=8388608 prev=8388607 ilogb=22
+8388608      abs=8388608 ceil=8388608 floor=8388608 trunc=8388608 round=8388608 sqrt=2896.3093 next=8388609 prev=8388607.5 ilogb=23
+16777216     abs=16777216 ceil=16777216 floor=16777216 trunc=16777216 round=16777216 sqrt=4096 next=16777218 prev=16777215 ilogb=24
+1E+10        abs=1E+10 ceil=1E+10 floor=1E+10 trunc=1E+10 round=1E+10 sqrt=100000 next=1.0000001E+10 prev=9.999999E+09 ilogb=33
+3.4028235E+38 abs=3.4028235E+38 ceil=3.4028235E+38 floor=3.4028235E+38 trunc=3.4028235E+38 round=3.4028235E+38 sqrt=1.8446743E+19 next=Infinity prev=3.4028233E+38 ilogb=127
+-3.4028235E+38 abs=3.4028235E+38 ceil=-3.4028235E+38 floor=-3.4028235E+38 trunc=-3.4028235E+38 round=-3.4028235E+38 sqrt=NaN next=-3.4028233E+38 prev=-Infinity ilogb=127
+1E-45        abs=1E-45 ceil=1 floor=0 trunc=0 round=0 sqrt=3.743392E-23 next=3E-45 prev=0 ilogb=-149
+-1E-45       abs=1E-45 ceil=-0 floor=-1 trunc=-0 round=-0 sqrt=NaN next=-0 prev=-3E-45 ilogb=-149
+1.1754944E-38 abs=1.1754944E-38 ceil=1 floor=0 trunc=0 round=0 sqrt=1.0842022E-19 next=1.1754945E-38 prev=1.1754942E-38 ilogb=-126
+1E-40        abs=1E-40 ceil=1 floor=0 trunc=0 round=0 sqrt=9.999973E-21 next=1.00001E-40 prev=9.9998E-41 ilogb=-133
+Infinity     abs=Infinity ceil=Infinity floor=Infinity trunc=Infinity round=Infinity sqrt=Infinity next=Infinity prev=3.4028235E+38 ilogb=2147483647
+-Infinity    abs=Infinity ceil=-Infinity floor=-Infinity trunc=-Infinity round=-Infinity sqrt=NaN next=-3.4028235E+38 prev=-Infinity ilogb=2147483647
+NaN          abs=NaN ceil=NaN floor=NaN trunc=NaN round=NaN sqrt=NaN next=NaN prev=NaN ilogb=2147483647
+-- rounding modes
+0            even=0 away=0 zero=0 down=0 up=0
+-0           even=-0 away=-0 zero=-0 down=-0 up=-0
+1            even=1 away=1 zero=1 down=1 up=1
+-1           even=-1 away=-1 zero=-1 down=-1 up=-1
+0.5          even=0 away=1 zero=0 down=0 up=1
+-0.5         even=-0 away=-1 zero=-0 down=-1 up=-0
+1.5          even=2 away=2 zero=1 down=1 up=2
+2.5          even=2 away=3 zero=2 down=2 up=3
+-2.5         even=-2 away=-3 zero=-2 down=-3 up=-2
+3.5          even=4 away=4 zero=3 down=3 up=4
+0.1          even=0 away=0 zero=0 down=0 up=1
+0.3          even=0 away=0 zero=0 down=0 up=1
+-0.7         even=-1 away=-1 zero=-0 down=-1 up=-0
+1.005        even=1 away=1 zero=1 down=1 up=2
+2.675        even=3 away=3 zero=2 down=2 up=3
+123456.79    even=123457 away=123457 zero=123456 down=123456 up=123457
+8388607.5    even=8388608 away=8388608 zero=8388607 down=8388607 up=8388608
+8388608      even=8388608 away=8388608 zero=8388608 down=8388608 up=8388608
+16777216     even=16777216 away=16777216 zero=16777216 down=16777216 up=16777216
+1E+10        even=1E+10 away=1E+10 zero=1E+10 down=1E+10 up=1E+10
+3.4028235E+38 even=3.4028235E+38 away=3.4028235E+38 zero=3.4028235E+38 down=3.4028235E+38 up=3.4028235E+38
+-3.4028235E+38 even=-3.4028235E+38 away=-3.4028235E+38 zero=-3.4028235E+38 down=-3.4028235E+38 up=-3.4028235E+38
+1E-45        even=0 away=0 zero=0 down=0 up=1
+-1E-45       even=-0 away=-0 zero=-0 down=-1 up=-0
+1.1754944E-38 even=0 away=0 zero=0 down=0 up=1
+1E-40        even=0 away=0 zero=0 down=0 up=1
+Infinity     even=Infinity away=Infinity zero=Infinity down=Infinity up=Infinity
+-Infinity    even=-Infinity away=-Infinity zero=-Infinity down=-Infinity up=-Infinity
+NaN          even=NaN away=NaN zero=NaN down=NaN up=NaN
+-- rounding digits
+0            d1=0 d2=0 d3=0 d7=0 d12=0 d2away=0 d2zero=0 d2down=0 d2up=0 d0=0
+-0           d1=-0 d2=-0 d3=-0 d7=-0 d12=-0 d2away=-0 d2zero=-0 d2down=-0 d2up=-0 d0=-0
+1            d1=1 d2=1 d3=1 d7=1 d12=1 d2away=1 d2zero=1 d2down=1 d2up=1 d0=1
+-1           d1=-1 d2=-1 d3=-1 d7=-1 d12=-1 d2away=-1 d2zero=-1 d2down=-1 d2up=-1 d0=-1
+0.5          d1=0.5 d2=0.5 d3=0.5 d7=0.5 d12=0.5 d2away=0.5 d2zero=0.5 d2down=0.5 d2up=0.5 d0=0
+-0.5         d1=-0.5 d2=-0.5 d3=-0.5 d7=-0.5 d12=-0.5 d2away=-0.5 d2zero=-0.5 d2down=-0.5 d2up=-0.5 d0=-0
+1.5          d1=1.5 d2=1.5 d3=1.5 d7=1.5 d12=1.5 d2away=1.5 d2zero=1.5 d2down=1.5 d2up=1.5 d0=2
+2.5          d1=2.5 d2=2.5 d3=2.5 d7=2.5 d12=2.5 d2away=2.5 d2zero=2.5 d2down=2.5 d2up=2.5 d0=2
+-2.5         d1=-2.5 d2=-2.5 d3=-2.5 d7=-2.5 d12=-2.5 d2away=-2.5 d2zero=-2.5 d2down=-2.5 d2up=-2.5 d0=-2
+3.5          d1=3.5 d2=3.5 d3=3.5 d7=3.5 d12=3.5 d2away=3.5 d2zero=3.5 d2down=3.5 d2up=3.5 d0=4
+0.1          d1=0.1 d2=0.1 d3=0.1 d7=0.1 d12=0.1 d2away=0.1 d2zero=0.1 d2down=0.1 d2up=0.11 d0=0
+0.3          d1=0.3 d2=0.3 d3=0.3 d7=0.3 d12=0.3 d2away=0.3 d2zero=0.3 d2down=0.3 d2up=0.31 d0=0
+-0.7         d1=-0.7 d2=-0.7 d3=-0.7 d7=-0.7 d12=-0.7 d2away=-0.7 d2zero=-0.69 d2down=-0.7 d2up=-0.69 d0=-1
+1.005        d1=1 d2=1 d3=1.005 d7=1.005 d12=1.005 d2away=1 d2zero=1 d2down=1 d2up=1.01 d0=1
+2.675        d1=2.7 d2=2.67 d3=2.675 d7=2.675 d12=2.675 d2away=2.67 d2zero=2.67 d2down=2.67 d2up=2.68 d0=3
+123456.79    d1=123456.8 d2=123456.79 d3=123456.79 d7=123456.79 d12=123456.79 d2away=123456.79 d2zero=123456.78 d2down=123456.78 d2up=123456.79 d0=123457
+8388607.5    d1=8388607.5 d2=8388607.5 d3=8388607.5 d7=8388607.5 d12=8388607.5 d2away=8388607.5 d2zero=8388607.5 d2down=8388607.5 d2up=8388607.5 d0=8388608
+8388608      d1=8388608 d2=8388608 d3=8388608 d7=8388608 d12=8388608 d2away=8388608 d2zero=8388608 d2down=8388608 d2up=8388608 d0=8388608
+16777216     d1=16777216 d2=16777216 d3=16777216 d7=16777216 d12=16777216 d2away=16777216 d2zero=16777216 d2down=16777216 d2up=16777216 d0=16777216
+1E+10        d1=1E+10 d2=1E+10 d3=1E+10 d7=1E+10 d12=1E+10 d2away=1E+10 d2zero=1E+10 d2down=1E+10 d2up=1E+10 d0=1E+10
+3.4028235E+38 d1=3.4028235E+38 d2=3.4028235E+38 d3=3.4028235E+38 d7=3.4028235E+38 d12=3.4028235E+38 d2away=3.4028235E+38 d2zero=3.4028235E+38 d2down=3.4028235E+38 d2up=3.4028235E+38 d0=3.4028235E+38
+-3.4028235E+38 d1=-3.4028235E+38 d2=-3.4028235E+38 d3=-3.4028235E+38 d7=-3.4028235E+38 d12=-3.4028235E+38 d2away=-3.4028235E+38 d2zero=-3.4028235E+38 d2down=-3.4028235E+38 d2up=-3.4028235E+38 d0=-3.4028235E+38
+1E-45        d1=0 d2=0 d3=0 d7=0 d12=0 d2away=0 d2zero=0 d2down=0 d2up=0.01 d0=0
+-1E-45       d1=-0 d2=-0 d3=-0 d7=-0 d12=-0 d2away=-0 d2zero=-0 d2down=-0.01 d2up=-0 d0=-0
+1.1754944E-38 d1=0 d2=0 d3=0 d7=0 d12=0 d2away=0 d2zero=0 d2down=0 d2up=0.01 d0=0
+1E-40        d1=0 d2=0 d3=0 d7=0 d12=0 d2away=0 d2zero=0 d2down=0 d2up=0.01 d0=0
+Infinity     d1=Infinity d2=Infinity d3=Infinity d7=Infinity d12=Infinity d2away=Infinity d2zero=Infinity d2down=Infinity d2up=Infinity d0=Infinity
+-Infinity    d1=-Infinity d2=-Infinity d3=-Infinity d7=-Infinity d12=-Infinity d2away=-Infinity d2zero=-Infinity d2down=-Infinity d2up=-Infinity d0=-Infinity
+NaN          d1=NaN d2=NaN d3=NaN d7=NaN d12=NaN d2away=NaN d2zero=NaN d2down=NaN d2up=NaN d0=NaN
+-- binary
+0,0 max=0 min=0 maxmag=0 minmag=0 copysign=0 rem=NaN fma=1.5
+0,-0 max=0 min=-0 maxmag=0 minmag=-0 copysign=-0 rem=NaN fma=1.5
+0,1 max=1 min=0 maxmag=1 minmag=0 copysign=0 rem=0 fma=1.5
+0,-1.5 max=0 min=-1.5 maxmag=-1.5 minmag=0 copysign=-0 rem=0 fma=1.5
+0,2.5 max=2.5 min=0 maxmag=2.5 minmag=0 copysign=0 rem=0 fma=1.5
+0,-2.5 max=0 min=-2.5 maxmag=-2.5 minmag=0 copysign=-0 rem=0 fma=1.5
+0,0.3 max=0.3 min=0 maxmag=0.3 minmag=0 copysign=0 rem=0 fma=1.5
+0,7 max=7 min=0 maxmag=7 minmag=0 copysign=0 rem=0 fma=1.5
+0,Infinity max=Infinity min=0 maxmag=Infinity minmag=0 copysign=0 rem=0 fma=NaN
+0,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-0 rem=NaN fma=NaN
+-0,0 max=0 min=-0 maxmag=0 minmag=-0 copysign=0 rem=NaN fma=1.5
+-0,-0 max=-0 min=-0 maxmag=-0 minmag=-0 copysign=-0 rem=NaN fma=1.5
+-0,1 max=1 min=-0 maxmag=1 minmag=-0 copysign=0 rem=-0 fma=1.5
+-0,-1.5 max=-0 min=-1.5 maxmag=-1.5 minmag=-0 copysign=-0 rem=-0 fma=1.5
+-0,2.5 max=2.5 min=-0 maxmag=2.5 minmag=-0 copysign=0 rem=-0 fma=1.5
+-0,-2.5 max=-0 min=-2.5 maxmag=-2.5 minmag=-0 copysign=-0 rem=-0 fma=1.5
+-0,0.3 max=0.3 min=-0 maxmag=0.3 minmag=-0 copysign=0 rem=-0 fma=1.5
+-0,7 max=7 min=-0 maxmag=7 minmag=-0 copysign=0 rem=-0 fma=1.5
+-0,Infinity max=Infinity min=-0 maxmag=Infinity minmag=-0 copysign=0 rem=-0 fma=NaN
+-0,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-0 rem=NaN fma=NaN
+1,0 max=1 min=0 maxmag=1 minmag=0 copysign=1 rem=NaN fma=1.5
+1,-0 max=1 min=-0 maxmag=1 minmag=-0 copysign=-1 rem=NaN fma=1.5
+1,1 max=1 min=1 maxmag=1 minmag=1 copysign=1 rem=0 fma=2.5
+1,-1.5 max=1 min=-1.5 maxmag=-1.5 minmag=1 copysign=-1 rem=-0.5 fma=0
+1,2.5 max=2.5 min=1 maxmag=2.5 minmag=1 copysign=1 rem=1 fma=4
+1,-2.5 max=1 min=-2.5 maxmag=-2.5 minmag=1 copysign=-1 rem=1 fma=-1
+1,0.3 max=1 min=0.3 maxmag=1 minmag=0.3 copysign=1 rem=0.099999964 fma=1.8
+1,7 max=7 min=1 maxmag=7 minmag=1 copysign=1 rem=1 fma=8.5
+1,Infinity max=Infinity min=1 maxmag=Infinity minmag=1 copysign=1 rem=1 fma=Infinity
+1,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-1 rem=NaN fma=NaN
+-1,0 max=0 min=-1 maxmag=-1 minmag=0 copysign=1 rem=NaN fma=1.5
+-1,-0 max=-0 min=-1 maxmag=-1 minmag=-0 copysign=-1 rem=NaN fma=1.5
+-1,1 max=1 min=-1 maxmag=1 minmag=-1 copysign=1 rem=-0 fma=0.5
+-1,-1.5 max=-1 min=-1.5 maxmag=-1.5 minmag=-1 copysign=-1 rem=0.5 fma=3
+-1,2.5 max=2.5 min=-1 maxmag=2.5 minmag=-1 copysign=1 rem=-1 fma=-1
+-1,-2.5 max=-1 min=-2.5 maxmag=-2.5 minmag=-1 copysign=-1 rem=-1 fma=4
+-1,0.3 max=0.3 min=-1 maxmag=-1 minmag=0.3 copysign=1 rem=-0.099999964 fma=1.2
+-1,7 max=7 min=-1 maxmag=7 minmag=-1 copysign=1 rem=-1 fma=-5.5
+-1,Infinity max=Infinity min=-1 maxmag=Infinity minmag=-1 copysign=1 rem=-1 fma=-Infinity
+-1,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-1 rem=NaN fma=NaN
+0.5,0 max=0.5 min=0 maxmag=0.5 minmag=0 copysign=0.5 rem=NaN fma=1.5
+0.5,-0 max=0.5 min=-0 maxmag=0.5 minmag=-0 copysign=-0.5 rem=NaN fma=1.5
+0.5,1 max=1 min=0.5 maxmag=1 minmag=0.5 copysign=0.5 rem=0.5 fma=2
+0.5,-1.5 max=0.5 min=-1.5 maxmag=-1.5 minmag=0.5 copysign=-0.5 rem=0.5 fma=0.75
+0.5,2.5 max=2.5 min=0.5 maxmag=2.5 minmag=0.5 copysign=0.5 rem=0.5 fma=2.75
+0.5,-2.5 max=0.5 min=-2.5 maxmag=-2.5 minmag=0.5 copysign=-0.5 rem=0.5 fma=0.25
+0.5,0.3 max=0.5 min=0.3 maxmag=0.5 minmag=0.3 copysign=0.5 rem=-0.100000024 fma=1.65
+0.5,7 max=7 min=0.5 maxmag=7 minmag=0.5 copysign=0.5 rem=0.5 fma=5
+0.5,Infinity max=Infinity min=0.5 maxmag=Infinity minmag=0.5 copysign=0.5 rem=0.5 fma=Infinity
+0.5,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-0.5 rem=NaN fma=NaN
+-0.5,0 max=0 min=-0.5 maxmag=-0.5 minmag=0 copysign=0.5 rem=NaN fma=1.5
+-0.5,-0 max=-0 min=-0.5 maxmag=-0.5 minmag=-0 copysign=-0.5 rem=NaN fma=1.5
+-0.5,1 max=1 min=-0.5 maxmag=1 minmag=-0.5 copysign=0.5 rem=-0.5 fma=1
+-0.5,-1.5 max=-0.5 min=-1.5 maxmag=-1.5 minmag=-0.5 copysign=-0.5 rem=-0.5 fma=2.25
+-0.5,2.5 max=2.5 min=-0.5 maxmag=2.5 minmag=-0.5 copysign=0.5 rem=-0.5 fma=0.25
+-0.5,-2.5 max=-0.5 min=-2.5 maxmag=-2.5 minmag=-0.5 copysign=-0.5 rem=-0.5 fma=2.75
+-0.5,0.3 max=0.3 min=-0.5 maxmag=-0.5 minmag=0.3 copysign=0.5 rem=0.100000024 fma=1.35
+-0.5,7 max=7 min=-0.5 maxmag=7 minmag=-0.5 copysign=0.5 rem=-0.5 fma=-2
+-0.5,Infinity max=Infinity min=-0.5 maxmag=Infinity minmag=-0.5 copysign=0.5 rem=-0.5 fma=-Infinity
+-0.5,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-0.5 rem=NaN fma=NaN
+1.5,0 max=1.5 min=0 maxmag=1.5 minmag=0 copysign=1.5 rem=NaN fma=1.5
+1.5,-0 max=1.5 min=-0 maxmag=1.5 minmag=-0 copysign=-1.5 rem=NaN fma=1.5
+1.5,1 max=1.5 min=1 maxmag=1.5 minmag=1 copysign=1.5 rem=-0.5 fma=3
+1.5,-1.5 max=1.5 min=-1.5 maxmag=1.5 minmag=-1.5 copysign=-1.5 rem=0 fma=-0.75
+1.5,2.5 max=2.5 min=1.5 maxmag=2.5 minmag=1.5 copysign=1.5 rem=-1 fma=5.25
+1.5,-2.5 max=1.5 min=-2.5 maxmag=-2.5 minmag=1.5 copysign=-1.5 rem=-1 fma=-2.25
+1.5,0.3 max=1.5 min=0.3 maxmag=1.5 minmag=0.3 copysign=1.5 rem=-5.9604645E-08 fma=1.95
+1.5,7 max=7 min=1.5 maxmag=7 minmag=1.5 copysign=1.5 rem=1.5 fma=12
+1.5,Infinity max=Infinity min=1.5 maxmag=Infinity minmag=1.5 copysign=1.5 rem=1.5 fma=Infinity
+1.5,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-1.5 rem=NaN fma=NaN
+2.5,0 max=2.5 min=0 maxmag=2.5 minmag=0 copysign=2.5 rem=NaN fma=1.5
+2.5,-0 max=2.5 min=-0 maxmag=2.5 minmag=-0 copysign=-2.5 rem=NaN fma=1.5
+2.5,1 max=2.5 min=1 maxmag=2.5 minmag=1 copysign=2.5 rem=0.5 fma=4
+2.5,-1.5 max=2.5 min=-1.5 maxmag=2.5 minmag=-1.5 copysign=-2.5 rem=-0.5 fma=-2.25
+2.5,2.5 max=2.5 min=2.5 maxmag=2.5 minmag=2.5 copysign=2.5 rem=0 fma=7.75
+2.5,-2.5 max=2.5 min=-2.5 maxmag=2.5 minmag=-2.5 copysign=-2.5 rem=0 fma=-4.75
+2.5,0.3 max=2.5 min=0.3 maxmag=2.5 minmag=0.3 copysign=2.5 rem=0.099999905 fma=2.25
+2.5,7 max=7 min=2.5 maxmag=7 minmag=2.5 copysign=2.5 rem=2.5 fma=19
+2.5,Infinity max=Infinity min=2.5 maxmag=Infinity minmag=2.5 copysign=2.5 rem=2.5 fma=Infinity
+2.5,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-2.5 rem=NaN fma=NaN
+-2.5,0 max=0 min=-2.5 maxmag=-2.5 minmag=0 copysign=2.5 rem=NaN fma=1.5
+-2.5,-0 max=-0 min=-2.5 maxmag=-2.5 minmag=-0 copysign=-2.5 rem=NaN fma=1.5
+-2.5,1 max=1 min=-2.5 maxmag=-2.5 minmag=1 copysign=2.5 rem=-0.5 fma=-1
+-2.5,-1.5 max=-1.5 min=-2.5 maxmag=-2.5 minmag=-1.5 copysign=-2.5 rem=0.5 fma=5.25
+-2.5,2.5 max=2.5 min=-2.5 maxmag=2.5 minmag=-2.5 copysign=2.5 rem=-0 fma=-4.75
+-2.5,-2.5 max=-2.5 min=-2.5 maxmag=-2.5 minmag=-2.5 copysign=-2.5 rem=-0 fma=7.75
+-2.5,0.3 max=0.3 min=-2.5 maxmag=-2.5 minmag=0.3 copysign=2.5 rem=-0.099999905 fma=0.75
+-2.5,7 max=7 min=-2.5 maxmag=7 minmag=-2.5 copysign=2.5 rem=-2.5 fma=-16
+-2.5,Infinity max=Infinity min=-2.5 maxmag=Infinity minmag=-2.5 copysign=2.5 rem=-2.5 fma=-Infinity
+-2.5,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-2.5 rem=NaN fma=NaN
+3.5,0 max=3.5 min=0 maxmag=3.5 minmag=0 copysign=3.5 rem=NaN fma=1.5
+3.5,-0 max=3.5 min=-0 maxmag=3.5 minmag=-0 copysign=-3.5 rem=NaN fma=1.5
+3.5,1 max=3.5 min=1 maxmag=3.5 minmag=1 copysign=3.5 rem=-0.5 fma=5
+3.5,-1.5 max=3.5 min=-1.5 maxmag=3.5 minmag=-1.5 copysign=-3.5 rem=0.5 fma=-3.75
+3.5,2.5 max=3.5 min=2.5 maxmag=3.5 minmag=2.5 copysign=3.5 rem=1 fma=10.25
+3.5,-2.5 max=3.5 min=-2.5 maxmag=3.5 minmag=-2.5 copysign=-3.5 rem=1 fma=-7.25
+3.5,0.3 max=3.5 min=0.3 maxmag=3.5 minmag=0.3 copysign=3.5 rem=-0.10000014 fma=2.55
+3.5,7 max=7 min=3.5 maxmag=7 minmag=3.5 copysign=3.5 rem=3.5 fma=26
+3.5,Infinity max=Infinity min=3.5 maxmag=Infinity minmag=3.5 copysign=3.5 rem=3.5 fma=Infinity
+3.5,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-3.5 rem=NaN fma=NaN
+0.1,0 max=0.1 min=0 maxmag=0.1 minmag=0 copysign=0.1 rem=NaN fma=1.5
+0.1,-0 max=0.1 min=-0 maxmag=0.1 minmag=-0 copysign=-0.1 rem=NaN fma=1.5
+0.1,1 max=1 min=0.1 maxmag=1 minmag=0.1 copysign=0.1 rem=0.1 fma=1.6
+0.1,-1.5 max=0.1 min=-1.5 maxmag=-1.5 minmag=0.1 copysign=-0.1 rem=0.1 fma=1.35
+0.1,2.5 max=2.5 min=0.1 maxmag=2.5 minmag=0.1 copysign=0.1 rem=0.1 fma=1.75
+0.1,-2.5 max=0.1 min=-2.5 maxmag=-2.5 minmag=0.1 copysign=-0.1 rem=0.1 fma=1.25
+0.1,0.3 max=0.3 min=0.1 maxmag=0.3 minmag=0.1 copysign=0.1 rem=0.1 fma=1.53
+0.1,7 max=7 min=0.1 maxmag=7 minmag=0.1 copysign=0.1 rem=0.1 fma=2.2
+0.1,Infinity max=Infinity min=0.1 maxmag=Infinity minmag=0.1 copysign=0.1 rem=0.1 fma=Infinity
+0.1,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-0.1 rem=NaN fma=NaN
+0.3,0 max=0.3 min=0 maxmag=0.3 minmag=0 copysign=0.3 rem=NaN fma=1.5
+0.3,-0 max=0.3 min=-0 maxmag=0.3 minmag=-0 copysign=-0.3 rem=NaN fma=1.5
+0.3,1 max=1 min=0.3 maxmag=1 minmag=0.3 copysign=0.3 rem=0.3 fma=1.8
+0.3,-1.5 max=0.3 min=-1.5 maxmag=-1.5 minmag=0.3 copysign=-0.3 rem=0.3 fma=1.05
+0.3,2.5 max=2.5 min=0.3 maxmag=2.5 minmag=0.3 copysign=0.3 rem=0.3 fma=2.25
+0.3,-2.5 max=0.3 min=-2.5 maxmag=-2.5 minmag=0.3 copysign=-0.3 rem=0.3 fma=0.75
+0.3,0.3 max=0.3 min=0.3 maxmag=0.3 minmag=0.3 copysign=0.3 rem=0 fma=1.59
+0.3,7 max=7 min=0.3 maxmag=7 minmag=0.3 copysign=0.3 rem=0.3 fma=3.6000001
+0.3,Infinity max=Infinity min=0.3 maxmag=Infinity minmag=0.3 copysign=0.3 rem=0.3 fma=Infinity
+0.3,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-0.3 rem=NaN fma=NaN
+-0.7,0 max=0 min=-0.7 maxmag=-0.7 minmag=0 copysign=0.7 rem=NaN fma=1.5
+-0.7,-0 max=-0 min=-0.7 maxmag=-0.7 minmag=-0 copysign=-0.7 rem=NaN fma=1.5
+-0.7,1 max=1 min=-0.7 maxmag=1 minmag=-0.7 copysign=0.7 rem=0.3 fma=0.8
+-0.7,-1.5 max=-0.7 min=-1.5 maxmag=-1.5 minmag=-0.7 copysign=-0.7 rem=-0.7 fma=2.55
+-0.7,2.5 max=2.5 min=-0.7 maxmag=2.5 minmag=-0.7 copysign=0.7 rem=-0.7 fma=-0.24999997
+-0.7,-2.5 max=-0.7 min=-2.5 maxmag=-2.5 minmag=-0.7 copysign=-0.7 rem=-0.7 fma=3.25
+-0.7,0.3 max=0.3 min=-0.7 maxmag=-0.7 minmag=0.3 copysign=0.7 rem=-0.099999964 fma=1.29
+-0.7,7 max=7 min=-0.7 maxmag=7 minmag=-0.7 copysign=0.7 rem=-0.7 fma=-3.3999999
+-0.7,Infinity max=Infinity min=-0.7 maxmag=Infinity minmag=-0.7 copysign=0.7 rem=-0.7 fma=-Infinity
+-0.7,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-0.7 rem=NaN fma=NaN
+1.005,0 max=1.005 min=0 maxmag=1.005 minmag=0 copysign=1.005 rem=NaN fma=1.5
+1.005,-0 max=1.005 min=-0 maxmag=1.005 minmag=-0 copysign=-1.005 rem=NaN fma=1.5
+1.005,1 max=1.005 min=1 maxmag=1.005 minmag=1 copysign=1.005 rem=0.004999995 fma=2.505
+1.005,-1.5 max=1.005 min=-1.5 maxmag=-1.5 minmag=1.005 copysign=-1.005 rem=-0.495 fma=-0.007499993
+1.005,2.5 max=2.5 min=1.005 maxmag=2.5 minmag=1.005 copysign=1.005 rem=1.005 fma=4.0125
+1.005,-2.5 max=1.005 min=-2.5 maxmag=-2.5 minmag=1.005 copysign=-1.005 rem=1.005 fma=-1.0125
+1.005,0.3 max=1.005 min=0.3 maxmag=1.005 minmag=0.3 copysign=1.005 rem=0.10499996 fma=1.8015
+1.005,7 max=7 min=1.005 maxmag=7 minmag=1.005 copysign=1.005 rem=1.005 fma=8.535
+1.005,Infinity max=Infinity min=1.005 maxmag=Infinity minmag=1.005 copysign=1.005 rem=1.005 fma=Infinity
+1.005,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-1.005 rem=NaN fma=NaN
+2.675,0 max=2.675 min=0 maxmag=2.675 minmag=0 copysign=2.675 rem=NaN fma=1.5
+2.675,-0 max=2.675 min=-0 maxmag=2.675 minmag=-0 copysign=-2.675 rem=NaN fma=1.5
+2.675,1 max=2.675 min=1 maxmag=2.675 minmag=1 copysign=2.675 rem=-0.32500005 fma=4.175
+2.675,-1.5 max=2.675 min=-1.5 maxmag=2.675 minmag=-1.5 copysign=-2.675 rem=-0.32500005 fma=-2.5124998
+2.675,2.5 max=2.675 min=2.5 maxmag=2.675 minmag=2.5 copysign=2.675 rem=0.17499995 fma=8.1875
+2.675,-2.5 max=2.675 min=-2.5 maxmag=2.675 minmag=-2.5 copysign=-2.675 rem=0.17499995 fma=-5.1875
+2.675,0.3 max=2.675 min=0.3 maxmag=2.675 minmag=0.3 copysign=2.675 rem=-0.025000155 fma=2.3025
+2.675,7 max=7 min=2.675 maxmag=7 minmag=2.675 copysign=2.675 rem=2.675 fma=20.225
+2.675,Infinity max=Infinity min=2.675 maxmag=Infinity minmag=2.675 copysign=2.675 rem=2.675 fma=Infinity
+2.675,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-2.675 rem=NaN fma=NaN
+123456.79,0 max=123456.79 min=0 maxmag=123456.79 minmag=0 copysign=123456.79 rem=NaN fma=1.5
+123456.79,-0 max=123456.79 min=-0 maxmag=123456.79 minmag=-0 copysign=-123456.79 rem=NaN fma=1.5
+123456.79,1 max=123456.79 min=1 maxmag=123456.79 minmag=1 copysign=123456.79 rem=-0.2109375 fma=123458.29
+123456.79,-1.5 max=123456.79 min=-1.5 maxmag=123456.79 minmag=-1.5 copysign=-123456.79 rem=-0.7109375 fma=-185183.69
+123456.79,2.5 max=123456.79 min=2.5 maxmag=123456.79 minmag=2.5 copysign=123456.79 rem=-0.7109375 fma=308643.47
+123456.79,-2.5 max=123456.79 min=-2.5 maxmag=123456.79 minmag=-2.5 copysign=-123456.79 rem=-0.7109375 fma=-308640.47
+123456.79,0.3 max=123456.79 min=0.3 maxmag=123456.79 minmag=0.3 copysign=123456.79 rem=-0.11584324 fma=37038.54
+123456.79,7 max=123456.79 min=7 maxmag=123456.79 minmag=7 copysign=123456.79 rem=-2.2109375 fma=864199
+123456.79,Infinity max=Infinity min=123456.79 maxmag=Infinity minmag=123456.79 copysign=123456.79 rem=123456.79 fma=Infinity
+123456.79,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-123456.79 rem=NaN fma=NaN
+8388607.5,0 max=8388607.5 min=0 maxmag=8388607.5 minmag=0 copysign=8388607.5 rem=NaN fma=1.5
+8388607.5,-0 max=8388607.5 min=-0 maxmag=8388607.5 minmag=-0 copysign=-8388607.5 rem=NaN fma=1.5
+8388607.5,1 max=8388607.5 min=1 maxmag=8388607.5 minmag=1 copysign=8388607.5 rem=-0.5 fma=8388609
+8388607.5,-1.5 max=8388607.5 min=-1.5 maxmag=8388607.5 minmag=-1.5 copysign=-8388607.5 rem=0 fma=-12582910
+8388607.5,2.5 max=8388607.5 min=2.5 maxmag=8388607.5 minmag=2.5 copysign=8388607.5 rem=0 fma=20971520
+8388607.5,-2.5 max=8388607.5 min=-2.5 maxmag=8388607.5 minmag=-2.5 copysign=-8388607.5 rem=0 fma=-20971518
+8388607.5,0.3 max=8388607.5 min=0.3 maxmag=8388607.5 minmag=0.3 copysign=8388607.5 rem=-0.0333333 fma=2516583.8
+8388607.5,7 max=8388607.5 min=7 maxmag=8388607.5 minmag=7 copysign=8388607.5 rem=3.5 fma=58720256
+8388607.5,Infinity max=Infinity min=8388607.5 maxmag=Infinity minmag=8388607.5 copysign=8388607.5 rem=8388607.5 fma=Infinity
+8388607.5,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-8388607.5 rem=NaN fma=NaN
+8388608,0 max=8388608 min=0 maxmag=8388608 minmag=0 copysign=8388608 rem=NaN fma=1.5
+8388608,-0 max=8388608 min=-0 maxmag=8388608 minmag=-0 copysign=-8388608 rem=NaN fma=1.5
+8388608,1 max=8388608 min=1 maxmag=8388608 minmag=1 copysign=8388608 rem=0 fma=8388610
+8388608,-1.5 max=8388608 min=-1.5 maxmag=8388608 minmag=-1.5 copysign=-8388608 rem=0.5 fma=-12582910
+8388608,2.5 max=8388608 min=2.5 maxmag=8388608 minmag=2.5 copysign=8388608 rem=0.5 fma=20971522
+8388608,-2.5 max=8388608 min=-2.5 maxmag=8388608 minmag=-2.5 copysign=-8388608 rem=0.5 fma=-20971518
+8388608,0.3 max=8388608 min=0.3 maxmag=8388608 minmag=0.3 copysign=8388608 rem=-0.13333333 fma=2516584
+8388608,7 max=8388608 min=7 maxmag=8388608 minmag=7 copysign=8388608 rem=-3 fma=58720256
+8388608,Infinity max=Infinity min=8388608 maxmag=Infinity minmag=8388608 copysign=8388608 rem=8388608 fma=Infinity
+8388608,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-8388608 rem=NaN fma=NaN
+16777216,0 max=16777216 min=0 maxmag=16777216 minmag=0 copysign=16777216 rem=NaN fma=1.5
+16777216,-0 max=16777216 min=-0 maxmag=16777216 minmag=-0 copysign=-16777216 rem=NaN fma=1.5
+16777216,1 max=16777216 min=1 maxmag=16777216 minmag=1 copysign=16777216 rem=0 fma=16777218
+16777216,-1.5 max=16777216 min=-1.5 maxmag=16777216 minmag=-1.5 copysign=-16777216 rem=-0.5 fma=-25165822
+16777216,2.5 max=16777216 min=2.5 maxmag=16777216 minmag=2.5 copysign=16777216 rem=1 fma=41943040
+16777216,-2.5 max=16777216 min=-2.5 maxmag=16777216 minmag=-2.5 copysign=-16777216 rem=1 fma=-41943040
+16777216,0.3 max=16777216 min=0.3 maxmag=16777216 minmag=0.3 copysign=16777216 rem=0.03333336 fma=5033166.5
+16777216,7 max=16777216 min=7 maxmag=16777216 minmag=7 copysign=16777216 rem=1 fma=117440510
+16777216,Infinity max=Infinity min=16777216 maxmag=Infinity minmag=16777216 copysign=16777216 rem=16777216 fma=Infinity
+16777216,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-16777216 rem=NaN fma=NaN
+1E+10,0 max=1E+10 min=0 maxmag=1E+10 minmag=0 copysign=1E+10 rem=NaN fma=1.5
+1E+10,-0 max=1E+10 min=-0 maxmag=1E+10 minmag=-0 copysign=-1E+10 rem=NaN fma=1.5
+1E+10,1 max=1E+10 min=1 maxmag=1E+10 minmag=1 copysign=1E+10 rem=0 fma=1E+10
+1E+10,-1.5 max=1E+10 min=-1.5 maxmag=1E+10 minmag=-1.5 copysign=-1E+10 rem=-0.5 fma=-1.4999999E+10
+1E+10,2.5 max=1E+10 min=2.5 maxmag=1E+10 minmag=2.5 copysign=1E+10 rem=0 fma=2.5E+10
+1E+10,-2.5 max=1E+10 min=-2.5 maxmag=1E+10 minmag=-2.5 copysign=-1E+10 rem=0 fma=-2.5E+10
+1E+10,0.3 max=1E+10 min=0.3 maxmag=1E+10 minmag=0.3 copysign=1E+10 rem=-0.064282715 fma=3E+09
+1E+10,7 max=1E+10 min=7 maxmag=1E+10 minmag=7 copysign=1E+10 rem=-3 fma=7E+10
+1E+10,Infinity max=Infinity min=1E+10 maxmag=Infinity minmag=1E+10 copysign=1E+10 rem=1E+10 fma=Infinity
+1E+10,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-1E+10 rem=NaN fma=NaN
+3.4028235E+38,0 max=3.4028235E+38 min=0 maxmag=3.4028235E+38 minmag=0 copysign=3.4028235E+38 rem=NaN fma=1.5
+3.4028235E+38,-0 max=3.4028235E+38 min=-0 maxmag=3.4028235E+38 minmag=-0 copysign=-3.4028235E+38 rem=NaN fma=1.5
+3.4028235E+38,1 max=3.4028235E+38 min=1 maxmag=3.4028235E+38 minmag=1 copysign=3.4028235E+38 rem=0 fma=3.4028235E+38
+3.4028235E+38,-1.5 max=3.4028235E+38 min=-1.5 maxmag=3.4028235E+38 minmag=-1.5 copysign=-3.4028235E+38 rem=0 fma=-Infinity
+3.4028235E+38,2.5 max=3.4028235E+38 min=2.5 maxmag=3.4028235E+38 minmag=2.5 copysign=3.4028235E+38 rem=0 fma=Infinity
+3.4028235E+38,-2.5 max=3.4028235E+38 min=-2.5 maxmag=3.4028235E+38 minmag=-2.5 copysign=-3.4028235E+38 rem=0 fma=-Infinity
+3.4028235E+38,0.3 max=3.4028235E+38 min=0.3 maxmag=3.4028235E+38 minmag=0.3 copysign=3.4028235E+38 rem=0.13251364 fma=1.020847E+38
+3.4028235E+38,7 max=3.4028235E+38 min=7 maxmag=3.4028235E+38 minmag=7 copysign=3.4028235E+38 rem=0 fma=Infinity
+3.4028235E+38,Infinity max=Infinity min=3.4028235E+38 maxmag=Infinity minmag=3.4028235E+38 copysign=3.4028235E+38 rem=3.4028235E+38 fma=Infinity
+3.4028235E+38,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-3.4028235E+38 rem=NaN fma=NaN
+-3.4028235E+38,0 max=0 min=-3.4028235E+38 maxmag=-3.4028235E+38 minmag=0 copysign=3.4028235E+38 rem=NaN fma=1.5
+-3.4028235E+38,-0 max=-0 min=-3.4028235E+38 maxmag=-3.4028235E+38 minmag=-0 copysign=-3.4028235E+38 rem=NaN fma=1.5
+-3.4028235E+38,1 max=1 min=-3.4028235E+38 maxmag=-3.4028235E+38 minmag=1 copysign=3.4028235E+38 rem=-0 fma=-3.4028235E+38
+-3.4028235E+38,-1.5 max=-1.5 min=-3.4028235E+38 maxmag=-3.4028235E+38 minmag=-1.5 copysign=-3.4028235E+38 rem=-0 fma=Infinity
+-3.4028235E+38,2.5 max=2.5 min=-3.4028235E+38 maxmag=-3.4028235E+38 minmag=2.5 copysign=3.4028235E+38 rem=-0 fma=-Infinity
+-3.4028235E+38,-2.5 max=-2.5 min=-3.4028235E+38 maxmag=-3.4028235E+38 minmag=-2.5 copysign=-3.4028235E+38 rem=-0 fma=Infinity
+-3.4028235E+38,0.3 max=0.3 min=-3.4028235E+38 maxmag=-3.4028235E+38 minmag=0.3 copysign=3.4028235E+38 rem=-0.13251364 fma=-1.020847E+38
+-3.4028235E+38,7 max=7 min=-3.4028235E+38 maxmag=-3.4028235E+38 minmag=7 copysign=3.4028235E+38 rem=-0 fma=-Infinity
+-3.4028235E+38,Infinity max=Infinity min=-3.4028235E+38 maxmag=Infinity minmag=-3.4028235E+38 copysign=3.4028235E+38 rem=-3.4028235E+38 fma=-Infinity
+-3.4028235E+38,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-3.4028235E+38 rem=NaN fma=NaN
+1E-45,0 max=1E-45 min=0 maxmag=1E-45 minmag=0 copysign=1E-45 rem=NaN fma=1.5
+1E-45,-0 max=1E-45 min=-0 maxmag=1E-45 minmag=-0 copysign=-1E-45 rem=NaN fma=1.5
+1E-45,1 max=1 min=1E-45 maxmag=1 minmag=1E-45 copysign=1E-45 rem=1E-45 fma=1.5
+1E-45,-1.5 max=1E-45 min=-1.5 maxmag=-1.5 minmag=1E-45 copysign=-1E-45 rem=1E-45 fma=1.5
+1E-45,2.5 max=2.5 min=1E-45 maxmag=2.5 minmag=1E-45 copysign=1E-45 rem=1E-45 fma=1.5
+1E-45,-2.5 max=1E-45 min=-2.5 maxmag=-2.5 minmag=1E-45 copysign=-1E-45 rem=1E-45 fma=1.5
+1E-45,0.3 max=0.3 min=1E-45 maxmag=0.3 minmag=1E-45 copysign=1E-45 rem=1E-45 fma=1.5
+1E-45,7 max=7 min=1E-45 maxmag=7 minmag=1E-45 copysign=1E-45 rem=1E-45 fma=1.5
+1E-45,Infinity max=Infinity min=1E-45 maxmag=Infinity minmag=1E-45 copysign=1E-45 rem=1E-45 fma=Infinity
+1E-45,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-1E-45 rem=NaN fma=NaN
+-1E-45,0 max=0 min=-1E-45 maxmag=-1E-45 minmag=0 copysign=1E-45 rem=NaN fma=1.5
+-1E-45,-0 max=-0 min=-1E-45 maxmag=-1E-45 minmag=-0 copysign=-1E-45 rem=NaN fma=1.5
+-1E-45,1 max=1 min=-1E-45 maxmag=1 minmag=-1E-45 copysign=1E-45 rem=-1E-45 fma=1.5
+-1E-45,-1.5 max=-1E-45 min=-1.5 maxmag=-1.5 minmag=-1E-45 copysign=-1E-45 rem=-1E-45 fma=1.5
+-1E-45,2.5 max=2.5 min=-1E-45 maxmag=2.5 minmag=-1E-45 copysign=1E-45 rem=-1E-45 fma=1.5
+-1E-45,-2.5 max=-1E-45 min=-2.5 maxmag=-2.5 minmag=-1E-45 copysign=-1E-45 rem=-1E-45 fma=1.5
+-1E-45,0.3 max=0.3 min=-1E-45 maxmag=0.3 minmag=-1E-45 copysign=1E-45 rem=-1E-45 fma=1.5
+-1E-45,7 max=7 min=-1E-45 maxmag=7 minmag=-1E-45 copysign=1E-45 rem=-1E-45 fma=1.5
+-1E-45,Infinity max=Infinity min=-1E-45 maxmag=Infinity minmag=-1E-45 copysign=1E-45 rem=-1E-45 fma=-Infinity
+-1E-45,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-1E-45 rem=NaN fma=NaN
+1.1754944E-38,0 max=1.1754944E-38 min=0 maxmag=1.1754944E-38 minmag=0 copysign=1.1754944E-38 rem=NaN fma=1.5
+1.1754944E-38,-0 max=1.1754944E-38 min=-0 maxmag=1.1754944E-38 minmag=-0 copysign=-1.1754944E-38 rem=NaN fma=1.5
+1.1754944E-38,1 max=1 min=1.1754944E-38 maxmag=1 minmag=1.1754944E-38 copysign=1.1754944E-38 rem=1.1754944E-38 fma=1.5
+1.1754944E-38,-1.5 max=1.1754944E-38 min=-1.5 maxmag=-1.5 minmag=1.1754944E-38 copysign=-1.1754944E-38 rem=1.1754944E-38 fma=1.5
+1.1754944E-38,2.5 max=2.5 min=1.1754944E-38 maxmag=2.5 minmag=1.1754944E-38 copysign=1.1754944E-38 rem=1.1754944E-38 fma=1.5
+1.1754944E-38,-2.5 max=1.1754944E-38 min=-2.5 maxmag=-2.5 minmag=1.1754944E-38 copysign=-1.1754944E-38 rem=1.1754944E-38 fma=1.5
+1.1754944E-38,0.3 max=0.3 min=1.1754944E-38 maxmag=0.3 minmag=1.1754944E-38 copysign=1.1754944E-38 rem=1.1754944E-38 fma=1.5
+1.1754944E-38,7 max=7 min=1.1754944E-38 maxmag=7 minmag=1.1754944E-38 copysign=1.1754944E-38 rem=1.1754944E-38 fma=1.5
+1.1754944E-38,Infinity max=Infinity min=1.1754944E-38 maxmag=Infinity minmag=1.1754944E-38 copysign=1.1754944E-38 rem=1.1754944E-38 fma=Infinity
+1.1754944E-38,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-1.1754944E-38 rem=NaN fma=NaN
+1E-40,0 max=1E-40 min=0 maxmag=1E-40 minmag=0 copysign=1E-40 rem=NaN fma=1.5
+1E-40,-0 max=1E-40 min=-0 maxmag=1E-40 minmag=-0 copysign=-1E-40 rem=NaN fma=1.5
+1E-40,1 max=1 min=1E-40 maxmag=1 minmag=1E-40 copysign=1E-40 rem=1E-40 fma=1.5
+1E-40,-1.5 max=1E-40 min=-1.5 maxmag=-1.5 minmag=1E-40 copysign=-1E-40 rem=1E-40 fma=1.5
+1E-40,2.5 max=2.5 min=1E-40 maxmag=2.5 minmag=1E-40 copysign=1E-40 rem=1E-40 fma=1.5
+1E-40,-2.5 max=1E-40 min=-2.5 maxmag=-2.5 minmag=1E-40 copysign=-1E-40 rem=1E-40 fma=1.5
+1E-40,0.3 max=0.3 min=1E-40 maxmag=0.3 minmag=1E-40 copysign=1E-40 rem=1E-40 fma=1.5
+1E-40,7 max=7 min=1E-40 maxmag=7 minmag=1E-40 copysign=1E-40 rem=1E-40 fma=1.5
+1E-40,Infinity max=Infinity min=1E-40 maxmag=Infinity minmag=1E-40 copysign=1E-40 rem=1E-40 fma=Infinity
+1E-40,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-1E-40 rem=NaN fma=NaN
+Infinity,0 max=Infinity min=0 maxmag=Infinity minmag=0 copysign=Infinity rem=NaN fma=NaN
+Infinity,-0 max=Infinity min=-0 maxmag=Infinity minmag=-0 copysign=-Infinity rem=NaN fma=NaN
+Infinity,1 max=Infinity min=1 maxmag=Infinity minmag=1 copysign=Infinity rem=NaN fma=Infinity
+Infinity,-1.5 max=Infinity min=-1.5 maxmag=Infinity minmag=-1.5 copysign=-Infinity rem=NaN fma=-Infinity
+Infinity,2.5 max=Infinity min=2.5 maxmag=Infinity minmag=2.5 copysign=Infinity rem=NaN fma=Infinity
+Infinity,-2.5 max=Infinity min=-2.5 maxmag=Infinity minmag=-2.5 copysign=-Infinity rem=NaN fma=-Infinity
+Infinity,0.3 max=Infinity min=0.3 maxmag=Infinity minmag=0.3 copysign=Infinity rem=NaN fma=Infinity
+Infinity,7 max=Infinity min=7 maxmag=Infinity minmag=7 copysign=Infinity rem=NaN fma=Infinity
+Infinity,Infinity max=Infinity min=Infinity maxmag=Infinity minmag=Infinity copysign=Infinity rem=NaN fma=Infinity
+Infinity,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-Infinity rem=NaN fma=NaN
+-Infinity,0 max=0 min=-Infinity maxmag=-Infinity minmag=0 copysign=Infinity rem=NaN fma=NaN
+-Infinity,-0 max=-0 min=-Infinity maxmag=-Infinity minmag=-0 copysign=-Infinity rem=NaN fma=NaN
+-Infinity,1 max=1 min=-Infinity maxmag=-Infinity minmag=1 copysign=Infinity rem=NaN fma=-Infinity
+-Infinity,-1.5 max=-1.5 min=-Infinity maxmag=-Infinity minmag=-1.5 copysign=-Infinity rem=NaN fma=Infinity
+-Infinity,2.5 max=2.5 min=-Infinity maxmag=-Infinity minmag=2.5 copysign=Infinity rem=NaN fma=-Infinity
+-Infinity,-2.5 max=-2.5 min=-Infinity maxmag=-Infinity minmag=-2.5 copysign=-Infinity rem=NaN fma=Infinity
+-Infinity,0.3 max=0.3 min=-Infinity maxmag=-Infinity minmag=0.3 copysign=Infinity rem=NaN fma=-Infinity
+-Infinity,7 max=7 min=-Infinity maxmag=-Infinity minmag=7 copysign=Infinity rem=NaN fma=-Infinity
+-Infinity,Infinity max=Infinity min=-Infinity maxmag=Infinity minmag=-Infinity copysign=Infinity rem=NaN fma=-Infinity
+-Infinity,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=-Infinity rem=NaN fma=NaN
+NaN,0 max=NaN min=NaN maxmag=NaN minmag=NaN copysign=NaN rem=NaN fma=NaN
+NaN,-0 max=NaN min=NaN maxmag=NaN minmag=NaN copysign=NaN rem=NaN fma=NaN
+NaN,1 max=NaN min=NaN maxmag=NaN minmag=NaN copysign=NaN rem=NaN fma=NaN
+NaN,-1.5 max=NaN min=NaN maxmag=NaN minmag=NaN copysign=NaN rem=NaN fma=NaN
+NaN,2.5 max=NaN min=NaN maxmag=NaN minmag=NaN copysign=NaN rem=NaN fma=NaN
+NaN,-2.5 max=NaN min=NaN maxmag=NaN minmag=NaN copysign=NaN rem=NaN fma=NaN
+NaN,0.3 max=NaN min=NaN maxmag=NaN minmag=NaN copysign=NaN rem=NaN fma=NaN
+NaN,7 max=NaN min=NaN maxmag=NaN minmag=NaN copysign=NaN rem=NaN fma=NaN
+NaN,Infinity max=NaN min=NaN maxmag=NaN minmag=NaN copysign=NaN rem=NaN fma=NaN
+NaN,NaN max=NaN min=NaN maxmag=NaN minmag=NaN copysign=NaN rem=NaN fma=NaN
+-- scale
+-2000 0 -0 0 0
+ -300 0 -0 0 0
+ -150 1E-45 -0 0 2.3841856E-07
+ -149 3E-45 -1E-45 0 4.7683713E-07
+ -127 8.816208E-39 -4.408104E-39 0 1.9999999
+ -126 1.7632415E-38 -8.816208E-39 0 3.9999998
+   -1 0.75 -0.375 0 1.7014117E+38
+    0 1.5 -0.75 1E-45 3.4028235E+38
+    1 3 -1.5 3E-45 Infinity
+  127 2.5521178E+38 -1.2760589E+38 2.3841858E-07 Infinity
+  128 Infinity -2.5521178E+38 4.7683716E-07 Infinity
+  254 Infinity -Infinity 4.056482E+31 Infinity
+  300 Infinity -Infinity Infinity Infinity
+ 2000 Infinity -Infinity Infinity Infinity
+-- sign
+0            0
+-0           0
+1            1
+-1           -1
+0.5          1
+-0.5         -1
+1.5          1
+2.5          1
+-2.5         -1
+3.5          1
+0.1          1
+0.3          1
+-0.7         -1
+1.005        1
+2.675        1
+123456.79    1
+8388607.5    1
+8388608      1
+16777216     1
+1E+10        1
+3.4028235E+38 1
+-3.4028235E+38 -1
+1E-45        1
+-1E-45       -1
+1.1754944E-38 1
+1E-40        1
+Infinity     1
+-Infinity    -1
+NaN          ArithmeticException: Function does not accept floating point Not-a-Number values.
+-- errors
+ArgumentOutOfRangeException: Rounding digits must be greater than or equal to 0. (Parameter 'digits')
+ArgumentException: The value '9' is not valid for this usage of the type MidpointRounding. (Parameter 'mode')
+ArgumentException: The value '9' is not valid for this usage of the type MidpointRounding. (Parameter 'mode')
+ArgumentOutOfRangeException: Rounding digits must be greater than or equal to 0. (Parameter 'digits')
+-- estimates stay close
+0.5 recip True rsqrt True
+3 recip True rsqrt True
+10 recip True rsqrt True
+12345.5 recip True rsqrt True

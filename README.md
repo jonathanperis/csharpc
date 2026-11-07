@@ -60,12 +60,12 @@ $ ls -lh hello
   protection. Bounds, cast and array-covariance checks behave as .NET's ([docs/17-security.md](docs/17-security.md)).
 - **Drop-in.** Compile a `.csproj` directly, or keep using `dotnet build` / `dotnet publish` with
   `-p:UseCsharpc=true` / `-p:PublishCsharpc=true` ([docs/08-drop-in.md](docs/08-drop-in.md)). The
-  target is **100 % parity with .NET NativeAOT** — reached: **all 249** programs of the [compatibility corpus](docs/18-compatibility.md) that NativeAOT
-  runs like the JIT, with no wrong outputs — and the end state is csharpc as the AOT backend of
+  target is **100 % parity with .NET NativeAOT**: of the programs of the [compatibility corpus](docs/18-compatibility.md) that
+  NativeAOT runs like the JIT, csharpc matches 242 of 246 (98.4 %) in the latest run, with no wrong outputs. The end state is csharpc as the AOT backend of
   `dotnet publish -p:PublishAot=true` itself, with NativeAOT's parameters
-  ([ADR 0016](docs/adr/0016-nativeaot-parity-and-end-state.md)). The finish line: that dotnet build
-  beating NativeAOT on the ASP.NET Core TechEmpower benchmarks (roadmap M7 with the `csharpc` CLI; M9,
-  the finish line, through the fork of M8).
+  ([ADR 0016](docs/adr/0016-nativeaot-parity-and-end-state.md)), and the finish line is that dotnet build
+  beating NativeAOT on the ASP.NET Core TechEmpower benchmarks ([roadmap](docs/06-roadmap.md): M7 with the `csharpc` CLI,
+  M9 through the fork of M8).
 - **Debuggable.** `-g` emits DWARF: breakpoints on C# lines, C# names in backtraces, locals in gdb/lldb.
 - **Whole-program optimization.** Closed-world compilation: internal linkage everywhere, class-hierarchy
   devirtualization, generics monomorphized, and the runtime itself LTO-linked into your program.
@@ -77,12 +77,14 @@ $ ls -lh hello
 | **Types** | classes, structs, records (class & struct), enums, interfaces (default & static abstract members), generics (monomorphized, constraints, variance, generic math), tuples, `Nullable<T>`, anonymous types, delegates & events, arrays (incl. multi-dimensional), `Span<T>`/`Memory<T>`, pointers & `unsafe`, `decimal`, `BigInteger` |
 | **Code** | lambdas & closures, local functions, all statements, `switch` expressions, every pattern kind (type, property, positional, list, relational, logical), `try`/`catch`/`finally`/filters, `checked`, `using`, `lock`, iterators, `async`/`await`, `await foreach`, LINQ (method and query syntax), C# 14 extension members, primary constructors, `required`/`init`/`field` |
 | **Runtime** | conservative garbage collector (thread-safe, stop-the-world), real threads (`Thread`, `Monitor`, `Interlocked`, `Parallel`), Itanium-ABI exceptions with .NET's exact messages, async scheduler on LLVM coroutines |
-| **Library** | `Console`, `Math`, strings & `StringBuilder`, number formatting/parsing (all standard and custom format strings), `DateTime`/`TimeSpan`/`Stopwatch`, `Type` objects, `System.Collections.Generic` and `System.Linq` (a corelib written in C# and compiled with your program), tasks, cancellation |
+| **Library** | `Console`, `Math`, strings & `StringBuilder`, number formatting/parsing (all standard and custom format strings), cultures (ICU), `DateTime`/`TimeSpan`/`Stopwatch`, `System.Collections.Generic`, concurrent collections and `System.Linq` (a corelib written in C# and compiled with your program), tasks, cancellation, `System.Text.RegularExpressions`, `System.Text.Json`, `System.IO`, sockets, `HttpClient`, TLS (`SslStream`, X.509, `https://`), finalizers, `dynamic`, expression trees, member reflection over compile-time metadata |
 
 Not supported, by design (the same limits NativeAOT has): run-time code generation and loading code
 outside the closed world. Reflection works on the members `[DynamicallyAccessedMembers]` keeps, as in
-NativeAOT ([ADR 0018](docs/adr/0018-reflection-metadata.md)). Not supported yet: `dynamic` and expression
-trees (NativeAOT runs these, so they're on the roadmap), parts of networking. Libraries that ship only IL
+NativeAOT ([ADR 0018](docs/adr/0018-reflection-metadata.md)). `dynamic` is bound at compile time
+([ADR 0019](docs/adr/0019-dynamic.md)) and expression trees are interpreted, as under NativeAOT. Not supported yet: parts of
+the BCL (the open lists are in the [roadmap](docs/06-roadmap.md)); TLS on macOS and Windows goes through OpenSSL.
+Libraries that ship only IL
 (`-r X.dll`, `<Reference>`, NuGet packages) are compiled from their IL by the IL front-end
 ([ADR 0010](docs/adr/0010-il-frontend.md)), as far as the BCL surface they use is implemented; so is a
 whole program given as its assembly (`csharpc app.dll`, what the dotnet pipeline hands csharpc). The full matrix is in [docs/06-roadmap.md](docs/06-roadmap.md).
@@ -141,8 +143,7 @@ whose packages can't be deleted (`.github/workflows/release.yml`).
 **Versions.** csharpc is pre-release: `0.MINOR.PATCH-alpha`, starting at `0.1.0-alpha` (the version in
 `src/Csharpc/Csharpc.csproj`). A tag publishes it (`v0.1.0-alpha`); the next tag bumps PATCH for fixes
 and MINOR for a milestone or a breaking change in options or output. `main` builds are
-`<that version>.<ci_run_number>` on GitHub Packages only. The earlier `0.1.0-spike*` packages are
-unlisted on nuget.org.
+`<that version>.<ci_run_number>` on GitHub Packages only.
 
 **Container** (clang and libLLVM included; linux/amd64):
 
@@ -311,18 +312,18 @@ for how this compares to Mono's LLVM backend, LLILC, NativeAOT(-LLVM), IL2CPP an
 ```
 src/
   Csharpc/          the compiler: Frontend (Roslyn), CodeGen (CFG → LLVM IR), Llvm (C API bindings), Driver
-  Csharpc/corelib/  the BCL in C#: collections, LINQ, strings, StringBuilder, number formatting/parsing,
-                    decimal, BigInteger, DateTime; compiled with every program
+  Csharpc/corelib/  the BCL in C#: collections, LINQ, strings, number formatting/parsing, JSON, regex, IO,
+                    networking, TLS, reflection metadata, ...; compiled to IL once and lowered with every program
   Csharpc.Sdk/      MSBuild integration (UseCsharpc / PublishCsharpc)
   runtime/          csrt — the C runtime: GC, exceptions, threads, async scheduler, console/OS calls
 tests/
   samples/          differential tests (each .cs has .expected output recorded from real .NET)
   conformance/      the 195-program C# conformance corpus
   projects/         multi-project solutions for the drop-in / MSBuild tests
-  run.sh, conformance.sh, projects.sh, debuginfo.sh
-benchmarks/         benchmark programs, harness (run.sh) and RESULTS.md
-docs/               architecture, lowering, runtime, roadmap, ADRs, spike log
-tools/              gdb and lldb pretty-printers for csharpc binaries
+  run.sh, conformance.sh, programs.sh, projects.sh, il.sh, debuginfo.sh, size.sh
+benchmarks/         benchmark programs, harness (run.sh), RESULTS.md and the TechEmpower harness
+docs/               architecture, lowering, runtime, roadmap, status, ADRs
+tools/              gdb and lldb pretty-printers, compatibility and IL-survey harnesses, bootstrap scripts, fuzzers
 ```
 
 ## Testing
@@ -361,7 +362,8 @@ run (`CI-Only:` on a `ci/**` branch, or Actions → CI (targeted)) does not coun
 | [00 Vision](docs/00-vision.md) · [01 Prior art](docs/01-prior-art.md) · [02 Architecture](docs/02-architecture.md) · [03 Lowering](docs/03-lowering.md) | how csharpc is built and why |
 | [04 Runtime](docs/04-runtime.md) · [10 Async](docs/10-async.md) · [11 BCL value types](docs/11-bcl-value-types.md) · [12 Corelib](docs/12-corelib.md) · [14 Threading](docs/14-threading.md) | the runtime and library |
 | [05 Testing](docs/05-testing.md) · [09 Conformance](docs/09-conformance.md) · [13 Debugging](docs/13-debugging.md) · [08 Drop-in](docs/08-drop-in.md) | using and verifying it |
-| [06 Roadmap](docs/06-roadmap.md) · [07 Spike log](docs/07-spike-log.md) · [ADRs](docs/adr/) | where it's going and how it got here |
+| [15 Conformance 2](docs/15-conformance2.md) · [16 Interop and I/O](docs/16-interop-io.md) · [17 Security](docs/17-security.md) · [18 Compatibility](docs/18-compatibility.md) · [19 Globalization](docs/19-globalization.md) | more of the surface, measured against real programs |
+| [06 Roadmap](docs/06-roadmap.md) · [20 Status](docs/20-status.md) · [07 Spike log](docs/07-spike-log.md) · [ADRs](docs/adr/) · [Contributing](docs/CONTRIBUTING.md) | where it is, where it's going and how it got here |
 
 ## Project status
 
@@ -371,8 +373,8 @@ csharpc is **pre-1.0** and under active development. What that means in practice
 |---|---|
 | **Guarantee** | A compiled program behaves exactly like it does on .NET — same output, same exceptions and messages, same exit code. Anything csharpc can't compile faithfully is rejected at compile time with a `CSLLVM0001: not supported by csharpc yet` diagnostic (in libraries compiled from IL, a method the program cannot reach compiles to a stub that stops the program with that diagnostic, warning `CSLLVM0007`); a silent behavioral difference is treated as the highest-priority bug. |
 | **Verified surface** | The language and library features in the table above, checked on every commit by CI: the differential samples at `-O0` and `-O2`, the conformance corpus, and a set of larger real-world programs. |
-| **Platforms** | Linux x86-64, Linux ARM64, macOS ARM64 (Apple silicon) and Windows x64 (MinGW-w64 toolchain, `x86_64-w64-windows-gnu`), each tested in CI against real .NET on that machine. WebAssembly is on the [roadmap](docs/06-roadmap.md). |
-| **Not supported** | run-time code generation and loading code outside the closed world (NativeAOT's limits); not yet: `dynamic`, expression trees, member reflection; compiled `async` methods in IL-only libraries (source `async` works); parts of the BCL such as networking and JSON, which grow with the corelib. |
+| **Platforms** | Linux x86-64, Linux ARM64, macOS ARM64 (Apple silicon) and Windows x64 (MinGW-w64 toolchain, `x86_64-w64-windows-gnu`), each tested in CI against real .NET on that machine; WebAssembly (WASI) is a cross target checked under wasmtime. |
+| **Not supported** | run-time code generation and loading code outside the closed world (NativeAOT's limits); reflection outside what the compile-time metadata reaches; the TypedReference and `jmp` IL opcodes; parts of the BCL, which grow with the corelib (open lists: [roadmap](docs/06-roadmap.md)). All of it is a compile-time diagnostic or a documented exception, not a silent difference. |
 | **Stability** | Whole-program compilation with no stable ABI between csharpc versions: rebuild everything when you upgrade. Command-line options may still change. |
 
 Found a gap? Open an issue with a **minimal program** and what `dotnet run` prints — the differential

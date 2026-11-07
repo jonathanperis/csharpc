@@ -13,37 +13,44 @@ csrt is the "native layer". Library logic lives in the C# corelib instead
 The compiler and csrt must agree on these layouts (see `csrt.h`, `TypeMapper.cs`, `ModuleCodeGen.cs`):
 
 ```c
-struct csrt_MethodTable {           // 24 bytes on 64-bit targets
-    const csrt_MethodTable* base;   // null for System.Object
-    const char* name;               // "Ns.Outer+Inner", UTF-8
-    uint32_t instance_size;         // bytes, including the header
-    uint32_t flags;                 // bit 0: abstract
+struct csrt_MethodTable {                   // 40 bytes on 64-bit targets (pointer-size dependent on wasm32)
+    const csrt_MethodTable* base;           // null for System.Object and interfaces
+    const char* name;                       // fully qualified CLR name, UTF-8: "Ns.Outer+Inner"
+    uint32_t instance_size;                 // bytes, including the header
+    uint32_t flags;                         // CSRT_MT_*: abstract, interface, no references (never scanned),
+                                            // value type / enum / primitive box, delegate, array kinds, ...
+    const csrt_InterfaceMapEntry* interfaces;  // every implemented interface (flattened): { interface MT, slots }
+    uint32_t interface_count;
+    uint32_t reserved;                      // rank of a rectangular array, element size of a 1-D array
     // void* vtable[] follows; slots 0..2 = ToString, Equals, GetHashCode
 };
 
 object : { const csrt_MethodTable* mt; fields... }
 string : { const csrt_MethodTable* mt; int32_t length; uint16_t chars[length]; }   // UTF-16
 T[]    : { const csrt_MethodTable* mt; int64_t length; T data[length]; }           // data @ 16
+T[,]   : { mt; int64_t total; int64_t lengths[rank]; T data[total]; }               // row-major
 ```
 
 The built-in types `csrt_Object_MT`, `csrt_String_MT` and `csrt_Array_MT` are
 `csrt_BuiltinMethodTable`s (header plus three vtable slots), so any object, including a string held
-in an `object` variable, can be dispatched through slot 0 by `csrt_object_to_string`.
+in an `object` variable, can be dispatched through slot 0 by `csrt_object_to_string`. Array method tables
+end with the element type's method table, which the array covariance checks use.
 
-Compiler-generated method tables for user classes are emitted by csharpc as internal constants with
+Compiler-generated method tables for the program's classes are emitted by csharpc as internal constants with
 the same header. Their `base` points at the base class's table or at `csrt_Object_MT`.
 
-## What csrt provides today
+## What csrt contains
 
-| Area | Functions |
+| File | Role |
 |---|---|
-| Lifecycle | `csrt_init(argc, argv)` (64 KiB fully-buffered stdout), `csrt_shutdown()` (flush), `csrt_get_args()` (`string[]` without argv[0]) |
-| Allocation | `csrt_alloc(mt, size)` (zeroed), `csrt_new_array(element_size, length)` (`OverflowException` if `length < 0`). **Memory is never freed** ([ADR 0004](adr/0004-memory-management.md)) |
-| Type system | `csrt_isinst_class`, `csrt_castclass` (walk the `base` chain), `csrt_object_to_string` (null → `""`, else vtable slot 0), default `ToString` (type name), `Equals` (reference equality), `GetHashCode` (address hash) |
-| Strings | `concat` (null = empty), `equals` (ordinal), `is_null_or_empty`, `char_at` (bounds-checked), `from_{i32,i64,u32,u64,bool,char}` (doubles: corelib) |
-| Console | `csrt_console_write_{string,i32,i64,u32,u64,bool,char}`, `csrt_console_newline`. UTF-16 → UTF-8 with surrogate pairs; lone surrogates become U+FFFD |
-| Exceptions | `csrt_throw_{null_reference,index_out_of_range,divide_by_zero,overflow,invalid_cast}()`, `csrt_throw(mt, message)` |
-| Environment | `csrt_environment_tick_count64()` (`CLOCK_MONOTONIC` ms), `csrt_environment_exit(code)` |
+| `csrt.c`, `type.c`, `delegates.c`, `records.c`, `strings.c`, `span.c` | startup (`csrt_init`/`csrt_shutdown`, arguments), allocation entry points, casts and interface lookup, `System.Type` objects over the compile-time metadata tables, delegate combination, helpers for records and anonymous types, span primitives |
+| `gc.c` | the collector: allocator, mark-sweep, weak references and ephemerons, finalizers, Objective-C tracking, the opt-in nursery and concurrent marker ([GC](#gc)) |
+| `eh.c` | exceptions: throw/rethrow, the personality routine, filters, stack-trace recording and formatting, the exception trap for pool workers |
+| `threads.c`, `async.c`, `signals.c`, `sockets.c` | threads, `Monitor`/`Lock`, wait handles and the `Parallel` worker pool ([14-threading.md](14-threading.md)); tasks, the thread-pool scheduler, timers and iterator objects ([10-async.md](10-async.md)); POSIX signals; epoll for the corelib's socket engine |
+| `console.c`, `pinvoke.c`, `bclmisc.c`, `parse.c` | console input and stderr, `dlopen`-based library resolution and last-error capture for P/Invoke, `System.Array`/`Convert` helpers, `Enum.Parse` |
+| `bigint.c`, `decimal.c`, `datetime.c`, `int128.c` | the method tables of the boxed value types and the clocks; the arithmetic itself is C# |
+| `win32.c`, `wasi.c`, `windows-shims/` | the pthread subset and missing libc functions on Windows and WASI ([Platforms](#platforms)) |
+| `globalization/` | .NET's ICU shim ([19-globalization.md](19-globalization.md)) |
 
 ### Number formatting and parsing (C#)
 
@@ -241,7 +248,7 @@ Measurements (local x86-64 machine, wasmtime 36 including its JIT compilation; b
 The module embeds what native executables load from libc at run time (wasi-libc: malloc, stdio,
 math). Hello world is about 65 KiB at -O2.
 
-## GC plan
+## GC
 
 The collector in `src/runtime/gc.c` is a conservative, non-moving, stop-the-world mark-sweep.
 Small objects live in 256 KiB size-classed chunks; large objects are tracked in a sorted table.
@@ -254,8 +261,8 @@ not scanned (`CSRT_MT_NO_REFERENCES`). Allocation is thread-local (one claimed b
 class). After a collection, empty chunks beyond what the next allocation budget can fill give their
 pages back to the OS (`madvise(MADV_DONTNEED)`, Linux), so a process shrinks after a burst; a
 released chunk is zero when it is handed out again.
-The full design, including why the next step is a non-moving nursery rather than LLVM statepoints,
-is [ADR 0004](adr/0004-memory-management.md). On wasm32 the shadow stack is [ADR 0011](adr/0011-wasm32.md).
+The full design, including the opt-in non-moving nursery and why the collector is conservative rather than using LLVM statepoints,
+is [ADR 0004](adr/0004-memory-management.md); the concurrent marker is [ADR 0020](adr/0020-concurrent-marking.md). On wasm32 the shadow stack is [ADR 0011](adr/0011-wasm32.md).
 
 Sweeping keeps chunks mapped, so without help the heap stays at its peak. In a program that starts
 threads (a server), a helper thread checks the allocation rate every 500 ms; once it falls under

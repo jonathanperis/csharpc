@@ -99,6 +99,8 @@ of the milestone below says where it is tracked.
 | Area | Status | Notes |
 |---|---|---|
 | `Console`, `Math`, `Environment`, `GC` | ✅ | intrinsics + csrt |
+| Reflection handles and member lookup (`RuntimeTypeHandle`, `ParameterModifier`, `DefaultValueAttribute`, `Type.GetMember`, `TypeInfo.GetDeclaredProperty`) | 🟡 | done except nested types (not in the reflection metadata) and a run-time-only handle for `RunClassConstructor` ([12-corelib.md](12-corelib.md), samples 1232-1234) |
+| `System.MathF`, `float`/`double` generic-math statics (`Sin`, `Hypot`, `Lerp`, `SinPi`, ...) | ✅ | all public `MathF` members and `IFloatingPointIeee754<T>` for `float`/`double`, bit for bit against .NET on the same libm ([12-corelib.md](12-corelib.md), samples 1226-1229; `ReciprocalEstimate` is the exact quotient) |
 | Parsing/formatting numbers | ✅ | standard + custom format strings |
 | `System.Collections.Generic` (`List`, `Dictionary`, `HashSet`, ...), concurrent collections, `BlockingCollection`, `Partitioner` | ✅ | shadow corelib in C# |
 | `System.Linq` | ✅ | shadow corelib in C# |

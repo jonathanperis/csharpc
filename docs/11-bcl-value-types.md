@@ -127,7 +127,9 @@ implementations, and static library fields (`string.Empty`, `TimeSpan.Zero`,
   `array.ToString() == "System.Int32[]"`. Arrays of reference-free elements carry
   `CSRT_MT_NO_REFERENCES`, which the GC uses to skip scanning them (replacing the earlier
   identity check against `csrt_PrimitiveArray_MT`).
-* Not supported: members beyond names/identity (no `GetMethods`, attributes, `Activator`).
+* Members beyond names and identity (`GetMethods`, attributes, `Activator`, ...) come from compile-time metadata for the
+  types the program's reflection patterns reach ([12-corelib.md](12-corelib.md#type-metadata-systemtype-reflection),
+  [ADR 0018](adr/0018-reflection-metadata.md)).
 
 ## BigInteger
 
@@ -174,11 +176,11 @@ Formatting and parsing use the provider's or the current culture's `NumberFormat
 
 ## Known gaps
 
-* `TimeZoneInfo`, `DateTimeOffset` (diagnosed as unsupported).
+* `TimeZoneInfo` (diagnosed as unsupported, #98); `DateTimeOffset` is implemented.
   Historical daylight-saving gaps take the zone's *current* base offset, which can differ from .NET
   where the standard offset has changed since.
 * Decimal `G` with precision follows double-style rules only approximately; `decimal.Parse`
   does not accept exponents (NumberStyles.Number, as .NET's default).
-* `Type` members other than names/identity; generic type names print as `List`1` without arguments.
+* Generic type names print as `List`1` without arguments.
 * `BigInteger` uses O(n²) multiplication and decimal conversion.
 * `Array.Sort` of arrays of non-comparable reference types, or with `IComparer<T>` objects.

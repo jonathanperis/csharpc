@@ -1,4 +1,4 @@
-# 10 — The shadow corelib (BCL in C#)
+# 12 — The shadow corelib (BCL in C#)
 
 csharpc's route to drop-in BCL coverage: library types re-implemented **in C#**, compiled by csharpc
 together with the user's program (closed world: monomorphized, inlined and optimized by LLVM along with
@@ -172,6 +172,26 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
 * **Members-only shadows:** `string.Join<T>/Join(IEnumerable)/Concat<T>/Compare`, `double`/`float`
   `IsNaN`/`IsInfinity`/`IsFinite`..., generic `System.Array` helpers (`Sort` incl. keys+items, `Reverse`,
   `IndexOf`, `Resize`, `Fill`, `Find*`, `Exists`, `TrueForAll`, `ConvertAll`, `BinarySearch`, `Empty`).
+* **Reflection handles and member lookup** (`corelib/Reflection/Handles.cs`, `MemberLookup.cs`): `ParameterModifier` is .NET's struct;
+  `RuntimeTypeHandle` holds the runtime's Type object (`Type.TypeHandle`, `GetTypeFromHandle`, `GetTypeHandle`, equality, `Value`; an IL
+  `ldtoken` passed as a handle becomes one), and `RuntimeHelpers.RunClassConstructor(typeof(X).TypeHandle)` runs X's lazy static
+  initialization (a handle only known at run time is a diagnostic). `DefaultValueAttribute` is a shadow of .NET's class
+  (all constructors, the `IsSupported` switch). `Type.GetMember(s)` and TypeInfo's `GetDeclared*`/`Declared*` are composed from the
+  per-kind queries in RuntimeType's order (methods, constructors, properties, events, fields) with its name filter (exact, `IgnoreCase`,
+  trailing `*`) and always return a `MemberInfo[]` (csharpc arrays carry their element type, and a `MethodInfo[]` would not be an
+  `IEnumerable<MemberInfo>`). Nested types are not described by the reflection metadata: asking for them alone, or for
+  `DeclaredNestedTypes`, throws `NotSupportedException`, while `MemberTypes.All`, `GetMembers` and `DeclaredMembers` leave them out.
+* **`System.MathF` and floating-point math** (`CodeGen/Intrinsics.cs` `AddMathF`, `corelib/FloatingPointMath.cs`): what .NET calls
+  through the C runtime is libm's float function (`sinf`, `powf`, `acoshf`, ...) or an exact LLVM intrinsic (`Sqrt`, `Floor`, `Round`,
+  `FusedMultiplyAdd`, `CopySign`, `Max`/`Min` as IEEE 754-2019); the members that are C# in .NET are ports of
+  dotnet/runtime's own (`BitIncrement`, `IEEERemainder`, `ILogB`, `ScaleB`, `Round(x, digits, mode)` exact on the decimal value,
+  `MaxMagnitude`, `Sign`...). The float and double generic-math statics (`float.Hypot`, `double.Lerp`, `T.SinPi(x)`,
+  `RootN`, `Exp2`/`Exp10`, the degree conversions, `MaxNumber`, `IsNormal`, ... that `IFloatingPointIeee754<T>` needs) are
+  copied from `Single.cs`/`Double.cs` of the .NET 11 runtime and checked against it bit for bit (a differential run of every
+  member over edge values and a few hundred pseudo-random inputs). `ReciprocalEstimate` / `ReciprocalSqrtEstimate` return
+  the exact `1 / x` (.NET uses `RCPSS`/`FRECPE` where the hardware has them, so its answer differs between CPUs and is
+  only an estimate). Results of the libm functions follow the platform's libm (glibc here, as .NET on Linux), so a few
+  differ in the last bit on WebAssembly's libc; `Math.Log`/`Log2` of a negative number return the positive quiet NaN on Unix as .NET does (Windows passes its C runtime's through).
 * **`System.Text.RegularExpressions`** (`corelib/Regex/`, see [Regular expressions](#regular-expressions)).
 * **Compiled-code support for the IL front-end** (docs/adr/0010-il-frontend.md): async method builders,
   `AsyncIteratorMethodBuilder`, `ManualResetValueTaskSourceCore<T>`, `ConfiguredCancelableAsyncEnumerable<T>`,
@@ -350,8 +370,7 @@ all option combinations) checks.
   unchanged; a program serializing a few types through a source-generated context is about 1 MB, one
   using the reflection-style API about 1.5 MB, and these compile in 20–60 s (most of it in LLVM).
 * **Explicit diagnostics (CSLLVM0001/0002)** instead of run-time surprises: anonymous types with the
-  reflection-style API, `Guid` members and BCL types csharpc
-  doesn't implement yet (`ConcurrentDictionary`, `ReadOnlyCollection`, immutable collections).
+  reflection-style API and the BCL members csharpc doesn't implement.
 
 Codegen improvements made along the way (general, not corelib-specific): generic structs, structs
 implementing interfaces (constrained calls on struct receivers), property/indexer lvalue captures
@@ -431,8 +450,8 @@ corelib methods the program reaches from IL, with no parsing or binding of the c
 * Non-generic `IEnumerator.Current` / `IComparer` on tuple element types throw
   `NotSupportedException` when executed. (Boxed structs do have interface maps: the corelib's struct
   enumerators are `IEnumerator<T>`/`IEnumerator`/`IDisposable` when boxed, as in .NET.)
-* Anonymous types (multi-`from` queries with `let`/`where`), `ImmutableArray`/`Immutable*`,
-  `BitArray`, `ObservableCollection`, `Tuple<...>` classes not yet shadowed (this list predates the ports above).
+* `System.Collections.Immutable` is not shadowed: it is compiled from the shared framework's IL
+  ([ADR 0013](adr/0013-framework-il.md)).
 * `SortedDictionary`/`SortedSet` use sorted arrays (same order, O(n) insertion).
 * **`ObjectiveCMarshal`** (`corelib/ObjectiveCMarshal.cs`, the hooks of the .NET for macOS / iOS bindings): off macOS
   every member throws `PlatformNotSupportedException` as .NET does. On macOS the reference tracking works as in

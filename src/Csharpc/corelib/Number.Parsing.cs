@@ -345,7 +345,12 @@ namespace CsharpcCoreLib
         internal static double RoundDigits(double value, int digits) => RoundMode(value, digits, 0);
 
         /// <summary>mode: 0 ToEven, 1 AwayFromZero, 2 ToZero, 3 ToNegativeInfinity, 4 ToPositiveInfinity.</summary>
-        internal static double RoundMode(double value, int digits, int mode)
+        internal static double RoundMode(double value, int digits, int mode) => RoundCore(value, digits, mode, false);
+
+        /// <summary>MathF.Round(x, digits, mode): the same exact decimal rounding, narrowed to the nearest float (not via a double).</summary>
+        internal static float RoundModeSingle(float value, int digits, int mode) => (float)RoundCore(value, digits, mode, true);
+
+        private static double RoundCore(double value, int digits, int mode, bool single)
         {
             if (digits < 0) throw new ArgumentOutOfRangeException("digits", "Rounding digits must be greater than or equal to 0.");
             if ((uint)mode > 4)
@@ -393,7 +398,7 @@ namespace CsharpcCoreLib
                 }
             }
             while (g.N > 0 && g.D[g.N - 1] == (byte)'0') g.N--;
-            return DigitsToDouble(g.D, g.N, g.Exp10, false, g.Neg);
+            return single ? DigitsToSingle(g.D, g.N, g.Exp10, false, g.Neg) : DigitsToDouble(g.D, g.N, g.Exp10, false, g.Neg);
         }
 
         // ==========================================================================================
