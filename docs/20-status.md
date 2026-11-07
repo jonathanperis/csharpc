@@ -37,7 +37,8 @@ compiler on the whole suite) and `Program as IL` workflows. Versions are `0.MINO
 green full-gate CI publish to nuget.org ([06-roadmap.md](06-roadmap.md#credibility-deliverables-cross-cutting)).
 
 Two CI measurements have regressed and are tracked as bugs: the `TechEmpower` workflow is red because csharpc no longer
-builds the Platform entry (#164), and the parity figure of the `Compatibility` workflow has been 98.4 % since 2026-11-01 (#163).
+builds the Platform entry (#164; the three diagnostics it listed are fixed, and 11 more, behind them, remain: the Npgsql
+methods that reach `NegotiateAuthentication`, `SHA3_256`, `BigInteger.GetByteCount` ... are reachable through the pooled `IAsyncStateMachine` box), and the parity figure of the `Compatibility` workflow has been 98.4 % since 2026-11-01 (#163).
 
 ## Measured state
 
