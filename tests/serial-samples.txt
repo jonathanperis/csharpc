@@ -17,3 +17,10 @@
 
 # inotify delivery and its timing.
 609_filesystemwatcher
+
+# TLS over loopback sockets: the shutdown case of 1101 failed once on arm64 -O0 in a parallel shard
+# (the server's read saw a connection reset instead of close_notify, run 42319004767); it passed 20 of
+# 20 repeats run alone. Kept out of the parallel pool until the race is understood.
+1101_sslstream_loopback
+1102_sslstream_validation
+1103_httpclient_https
