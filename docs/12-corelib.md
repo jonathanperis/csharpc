@@ -182,7 +182,7 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   member over edge values and a few hundred pseudo-random inputs). `ReciprocalEstimate` / `ReciprocalSqrtEstimate` return
   the exact `1 / x` (.NET uses `RCPSS`/`FRECPE` where the hardware has them, so its answer differs between CPUs and is
   only an estimate). Results of the libm functions follow the platform's libm (glibc here, as .NET on Linux), so a few
-  differ in the last bit on WebAssembly's libc; `Math.Log`/`Log2` of a negative number return the positive quiet NaN as .NET.
+  differ in the last bit on WebAssembly's libc; `Math.Log`/`Log2` of a negative number return the positive quiet NaN on Unix as .NET does (Windows passes its C runtime's through).
 * **`System.Text.RegularExpressions`** (`corelib/Regex/`, see [Regular expressions](#regular-expressions)).
 * **Compiled-code support for the IL front-end** (docs/adr/0010-il-frontend.md): async method builders,
   `AsyncIteratorMethodBuilder`, `ManualResetValueTaskSourceCore<T>`, `ConfiguredCancelableAsyncEnumerable<T>`,
