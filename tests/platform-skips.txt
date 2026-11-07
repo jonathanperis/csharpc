@@ -168,11 +168,8 @@ wasi 532_idn_mapping                   no ICU on WASI (invariant globalization m
 wasi 534_thread_interrupt              needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 windows 534_thread_interrupt              live: Thread.Join is an alertable wait on Windows (an interrupt ends it), not on Unix
 wasi 537_compression_streams           known gap: no NativeAOT runtime pack (native compression shim) for WebAssembly
-windows 538_aes_cryptostream           known gap: Aes.Create() needs CNG (BCrypt), not implemented yet
 wasi 538_aes_cryptostream              known gap: no OS cipher on WebAssembly (WASI)
 wasi 540_tar_zipfile                   known gap: no NativeAOT runtime pack (native shims) for WebAssembly
-windows 537_compression_streams        known gap: the zlib, brotli and zstd shims link on Windows now (1005_httpclient_handlers), but ZipArchive reaches WinZipAesStream, whose Aes.Create() needs CNG (BCrypt), not implemented yet (538_aes_cryptostream)
-windows 540_tar_zipfile                known gap: File.SetLastWriteTimeUtc has no Windows implementation yet, and ZipFile reaches Aes.Create() (CNG, see 537_compression_streams)
 macos 553_rsa  live: RSA over OpenSSL 3 on macOS (ADR 0022 addendum), recorded from real .NET there
 windows 553_rsa                        known gap: RSA.Create() needs CNG (BCrypt), not implemented yet
 wasi 553_rsa                           known gap: no OS RSA on WebAssembly (WASI)
@@ -274,3 +271,4 @@ wasi 1211_compression_codecs           known gap: no NativeAOT runtime pack (nat
 windows 1210_uri_rooted_path_platform live: a rooted path without a drive is an implicit file path on Unix only; on Windows UriKind.Absolute is a UriFormatException (the platform decides the expectation)
 wasi 1207_socket_close_unread_data  opens loopback sockets: WASI preview 1 has none (PlatformNotSupportedException)
 windows 1207_socket_close_unread_data  live: what a close with unread received data sends, and what the peer then reads, is the OS's TCP stack (Winsock)
+wasi 1230_file_set_last_write_time  known gap: File/Directory.SetLastWriteTime[Utc] have no WASI implementation yet (wasi-libc utimensat / path_filestat_set_times is not bound)

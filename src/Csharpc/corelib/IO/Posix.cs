@@ -64,6 +64,17 @@ namespace CsharpcCoreLib
         public const int AT_FDCWD = -100;
         public const long UTIME_OMIT = (1L << 30) - 2;
 #endif
+
+        /// <summary>Sets the modification time (seconds and nanoseconds since 1970) and leaves the access time alone, as .NET's FileSystem.SetLastWriteTime.</summary>
+        public static int SetWriteTime(byte* path, long seconds, long nanoseconds)
+        {
+            long* times = stackalloc long[4];
+            times[0] = 0;
+            times[1] = UTIME_OMIT;
+            times[2] = seconds;
+            times[3] = nanoseconds;
+            return utimensat(AT_FDCWD, path, times, 0);
+        }
 #endif
         [DllImport("libc", SetLastError = true)] public static extern byte* getcwd(byte* buffer, nuint size);
         [DllImport("libc", SetLastError = true)] public static extern int chdir(byte* path);

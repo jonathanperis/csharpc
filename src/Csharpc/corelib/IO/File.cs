@@ -307,9 +307,32 @@ namespace CsharpcCoreLib
 
         public static DateTime GetLastWriteTime(string path) => GetLastWriteTimeUtc(path).ToLocalTime();
 
-#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+#if !CSHARPC_TARGET_WASI
         public static void SetLastWriteTime(string path, DateTime lastWriteTime) => SetLastWriteTimeUtc(path, lastWriteTime.ToUniversalTime());
 
+        /// <summary>The modification time only, access time left alone: utimensat with UTIME_OMIT on Unix, SetFileTime on Windows, as .NET's FileSystem.SetLastWriteTime.</summary>
+        public static void SetLastWriteTimeUtc(string path, DateTime lastWriteTimeUtc) => SetWriteTime(path, lastWriteTimeUtc, false);
+
+        internal static void SetWriteTime(string path, DateTime lastWriteTimeUtc, bool isDirectory)
+        {
+            if (path == null) throw new ArgumentNullException("path");
+            string full = PathImpl.GetFullPath(path);
+            long ticks = (lastWriteTimeUtc.Kind == DateTimeKind.Local ? lastWriteTimeUtc.ToUniversalTime() : lastWriteTimeUtc).Ticks - 621355968000000000L;
+            long seconds = ticks / 10000000, rest = ticks % 10000000;
+            if (rest < 0) { seconds--; rest += 10000000; }
+            byte* p = Utf8.ToNative(full);
+            int r = Posix.SetWriteTime(p, seconds, rest * 100);
+            int errno = Posix.Errno;
+            Libc.free(p);
+#if CSHARPC_TARGET_WINDOWS
+            // .NET opens the entry with CreateFile and maps the Win32 error: a missing directory is ERROR_FILE_NOT_FOUND, a FileNotFoundException.
+            isDirectory = false;
+#endif
+            if (r != 0) throw Posix.IOError(errno, full, isDirectory);
+        }
+#endif
+
+#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
         // Unix file modes of an open file's handle (by path: FileStatusImpl, above).
         public static UnixFileMode GetUnixFileMode(Microsoft.Win32.SafeHandles.SafeFileHandle fileHandle)
         {
@@ -343,26 +366,6 @@ namespace CsharpcCoreLib
             Libc.free(link);
             if (r != 0) throw Posix.IOError(errno, hard && errno == Posix.ENOENT ? PathImpl.GetFullPath(pathToTarget) : full, false);
             return new FileInfo(path);
-        }
-
-        /// <summary>utimensat with the access time left alone (UTIME_OMIT), as .NET's FileSystem.SetLastWriteTime.</summary>
-        public static void SetLastWriteTimeUtc(string path, DateTime lastWriteTimeUtc)
-        {
-            if (path == null) throw new ArgumentNullException("path");
-            string full = PathImpl.GetFullPath(path);
-            long ticks = (lastWriteTimeUtc.Kind == DateTimeKind.Local ? lastWriteTimeUtc.ToUniversalTime() : lastWriteTimeUtc).Ticks - 621355968000000000L;
-            long seconds = ticks / 10000000, rest = ticks % 10000000;
-            if (rest < 0) { seconds--; rest += 10000000; }
-            long* times = stackalloc long[4];
-            times[0] = 0;
-            times[1] = Posix.UTIME_OMIT;
-            times[2] = seconds;
-            times[3] = rest * 100;
-            byte* p = Utf8.ToNative(full);
-            int r = Posix.utimensat(Posix.AT_FDCWD, p, times, 0);
-            int errno = Posix.Errno;
-            Libc.free(p);
-            if (r != 0) throw Posix.IOError(errno, full, false);
         }
 #endif
 
@@ -429,6 +432,14 @@ namespace CsharpcCoreLib
         }
 
         public static bool Exists(string path) => !string.IsNullOrEmpty(path) && Posix.IsDirectory(path);
+
+        // The write time of a directory (1601-01-01 for a missing one, as File's), which ZipFile and Tar extraction restore.
+        public static DateTime GetLastWriteTimeUtc(string path) => FileImpl.GetLastWriteTimeUtc(path);
+        public static DateTime GetLastWriteTime(string path) => FileImpl.GetLastWriteTime(path);
+#if !CSHARPC_TARGET_WASI
+        public static void SetLastWriteTime(string path, DateTime lastWriteTime) => FileImpl.SetWriteTime(path, lastWriteTime.ToUniversalTime(), true);
+        public static void SetLastWriteTimeUtc(string path, DateTime lastWriteTimeUtc) => FileImpl.SetWriteTime(path, lastWriteTimeUtc, true);
+#endif
 
         public static DirectoryInfo CreateDirectory(string path)
         {

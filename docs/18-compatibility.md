@@ -325,8 +325,8 @@ parity run (80.6 %) ranked the in-scope blockers; fixed since, each with a regre
 | `Thread.Interrupt` (and an interruptible `Thread.Join` on Windows, as there) | `InterruptThread` | 534 |
 | unreachable unsupported source methods compile as stubs, like IL methods | — | 535 |
 | `[StructLayout(LayoutKind.Explicit)]` / `[FieldOffset]` | — | 536 |
-| `System.IO.Compression` (`BrotliStream`, `ZipArchive`, `ZipFile`) and `System.Formats.Tar` from IL, over .NET's native shims (on Windows the streams and Brotli, not yet zip/tar: `Aes.Create()`, `File.SetLastWriteTimeUtc`) | `zip-tar-best-practices` | 537, 540, 1211 |
-| `Aes`, `CryptoStream`, `RandomNumberGenerator`, HMAC, PBKDF2 over the OS's crypto library | `aesencrypt` | 538 |
+| `System.IO.Compression` (`BrotliStream`, `ZipArchive`, `ZipFile`) and `System.Formats.Tar` from IL, over .NET's native shims | `zip-tar-best-practices` | 537, 540, 1211 |
+| `Aes`, `CryptoStream`, `RandomNumberGenerator`, HMAC, PBKDF2 over the OS's crypto library (OpenSSL on Linux, CommonCrypto on macOS, CNG on Windows) | `aesencrypt` | 538 |
 | exceptions overriding `GetObjectData` | — | 539 |
 | `StringInfo`, `TextElementEnumerator`, `Rune` text elements | `RuneSamples` | 541 |
 | `Utf8Parser`/`Utf8Formatter` for `DateTime`/`DateTimeOffset` | — | 542 |
