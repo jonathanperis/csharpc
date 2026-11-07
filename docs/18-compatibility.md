@@ -326,7 +326,7 @@ parity run (80.6 %) ranked the in-scope blockers; fixed since, each with a regre
 | unreachable unsupported source methods compile as stubs, like IL methods | — | 535 |
 | `[StructLayout(LayoutKind.Explicit)]` / `[FieldOffset]` | — | 536 |
 | `System.IO.Compression` (`BrotliStream`, `ZipArchive`, `ZipFile`) and `System.Formats.Tar` from IL, over .NET's native shims | `zip-tar-best-practices` | 537, 540 |
-| `Aes`, `CryptoStream`, `RandomNumberGenerator`, HMAC, PBKDF2 over the OS's crypto library | `aesencrypt` | 538 |
+| `Aes`, `CryptoStream`, `RandomNumberGenerator`, HMAC, PBKDF2 over the OS's crypto library (OpenSSL on Linux, CommonCrypto on macOS, CNG on Windows) | `aesencrypt` | 538 |
 | exceptions overriding `GetObjectData` | — | 539 |
 | `StringInfo`, `TextElementEnumerator`, `Rune` text elements | `RuneSamples` | 541 |
 | `Utf8Parser`/`Utf8Formatter` for `DateTime`/`DateTimeOffset` | — | 542 |
@@ -344,7 +344,7 @@ Along the way: `Monitor.Wait` lost a pulse that met its interrupt-poll timeout (
 `SemaphoreSlim`/`BlockingCollection` producers, sample 555); `Task.RunSynchronously` now waits for attached
 children (PLINQ's merge disposed its barriers early); event waits on WebAssembly run queued work; P/Invoke
 `bool` parameters into the C runtime trapped on WebAssembly; `UnobservedTaskExceptionEventArgs` and
-`GC.WaitForPendingFinalizers` (sample 554). Still open in this area: RSA (and Aes) on macOS and Windows,
+`GC.WaitForPendingFinalizers` (sample 554). Still open in this area: RSA on macOS and Windows,
 which need Security.framework and CNG.
 
 ## Bugs: wrong output and crashes

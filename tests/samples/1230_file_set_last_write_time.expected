@@ -1,0 +1,11 @@
+file 2009-02-13T23:31:30.1234567Z -> 2009-02-13T23:31:30.1234567Z True Utc
+file 1980-01-01T00:00:00.0000000Z -> 1980-01-01T00:00:00.0000000Z True Utc
+file 1969-07-20T20:17:40.0000000Z -> 1969-07-20T20:17:40.0000000Z True Utc
+file 2040-12-31T23:59:58.0000000Z -> 2040-12-31T23:59:58.0000000Z True Utc
+contents: payload
+directory 2001-09-09T01:46:40.0000000Z
+local round trip: True True
+directory local round trip: True
+FileInfo: True
+missing: FileNotFoundException
+null: ArgumentNullException

@@ -55,6 +55,7 @@ namespace CsharpcCoreLib
         [DllImport("kernel32", SetLastError = true)] private static extern uint GetCurrentDirectoryW(uint length, char* buffer);
         [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)] private static extern int GetFileAttributesExW(string name, int level, byte* data);
         [DllImport("kernel32", SetLastError = true)] private static extern int GetFileInformationByHandle(nint handle, byte* info);
+        [DllImport("kernel32", SetLastError = true)] private static extern int SetFileTime(nint handle, long* creation, long* access, long* write);
         [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)] private static extern nint FindFirstFileW(string pattern, byte* data);
         [DllImport("kernel32", SetLastError = true)] private static extern int FindNextFileW(nint handle, byte* data);
         [DllImport("kernel32")] private static extern int FindClose(nint handle);
@@ -205,6 +206,25 @@ namespace CsharpcCoreLib
             if (GetFileInformationByHandle(_get_osfhandle(fd), info) == 0) return Fail();
             Fill(buffer, *(uint*)info, ((long)*(uint*)(info + 32) << 32) | *(uint*)(info + 36), *(long*)(info + 20), *(long*)(info + 4), true);
             return 0;
+        }
+
+        /// <summary>
+        /// Sets the modification time (seconds and nanoseconds since 1970) of a file or directory, access and
+        /// creation times untouched. As .NET's FileSystem.SetLastWriteTime: the entry is opened with write
+        /// access (so a read-only file is an access error, as there) and all sharing, backup semantics for directories.
+        /// </summary>
+        public static int SetWriteTime(byte* path, long seconds, long nanoseconds)
+        {
+            const uint FILE_SHARE_ALL = 7, FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+            nint handle = CreateFileW(Str(path), GENERIC_WRITE, FILE_SHARE_ALL, null, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, 0);
+            if (handle == InvalidHandle) return Fail();
+            long fileTime = seconds * 10000000 + nanoseconds / 100 + FileTimeUnixEpoch;
+            int ok = SetFileTime(handle, null, null, &fileTime);
+            int error = Marshal.GetLastPInvokeError();
+            CloseHandle(handle);
+            if (ok != 0) return 0;
+            _set_errno(FromWin32(error));
+            return -1;
         }
 
         // ---- directories -----------------------------------------------------------------------
