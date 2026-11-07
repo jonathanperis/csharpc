@@ -14,7 +14,9 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Globalization;
+using System.IO;
 using System.Reflection;
+using System.Resources;
 using System.Threading;
 
 namespace CsharpcCoreLib
@@ -63,7 +65,8 @@ namespace CsharpcCoreLib
     public class ResourceManagerImpl
     {
         private readonly string _baseName;
-        private Dictionary<string, string> _strings;
+        // The sets created so far, by culture name: csharpc is invariant-culture, so only the neutral set ("") exists.
+        private readonly Dictionary<string, ResourceSetImpl> _sets = new Dictionary<string, ResourceSetImpl>();
 
         public ResourceManagerImpl(Type resourceSource)
         {
@@ -82,23 +85,110 @@ namespace CsharpcCoreLib
 
         public virtual bool IgnoreCase { get; set; }
 
+        public virtual Type ResourceSetType => typeof(RuntimeResourceSetImpl);
+
+        /// <summary>
+        /// The set of the neutral resources, created (and kept: closing it closes it for the manager too) on first use. A
+        /// culture's own resources are satellite assemblies, which csharpc doesn't use, so any culture falls back to it.
+        /// </summary>
+        private ResourceSetImpl NeutralSet()
+        {
+            lock (_sets)
+            {
+                if (_sets.TryGetValue("", out ResourceSetImpl known)) return known;
+                Dictionary<string, string> strings = ResourceTable.Find(_baseName)
+                    ?? throw new NotSupportedException("csharpc: no embedded resources named '" + _baseName + ".resources' in the assemblies compiled from IL; this resource lookup is not supported by csharpc yet.");
+                return _sets[""] = new RuntimeResourceSetImpl(this, _baseName, strings);
+            }
+        }
+
+        // ResourceManager.InternalGetResourceSet: the cached set of the culture or, with tryParents, of its first parent that has one;
+        // createIfNotExists loads it, which only the invariant culture can (no satellite assemblies). A set found through the
+        // fallback is remembered under the cultures asked for, as .NET's does.
+        public virtual ResourceSet GetResourceSet(CultureInfo culture, bool createIfNotExists, bool tryParents)
+        {
+            if (culture == null) throw new ArgumentNullException("culture");
+            lock (_sets)
+            {
+                var asked = new List<string>();
+                for (CultureInfo c = culture; ; c = c.Parent)
+                {
+                    if (_sets.TryGetValue(c.Name, out ResourceSetImpl cached))
+                    {
+                        foreach (string name in asked) _sets[name] = cached;
+                        return (ResourceSet)(object)cached;
+                    }
+                    asked.Add(c.Name);
+                    if (c.Name.Length == 0 || !tryParents) break;
+                }
+                if (!createIfNotExists || (culture.Name.Length != 0 && !tryParents)) return null;
+                ResourceSetImpl neutral = NeutralSet();
+                foreach (string name in asked) _sets[name] = neutral;
+                return (ResourceSet)(object)neutral;
+            }
+        }
+
         public virtual string GetString(string name) => GetString(name, null);
 
         public virtual string GetString(string name, CultureInfo culture)
         {
-            string value = Lookup(name);
-            if (value == null) return null;
-            if (value.StartsWith(NonStringPrefix, StringComparison.Ordinal))
-                throw new InvalidOperationException("Resource was of type '" + NonStringTypeName(value) + "' instead of String - call GetObject instead.");
-            return value;
+            if (name == null) throw new ArgumentNullException("name");
+            return NeutralSet().GetString(name, IgnoreCase);
         }
 
         public virtual object GetObject(string name) => GetObject(name, null);
 
         public virtual object GetObject(string name, CultureInfo culture)
         {
-            string value = Lookup(name);
-            if (value == null || !value.StartsWith(NonStringPrefix, StringComparison.Ordinal)) return value;
+            if (name == null) throw new ArgumentNullException("name");
+            object value = NeutralSet().GetObject(name, IgnoreCase);
+            // The stream of a Stream entry is handed out through a wrapper, so each caller has a position of its own.
+            return value is UnmanagedMemoryStream stream ? new UnmanagedMemoryStreamWrapperImpl(stream) : value;
+        }
+
+        public UnmanagedMemoryStream GetStream(string name) => GetStream(name, null);
+
+        public virtual UnmanagedMemoryStream GetStream(string name, CultureInfo culture)
+        {
+            if (name == null) throw new ArgumentNullException("name");
+            object value = NeutralSet().GetObject(name, IgnoreCase);
+            if (value == null) return null;
+            if (value is UnmanagedMemoryStream stream) return stream;
+            throw new InvalidOperationException("Resource '" + name + "' was not a Stream - call GetObject instead.");
+        }
+
+        public virtual void ReleaseAllResources()
+        {
+            lock (_sets)
+            {
+                foreach (ResourceSetImpl set in _sets.Values) set.Dispose();
+                _sets.Clear();
+            }
+        }
+
+        internal static bool IsNonString(string value) => value.StartsWith(NonStringPrefix, StringComparison.Ordinal);
+
+        /// <summary>A primitive, byte array or stream stored by type code (ResourceReader's), not a preserialized user type.</summary>
+        internal static bool IsTypeCoded(string value) => StorageFormat(value) == null;
+
+        /// <summary>The ResourceTypeCode name of a type-coded value ("Int32", "ByteArray", "Stream", "Null"...).</summary>
+        internal static string TypeCodeName(string value)
+        {
+            switch (NonStringTypeName(value))
+            {
+                case "null": return "Null";
+                case "System.Byte[]": return "ByteArray";
+                case "System.IO.Stream": return "Stream";
+                default: return NonStringTypeName(value).Substring("System.".Length);
+            }
+        }
+
+        /// <summary>How .NET names the type in "Resource was of type '...' instead of String": the type code of a stored primitive, the type's name of a preserialized value.</summary>
+        internal static string NonStringTypeDescription(string value) => IsTypeCoded(value) ? TypeCodeName(value) : NonStringTypeName(value);
+
+        /// <summary>The object a stored non-string value stands for (ResourceReader / DeserializingResourceReader).</summary>
+        internal static object ObjectOf(string baseName, string name, string value)
+        {
             string type = NonStringTypeName(value);
             string text = value.Substring(value.IndexOf('\u0001', NonStringPrefix.Length) + 1);
             string stored = StorageFormat(value);
@@ -119,9 +209,9 @@ namespace CsharpcCoreLib
                 object[] converted = CoreIntrinsics.ResourceObjectHook(type, text);
                 if (converted != null) return converted[0] ?? throw new NullReferenceException();
             }
-            throw new NotSupportedException("csharpc: the resource '" + name + "' of '" + _baseName + "' is a " + type
+            throw new NotSupportedException("csharpc: the resource '" + name + "' of '" + baseName + "' is a " + type
                 + (stored != null && stored != ConverterString ? " stored " + StoredHow(stored) : "")
-                + ", which ResourceManager.GetObject does not create yet (only strings, numbers, bools, chars, byte arrays and types whose TypeConverter csharpc can create from the string in the .resx, from the types the project's .resx files name).");
+                + ", which ResourceManager.GetObject does not create yet (only strings, numbers, bools, chars, byte arrays, streams and types whose TypeConverter csharpc can create from the string in the .resx, from the types the project's .resx files name).");
         }
 
         // A preserialized value that is the type converter's string ("\u0002" + this after the type name).
@@ -184,7 +274,8 @@ namespace CsharpcCoreLib
                 case "System.Double": return double.Parse(text, invariant);
                 case "System.Decimal": return decimal.Parse(text, invariant);
                 case "System.Byte[]": return Convert.FromBase64String(text);
-                case "System.DateTime": return new DateTime(long.Parse(text, invariant));
+                case "System.IO.Stream": return ResourceStreams.Open(text);
+                case "System.DateTime": return DateTime.FromBinary(long.Parse(text, invariant));
                 case "System.TimeSpan": return new TimeSpan(long.Parse(text, invariant));
             }
             throw new FormatException();
@@ -207,20 +298,6 @@ namespace CsharpcCoreLib
             int marker = value.IndexOf('\u0002', NonStringPrefix.Length, end - NonStringPrefix.Length);
             return marker < 0 ? null : value.Substring(marker + 1, end - marker - 1);
         }
-
-        private string Lookup(string name)
-        {
-            if (name == null) throw new ArgumentNullException("name");
-            var strings = _strings ??= ResourceTable.Find(_baseName)
-                ?? throw new NotSupportedException("csharpc: no embedded resources named '" + _baseName + ".resources' in the assemblies compiled from IL; this resource lookup is not supported by csharpc yet.");
-            if (strings.TryGetValue(name, out var value)) return value;
-            if (IgnoreCase)
-                foreach (var entry in strings)
-                    if (string.Equals(entry.Key, name, StringComparison.OrdinalIgnoreCase)) return entry.Value;
-            return null;
-        }
-
-        public virtual void ReleaseAllResources() { }
     }
 
     [ShadowMembers("System.AppContext")]

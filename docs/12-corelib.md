@@ -190,6 +190,20 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   as `DeserializingResourceReader` does. A type the closed world can't resolve, `InstanceDescriptor`, `Enum[]`
   conversions, `GetStandardValues` of an enum, and resources stored as BinaryFormatter data, byte arrays or activator
   streams (`Bitmap`, `Icon`, `ResXFileRef`) are explicit `NotSupportedException`s naming the type.
+* **`ResourceSet`, `GetResourceSet` and `GetStream`** (`corelib/ResourceSets.cs`, `Resources.cs`): `ResourceManager` keeps
+  the neutral culture's set (`RuntimeResourceSet`) as .NET's does, so `GetString`/`GetObject` and `GetResourceSet` share it
+  (closing it closes it for the manager until `ReleaseAllResources`). A culture other than the invariant one gets the
+  neutral set only with `tryParents` (there are no satellite assemblies), and a set found through the fallback is
+  remembered under the cultures asked for. `ResourceSet` has `GetString`/`GetObject` with `ignoreCase`, the enumerator,
+  `GetDefaultReader`/`GetDefaultWriter`, `Close`/`Dispose`. Values stored by type code (`ResourceWriter`'s primitives)
+  are boxed once and cached (reading one as a string afterwards is an `InvalidCastException`), byte arrays and
+  `Stream` entries are created on every read, objects `DeserializingResourceReader` creates from preserialized types are
+  made again each time; `GetString` of a non-string names the type code (`'Int32'`, `'ByteArray'`, `'Stream'`) for the former and
+  the type for the latter. `GetStream` is a new read-only `UnmanagedMemoryStream` over a native copy of the bytes
+  (shared per entry, never freed, as the assembly's image is), `GetObject` of a `Stream` entry its
+  `UnmanagedMemoryStreamWrapper`. The front end now keeps `Stream` entries' bytes (`ResourcesFile`). Not provided (rejected
+  at compile time): `new ResourceSet(file|stream|reader)` and subclassing `ResourceSet`. A resource set the closed world
+  has no table for is still the explicit `NotSupportedException` of `GetString`.
 * **`System.Text.Json`** (`corelib/Json/`, see [System.Text.Json](#systemtextjson)).
 * **`EventSource` and `EventListener`** (`corelib/Tracing/EventSource.cs`, `EventListener.cs`): a csharpc executable
   has no EventPipe/ETW session, so what enables an `EventSource` is an in-process `EventListener` (derivable). Without
