@@ -1,8 +1,8 @@
-// Attributes of source members in a nullable-annotated file. csc writes [Nullable]/[NullableContext] into the metadata
-// of members that mention reference types, which csharpc doesn't reproduce: asking such a member for *all* its
-// attributes is an explicit NotSupportedException there (the JIT lists them). What stays exact, and is checked here:
-// queries for an attribute csc never synthesizes (the program's own, [Obsolete]), and the complete lists of members
-// whose signatures have no reference types (nothing is synthesized for them).
+// Attributes of source members in a nullable-annotated file, asked for one attribute class at a time. csc writes
+// [Nullable]/[NullableContext] into the metadata of members that mention reference types (sample 1222 checks the
+// lists csharpc reproduces); what stays exact whatever csc adds, and is checked here: queries for an attribute csc never
+// synthesizes (the program's own, [Obsolete]), and the complete lists of members whose signatures have no reference types
+// (nothing is synthesized for them).
 #pragma warning disable CS0649, CS0169
 using System;
 using System.Collections.Generic;

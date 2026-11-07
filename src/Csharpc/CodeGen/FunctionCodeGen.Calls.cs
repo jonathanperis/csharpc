@@ -200,6 +200,9 @@ public sealed partial class FunctionCodeGen
         {
             if (Intrinsics.TryGet(method, out var handler)) return handler(this, inv);
             if (BclValueTypes.TryGet(method, out var bcl)) return CallBcl(bcl, method, null, inv.Arguments, inv);
+            // float.Sin, double.Hypot ...: the corelib's C# (FloatingPointMath.cs), as for a direct call.
+            if (_m.CoreLib.Map(method) is { } shadow && !SymbolEqualityComparer.Default.Equals(shadow, method) && _m.IsUserMethod(shadow))
+                return EmitUserCall(shadow, default, true, inv.Arguments, isVirtual: false);
         }
         return null;
     }

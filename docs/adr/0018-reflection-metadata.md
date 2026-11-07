@@ -134,6 +134,25 @@ csharpc keeps reflection metadata the same way, generated at compile time by
   type unknown the same way instead of silently one method short. The nullable context is the project's setting
   (`Nullable`, per file with its `#nullable` directives), not Roslyn's: codegen binds a compilation with the context off.
   Tests: `tests/samples/1070_reflection_source_attributes`, `1071_reflection_nullable_attributes`.
+- `[NullableContext]` and `[Nullable]` (2026-11-07, `ModuleCodeGen.NullableAttributes.cs`): reproduced exactly for source in
+  an annotations context, by csc's own algorithm. Codegen binds with the nullable context off, so the annotations are read
+  from the declarations' syntax, aligned with the symbols' structure. A type is a list of bytes in preorder (0 oblivious,
+  1 not annotated, 2 annotated; every reference type, array and type parameter, containing types' arguments first; a generic
+  struct 0 plus its arguments; other value types nothing, and `X?` for a struct X what X writes). A member's type votes for
+  its byte when the bytes are all equal; a method votes once, with the most common value of its return type, parameters and
+  type parameters; a type votes with its base type (`[0, arguments...]`), the interfaces it lists itself (all, but its base
+  type's), its type parameters, and every member: fields, properties and events (accessors, auto-property backing fields),
+  methods, nested types (lambdas and local functions don't). The winner is the most common value, ties to 0, then 1; the
+  type or method carries `[NullableContext]` when it differs from what its container passes down (nothing at the top: 0),
+  and a type with a base type `[Nullable]` for it unless its bytes are the inherited value; whatever else differs from the
+  context gets `[Nullable]` (a byte, or the array when not all equal). The order is `[NullableContext]`, `[Nullable]`, then
+  the other synthesized attributes, then the source's own. The attribute classes are the public ones of the .NET 11 reference
+  assemblies (csc embeds nothing; the corelib shadows them). Validated against the JIT's reflection on ~80 hand-written shapes (sample 1222) and
+  several hundred randomly generated types. Still the explicit unknown list (untyped queries throw): records, delegates,
+  indexers, primary constructors, type parameters with constraint types or `new()`, generic overrides and explicit
+  implementations, nested types of generic types, a type that mixes `#nullable` regions, names csharpc can't match to the
+  symbol (aliases of constructed types, tuples over seven elements), pointers, `dynamic`; and the attributes of a
+  *return value*, which `ReturnParameter` doesn't list for any method yet. `NullabilityInfoContext` can be built on this data.
 - Added for expression trees (2026-10-30, [18](../18-compatibility.md#expression-trees)): standalone
   records of the members a program names directly — `ldtoken` + `GetMethodFromHandle`/`GetFieldFromHandle`
   and the `MethodInfo`/`FieldInfo` constants of lowered expression trees — with a per-method identity, so

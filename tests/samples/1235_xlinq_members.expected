@@ -1,0 +1,33 @@
+item {urn:example}item item urn:example
+True False True True True
+True True False True
+first
+no namespace
+True
+1 pt True
+3
+True
+changing Add XElement
+changed Add
+changing Remove XText
+changed Remove
+changing Add XText
+changed Add
+changing Value XAttribute
+changed Value
+changing Add XAttribute
+changed Add
+changing Remove XAttribute
+changed Remove
+changing Remove XElement
+changed Remove
+changing Name XElement
+changed Name
+<root id="2" p1:lang="pt" xmlns:p1="urn:example" xmlns="urn:example">
+  <p1:renamed n="1">first</p1:renamed>
+  <p1:item n="2">second</p1:item>
+  <plain xmlns="">changed text</plain>
+</root>
+1,2
+True
+1

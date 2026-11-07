@@ -542,8 +542,10 @@ public sealed partial class ModuleCodeGen
         if (definition.MetadataToken != 0 || !definition.Locations.Any(l => l.IsInSource)) return null;
         // Source types: Roslyn's symbols omit the attributes the compiler synthesizes into metadata.
         synthesizedUnknown = SynthesizesTypeAttributes(definition);
-        // [StructLayout] is the type's layout flag, not a listed attribute.
-        return definition.GetAttributes().Where(a => !IsUnlistedAttribute(a)).Select(FromAttributeData).OfType<AttributeInstance>().ToList();
+        // [StructLayout] is the type's layout flag, not a listed attribute. [NullableContext] and [Nullable] come first.
+        var declared = definition.GetAttributes().Where(a => !IsUnlistedAttribute(a)).Select(FromAttributeData).OfType<AttributeInstance>().ToList();
+        if (NullableTypeAttributes(definition) is { } nullable) declared.InsertRange(0, nullable);
+        return declared;
     }
 
     /// <summary>Whether Roslyn emits attributes for a source type that its symbol doesn't list (Nullable, DefaultMember, Extension, IsReadOnly...).</summary>
@@ -555,7 +557,7 @@ public sealed partial class ModuleCodeGen
             return true;
         // Nullable annotations in the declaration become [NullableContext]/[Nullable] attributes: on the type when its base
         // class or members mention reference types.
-        return TypeHasNullableAttributes(type);
+        return !NullableOf(type).Exact && TypeHasNullableAttributes(type);
     }
 
     /// <summary>A generic parameter's attributes; null when csharpc can't know them exactly.</summary>
@@ -570,7 +572,10 @@ public sealed partial class ModuleCodeGen
             return DecodeAttributes(il, row.GetCustomAttributes(), owner is INamedTypeSymbol t ? IlGenericContext.For(t) : IlGenericContext.For((IMethodSymbol)owner)).ToList();
         }
         if (owner.MetadataToken != 0 || !owner.Locations.Any(l => l.IsInSource)) return null;
-        // Source: [Nullable] on constrained or annotated parameters is synthesized.
+        // Source: [Nullable] where the parameter's value differs from the context (ModuleCodeGen.NullableAttributes.cs).
+        if (NullableGenericParameterAttributes(parameter) is { } nullable)
+            return [.. nullable, .. parameter.GetAttributes().Select(FromAttributeData).OfType<AttributeInstance>()];
+        // Otherwise [Nullable] on constrained or annotated parameters is synthesized.
         if (parameter.HasNotNullConstraint || parameter.ConstraintTypes.Length > 0
             || (AnnotationsEnabled(owner) && !parameter.HasValueTypeConstraint && !parameter.HasUnmanagedTypeConstraint)
             || (owner is INamedTypeSymbol ownerType ? SynthesizesTypeAttributes(ownerType) : owner.ContainingType is { } c && SynthesizesTypeAttributes(c)))
@@ -836,9 +841,10 @@ public sealed partial class ModuleCodeGen
         else
         {
             instances = [];
+            // csc puts a [Nullable] attribute on the backing field where it does on the event, before [CompilerGenerated].
+            if (NullableEventAttributes(definition) is { } nullable) instances.AddRange(nullable);
+            else if (NeedsNullableAttribute(definition)) attributes |= FieldAttributesUnknown;
             AddCompilerGeneratedFieldAttributes(instances);
-            // csc puts a [Nullable] attribute on the backing field where it does on the event; Roslyn's symbols hide both.
-            if (NeedsNullableAttribute(definition)) attributes |= FieldAttributesUnknown;
             // `[field: X] event E;`: Roslyn's event symbol doesn't expose the attributes the field gets.
             if (definition.DeclaringSyntaxReferences.Any(r => r.GetSyntax().AncestorsAndSelf().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.EventFieldDeclarationSyntax>()
                     .Any(d => d.AttributeLists.Any(l => l.Target?.Identifier.IsKind(Microsoft.CodeAnalysis.CSharp.SyntaxKind.FieldKeyword) == true))))
@@ -930,8 +936,10 @@ public sealed partial class ModuleCodeGen
         {
             instances = definition.GetAttributes().Select(FromAttributeData).OfType<AttributeInstance>().ToList();
             // Reference-assembly events: the implementation's attributes can differ. Source events whose type needs
-            // a [Nullable] attribute csc synthesizes (Roslyn's symbols omit them).
-            if (definition.MetadataToken != 0 || NeedsNullableAttribute(definition)) flags |= 4; // CSRT_EVENT_ATTRIBUTES_UNKNOWN
+            // a [Nullable] attribute csc synthesizes (Roslyn's symbols omit them) have it listed first when csharpc can reproduce it.
+            var nullable = definition.MetadataToken == 0 ? NullableEventAttributes(definition) : null;
+            if (nullable is not null) instances.InsertRange(0, nullable);
+            if (definition.MetadataToken != 0 || (nullable is null && NeedsNullableAttribute(definition))) flags |= 4; // CSRT_EVENT_ATTRIBUTES_UNKNOWN
         }
         // Inherited events don't expose private accessors; a virtual one stands for the override visible from the
         // reflected type, which a C# override of an event lists as its own event instead.
@@ -951,8 +959,8 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     private bool NeedsNullableAttribute(IEventSymbol e)
     {
-        if (!AnnotationsEnabled(e)) return false;
-        return e.ContainingType.GetMembers().OfType<IEventSymbol>().Any(x => x.NullableAnnotation == NullableAnnotation.Annotated || x.Type.NullableAnnotation == NullableAnnotation.Annotated);
+        // The annotations come from the syntax (codegen's compilation has the nullable context off): any reference type may carry one.
+        return AnnotationsEnabled(e) && NullableRelevant(e.Type);
     }
 
     private FieldRecordData FieldRecord(IFieldSymbol field)
