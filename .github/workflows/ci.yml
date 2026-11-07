@@ -11,9 +11,8 @@ name: CI
 # Manual targeted runs are the separate "CI (targeted)" workflow. Dispatching THIS workflow is a
 # full gate. `gh workflow run` is 403 from the agent checkout; push a ci/** branch instead.
 #
-# Shard counts (tools/ci-plan.sh) come from run 40310822368: x86-64 differential 38.5 min and
-# windows 49.1 min get 4 shards; arm64 (35.4), macOS (29.5) and wasm (21.5) get 2, because arm
-# and macOS runners queue and wasm shares ubuntu-24.04 with x86-64.
+# A shard compiles and runs several samples at once (CSHARPC_JOBS, tests/run.sh). Shard counts
+# (tools/ci-plan.sh, measured in docs/05-testing.md): x86-64 3, the other platforms 2.
 on:
   push:
     # ci/** is the long-lived namespace for measurement branches (docs/20-status.md).
@@ -111,6 +110,7 @@ jobs:
           CI_OPT: ${{ matrix.opt }}
           CI_SHARD: ${{ matrix.shard }}
           CI_SHARDS: ${{ matrix.shards }}
+          CI_PLATFORM: ${{ matrix.platform }}
           CI_REPEAT: ${{ needs.plan.outputs.repeat }}
         run: bash tools/ci-plan.sh run-shard
 

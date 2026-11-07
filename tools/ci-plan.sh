@@ -7,15 +7,28 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Shard counts measured from CI run 40310822368 (docs/05-testing.md). x86-64 and Windows are the
-# long poles and have runners to spare. arm64 and macOS queue, so two shards keeps them inside
-# the wall-clock target without a second wave. wasm shares ubuntu-24.04 with x86-64; two shards
-# is enough (the unsharded differential step was 21.5 min).
+# Shard counts. With CSHARPC_JOBS samples at once a shard runs 2-3x faster than the sequential one
+# the counts were first measured on (run 40310822368, docs/05-testing.md), so a platform needs only
+# as many shards as it takes to finish near its suites job (7-26 min). That keeps the gate's wall
+# clock where the suites job puts it and spends fewer runner minutes, which are what queue.
+# Measured on run 42269384295 (docs/05-testing.md, "Shard counts").
 shard_count() {
   case "$1" in
-    x86-64|windows-x64) echo 4 ;;
-    arm64|macos-arm64|wasm32-wasi) echo 2 ;;
+    x86-64) echo 3 ;;
+    windows-x64|arm64|macos-arm64|wasm32-wasi) echo 2 ;;
     *) echo "unknown platform: $1" >&2; return 1 ;;
+  esac
+}
+
+# Samples a shard compiles and runs at once (tests/run.sh, CSHARPC_JOBS). GitHub's hosted runners
+# have 4 vCPUs (ubuntu, windows, ubuntu-24.04-arm) and 3 on macOS (macos-15 arm64); a compilation
+# is itself multi-threaded, so about one sample per core already keeps the cores busy while others
+# wait for the linker and the sample's own run. macOS: 2 at once took 19-25 min a shard (run
+# 42269384295), 3 took 16-19 min (run 42308195548); sequential it was 28-35.
+jobs_for_platform() {
+  case "$1" in
+    x86-64|arm64|windows-x64|wasm32-wasi|macos-arm64) echo 3 ;;
+    *) echo 1 ;;
   esac
 }
 
@@ -537,7 +550,9 @@ cmd_run_shard() {
   if [[ "$opt" == all ]]; then args+=(--all-opts); else args+=(--opt "$opt"); fi
   if [[ "$repeat" != 1 ]]; then args+=(--repeat "$repeat"); fi
   if [[ -n "$filter" ]]; then args+=("$filter"); fi
-  bash "$ROOT/tests/run.sh" "${args[@]}"
+  # CSHARPC_JOBS from the workflow (or a local override) wins; a flake-hunting repeat stays sequential
+  # inside tests/run.sh whatever this says.
+  CSHARPC_JOBS="${CSHARPC_JOBS:-$(jobs_for_platform "${CI_PLATFORM:-}")}" bash "$ROOT/tests/run.sh" "${args[@]}"
 }
 
 cmd_coverage() {
@@ -671,7 +686,7 @@ cmd_self_check() {
   all="$(bash "$ROOT/tests/run.sh" --list | LC_ALL=C sort)"
   : >"$tmp/union"
   local i n
-  for n in 2 4; do
+  for n in 2 3 4; do
     : >"$tmp/union"
     for ((i = 0; i < n; i++)); do
       bash "$ROOT/tests/run.sh" --list --shard "$i/$n" >>"$tmp/union"
@@ -752,6 +767,17 @@ EOF
   listed="$(bash "$ROOT/tests/run.sh" --list --shard 0/4 | wc -l)"
   pairs="$(wc -l <"$tmp/man")"
   [[ "$pairs" == $((listed * 2)) ]] || { echo "manifest pair count $pairs vs $listed"; fail=1; }
+
+  # Every platform has a parallelism, and every name in tests/serial-samples.txt is a real sample.
+  local p line
+  for p in $ALL_PLATFORMS; do
+    [[ "$(jobs_for_platform "$p")" =~ ^[1-9][0-9]*$ ]] || { echo "no sample parallelism for $p"; fail=1; }
+  done
+  while IFS= read -r line; do
+    line="${line%%#*}"; line="${line//[[:space:]]/}"
+    [[ -z "$line" ]] && continue
+    [[ -f "$ROOT/tests/samples/$line.cs" ]] || { echo "tests/serial-samples.txt names a missing sample: $line"; fail=1; }
+  done < "$ROOT/tests/serial-samples.txt"
 
   # Identical-tree skip, on a scratch repository with the gate lookup stubbed to a list of green commits.
   # `main` is A; the PR forks at A with P (one file changed).
