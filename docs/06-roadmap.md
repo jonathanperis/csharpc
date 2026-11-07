@@ -18,7 +18,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Multi-file programs, `.csproj` input, `ProjectReference` | ✅ | whole-program, see [08-drop-in.md](08-drop-in.md) |
 | `dotnet build -p:UseCsharpc=true`, `dotnet publish -p:PublishCsharpc=true` | ✅ | `Csharpc.Sdk` package |
 | File-based apps (`#:property` directives) | ✅ | |
-| Assemblies without sources: `-r X.dll`, `<Reference>`, NuGet `PackageReference` | 🟡 | IL front-end (M5): the IL side is complete except `calli`/TypedReference; packages still hit BCL gaps (M2) |
+| Assemblies without sources: `-r X.dll`, `<Reference>`, NuGet `PackageReference` | 🟡 | IL front-end (M5): the IL side is complete except TypedReference and `jmp` (`calli` and function pointers done); packages still hit BCL gaps (M2) |
 | The program as IL: `csharpc app.dll` (csc's output, the dotnet pipeline's input) | 🟡 | M5: every sample passes through `tests/run.sh --via-il` (`dynamic` and reflection-based JSON of private nested types included) |
 
 ### Types
@@ -180,8 +180,9 @@ through both. With M2 and M4 this is what makes csharpc a drop-in replacement fo
 
 Design: [ADR 0010](adr/0010-il-frontend.md) — IL is a second method-body source for Roslyn's metadata
 symbols, lowered through the same `FunctionCodeGen` (synthetic `IOperation`s for library-facing
-instructions). Done: `-r`, `<Reference>` and `PackageReference` input; all opcodes but `calli`, `jmp`,
-TypedReference ones and `ckfinite`; generics, virtual/interface dispatch across the source/IL
+instructions). Done: `-r`, `<Reference>` and `PackageReference` input; all opcodes but `jmp`,
+TypedReference ones and `ckfinite` (`calli` through managed and unmanaged function pointers works,
+see below); generics, virtual/interface dispatch across the source/IL
 boundary, EH incl. filters, static constructors (`beforefieldinit`), RVA data, P/Invoke, events,
 compiled C# idioms (interpolation handlers, closures, iterators, records, generic math); unreachable
 failures compile to stubs (`CSLLVM0007`); compiled `async` (method builders, awaiters, async
@@ -204,6 +205,14 @@ nested types too (the binding compilation reads the program with those types mar
 [ADR 0010](adr/0010-il-frontend.md#the-program-as-il-2026-10-30)). Left as diagnostics from IL: JSON of
 anonymous, file-local and other compiler-generated types, as in source. Gaps between the two front-ends are bugs.
 
+**Function pointers and `calli`**: `delegate*<...>` calls and IL `calli` share one lowering (managed signatures:
+csharpc's own convention, `ref`/`out`/`in` and `ref` returns, structs, generics). `delegate* unmanaged` calls and
+`&[UnmanagedCallersOnly]` entries follow the platform's C ABI as a P/Invoke of the same function does: structs
+by value (System V eightbytes, byval/sret, AAPCS64, Win64), `bool` as a 4-byte BOOL, small integers extended by the
+caller (samples 1150-1152, checked against libc/libm and across both ends); `&Math.Sqrt` and other library static
+methods can be pointer targets (sample 1153). Left as diagnostics: `calli` with an instance signature or
+`vararg`, and `char`/`string`/array/delegate in an unmanaged function pointer's signature (.NET marshals them).
+
 **RID-specific and native package assets** (2026-11-06): the packages' `runtimes/<rid>/lib` assemblies and
 `runtimes/<rid>/native` libraries for the target's runtime identifier, as the host and `PublishAot` select them. A
 project with packages is restored for the target's RID (`--target` -> linux-x64, linux-arm64, osx-arm64, win-x64;
@@ -213,8 +222,7 @@ with the runtime graph's fallbacks (linux-x64 -> linux -> unix-x64 -> unix -> an
 next to the executable, where a P/Invoke probes first (`tests/il.sh`, RidApp, against a package built locally).
 Left: satellite resource assemblies, `ref/` vs `lib/` binding, linking a package's static archives.
 
-Next: `-g` from the assembly's PDB, the BCL
-surface packages use (ranked by the survey), `typeof(X).Assembly`, `calli`.
+Next: `-g` from the assembly's PDB, the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`.
 
 ### M6 — Bootstrapping
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.

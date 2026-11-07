@@ -111,6 +111,7 @@ jobs:
           CI_OPT: ${{ matrix.opt }}
           CI_SHARD: ${{ matrix.shard }}
           CI_SHARDS: ${{ matrix.shards }}
+          CI_PLATFORM: ${{ matrix.platform }}
           CI_REPEAT: ${{ needs.plan.outputs.repeat }}
         run: bash tools/ci-plan.sh run-shard
 
