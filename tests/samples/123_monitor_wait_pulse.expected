@@ -4,3 +4,4 @@ after set: 7 True
 max concurrent: 2 free: 2
 countdown done: True
 handoffs: 3
+ping-pong: 2000 2000
