@@ -129,7 +129,9 @@ await Pair("protocol mismatch",
     },
     async (ssl, raw) =>
     {
-        await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = "localhost", EnabledSslProtocols = SslProtocols.Tls12, RemoteCertificateValidationCallback = (s, c, ch, e) => true });
+        // The inner exception's text is the TLS library's own (OpenSSL's, SChannel's): only the outer one is compared.
+        try { await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = "localhost", EnabledSslProtocols = SslProtocols.Tls12, RemoteCertificateValidationCallback = (s, c, ch, e) => true }); }
+        catch (Exception e) { return "failed: " + e.GetType().Name + ": " + e.Message; }
         return "authenticated";
     }, printServer: false);
 
@@ -170,7 +172,8 @@ await Pair("client certificate required but missing",
             });
             return "authenticated";
         }
-        catch (Exception e) { return Describe(e) + " | " + seen; }
+        // Whether the server learns of the missing certificate by its own rejection or by the client's reset is the TLS stack's.
+        catch (Exception e) when (e is AuthenticationException || e is IOException) { return "failed | " + seen; }
     },
     async (ssl, raw) =>
     {

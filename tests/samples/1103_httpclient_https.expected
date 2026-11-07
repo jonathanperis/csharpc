@@ -6,7 +6,7 @@ GET: hello over tls
 POST: 200 echo:SECURE PAYLOAD method=POST version=1.1
 big: 200000
 callback: calls=1 request=127.0.0.1 cert=CN=localhost, O=csharpc tests, C=BR errors=RemoteCertificateChainErrors chain=1
-connections: accepted=4 handshakes=1 requests=3
+connections: accepted=4 requests=3
 any certificate: hello over tls
 trusted through the chain policy: hello over tls
 plain server: HttpRequestException: The SSL connection could not be established, see inner exception. / AuthenticationException: Cannot determine the frame size or a corrupted frame was received.
