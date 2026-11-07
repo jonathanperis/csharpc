@@ -21,7 +21,7 @@ an item blocks (each failed method reports its first failure) instead of the num
 
 usage: tools/il-survey/survey.py [--packages FILE] [--csharpc DLL] [--jobs N] [--timeout SEC]
                                  [--work DIR] [--out REPORT.md] [--only ID[,ID...]]
-                                 [--local NAME=DLL[,DLL...]]... [--no-packages] [--shards N]
+                                 [--local NAME=DLL[,DLL...]]... [--no-packages] [--shards N] [--package-shard I/N]
                                  [--survey-assemblies A[,B...]] [--rank-by packages|methods]
 """
 import argparse
@@ -431,6 +431,8 @@ def main():
     ap.add_argument("--survey-assemblies", default=None, help="lower only these assemblies' methods (csharpc --il-survey=A,B)")
     ap.add_argument("--shards", type=int, default=1, help="compiles per target, each surveying one shard of the types")
     ap.add_argument("--shard-index", type=int, default=None, help="with --shards: run only this shard (CI runs shards as parallel jobs)")
+    ap.add_argument("--package-shard", default=None, metavar="I/N",
+                    help="survey only every N-th package of the packages file, starting at the I-th (CI runs the slices as parallel jobs)")
     ap.add_argument("--rank-by", choices=["packages", "methods"], default="packages")
     ap.add_argument("--merge", nargs="+", default=None, metavar="RESULTS.json",
                     help="no compiles: merge the results.json of shard runs into one report")
@@ -451,6 +453,9 @@ def main():
     if args.only:
         wanted = {x.lower() for x in args.only.split(",")}
         packages = [p for p in packages if p[0].lower() in wanted]
+    if args.package_shard:
+        index, _, count = args.package_shard.partition("/")
+        packages = packages[int(index)::int(count)]
     framework = framework_dir()
     print(f"survey: {len(packages)} packages, work dir {args.work}, framework {framework}", flush=True)
     cache, results = {}, []
