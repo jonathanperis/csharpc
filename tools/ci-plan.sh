@@ -23,8 +23,8 @@ shard_count() {
 # Samples a shard compiles and runs at once (tests/run.sh, CSHARPC_JOBS). GitHub's hosted runners
 # have 4 vCPUs (ubuntu, windows, ubuntu-24.04-arm) and 3 on macOS (macos-15 arm64); a compilation
 # is itself multi-threaded, so about one sample per core already keeps the cores busy while others
-# wait for the linker and the sample's own run. Run 42269384295 used 2 on macOS (its shard took
-# 24 min, 1.45x faster than sequential); 3 is tried there next.
+# wait for the linker and the sample's own run. macOS: 2 at once took 19-25 min a shard (run
+# 42269384295), 3 took 16-19 min (run 42308195548); sequential it was 28-35.
 jobs_for_platform() {
   case "$1" in
     x86-64|arm64|windows-x64|wasm32-wasi|macos-arm64) echo 3 ;;

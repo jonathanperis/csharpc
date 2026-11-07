@@ -136,7 +136,7 @@ fails if any shard or the suites job failed, or if the shard manifests do not li
 `-O0` and at `-O2` exactly once (`tools/ci-plan.sh coverage`). Shards are a round-robin over the
 `LC_ALL=C` sorted sample names (`tests/run.sh --shard INDEX/COUNT`).
 
-Each shard compiles and runs several samples at once (`CSHARPC_JOBS`, 3 per platform), which makes it
+Each shard compiles and runs several samples at once (`CSHARPC_JOBS`, 3 on every platform; 2 on macOS took 19-25 min), which makes it
 2-3x faster than the sequential shard the counts were first chosen for, so a platform needs fewer
 of them: x86-64 3, the other platforms 2 (14 diff jobs became 11). The queue, not the work, was the
 delay (runner minutes are capped across the repository), so the counts aim at finishing near the
@@ -152,10 +152,11 @@ and [42308195548](https://github.com/jonathanperis/csharpc/actions/runs/42308195
 | Windows shard | 22-24 min (4 shards) | 22-26 min (2 shards) |
 | arm64 shard | 35-38 min | 14-16 min |
 | wasm shard | 32-33 min | 11-19 min |
-| shard minutes, all platforms | 366 | see the pull request |
+| macOS shard | 28-35 min (2 shards) | 16-19 min (2 shards, 3 at once) |
+| diff job minutes, all platforms | 366 | 180 |
 
 The suites jobs (size, conformance, programs, projects, IL; 11-21 min) are unchanged and now set the
-wall clock of an unqueued gate on every platform except macOS.
+wall clock of an unqueued gate (Windows 21 min against 22-26 for its shards).
 
 A push or pull request that only touches `docs/**`, `*.md`, or `LICENSE` / `COPYING` / `NOTICE` /
 `AUTHORS` skips the compiler suite when some ancestor of that commit already has the five `test`
