@@ -78,7 +78,16 @@ public static class NativeAotPack
                 if (known is null) reason = $"the NativeAOT runtime pack {PackageId(rid)} {version} could not be restored";
                 return known;
             }
-            var dir = Find(rid, version) ?? (Restore(rid, version) ? Find(rid, version) : null);
+            // A restore can fail for reasons that pass (a network hiccup, NuGet's own locking while a compile running in
+            // parallel restores the same pack): retry, and look in the packages folder again each time, because that other
+            // compile may have finished it.
+            var dir = Find(rid, version);
+            for (var attempt = 0; dir is null && attempt < 3; attempt++)
+            {
+                if (attempt > 0) System.Threading.Thread.Sleep(2000 * attempt);
+                Restore(rid, version);
+                dir = Find(rid, version);
+            }
             s_directories[key] = dir;
             if (dir is null) reason = $"the NativeAOT runtime pack {PackageId(rid)} {version} could not be restored";
             return dir;
