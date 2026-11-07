@@ -205,9 +205,19 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   boxed arguments for `params object[]`), activity ids, thread id and time stamp. `OnEventSourceCreated` runs for
   the sources that exist when a listener is created (from the listener's base constructor, before the derived
   constructor, as in .NET) and for later ones; a new `EventSourceCreated` handler hears of the existing sources
-  at once. `Write(name)` / `Write(name, options)` dispatch; `Write<T>` with a payload throws a
-  `NotSupportedException` when a listener would receive it (.NET reads the payload from the properties of an
-  anonymous or `[EventData]` type by reflection). Differences: a listener does not see the EventSources .NET's runtime
+  at once. `Write(name)` / `Write(name, options)` dispatch (null `Payload` and `PayloadNames`). `Write<T>` reads the
+  payload as .NET does (`corelib/Tracing/SelfDescribing.cs`): the public instance properties of an anonymous type or a
+  type marked `[EventData]` (derived type first, `[EventIgnore]` honored), as scalars (primitives, enums, `Guid`,
+  `DateTime`, `DateTimeOffset`, `TimeSpan`, `decimal`, nullables), strings (null becomes `""`), nested payload types (a
+  read-only `IDictionary<string, object>`), and arrays (the array itself for primitives and `Guid`, an `object[]` of the
+  converted elements otherwise), through csharpc's reflection metadata (`T` is annotated `PublicProperties`; the compiler
+  adds the types of its properties, `MarkEventPayloadGraph`; an anonymous type has a Type object and getter functions
+  for it). The analysis runs whenever the source is enabled and fails as .NET does (`ArgumentException` for a
+  non-compliant type, `ArgumentNullException` for a primitive or enumerable `T`, `NotSupportedException` for string and
+  nested arrays, an `EventSourceMessage` event when the data can't be read); a self-describing event is checked
+  against the source's widest level and keywords and then goes to every listener that enabled the source. Not
+  reproduced (an explicit `NotSupportedException`): multi-dimensional array and non-array enumerable properties,
+  recursive payload types. Differences: a listener does not see the EventSources .NET's runtime
   and libraries create (`Microsoft-Windows-DotNETRuntime`, `System.Runtime`, `System.Threading.Tasks.TplEventSource` ...),
   so `GetSources()` lists only the program's own; the manifest check that .NET makes by reading each event method's IL
   ("Event X was assigned event ID n but m was passed to WriteEvent") is not made; `SendCommand`, `GenerateManifest`

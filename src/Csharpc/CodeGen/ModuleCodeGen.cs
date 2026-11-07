@@ -354,6 +354,7 @@ public sealed partial class ModuleCodeGen
         if (method.PartialDefinitionPart is { } partialDefinition) method = partialDefinition; // one function per partial member
         if (!_slotReference) NoteReference(method, virtualCall: false);
         if (_functions.TryGetValue(method, out var existing)) return existing;
+        if (method is { MethodKind: MethodKind.PropertyGet, ContainingType.IsAnonymousType: true }) return _functions[method] = AnonymousGetter(method);
         if (generic && TypeSubstitution.IsOpen(method))
             throw CompileError.Unsupported($"open generic instantiation '{method}'", method);
         if (generic) { CheckGenericDepth(method); NoteDynamicallyAccessedInstantiation(method); }

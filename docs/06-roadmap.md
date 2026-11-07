@@ -251,8 +251,8 @@ loops with a loop state, `Task.AsyncState`/`CreationOptions`/`Dispose`/`IAsyncRe
 (what `AggregateException.InnerExceptions` is cast to), `Task.Run(Func<Task>)` canceling on an
 `OperationCanceledException` as .NET's unwrap proxy does, the "continuation task" errors of `Start`/`RunSynchronously`,
 a null `AggregateException` message, and lambdas inside a `when` filter (their blocks were taken for the filter's and
-lowered as `unreachable`; samples 1060-1063); still open: `EventSource.Write<T>` payloads, `TaskFactory.ContinueWhenAll/Any/FromAsync`,
-type identity of tasks (`GetType()` and `is Task<T>`).
+lowered as `unreachable`; samples 1060-1063); still open: `TaskFactory.ContinueWhenAll/Any/FromAsync`,
+type identity of tasks (`GetType()` and `is Task<T>`). `EventSource.Write<T>` payloads (anonymous and `[EventData]` types, #121; samples 1210-1211, [12-corelib.md](12-corelib.md)) are closed.
 Roslyn from IL, measured: the `IL survey` workflow's `roslyn` target lowers every method of Roslyn and
 `csharpc.dll` in 16 parallel shards and ranks what stops them
 ([18-compatibility.md](18-compatibility.md#roslyn-and-csharpc)). On branch `m6-roslyn` the Roslyn methods
