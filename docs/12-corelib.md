@@ -1,4 +1,4 @@
-# 10 — The shadow corelib (BCL in C#)
+# 12 — The shadow corelib (BCL in C#)
 
 csharpc's route to drop-in BCL coverage: library types re-implemented **in C#**, compiled by csharpc
 together with the user's program (closed world: monomorphized, inlined and optimized by LLVM along with
@@ -350,8 +350,7 @@ all option combinations) checks.
   unchanged; a program serializing a few types through a source-generated context is about 1 MB, one
   using the reflection-style API about 1.5 MB, and these compile in 20–60 s (most of it in LLVM).
 * **Explicit diagnostics (CSLLVM0001/0002)** instead of run-time surprises: anonymous types with the
-  reflection-style API, `Guid` members and BCL types csharpc
-  doesn't implement yet (`ConcurrentDictionary`, `ReadOnlyCollection`, immutable collections).
+  reflection-style API and the BCL members csharpc doesn't implement.
 
 Codegen improvements made along the way (general, not corelib-specific): generic structs, structs
 implementing interfaces (constrained calls on struct receivers), property/indexer lvalue captures
@@ -431,8 +430,8 @@ corelib methods the program reaches from IL, with no parsing or binding of the c
 * Non-generic `IEnumerator.Current` / `IComparer` on tuple element types throw
   `NotSupportedException` when executed. (Boxed structs do have interface maps: the corelib's struct
   enumerators are `IEnumerator<T>`/`IEnumerator`/`IDisposable` when boxed, as in .NET.)
-* Anonymous types (multi-`from` queries with `let`/`where`), `ImmutableArray`/`Immutable*`,
-  `BitArray`, `ObservableCollection`, `Tuple<...>` classes not yet shadowed (this list predates the ports above).
+* `System.Collections.Immutable` is not shadowed: it is compiled from the shared framework's IL
+  ([ADR 0013](adr/0013-framework-il.md)).
 * `SortedDictionary`/`SortedSet` use sorted arrays (same order, O(n) insertion).
 * **`ObjectiveCMarshal`** (`corelib/ObjectiveCMarshal.cs`, the hooks of the .NET for macOS / iOS bindings): off macOS
   every member throws `PlatformNotSupportedException` as .NET does. On macOS the reference tracking works as in
