@@ -28,6 +28,12 @@ namespace CsharpcCoreLib
         // like any LoadLibrary; a program that uses no certificate or TLS type never loads them.
         internal const string Crypto = "libcrypto-3-x64.dll";
         internal const string Ssl = "libssl-3-x64.dll";
+#elif CSHARPC_TARGET_MACOS
+        // macOS ships no OpenSSL 3 (its libssl is LibreSSL, which system software may not load): Homebrew's openssl@3, whose
+        // Apple-silicon prefix is fixed. The absolute path makes a machine without it fail with a DllNotFoundException that
+        // names the library, not with a dlopen search through unrelated directories.
+        internal const string Crypto = "/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib";
+        internal const string Ssl = "/opt/homebrew/opt/openssl@3/lib/libssl.3.dylib";
 #else
         internal const string Crypto = "libcrypto.so.3";
         internal const string Ssl = "libssl.so.3";
@@ -79,6 +85,9 @@ namespace CsharpcCoreLib
         [DllImport(Crypto)] internal static extern IntPtr X509_STORE_new();
         [DllImport(Crypto)] internal static extern void X509_STORE_free(IntPtr store);
         [DllImport(Crypto)] internal static extern int X509_STORE_set_default_paths(IntPtr store);
+#if CSHARPC_TARGET_MACOS
+        [DllImport(Crypto)] internal static extern int X509_STORE_load_file(IntPtr store, byte* file);
+#endif
         [DllImport(Crypto)] internal static extern int X509_STORE_add_cert(IntPtr store, IntPtr x);
         [DllImport(Crypto)] internal static extern IntPtr X509_STORE_CTX_new();
         [DllImport(Crypto)] internal static extern void X509_STORE_CTX_free(IntPtr ctx);
@@ -170,23 +179,6 @@ namespace CsharpcCoreLib
         }
 #endif
 
-        /// <summary>The trust anchors of X509ChainTrustMode.System: OpenSSL's default paths (SSL_CERT_FILE / SSL_CERT_DIR, the distribution's bundle) on Linux, the Windows ROOT stores on Windows.</summary>
-        internal static void AddSystemTrust(IntPtr store)
-        {
-#if CSHARPC_TARGET_WINDOWS
-            foreach (byte[] der in SystemRoots())
-            {
-                IntPtr x = FromDer(der);
-                if (x == IntPtr.Zero) continue;
-                X509_STORE_add_cert(store, x);
-                X509_free(x);
-            }
-            ERR_clear_error();
-#else
-            X509_STORE_set_default_paths(store);
-#endif
-        }
-
         private static readonly object s_initLock = new object();
         private static bool s_initialized;
 
@@ -218,6 +210,32 @@ namespace CsharpcCoreLib
         {
             string message = TakeErrorString();
             return message == null ? new CryptographicException() : new CryptographicException(message);
+        }
+
+        /// <summary>
+        /// OpenSSL's default trust (SSL_CERT_FILE / SSL_CERT_DIR, the library's own directory); the Windows ROOT stores on Windows. On macOS the keychain's roots
+        /// are not reachable from OpenSSL; the bundle macOS keeps for its command-line tools (/etc/ssl/cert.pem) stands in,
+        /// next to whatever Homebrew's openssl@3 has installed (docs/adr/0022-tls.md, "macOS").
+        /// </summary>
+        internal static void SetDefaultTrust(IntPtr store)
+        {
+#if CSHARPC_TARGET_WINDOWS
+            // No system store in OpenSSL on Windows: the ROOT certificate stores stand in (SystemRoots).
+            foreach (byte[] der in SystemRoots())
+            {
+                IntPtr x = FromDer(der);
+                if (x == IntPtr.Zero) continue;
+                X509_STORE_add_cert(store, x);
+                X509_free(x);
+            }
+#else
+            X509_STORE_set_default_paths(store);
+#endif
+#if CSHARPC_TARGET_MACOS
+            fixed (byte* bundle = Utf8Z("/etc/ssl/cert.pem"))
+                X509_STORE_load_file(store, bundle);
+#endif
+            ERR_clear_error();
         }
 
         /// <summary>The DER encoding of an X509*.</summary>

@@ -48,8 +48,9 @@ public sealed class Compiler(CompilerOptions options)
         if (darwin && options.Static)
             return Fail("--static is not supported on macOS: Apple does not support statically linked executables (libSystem is always linked dynamically)");
         string[] coreLibDefines = [wasm ? "CSHARPC_TARGET_WASI" : windows ? "CSHARPC_TARGET_WINDOWS" : darwin ? "CSHARPC_TARGET_MACOS" : "CSHARPC_TARGET_LINUX",
-            // OpenSSL 3 as the certificate, key and TLS library (docs/adr/0022-tls.md): Linux, and Windows beside CNG until SChannel.
-            .. (wasm || darwin ? Array.Empty<string>() : ["CSHARPC_OPENSSL"]),
+            // The targets whose X.509/TLS/RSA corelib code runs on OpenSSL 3 (docs/adr/0022-tls.md): libssl.so.3 on Linux,
+            // Homebrew's openssl@3 on macOS, libssl-3-x64.dll beside the executable (or on PATH) on Windows.
+            .. (!wasm ? new[] { "CSHARPC_OPENSSL" } : Array.Empty<string>()),
             // The architecture (RuntimeInformation.ProcessArchitecture, the runtime identifier).
             wasm ? "CSHARPC_TARGET_WASM32" : triple.StartsWith("aarch64", StringComparison.Ordinal) || triple.StartsWith("arm64", StringComparison.Ordinal) ? "CSHARPC_TARGET_ARM64" : "CSHARPC_TARGET_X64"];
         FrontendSettings settings;

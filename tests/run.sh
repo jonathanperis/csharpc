@@ -198,7 +198,7 @@ run_sample() { # name opt rep workdir
       echo "PASS $label (rejected with the expected diagnostics)"; return 0
     fi
     echo "FAIL $label (compiler exit $got_code, expected 1 with the recorded diagnostics)"
-    sed 's/^/     /' "$w/$name.diff" | head -20
+    sed 's/^/     /' "$w/$name.diff" | head -"${CSHARPC_DIFF_LINES:-60}"
     return 1
   fi
   expected="$SAMPLES/$name.expected"
@@ -236,7 +236,7 @@ run_sample() { # name opt rep workdir
     return 0
   fi
   echo "FAIL $label (exit $got_code, expected $want_code)"
-  sed 's/^/     /' "$w/$name.diff" | head -20
+  sed 's/^/     /' "$w/$name.diff" | head -"${CSHARPC_DIFF_LINES:-60}"
   # What the program printed to stderr (an unhandled exception, a runtime abort) says why.
   if [[ -s "$w/$name.stderr" ]]; then sed 's/^/     stderr: /' "$w/$name.stderr" | head -10; fi
   return 1

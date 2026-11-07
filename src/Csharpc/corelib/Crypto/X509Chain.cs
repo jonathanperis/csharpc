@@ -219,6 +219,19 @@ namespace CsharpcCoreLib
             }
         }
 
+        /// <summary>The status text: OpenSSL's, as .NET shows on Linux; on macOS the Security.framework messages for the common errors.</summary>
+        private static string Information(int error)
+        {
+#if CSHARPC_TARGET_MACOS
+            switch (error)
+            {
+                case 18: case 19: return "The certificate was not trusted."; // errSecNotTrusted
+                case 10: return "An expired certificate was detected."; // errSecCertificateExpired
+            }
+#endif
+            return Marshal.PtrToStringUTF8(Ossl.X509_verify_cert_error_string(error));
+        }
+
         private static bool Ignored(X509ChainStatusFlags flag, X509VerificationFlags flags)
         {
             switch (flag)
@@ -248,7 +261,7 @@ namespace CsharpcCoreLib
             var result = new List<(byte[] Der, List<X509ChainStatusFlags> Flags, List<string> Info)>();
             try
             {
-                if (policy.TrustMode == X509ChainTrustMode.System) Ossl.AddSystemTrust(store);
+                if (policy.TrustMode == X509ChainTrustMode.System) Ossl.SetDefaultTrust(store);
                 else
                     foreach (X509Certificate c in policy.CustomTrustStore)
                         Ossl.X509_STORE_add_cert(store, ((X509CertificateImpl)(object)c).Handle);
@@ -285,7 +298,7 @@ namespace CsharpcCoreLib
                     if (result[depth].Flags.Contains(flag)) continue;
                     if (!Ignored(flag, policy.VerificationFlags)) blocking = true;
                     result[depth].Flags.Add(flag);
-                    result[depth].Info.Add(Marshal.PtrToStringUTF8(Ossl.X509_verify_cert_error_string(error)));
+                    result[depth].Info.Add(Information(error));
                 }
             }
             finally

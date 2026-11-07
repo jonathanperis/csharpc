@@ -688,12 +688,18 @@ namespace CsharpcCoreLib
             Exception validation = session.ValidationException;
             // Our own explicit diagnostics (a revocation mode, say) surface as they are.
             if (validation is NotSupportedException) return validation;
-#if CSHARPC_TARGET_WINDOWS
-            // SChannel validates the certificate after the handshake: .NET throws the validation failure itself on Windows,
-            // where OpenSSL's callback makes it the inner exception of "Authentication failed, see inner exception.".
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_MACOS
+            // SChannel and SecureTransport validate the certificate after the handshake: .NET throws the validation failure
+            // itself there, where OpenSSL's callback fails the handshake, which .NET on Linux reports wrapped in
+            // "Authentication failed, see inner exception.".
             if (validation != null) return validation;
 #else
             if (validation != null) return new AuthenticationException("Authentication failed, see inner exception.", validation);
+#endif
+#if CSHARPC_TARGET_MACOS
+            // SecureTransport's text for a protocol version the peer doesn't speak.
+            if (f.OpenSslText != null && (f.OpenSslText.Contains("protocol version") || f.OpenSslText.Contains("unsupported protocol") || f.OpenSslText.Contains("no protocols available")))
+                return new AuthenticationException("Authentication failed, see inner exception.", new SslException("bad protocol version", null));
 #endif
             return new AuthenticationException("Authentication failed, see inner exception.",
                 new SslException("SSL Handshake failed with OpenSSL error - " + ErrorName(f.Error) + ".", f.OpenSslText == null ? null : new CryptographicException(f.OpenSslText)));

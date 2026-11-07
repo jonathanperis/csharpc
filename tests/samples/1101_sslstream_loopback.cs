@@ -127,8 +127,9 @@ await Pair("synchronous and large",
         return $"echoed={total} equal={back.AsSpan().SequenceEqual(payload)} sum={Checksum(back, total)} last={last}";
     }), callbackInConstructor: true);
 
-// 3. TLS 1.2 only, then TLS 1.3 only
-foreach (var protocol in new[] { SslProtocols.Tls12, SslProtocols.Tls13 })
+// 3. TLS 1.2 only, then TLS 1.3 only (macOS: .NET's SecureTransport has no TLS 1.3 and fails the handshake; csharpc's OpenSSL
+// backend negotiates it, a superset the sample does not compare)
+foreach (var protocol in OperatingSystem.IsMacOS() ? new[] { SslProtocols.Tls12 } : new[] { SslProtocols.Tls12, SslProtocols.Tls13 })
 {
     await Pair("only " + protocol,
         async ssl =>
