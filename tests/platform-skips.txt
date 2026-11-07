@@ -171,6 +171,8 @@ wasi 537_compression_streams           known gap: no NativeAOT runtime pack (nat
 windows 538_aes_cryptostream           known gap: Aes.Create() needs CNG (BCrypt), not implemented yet
 wasi 538_aes_cryptostream              known gap: no OS cipher on WebAssembly (WASI)
 wasi 540_tar_zipfile                   known gap: no NativeAOT runtime pack (native shims) for WebAssembly
+windows 537_compression_streams        known gap: the zlib, brotli and zstd shims link on Windows now (1005_httpclient_handlers), but ZipArchive reaches WinZipAesStream, whose Aes.Create() needs CNG (BCrypt), not implemented yet (538_aes_cryptostream)
+windows 540_tar_zipfile                known gap: File.SetLastWriteTimeUtc has no Windows implementation yet, and ZipFile reaches Aes.Create() (CNG, see 537_compression_streams)
 macos 553_rsa                          known gap: RSA.Create() needs Security.framework (SecKey), not implemented yet
 windows 553_rsa                        known gap: RSA.Create() needs CNG (BCrypt), not implemented yet
 wasi 553_rsa                           known gap: no OS RSA on WebAssembly (WASI)

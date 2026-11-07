@@ -145,6 +145,10 @@ sockets (`Socket`, `TcpListener`/`TcpClient`, `UdpClient`, `Dns`); library value
 `ArraySegment<T>`, `DateTimeOffset`); `MemoryPool<T>`, `Convert`; `System.Type` reflection basics; globalization (cultures via ICU, as .NET:
 [19-globalization.md](19-globalization.md)). Next: TLS and `HttpClient`; the library surface ranked by the compatibility runs and
 the NuGet survey (`Uri`, `System.Xml.Linq`, `IConvertible`).
+Windows catches up with the other platforms case by case: .NET's zlib-ng and brotli shims now link from the
+NativeAOT win-x64 pack (lld over the MSVC libraries plus `src/runtime/windows-shims`), so gzip/deflate/zlib/Brotli
+streams and `HttpClient` decompression work there ([16-interop-io.md](16-interop-io.md#binding), samples 1005,
+1211); `ZipArchive`/`ZipFile` wait for `Aes.Create()` (CNG) and `File.SetLastWriteTimeUtc` on Windows (537, 540).
 
 ### M3 — Platforms and per-platform evidence ✅
 Each platform gets a CI job (GitHub Actions) running the full differential suite, conformance corpus
