@@ -102,8 +102,11 @@ public static class NativeAotPack
 
     private static string? Find(string rid, string version)
     {
-        var dir = Path.Combine(PackagesFolder, PackageId(rid).ToLowerInvariant(), version.ToLowerInvariant(), "runtimes", rid, "native");
-        return Directory.Exists(dir) ? dir : null;
+        var package = Path.Combine(PackagesFolder, PackageId(rid).ToLowerInvariant(), version.ToLowerInvariant());
+        var dir = Path.Combine(package, "runtimes", rid, "native");
+        // NuGet writes .nupkg.metadata as the last file of an extraction: without it another compile running in parallel (the
+        // differential shards run 3 samples at once) may still be extracting, and the archives would be judged missing.
+        return Directory.Exists(dir) && File.Exists(Path.Combine(package, ".nupkg.metadata")) ? dir : null;
     }
 
     /// <summary>`dotnet restore` of a project that only downloads the pack (into the NuGet packages folder).</summary>

@@ -237,7 +237,12 @@ with the runtime graph's fallbacks (linux-x64 -> linux -> unix-x64 -> unix -> an
 next to the executable, where a P/Invoke probes first (`tests/il.sh`, RidApp, against a package built locally).
 Left: satellite resource assemblies, `ref/` vs `lib/` binding, linking a package's static archives.
 
-Next: the BCL surface packages use (ranked by the survey), `typeof(X).Assembly`.
+BCL surface packages use, ranked by the sharded IL survey of 2026-11-07 (all 52 packages, #146): the small members
+(`Exception.GetObjectData`, `HelpLink` and `Source`, `string.ToCharArray(int, int)`, `Math.Log(a, newBase)`,
+`WebUtility.UrlEncode(string)`, `Thread.GetCurrentProcessorId`, `HashCode.AddBytes`, `IPAddress` from a span and its
+`Address`, `Int128`/`UInt128.ToString(IFormatProvider)`, `Task.Delay(TimeSpan[, token])`) are done; ahead of the rest in
+that ranking are the `System.Numerics` vector structs (26 packages), the reflection lookups (`Type.GetMember` with member
+types, `TypeInfo.GetDeclaredProperty`) and the `System.Xml.Linq` members.
 
 ### M6 — Bootstrapping
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.

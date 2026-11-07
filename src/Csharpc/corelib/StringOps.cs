@@ -1128,5 +1128,17 @@ namespace CsharpcCoreLib
             s.AsSpan().CopyTo(result);
             return result;
         }
+
+        [ShadowInstance]
+        public static char[] ToCharArray(string s, int startIndex, int length)
+        {
+            // .NET's checks, in its order: the start within the string (as unsigned), the length not negative, the start leaving room for it.
+            ArgumentOutOfRangeExceptionExtras.ThrowIfGreaterThan((uint)startIndex, (uint)s.Length, "startIndex");
+            ArgumentOutOfRangeExceptionExtras.ThrowIfNegative(length, "length");
+            ArgumentOutOfRangeExceptionExtras.ThrowIfGreaterThan(startIndex, s.Length - length, "startIndex");
+            char[] result = new char[length];
+            s.AsSpan(startIndex, length).CopyTo(result);
+            return result;
+        }
     }
 }

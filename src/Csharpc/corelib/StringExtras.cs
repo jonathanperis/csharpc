@@ -287,6 +287,16 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Math")]
     internal static class MathExtras
     {
+        /// <summary>The logarithm of <paramref name="a"/> in <paramref name="newBase"/>: .NET's special cases, then Log(a) / Log(newBase).</summary>
+        public static double Log(double a, double newBase)
+        {
+            if (double.IsNaN(a)) return a;
+            if (double.IsNaN(newBase)) return newBase;
+            if (newBase == 1) return double.NaN;
+            if (a != 1 && (newBase == 0 || double.IsPositiveInfinity(newBase))) return double.NaN;
+            return Math.Log(a) / Math.Log(newBase);
+        }
+
         /// <summary>x * 2^n computed in steps so intermediate overflow and underflow round once (musl's scalbn, as .NET).</summary>
         public static double ScaleB(double x, int n)
         {

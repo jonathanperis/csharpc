@@ -17,7 +17,7 @@ namespace CsharpcCoreLib
     public class IPAddressImpl
     {
         // IPv4: _v4 holds the address in network byte order as read left to right ("1.2.3.4" = 0x01020304).
-        private readonly uint _v4;
+        private uint _v4;
         private readonly ushort[] _v6;  // null for IPv4
         private readonly long _scopeId;
 
@@ -31,7 +31,7 @@ namespace CsharpcCoreLib
 
         public IPAddressImpl(long newAddress)
         {
-            if (newAddress < 0 || newAddress > 0xFFFFFFFF) throw new ArgumentOutOfRangeException("newAddress");
+            ArgumentOutOfRangeExceptionExtras.ThrowIfGreaterThan((ulong)newAddress, 0xFFFFFFFFUL, "newAddress");
             // The long is the address as stored in memory on a little-endian machine (.NET's "Address").
             uint v = (uint)newAddress;
             _v4 = (v << 24) | ((v & 0xFF00) << 8) | ((v >> 8) & 0xFF00) | (v >> 24);
@@ -45,11 +45,43 @@ namespace CsharpcCoreLib
             else throw new ArgumentException("An invalid IP address was specified.", "address");
         }
 
+        public IPAddressImpl(ReadOnlySpan<byte> address)
+        {
+            if (address.Length == 4) _v4 = (uint)(address[0] << 24 | address[1] << 16 | address[2] << 8 | address[3]);
+            else if (address.Length == 16) _v6 = Words(address);
+            else throw new ArgumentException("An invalid IP address was specified.", "address");
+        }
+
+        public IPAddressImpl(ReadOnlySpan<byte> address, long scopeid)
+        {
+            if (address.Length != 16) throw new ArgumentException("An invalid IP address was specified.", "address");
+            ArgumentOutOfRangeExceptionExtras.ThrowIfGreaterThan((ulong)scopeid, 0xFFFFFFFFUL, "scopeid");
+            _v6 = Words(address);
+            _scopeId = scopeid;
+        }
+
+        /// <summary>The IPv4 address as stored in memory on a little-endian machine (.NET's deprecated Address).</summary>
+        [Obsolete("This property has been deprecated. It is address family dependent. Please use IPAddress.Equals method to perform comparisons. https://go.microsoft.com/fwlink/?linkid=14202")]
+        public long Address
+        {
+            get
+            {
+                if (_v6 != null) throw NotSupportedProperty();
+                return (long)((_v4 << 24) | ((_v4 & 0xFF00) << 8) | ((_v4 >> 8) & 0xFF00) | (_v4 >> 24));
+            }
+            set
+            {
+                if (_v6 != null) throw NotSupportedProperty();
+                uint v = unchecked((uint)value);
+                _v4 = (v << 24) | ((v & 0xFF00) << 8) | ((v >> 8) & 0xFF00) | (v >> 24);
+            }
+        }
+
         public IPAddressImpl(byte[] address, long scopeid)
         {
             if (address == null) throw new ArgumentNullException("address");
             if (address.Length != 16) throw new ArgumentException("An invalid IP address was specified.", "address");
-            if (scopeid < 0 || scopeid > 0xFFFFFFFF) throw new ArgumentOutOfRangeException("scopeid");
+            ArgumentOutOfRangeExceptionExtras.ThrowIfGreaterThan((ulong)scopeid, 0xFFFFFFFFUL, "scopeid");
             _v6 = Words(address);
             _scopeId = scopeid;
         }
@@ -57,12 +89,16 @@ namespace CsharpcCoreLib
         private IPAddressImpl(ushort[] words, long scopeId) { _v6 = words; _scopeId = scopeId; }
         private IPAddressImpl(uint v4, bool _) { _v4 = v4; }
 
-        private static ushort[] Words(byte[] bytes)
+        private static ushort[] Words(ReadOnlySpan<byte> bytes)
         {
             var words = new ushort[8];
             for (int i = 0; i < 8; i++) words[i] = (ushort)(bytes[2 * i] << 8 | bytes[2 * i + 1]);
             return words;
         }
+
+        // ScopeId of an IPv4 address and Address of an IPv6 one: .NET's SocketException(OperationNotSupported, message).
+        private SocketException NotSupportedProperty() =>
+            new SocketException((int)SocketError.OperationNotSupported, "The requested property is not supported for the '" + AddressFamily + "' AddressFamily.");
 
         public AddressFamily AddressFamily => _v6 == null ? AddressFamily.InterNetwork : AddressFamily.InterNetworkV6;
 
@@ -70,7 +106,7 @@ namespace CsharpcCoreLib
         {
             get
             {
-                if (_v6 == null) throw new SocketException((int)SocketError.OperationNotSupported);
+                if (_v6 == null) throw NotSupportedProperty();
                 return _scopeId;
             }
         }

@@ -167,6 +167,12 @@ namespace CsharpcCoreLib
             SetProtocols(a.EnabledProtocols);
             if (!a.AllowTlsResume) Ossl.SSL_CTX_set_options(Ctx, 0x4000 /* SSL_OP_NO_TICKET */);
             if (!a.AllowTlsResume) Ossl.SSL_CTX_ctrl(Ctx, 44 /* SSL_CTRL_SET_SESS_CACHE_MODE */, 0, IntPtr.Zero);
+#if CSHARPC_TARGET_WINDOWS
+            // No TLS 1.3 tickets: a client that closes without reading them makes Windows reset the connection, which throws
+            // away the server's unread close_notify (the peer sees a reset instead of the end of the stream); .NET's SChannel
+            // servers send none in that situation.
+            if (IsServer) Ossl.SSL_CTX_set_num_tickets(Ctx, 0);
+#endif
 
             X509Certificate2Impl local = a.LocalCertificate;
             if (local != null)
@@ -682,12 +688,14 @@ namespace CsharpcCoreLib
             Exception validation = session.ValidationException;
             // Our own explicit diagnostics (a revocation mode, say) surface as they are.
             if (validation is NotSupportedException) return validation;
-#if CSHARPC_TARGET_MACOS
-            // .NET on macOS validates after SecureTransport's handshake and throws the validation failure itself; the
-            // OpenSSL callback fails the handshake instead, which .NET on Linux reports wrapped.
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_MACOS
+            // SChannel and SecureTransport validate the certificate after the handshake: .NET throws the validation failure
+            // itself there, where OpenSSL's callback fails the handshake, which .NET on Linux reports wrapped in
+            // "Authentication failed, see inner exception.".
             if (validation != null) return validation;
-#endif
+#else
             if (validation != null) return new AuthenticationException("Authentication failed, see inner exception.", validation);
+#endif
 #if CSHARPC_TARGET_MACOS
             // SecureTransport's text for a protocol version the peer doesn't speak.
             if (f.OpenSslText != null && (f.OpenSslText.Contains("protocol version") || f.OpenSslText.Contains("unsupported protocol") || f.OpenSslText.Contains("no protocols available")))
