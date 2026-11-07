@@ -21,9 +21,11 @@ BCL edge cases where a compiler can silently get the semantics wrong.
 |---|---:|---:|
 | first run (241 compiled under .NET; 17 needed fixing) | 241 | 190 (78.8 %) — **14 wrong-output** |
 | after fixes | 258 | **256 (99.2 %)** |
-| delegate thunks for library method groups (M6) | 258 | **257 (99.6 %)** |
+| delegate thunks for library method groups | 258 | **257 (99.6 %)** |
 
-Coverage per area: 100 % in every area except `exceptions` (filter ordering), see below.
+The one failure was filter ordering, which is fixed since: filters run in the first pass, before any `finally`
+([04-runtime.md](04-runtime.md#exceptions-and-stack-traces)). This corpus is run by hand (`tests/conformance2.sh`), not by CI;
+its last full run was at the 99.6 % above.
 
 ### Merge onto the C# corelib
 
@@ -77,13 +79,13 @@ is now substitution-aware (spans of `T` inside generic methods).
 
 | Program | Root cause | Plan |
 |---|---|---|
-| `exceptions/003_filter_side_effect_order` | Exception filters run during the second (unwinding) pass, after inner `finally` blocks; .NET runs all filters in the first pass, before any `finally`. Documented deviation (ADR 0005). | True two-phase EH: run filters from the personality routine's search phase. |
+| `exceptions/003_filter_side_effect_order` (at the time) | Exception filters ran during the second (unwinding) pass, after inner `finally` blocks; .NET runs all filters in the first pass. | Fixed: filters run from the personality routine's search phase. |
 
 ## Intentional deviations (documented, not counted as failures)
 
-- **Static initialization** is eager (before `Main`), not lazy per type (`beforefieldinit`). Corpus
-  programs only print values that are identical under both models.
-- **Culture**: formatting/parsing/comparison use the invariant culture.
-- **Reflection** is limited to `GetType()`/`typeof`/names; `FullName` of generic types is not
+- **Static initialization** is lazy per type with CoreCLR's triggers, as .NET's, for the program's own types; the corelib's
+  types still initialize eagerly at startup ([03-lowering.md](03-lowering.md)).
+- **Culture** follows the user's culture like .NET ([19-globalization.md](19-globalization.md)); the tests pin the invariant one.
+- **Reflection** works over compile-time metadata ([ADR 0018](adr/0018-reflection-metadata.md)); `FullName` of generic types is not
   assembly-qualified.
 - **Threading** semantics follow [14-threading.md](14-threading.md).

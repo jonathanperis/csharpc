@@ -452,8 +452,18 @@ public sealed partial class FunctionCodeGen
                 return new IlEntry(IlKind.Ref, CallCoreLib("MemberRecords", "Field", record), method.ReturnType) { NonNull = true };
             }
             // typeof(T).IsValueType after monomorphization (ImmutableExtensions.IsValueType<T>(), generic fast paths).
+            // typeof(X).TypeHandle: the handle keeps X known, for RuntimeHelpers.RunClassConstructor next.
+            case ("System.Type", "get_TypeHandle") when receiver is { Kind: IlKind.Ref, Symbol: ITypeSymbol handled0 } && handled0 is not ITypeParameterSymbol:
+                return IlPush(CallCoreLib("TypeHandles", "HandleOf", IlRef(receiver)), method.ReturnType) with { Symbol = S(handled0) };
+            case ("System.Runtime.CompilerServices.RuntimeHelpers", "RunClassConstructor") when args is [{ Kind: IlKind.Value, Symbol: INamedTypeSymbol cctorOfHandle }]:
+                EnsureClassInitialized(cctorOfHandle);
+                return handled;
             case ("System.Type", "get_IsValueType") when receiver is { Symbol: ITypeSymbol known } && known is not ITypeParameterSymbol:
                 return I4(known.IsValueType ? 1 : 0);
+            // RuntimeHelpers.RunClassConstructor(typeof(X).TypeHandle): X's static initialization, now.
+            case ("System.Runtime.CompilerServices.RuntimeHelpers", "RunClassConstructor") when args is [{ Kind: IlKind.Token, Symbol: ITypeSymbol cctorType }]:
+                if (S(cctorType) is INamedTypeSymbol cctorNamed) EnsureClassInitialized(cctorNamed);
+                return handled;
             case ("System.Runtime.CompilerServices.RuntimeHelpers", "InitializeArray") when args is [var array, { Kind: IlKind.Token, Symbol: IFieldSymbol field }]:
             {
                 var data = IlRvaData(field) ?? throw new IlException($"InitializeArray from field '{field}' without RVA data");
@@ -525,8 +535,10 @@ public sealed partial class FunctionCodeGen
             case ("System.Runtime.CompilerServices.RuntimeHelpers", "IsReferenceOrContainsReferences") when method.TypeArguments.Length == 1:
                 return I4(Optimizations.IsReferenceOrContainsReferences(S(method.TypeArguments[0])) ? 1 : 0);
         }
-        foreach (var arg in args)
-            if (arg.Kind == IlKind.Token) throw new IlException($"ldtoken result passed to '{method}'");
+        for (var i = 0; i < args.Length; i++)
+            // A type token for a RuntimeTypeHandle parameter (RuntimeHelpers.RunClassConstructor(typeof(X).TypeHandle)) becomes the handle (IlTyped).
+            if (args[i].Kind == IlKind.Token && !(args[i].Symbol is ITypeSymbol && method.Parameters[i].Type.Name == "RuntimeTypeHandle"))
+                throw new IlException($"ldtoken result passed to '{method}'");
         return null;
     }
 }

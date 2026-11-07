@@ -138,6 +138,21 @@ internal static partial class BclValueTypes
         BclHandler staticExtras(string method) => (g, _, _, a, _) => g.CallCoreLib("TypeExtras", method, a);
         t[$"{Type}.GetMethod(string, System.Reflection.BindingFlags, System.Reflection.Binder, System.Type[], System.Reflection.ParameterModifier[])"] = extras("GetMethodBinder");
         t[$"{Type}.GetMemberWithSameMetadataDefinitionAs(System.Reflection.MemberInfo)"] = extras("GetMemberWithSameMetadataDefinitionAs");
+        // GetMember(s) and TypeInfo's Declared* lookups (corelib/Reflection/MemberLookup.cs).
+        BclHandler lookup(string method) => (g, _, self, a, _) => g.CallCoreLib("MemberLookup", method, [self, .. a]);
+        t[$"{Type}.GetMember(string)"] = lookup("GetMemberAll");
+        t[$"{Type}.GetMember(string, System.Reflection.BindingFlags)"] = lookup("GetMemberFlags");
+        t[$"{Type}.GetMember(string, System.Reflection.MemberTypes, System.Reflection.BindingFlags)"] = lookup("GetMemberTypesFlags");
+        t[$"{Type}.GetMembers()"] = lookup("GetMembersAll");
+        t[$"{Type}.GetMembers(System.Reflection.BindingFlags)"] = lookup("GetMembersFlags");
+        foreach (var name in new[] { "GetDeclaredProperty", "GetDeclaredField", "GetDeclaredEvent", "GetDeclaredNestedType" })
+            t[$"System.Reflection.TypeInfo.{name}(string)"] = lookup(name);
+        foreach (var name in new[] { "DeclaredProperties", "DeclaredFields", "DeclaredEvents", "DeclaredMethods", "DeclaredNestedTypes", "DeclaredMembers" })
+            t[$"System.Reflection.TypeInfo.get_{name}()"] = lookup(name);
+        // Type handles: the handle holds the runtime's Type object (corelib/Reflection/Handles.cs).
+        t[$"{Type}.get_TypeHandle()"] = (g, _, self, _, _) => g.CallCoreLib("TypeHandles", "HandleOf", self);
+        t[$"{Type}.GetTypeHandle(object)"] = (g, _, _, a, _) => g.CallCoreLib("TypeHandles", "HandleOfObject", a[0]);
+        t[$"{Type}.GetTypeFromHandle(System.RuntimeTypeHandle)"] = (g, _, _, a, _) => g.CallCoreLib("TypeHandles", "TypeOf", a[0]);
         t[$"{Type}.MakeArrayType(int)"] = extras("MakeArrayTypeRank");
         t["System.Array.CreateInstance(System.Type, int[])"] = staticExtras("CreateArrayInstance");
         t["System.Runtime.CompilerServices.RuntimeHelpers.GetObjectValue(object)"] = staticExtras("GetObjectValue");

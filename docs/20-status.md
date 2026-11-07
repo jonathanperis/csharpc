@@ -2,8 +2,8 @@
 
 Where the project stands today. The plan and the milestone definitions are in [06-roadmap.md](06-roadmap.md); the
 direction is [00-vision.md](00-vision.md), [ADR 0016](adr/0016-nativeaot-parity-and-end-state.md) (NativeAOT parity,
-the dotnet fork, TechEmpower as the finish line) and [ADR 0017](adr/0017-runtime-tiers.md). Last updated 2026-11-07,
-`main` at `6b95c16`.
+the dotnet fork, TechEmpower as the finish line) and [ADR 0017](adr/0017-runtime-tiers.md). Last updated 2026-11-07; the CI state below
+was read at `6b95c16`, the last commit with a full CI run.
 
 ## What csharpc is, and the order of priorities
 
@@ -31,7 +31,7 @@ built through the fork's `PublishAot`). A milestone is done only when none of it
 
 ## `main`
 
-CI is green on all five platforms at `6b95c16`, and so are the `Bootstrap` (self-compile, native
+CI was green on all five platforms at `6b95c16`, and so were the `Bootstrap` (self-compile, native
 compiler on the whole suite) and `Program as IL` workflows. Versions are `0.MINOR.PATCH-alpha`: `main` builds publish
 `0.1.0-alpha.<run>` to GitHub Releases (`latest-main`), GitHub Packages and GHCR; only `v*` tags on a commit with a
 green full-gate CI publish to nuget.org ([06-roadmap.md](06-roadmap.md#credibility-deliverables-cross-cutting)).
@@ -88,27 +88,71 @@ Everything listed here is a bullet of M2–M6; M7 and later wait for the owner's
   the PDB, self-compile at -O2, the native compiler on all samples, bounded code-generation memory, parallel samples in CI
   (`CSHARPC_JOBS`), the issue-first workflow in [AGENTS.md](../AGENTS.md).
 
-## Working rules
+## How to resume
 
-Build with `dotnet build src/Csharpc -c Release -m:1`, compile with `-j2`, run heavy suites on CI,
-and poll CI slowly. After corelib edits run `CSHARPC_CHECK_CORELIB=1` (compiles every corelib member).
-Merge only CI-verified branches. Delete merged branches.
+### State of `main`
 
-CI (`.github/workflows/ci.yml`) runs on push to `main` and `ci/**`, on pull requests, and on a manual
-full dispatch. The merge bar is still `test (x86-64)`, `test (arm64)`, `test (macos-arm64)`,
-`test (windows-x64)` and `test (wasm32-wasi)`. A newer push to the same branch cancels the running
-run. A docs-only push skips the suite only when an ancestor's five checks are already green;
-cancelling an in-progress full run leaves that ancestor not green, so the replacement runs the
-suite. Avoid docs-only pushes to `main` while a merge's CI is in progress anyway.
+Read the sections above first: the milestone table, the measured state and the open bullets. In short, at the time of
+writing `main` is green on the five `test (<platform>)` jobs and on `Bootstrap` and `Program as IL`; the `TechEmpower`
+workflow is red (#164) and the parity of the `Compatibility` workflow is 98.4 % (#163). Open pull requests: #156 (`MathF`,
+for #152) and #158 (reflection and type-test members, for #157).
 
-A measurement branch is named `ci/<topic>` (the `ci/**` push filter on `ci.yml` and `bench.yml`).
-That does not change `main`: a push to `main` still runs CI. The Benchmarks workflow still also
-requires a path change under `src/`, `benchmarks/` or its own file. TechEmpower has no branch filter,
-only those paths, so a `ci/**` branch that touches `benchmarks/techempower/**` or the workflow file
-runs it too; do not add a branch filter there.
+### The rules
 
-`gh workflow run` works from this checkout again (Compatibility was dispatched on 2026-10-27). Targeted runs
-are a push to `ci/**` with a `CI-Only:` trailer or a `ci/targets` file
-([05 — Testing](05-testing.md)). A full gate has neither. Partial runs are labeled `partial (...)`
-and do not satisfy the merge bar. Dispatching the workflow named CI, with a token that can, is a
-full gate; the targeted form is the workflow CI (targeted).
+- **Workflow:** [AGENTS.md](../AGENTS.md#workflow-issue-branch-pr-report): an issue first (labels, assignee, milestone), a
+  branch, a pull request with `Fixes #N`, merge on the five green jobs, then a closing comment on the issue. Nothing goes to
+  `main` directly. A stacked pull request is retargeted to `main` before its base merges (deleting the base branch closes
+  it). `tests/platform-skips.txt` is append-only: on a conflict keep both sides.
+- **Order of work (the owner's):** the open bullets of M2–M6 ([06-roadmap.md](06-roadmap.md)), the regressions #163 and #164
+  first; then the gap lists from the large WinForms/macOS application (#89, #93, #95–#104); then stop. **M7 and later start only
+  on the owner's explicit go.**
+- **Every fix has a regression sample recorded from real .NET** (`tests/run.sh --regen NNN_name`); never edit a `.expected`
+  file; a silent difference is the worst bug, an explicit "not supported by csharpc yet" is always better than guessing.
+- **Commits and pull requests carry no AI or tool attribution** and no `Co-Authored-By` trailers.
+- **Resources:** build with `dotnet build src/Csharpc -c Release -m:1`, compile with `-j2`, run the heavy suites on CI and
+  poll CI slowly. After corelib edits run `CSHARPC_CHECK_CORELIB=1` (compiles every corelib member). Merge only CI-verified
+  branches and delete merged ones.
+
+### Running the suites
+
+Locally (the full commands and environment are in [AGENTS.md](../AGENTS.md) and [05-testing.md](05-testing.md)):
+
+| What | Command |
+|---|---|
+| Differential samples, -O0 and -O2 | `tests/run.sh --all-opts [name]` (`--shard I/N` for one CI shard, `CSHARPC_JOBS=N` for parallel samples) |
+| The program as IL | `tests/run.sh --via-il -O0 [name]` |
+| The native compiler (csharpc compiled by csharpc) | `tools/bootstrap/selfhost.sh`, then `CSHARPC_NATIVE=path tests/run.sh` |
+| Conformance corpora | `tests/conformance.sh -j 4`, `tests/conformance2.sh` (manual) |
+| Real-world programs, projects, IL libraries | `tests/programs.sh`, `tests/projects.sh`, `tests/il.sh` |
+| Debug info, size budgets | `tests/debuginfo.sh` (Linux, gdb), `tests/size.sh` |
+| WebAssembly | `CSHARPC_TEST_TARGET=wasm32-wasip1 tests/run.sh NAME` (WASI SDK 24 and wasmtime) |
+| Benchmarks | `benchmarks/run.sh` |
+| Compatibility corpus | `tools/compat/run.sh -j 2` (hours; use CI) |
+
+On GitHub Actions (`.github/workflows/`): `CI` (the merge bar, on pull requests and pushes to `main` and `ci/**`),
+`Compatibility` (weekly: parity), `Bootstrap` (self-compile and the native compiler on the whole suite), `Program as IL`,
+`IL survey` (`target: roslyn`, `aspnetcore` or the 52 packages, in shards), `Benchmarks`, `TechEmpower` and `M7 perf` (the
+M7 harness), `GC concurrent`, `GC nursery` and `Release`. Only `CI` gates a merge. A docs-only change skips the compiler
+suite when an ancestor's five checks are green; a targeted run (a `ci/**` branch with a `CI-Only:` trailer or `ci/targets`)
+is partial and not the bar ([05-testing.md](05-testing.md#ci)). `gh workflow run` is HTTP 403 from the agent checkout, so
+workflow runs on a branch come from a push.
+
+### What to pick up
+
+1. #163 and #164: the two regressions the CI measurements found (the regex generator's `#nullable` under old language
+   versions, and four methods that stop the TechEmpower Platform entry).
+2. The open M2–M6 bullets, with their issues, in [the list above](#what-is-open): the survey-ranked library surface (#146 and
+   its in-flight pull requests), #168 for M5, #169 and #93 for M6, the native TLS spikes #144 and #143.
+3. Then the gap lists #89, #95–#104.
+4. Housekeeping found while auditing: `tests/platform-skips.txt` still has `known gap` entries for features that now work
+   (`HttpClient` system proxies on macOS and Windows, Windows decompression and rooted `Uri` paths), so those samples are
+   skipped there; check each against CI on that platform and remove the ones that pass. A TechEmpower-verdict regression is
+   cheap to catch early: look at the `TechEmpower` workflow's `report` job after any change to the IL front-end or the
+   framework-IL policy.
+
+Later, when it matters: a `StringBuilder` that keeps .NET's chunks but not their linked list. `Insert` and `Replace(string)` are
+slower than a single buffer because they must keep .NET's layout (40K inserts: 55 → 296 ms with 8,429 chunks; 60 growing/shrinking
+replaces: 39 → 117 ms with 67,470 chunks; both still faster than .NET's 400 ms and 101 s). Every insert shifts the stored offset of each later chunk and finding a chunk walks the
+predecessor links; holding the chunks in an array with lengths in a prefix-sum tree would make both O(log n) while
+`GetChunks`/`Capacity` stay exactly .NET's. The builder object is .NET's last chunk today, so this is a redesign of
+`corelib/StringBuilder.cs`.

@@ -750,6 +750,9 @@ public sealed partial class FunctionCodeGen
             return target.IsPointer ? code : _b.Cast(LLVMOpcode.PtrToInt, code, target);
         }
         if (e.Dynamic is not null) throw new IlException("'dynamic' in compiled code: a call site used as a value");
+        // `ldtoken T` passed as a RuntimeTypeHandle: the handle of T's Type object.
+        if (e is { Kind: IlKind.Token, Symbol: ITypeSymbol tokenType } && st.Name is "RuntimeTypeHandle" or "RuntimeTypeHandleImpl")
+            return CallCoreLib("TypeHandles", "HandleOf", TypeObject(S(tokenType), IlAt()));
         var source = e.Kind is IlKind.MethodPtr or IlKind.Token ? throw new IlException($"{e.Kind} value used as '{st}'") : Native.LLVMTypeOf(v);
         switch (e.Kind)
         {

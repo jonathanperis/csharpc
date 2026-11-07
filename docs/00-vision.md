@@ -61,8 +61,8 @@ boundaries) and C# for the library surface ([ADR 0017](adr/0017-runtime-tiers.md
 5. **A complete, mature toolset for one target.** csharpc targets **.NET 11 (RC2 → GA) and C# 14**:
    a fixed language version, library surface and Roslyn release, so the work can converge on
    completeness and polish instead of tracking moving targets.
-6. **Multi-platform evidence.** Linux x86-64 today; Linux ARM64, macOS and Windows next, each with
-   its own CI job running the same differential suite against real .NET on that platform.
+6. **Multi-platform evidence.** Linux x86-64 and ARM64, macOS ARM64 and Windows x64, plus WebAssembly (WASI) as a cross
+   target, each with its own CI job running the same differential suite against real .NET on that platform.
 
 ## Why it matters
 
@@ -85,14 +85,15 @@ benchmarks, documented trade-offs) matters more here than feature count.
 
 ## What success looks like
 
-- **Done (M0/M1):** idiomatic C# — generics, interfaces, exceptions, closures, async, records, LINQ,
-  collections — compiles and matches .NET; DWARF debug info; real threads; binaries 20–160× smaller
-  than NativeAOT's with faster start-up; benchmark throughput ahead of the JIT and mostly ahead of
-  NativeAOT ([benchmarks/RESULTS.md](../benchmarks/RESULTS.md)).
-- **Next:** the same evidence on Linux ARM64, macOS and Windows; unmodified open-source C# tools
-  compiling, with a published compatibility report.
-- **Long term:** NuGet packages consumed through an IL front-end — a true drop-in — and csharpc
-  compiling itself.
+- **Language and library:** idiomatic C# — generics, interfaces, exceptions, closures, async, records, LINQ,
+  collections, JSON, regular expressions, networking and TLS — compiles and matches .NET; DWARF debug info; real
+  threads; binaries 8–120× smaller than NativeAOT's with faster start-up; benchmark throughput ahead of the JIT and mostly
+  ahead of NativeAOT ([benchmarks/RESULTS.md](../benchmarks/RESULTS.md)).
+- **Real-world evidence:** unmodified Microsoft sample programs, measured against NativeAOT
+  ([18-compatibility.md](18-compatibility.md)); NuGet packages and the program itself consumed through the IL
+  front-end — a true drop-in; csharpc compiles itself.
+- **Still to do:** what each milestone lists as open ([06-roadmap.md](06-roadmap.md), state in
+  [20-status.md](20-status.md)), then the dotnet fork and TechEmpower through it.
 
 ## Further reading
 

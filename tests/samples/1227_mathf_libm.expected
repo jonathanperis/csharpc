@@ -1,0 +1,153 @@
+0         sin=0 cos=1 tan=0 asin=0 acos=1.5708 atan=0
+          sinh=0 cosh=1 tanh=0 asinh=0 acosh=NaN atanh=0
+          exp=1 log=-Infinity log2=-Infinity log10=-Infinity cbrt=0 sqrt=0
+          sincos=0,1
+-0        sin=-0 cos=1 tan=-0 asin=-0 acos=1.5708 atan=-0
+          sinh=-0 cosh=1 tanh=-0 asinh=-0 acosh=NaN atanh=-0
+          exp=1 log=-Infinity log2=-Infinity log10=-Infinity cbrt=-0 sqrt=-0
+          sincos=-0,1
+0.25      sin=0.2474 cos=0.96891 tan=0.25534 asin=0.25268 acos=1.3181 atan=0.24498
+          sinh=0.25261 cosh=1.0314 tanh=0.24492 asinh=0.24747 acosh=NaN atanh=0.25541
+          exp=1.284 log=-1.3863 log2=-2 log10=-0.60206 cbrt=0.62996 sqrt=0.5
+          sincos=0.2474,0.96891
+0.5       sin=0.47943 cos=0.87758 tan=0.5463 asin=0.5236 acos=1.0472 atan=0.46365
+          sinh=0.5211 cosh=1.1276 tanh=0.46212 asinh=0.48121 acosh=NaN atanh=0.54931
+          exp=1.6487 log=-0.69315 log2=-1 log10=-0.30103 cbrt=0.7937 sqrt=0.70711
+          sincos=0.47943,0.87758
+0.75      sin=0.68164 cos=0.73169 tan=0.9316 asin=0.84806 acos=0.72273 atan=0.6435
+          sinh=0.82232 cosh=1.2947 tanh=0.63515 asinh=0.69315 acosh=NaN atanh=0.97296
+          exp=2.117 log=-0.28768 log2=-0.41504 log10=-0.12494 cbrt=0.90856 sqrt=0.86603
+          sincos=0.68164,0.73169
+1         sin=0.84147 cos=0.5403 tan=1.5574 asin=1.5708 acos=0 atan=0.7854
+          sinh=1.1752 cosh=1.5431 tanh=0.76159 asinh=0.88137 acosh=0 atanh=Infinity
+          exp=2.7183 log=0 log2=0 log10=0 cbrt=1 sqrt=1
+          sincos=0.84147,0.5403
+-1        sin=-0.84147 cos=0.5403 tan=-1.5574 asin=-1.5708 acos=3.1416 atan=-0.7854
+          sinh=-1.1752 cosh=1.5431 tanh=-0.76159 asinh=-0.88137 acosh=NaN atanh=-Infinity
+          exp=0.36788 log=NaN log2=NaN log10=NaN cbrt=-1 sqrt=NaN
+          sincos=-0.84147,0.5403
+1.5       sin=0.99749 cos=0.070737 tan=14.101 asin=NaN acos=NaN atan=0.98279
+          sinh=2.1293 cosh=2.3524 tanh=0.90515 asinh=1.1948 acosh=0.96242 atanh=NaN
+          exp=4.4817 log=0.40547 log2=0.58496 log10=0.17609 cbrt=1.1447 sqrt=1.2247
+          sincos=0.99749,0.070737
+2         sin=0.9093 cos=-0.41615 tan=-2.185 asin=NaN acos=NaN atan=1.1071
+          sinh=3.6269 cosh=3.7622 tanh=0.96403 asinh=1.4436 acosh=1.317 atanh=NaN
+          exp=7.3891 log=0.69315 log2=1 log10=0.30103 cbrt=1.2599 sqrt=1.4142
+          sincos=0.9093,-0.41615
+-2        sin=-0.9093 cos=-0.41615 tan=2.185 asin=NaN acos=NaN atan=-1.1071
+          sinh=-3.6269 cosh=3.7622 tanh=-0.96403 asinh=-1.4436 acosh=NaN atanh=NaN
+          exp=0.13534 log=NaN log2=NaN log10=NaN cbrt=-1.2599 sqrt=NaN
+          sincos=-0.9093,-0.41615
+3         sin=0.14112 cos=-0.98999 tan=-0.14255 asin=NaN acos=NaN atan=1.249
+          sinh=10.018 cosh=10.068 tanh=0.99505 asinh=1.8184 acosh=1.7627 atanh=NaN
+          exp=20.086 log=1.0986 log2=1.585 log10=0.47712 cbrt=1.4422 sqrt=1.7321
+          sincos=0.14112,-0.98999
+10        sin=-0.54402 cos=-0.83907 tan=0.64836 asin=NaN acos=NaN atan=1.4711
+          sinh=11013 cosh=11013 tanh=1 asinh=2.9982 acosh=2.9932 atanh=NaN
+          exp=22026 log=2.3026 log2=3.3219 log10=1 cbrt=2.1544 sqrt=3.1623
+          sincos=-0.54402,-0.83907
+100       sin=-0.50637 cos=0.86232 tan=-0.58721 asin=NaN acos=NaN atan=1.5608
+          sinh=Infinity cosh=Infinity tanh=1 asinh=5.2983 acosh=5.2983 atanh=NaN
+          exp=Infinity log=4.6052 log2=6.6439 log10=2 cbrt=4.6416 sqrt=10
+          sincos=-0.50637,0.86232
+-0.3      sin=-0.29552 cos=0.95534 tan=-0.30934 asin=-0.30469 acos=1.8755 atan=-0.29146
+          sinh=-0.30452 cosh=1.0453 tanh=-0.29131 asinh=-0.29567 acosh=NaN atanh=-0.30952
+          exp=0.74082 log=NaN log2=NaN log10=NaN cbrt=-0.66943 sqrt=NaN
+          sincos=-0.29552,0.95534
+1E-05     sin=1E-05 cos=1 tan=1E-05 asin=1E-05 acos=1.5708 atan=1E-05
+          sinh=1E-05 cosh=1 tanh=1E-05 asinh=1E-05 acosh=NaN atanh=1E-05
+          exp=1 log=-11.513 log2=-16.61 log10=-5 cbrt=0.021544 sqrt=0.0031623
+          sincos=1E-05,1
+1E+05     sin=0.035749 cos=-0.99936 tan=-0.035772 asin=NaN acos=NaN atan=1.5708
+          sinh=Infinity cosh=Infinity tanh=1 asinh=12.206 acosh=12.206 atanh=NaN
+          exp=Infinity log=11.513 log2=16.61 log10=5 cbrt=46.416 sqrt=316.23
+          sincos=0.035749,-0.99936
+Infinity  sin=NaN cos=NaN tan=NaN asin=NaN acos=NaN atan=1.5708
+          sinh=Infinity cosh=Infinity tanh=1 asinh=Infinity acosh=Infinity atanh=NaN
+          exp=Infinity log=Infinity log2=Infinity log10=Infinity cbrt=Infinity sqrt=Infinity
+          sincos=NaN,NaN
+-Infinity sin=NaN cos=NaN tan=NaN asin=NaN acos=NaN atan=-1.5708
+          sinh=-Infinity cosh=Infinity tanh=-1 asinh=-Infinity acosh=NaN atanh=NaN
+          exp=0 log=NaN log2=NaN log10=NaN cbrt=-Infinity sqrt=NaN
+          sincos=NaN,NaN
+NaN       sin=NaN cos=NaN tan=NaN asin=NaN acos=NaN atan=NaN
+          sinh=NaN cosh=NaN tanh=NaN asinh=NaN acosh=NaN atanh=NaN
+          exp=NaN log=NaN log2=NaN log10=NaN cbrt=NaN sqrt=NaN
+          sincos=NaN,NaN
+0        ,0         pow=1 atan2=0 logb=NaN
+0        ,1         pow=0 atan2=0 logb=NaN
+0        ,2         pow=0 atan2=0 logb=-Infinity
+0        ,10        pow=0 atan2=0 logb=-Infinity
+0        ,0.5       pow=0 atan2=0 logb=Infinity
+0        ,-2        pow=Infinity atan2=3.1416 logb=NaN
+0        ,Infinity  pow=0 atan2=0 logb=NaN
+0        ,NaN       pow=NaN atan2=NaN logb=NaN
+1        ,0         pow=1 atan2=1.5708 logb=-0
+1        ,1         pow=1 atan2=0.7854 logb=NaN
+1        ,2         pow=1 atan2=0.46365 logb=0
+1        ,10        pow=1 atan2=0.099669 logb=0
+1        ,0.5       pow=1 atan2=1.1071 logb=-0
+1        ,-2        pow=1 atan2=2.6779 logb=NaN
+1        ,Infinity  pow=1 atan2=0 logb=0
+1        ,NaN       pow=1 atan2=NaN logb=NaN
+2        ,0         pow=1 atan2=1.5708 logb=NaN
+2        ,1         pow=2 atan2=1.1071 logb=NaN
+2        ,2         pow=4 atan2=0.7854 logb=1
+2        ,10        pow=1024 atan2=0.1974 logb=0.30103
+2        ,0.5       pow=1.4142 atan2=1.3258 logb=-1
+2        ,-2        pow=0.25 atan2=2.3562 logb=NaN
+2        ,Infinity  pow=Infinity atan2=0 logb=NaN
+2        ,NaN       pow=NaN atan2=NaN logb=NaN
+8        ,0         pow=1 atan2=1.5708 logb=NaN
+8        ,1         pow=8 atan2=1.4464 logb=NaN
+8        ,2         pow=64 atan2=1.3258 logb=3
+8        ,10        pow=1.0737E+09 atan2=0.67474 logb=0.90309
+8        ,0.5       pow=2.8284 atan2=1.5084 logb=-3
+8        ,-2        pow=0.015625 atan2=1.8158 logb=NaN
+8        ,Infinity  pow=Infinity atan2=0 logb=NaN
+8        ,NaN       pow=NaN atan2=NaN logb=NaN
+0.25     ,0         pow=1 atan2=1.5708 logb=NaN
+0.25     ,1         pow=0.25 atan2=0.24498 logb=NaN
+0.25     ,2         pow=0.0625 atan2=0.12435 logb=-2
+0.25     ,10        pow=9.5367E-07 atan2=0.024995 logb=-0.60206
+0.25     ,0.5       pow=0.5 atan2=0.46365 logb=2
+0.25     ,-2        pow=16 atan2=3.0172 logb=NaN
+0.25     ,Infinity  pow=0 atan2=0 logb=NaN
+0.25     ,NaN       pow=NaN atan2=NaN logb=NaN
+-8       ,0         pow=1 atan2=-1.5708 logb=NaN
+-8       ,1         pow=-8 atan2=-1.4464 logb=NaN
+-8       ,2         pow=64 atan2=-1.3258 logb=NaN
+-8       ,10        pow=1.0737E+09 atan2=-0.67474 logb=NaN
+-8       ,0.5       pow=NaN atan2=-1.5084 logb=NaN
+-8       ,-2        pow=0.015625 atan2=-1.8158 logb=NaN
+-8       ,Infinity  pow=Infinity atan2=-0 logb=NaN
+-8       ,NaN       pow=NaN atan2=NaN logb=NaN
+100      ,0         pow=1 atan2=1.5708 logb=NaN
+100      ,1         pow=100 atan2=1.5608 logb=NaN
+100      ,2         pow=10000 atan2=1.5508 logb=6.6439
+100      ,10        pow=1E+20 atan2=1.4711 logb=2
+100      ,0.5       pow=10 atan2=1.5658 logb=-6.6439
+100      ,-2        pow=0.0001 atan2=1.5908 logb=NaN
+100      ,Infinity  pow=Infinity atan2=0 logb=NaN
+100      ,NaN       pow=NaN atan2=NaN logb=NaN
+Infinity ,0         pow=1 atan2=1.5708 logb=NaN
+Infinity ,1         pow=Infinity atan2=1.5708 logb=NaN
+Infinity ,2         pow=Infinity atan2=1.5708 logb=Infinity
+Infinity ,10        pow=Infinity atan2=1.5708 logb=Infinity
+Infinity ,0.5       pow=Infinity atan2=1.5708 logb=-Infinity
+Infinity ,-2        pow=0 atan2=1.5708 logb=NaN
+Infinity ,Infinity  pow=Infinity atan2=0.7854 logb=NaN
+Infinity ,NaN       pow=NaN atan2=NaN logb=NaN
+NaN      ,0         pow=1 atan2=NaN logb=NaN
+NaN      ,1         pow=NaN atan2=NaN logb=NaN
+NaN      ,2         pow=NaN atan2=NaN logb=NaN
+NaN      ,10        pow=NaN atan2=NaN logb=NaN
+NaN      ,0.5       pow=NaN atan2=NaN logb=NaN
+NaN      ,-2        pow=NaN atan2=NaN logb=NaN
+NaN      ,Infinity  pow=NaN atan2=NaN logb=NaN
+NaN      ,NaN       pow=NaN atan2=NaN logb=NaN
+1024 1000 NaN 2 1
+1 0 3 3 3 -2
+0 1 3.1416 1.5708 0
+0.84147 0.5403 1.4142 1 11.314 316.23
+4.026 5.6886
