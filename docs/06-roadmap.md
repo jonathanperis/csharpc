@@ -17,7 +17,7 @@ of the milestone below says where it is tracked.
 |---|---|---|
 | M0 Spike | ✅ done | |
 | M1 Real programs | ✅ done | |
-| M2 Library in C# | 🟡 open | BCL surface ranked by the NuGet survey (#146: #152 `MathF` PR #156, #157 PR #158, #159, #160 PR #161, #162); TLS and X.509 on macOS and Windows run over OpenSSL, the native routes are the spikes #143 and #144; the gap lists #89, #95–#104 |
+| M2 Library in C# | 🟡 open | BCL surface ranked by the NuGet survey (#146: #152 `MathF` PR #156, #157 PR #158, #159, #162); TLS and X.509 on macOS and Windows run over OpenSSL, the native routes are the spikes #143 and #144; the gap lists #89, #95–#104 |
 | M3 Platforms | ✅ done | per-platform limits are documented, see M3 below |
 | M4 Real-world validation | 🟡 open | parity is 98.4 % (242 of 246) in the latest Compatibility run, down from 100 % (#163) |
 | M5 Binary packages and the program as IL | 🟡 open | the IL front-end leftovers (#168), the BCL surface packages use (#146) |
@@ -190,12 +190,13 @@ and drive-less `file:` URIs stay explicit diagnostics ([16-interop-io.md](16-int
 and Windows `HttpClient`'s system-proxy code is .NET's own, compiled from the shared framework's IL.
 
 Open:
-- The library surface the NuGet survey ranks (#146): `System.Numerics` vectors and `MathF` (#152, PR #156), the
-  reflection lookups (#157, PR #158; #159), a sample for the `System.Xml.Linq` members the survey lists (#160, PR #161: they
-  already work, the framework's own `System.Xml.Linq` is compiled from IL) and a generic local-function codegen bug (#162).
+- The library surface the NuGet survey ranks (#146; its small members and the `System.Numerics` vector structs are
+  done): `MathF` and the floating-point generic-math statics (#152, PR #156), the
+  reflection lookups (#157, PR #158; #159) and a generic local-function codegen bug (#162). (The `System.Xml.Linq` members the survey listed
+  were an artifact of its consumer: the framework's own `System.Xml.Linq` is compiled from IL and behaves as .NET, sample 1235.)
 - TLS and X.509 on macOS and Windows run over OpenSSL (Homebrew's `openssl@3`, the OpenSSL 3 DLLs). That is an interim
-  state, decided by the owner on 2026-11-07, with the native routes as the end state: the native routes (macOS: the runtime pack's Apple crypto shim and .NET's code from IL, #144;
-  Windows: .NET's SSPI/CNG code from IL, #143) are spikes.
+  state, decided by the owner on 2026-11-07, with the native routes as the end state (macOS: the runtime pack's Apple crypto shim and .NET's code from IL, #144;
+  Windows: .NET's SSPI/CNG code from IL, #143), both still spikes.
 - The gap lists from a large WinForms/macOS application: #89 (JSON numbers written with the current culture), #95
   (`Container`/`ComponentResourceManager`), #96–#99 (tasks, threading primitives, `TimeZoneInfo`, interop), #100–#104
   (JSON, cryptography/TLS, IO/process/networking, text, reflection/collections).
@@ -295,8 +296,9 @@ next to the executable, where a P/Invoke probes first (`tests/il.sh`, RidApp, ag
 
 **Open (#168, #146):** TypedReference opcodes, `jmp` and `ckfinite`; `calli` with an instance or `vararg` signature;
 satellite resource assemblies, `ref/` against `lib/` binding and linking a package's static archives; the BCL surface
-packages use — the sharded IL survey of all 52 packages (#146) puts the `System.Numerics` vector structs first (26
-packages), then the reflection lookups (`Type.GetMember`, `TypeInfo.GetDeclaredProperty`).
+packages use — the sharded IL survey of all 52 packages (#146) ranked the small members and the `System.Numerics` vector
+structs (26 packages) first, both done; next are `MathF` and the reflection lookups (`Type.GetMember`,
+`TypeInfo.GetDeclaredProperty`).
 
 ### M6 — Bootstrapping
 **Status:** 🟡 open (#169, #93).

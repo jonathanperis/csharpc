@@ -68,8 +68,8 @@ Everything listed here is a bullet of M2–M6; M7 and later wait for the owner's
 
 - **Bugs found by the CI measurements:** #163 (parity 98.4 %), #164 (TechEmpower entry does not build). Also open: #162
   (a static local function called from a generic local function with an `IFormattable` parameter).
-- **BCL surface ranked by the NuGet survey (#146):** `System.Numerics` vectors and `MathF` (#152, PR #156), reflection
-  lookups (#157, PR #158; #159), a `System.Xml.Linq` sample (#160, PR #161; the members already work).
+- **BCL surface ranked by the NuGet survey (#146):** `MathF` and the floating-point generic-math statics (#152, PR #156),
+  reflection lookups (#157, PR #158; #159).
 - **The gap lists from a large WinForms/macOS application:** #89, #93 (quadratic lowering), #95–#104.
 - **Native TLS routes on macOS and Windows:** #144, #143 (the OpenSSL route works and stays until they land).
 - **M5 leftovers:** #168. **M6 leftovers:** #169.
