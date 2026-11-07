@@ -688,6 +688,11 @@ namespace CsharpcCoreLib
             if (validation != null) return validation;
 #endif
             if (validation != null) return new AuthenticationException("Authentication failed, see inner exception.", validation);
+#if CSHARPC_TARGET_MACOS
+            // SecureTransport's text for a protocol version the peer doesn't speak.
+            if (f.OpenSslText != null && (f.OpenSslText.Contains("protocol version") || f.OpenSslText.Contains("unsupported protocol") || f.OpenSslText.Contains("no protocols available")))
+                return new AuthenticationException("Authentication failed, see inner exception.", new SslException("bad protocol version", null));
+#endif
             return new AuthenticationException("Authentication failed, see inner exception.",
                 new SslException("SSL Handshake failed with OpenSSL error - " + ErrorName(f.Error) + ".", f.OpenSslText == null ? null : new CryptographicException(f.OpenSslText)));
         }
