@@ -272,3 +272,4 @@ macos 1181_socket_dns_endpoint_failure_messages  the texts and native codes are 
 windows 1181_socket_dns_endpoint_failure_messages  the texts and native codes are the OS's: Winsock says "No connection could be made because the target machine actively refused it." (10061)
 wasi 1204_taskfactory_state_creation_options  known gap (#118): Task.CreationOptions traps on WebAssembly, so the options of the returned tasks can't be observed there
 wasi 1205_taskfactory_from_async_wait_handle  needs threads: FromAsync over an operation that isn't complete waits on its handle through ThreadPool.RegisterWaitForSingleObject (PlatformNotSupportedException on WebAssembly)
+wasi 1211_compression_codecs           known gap: no NativeAOT runtime pack (native compression shim) for WebAssembly
