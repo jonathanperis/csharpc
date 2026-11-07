@@ -172,6 +172,17 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
 * **Members-only shadows:** `string.Join<T>/Join(IEnumerable)/Concat<T>/Compare`, `double`/`float`
   `IsNaN`/`IsInfinity`/`IsFinite`..., generic `System.Array` helpers (`Sort` incl. keys+items, `Reverse`,
   `IndexOf`, `Resize`, `Fill`, `Find*`, `Exists`, `TrueForAll`, `ConvertAll`, `BinarySearch`, `Empty`).
+* **`System.MathF` and floating-point math** (`CodeGen/Intrinsics.cs` `AddMathF`, `corelib/FloatingPointMath.cs`): what .NET calls
+  through the C runtime is libm's float function (`sinf`, `powf`, `acoshf`, ...) or an exact LLVM intrinsic (`Sqrt`, `Floor`, `Round`,
+  `FusedMultiplyAdd`, `CopySign`, `Max`/`Min` as IEEE 754-2019); the members that are C# in .NET are ports of
+  dotnet/runtime's own (`BitIncrement`, `IEEERemainder`, `ILogB`, `ScaleB`, `Round(x, digits, mode)` exact on the decimal value,
+  `MaxMagnitude`, `Sign`...). The float and double generic-math statics (`float.Hypot`, `double.Lerp`, `T.SinPi(x)`,
+  `RootN`, `Exp2`/`Exp10`, the degree conversions, `MaxNumber`, `IsNormal`, ... that `IFloatingPointIeee754<T>` needs) are
+  copied from `Single.cs`/`Double.cs` of the .NET 11 runtime and checked against it bit for bit (a differential run of every
+  member over edge values and a few hundred pseudo-random inputs). `ReciprocalEstimate` / `ReciprocalSqrtEstimate` return
+  the exact `1 / x` (.NET uses `RCPSS`/`FRECPE` where the hardware has them, so its answer differs between CPUs and is
+  only an estimate). Results of the libm functions follow the platform's libm (glibc here, as .NET on Linux), so a few
+  differ in the last bit on WebAssembly's libc; `Math.Log`/`Log2` of a negative number return the positive quiet NaN on Unix as .NET does (Windows passes its C runtime's through).
 * **`System.Text.RegularExpressions`** (`corelib/Regex/`, see [Regular expressions](#regular-expressions)).
 * **Compiled-code support for the IL front-end** (docs/adr/0010-il-frontend.md): async method builders,
   `AsyncIteratorMethodBuilder`, `ManualResetValueTaskSourceCore<T>`, `ConfiguredCancelableAsyncEnumerable<T>`,

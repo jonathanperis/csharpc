@@ -99,6 +99,7 @@ of the milestone below says where it is tracked.
 | Area | Status | Notes |
 |---|---|---|
 | `Console`, `Math`, `Environment`, `GC` | ✅ | intrinsics + csrt |
+| `System.MathF`, `float`/`double` generic-math statics (`Sin`, `Hypot`, `Lerp`, `SinPi`, ...) | ✅ | all public `MathF` members and `IFloatingPointIeee754<T>` for `float`/`double`, bit for bit against .NET on the same libm ([12-corelib.md](12-corelib.md), samples 1226-1229; `ReciprocalEstimate` is the exact quotient) |
 | Parsing/formatting numbers | ✅ | standard + custom format strings |
 | `System.Collections.Generic` (`List`, `Dictionary`, `HashSet`, ...), concurrent collections, `BlockingCollection`, `Partitioner` | ✅ | shadow corelib in C# |
 | `System.Linq` | ✅ | shadow corelib in C# |
