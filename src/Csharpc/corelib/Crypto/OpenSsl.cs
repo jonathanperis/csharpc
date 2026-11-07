@@ -5,7 +5,7 @@
 // directly (docs/adr/0022-tls.md; Rsa.cs and AesNative.cs bind libcrypto the same way). The libraries are
 // opened on first use, so programs that don't use TLS or certificates never load them.
 #nullable disable
-#if CSHARPC_TARGET_LINUX
+#if CSHARPC_OPENSSL
 using System;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -14,8 +14,16 @@ namespace CsharpcCoreLib
 {
     internal static unsafe class Ossl
     {
+#if CSHARPC_TARGET_MACOS
+        // macOS ships no OpenSSL 3 (its libssl is LibreSSL, which system software may not load): Homebrew's openssl@3, whose
+        // Apple-silicon prefix is fixed. The absolute path makes a machine without it fail with a DllNotFoundException that
+        // names the library, not with a dlopen search through unrelated directories.
+        internal const string Crypto = "/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib";
+        internal const string Ssl = "/opt/homebrew/opt/openssl@3/lib/libssl.3.dylib";
+#else
         internal const string Crypto = "libcrypto.so.3";
         internal const string Ssl = "libssl.so.3";
+#endif
 
         // ---- errors ----
         [DllImport(Crypto)] internal static extern ulong ERR_get_error();
@@ -63,6 +71,9 @@ namespace CsharpcCoreLib
         [DllImport(Crypto)] internal static extern IntPtr X509_STORE_new();
         [DllImport(Crypto)] internal static extern void X509_STORE_free(IntPtr store);
         [DllImport(Crypto)] internal static extern int X509_STORE_set_default_paths(IntPtr store);
+#if CSHARPC_TARGET_MACOS
+        [DllImport(Crypto)] internal static extern int X509_STORE_load_file(IntPtr store, byte* file);
+#endif
         [DllImport(Crypto)] internal static extern int X509_STORE_add_cert(IntPtr store, IntPtr x);
         [DllImport(Crypto)] internal static extern IntPtr X509_STORE_CTX_new();
         [DllImport(Crypto)] internal static extern void X509_STORE_CTX_free(IntPtr ctx);
@@ -154,6 +165,21 @@ namespace CsharpcCoreLib
         {
             string message = TakeErrorString();
             return message == null ? new CryptographicException() : new CryptographicException(message);
+        }
+
+        /// <summary>
+        /// OpenSSL's default trust (SSL_CERT_FILE / SSL_CERT_DIR, the library's own directory). On macOS the keychain's roots
+        /// are not reachable from OpenSSL; the bundle macOS keeps for its command-line tools (/etc/ssl/cert.pem) stands in,
+        /// next to whatever Homebrew's openssl@3 has installed (docs/adr/0022-tls.md, "macOS").
+        /// </summary>
+        internal static void SetDefaultTrust(IntPtr store)
+        {
+            X509_STORE_set_default_paths(store);
+#if CSHARPC_TARGET_MACOS
+            fixed (byte* bundle = Utf8Z("/etc/ssl/cert.pem"))
+                X509_STORE_load_file(store, bundle);
+#endif
+            ERR_clear_error();
         }
 
         /// <summary>The DER encoding of an X509*.</summary>

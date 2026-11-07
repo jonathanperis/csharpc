@@ -10,7 +10,7 @@
 // constructors). Extensions, stores, PKCS#7, exporting a PFX and the non-RSA key getters are explicit
 // NotSupportedExceptions (docs/adr/0022-tls.md).
 #nullable disable
-#if CSHARPC_TARGET_LINUX
+#if CSHARPC_OPENSSL
 using System;
 using System.Collections;
 using System.Collections.Generic;
