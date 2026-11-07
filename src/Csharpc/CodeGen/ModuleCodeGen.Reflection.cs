@@ -93,11 +93,13 @@ public sealed partial class ModuleCodeGen
         public required LLVMValueRef Name, Declaring, ReturnType, Invoke;
         // The method's own function, for MethodInfo.CreateDelegate (instance methods of classes; else null).
         public LLVMValueRef Function;
+        // The thunk (ignored target, this, args...) of an instance method, for an open instance delegate (CreateDelegate without a target).
+        public LLVMValueRef OpenFunction;
         public required List<ParameterRecordData> Parameters;
         public required List<AttributeRecordData> Attributes;
         public required uint MethodAttributes, Flags;
         // A listed method's invoker and function are made only once the program can use them (ModuleCodeGen.LazyInvokers.cs).
-        public bool InvokePending, FunctionPending;
+        public bool InvokePending, FunctionPending, OpenPending;
     }
 
     internal sealed record ParameterRecordData(LLVMValueRef Name, LLVMValueRef Type, LLVMValueRef DefaultValue, List<AttributeRecordData> Attributes, uint Flags);
@@ -1068,6 +1070,7 @@ public sealed partial class ModuleCodeGen
             Function = deferred ? default : invokable ? RecordFunction(method) : none,
             InvokePending = deferred,
             FunctionPending = deferred,
+            OpenPending = OpenInstanceDelegatable(method),
             Parameters = parameters,
             Attributes = Attributes(MethodAttributeSet(method, il)),
             MethodAttributes = MethodAttributesOf(method),
@@ -1076,7 +1079,7 @@ public sealed partial class ModuleCodeGen
         };
         // The reflection stub is a root of the program: what it calls is reachable (IL failures there are errors).
         if (invokable && !deferred) NoteReference(method, virtualCall: method.MethodKind != MethodKind.Constructor);
-        if (deferred) _lazyInvokerRecords.Add(record);
+        if (deferred || record.OpenPending) _lazyInvokerRecords.Add(record);
         return _methodRecords[method] = record;
     }
 
@@ -1488,7 +1491,7 @@ public sealed partial class ModuleCodeGen
 
     private LLVMTypeRef AttributeRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
     private LLVMTypeRef ParameterRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
-    private LLVMTypeRef MethodRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr);
+    private LLVMTypeRef MethodRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
     private LLVMTypeRef DelegateSignatureType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef ReflectionInfoType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.I32);
     private LLVMTypeRef EventRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32);
@@ -1535,7 +1538,7 @@ public sealed partial class ModuleCodeGen
         return Llvm.ConstStruct(m.Name, m.Declaring, m.ReturnType, m.Invoke, parameters, AttributeArray(m.Attributes),
             Llvm.ConstInt(Llvm.I32, m.Parameters.Count), AttributeCount(m.Attributes),
             Llvm.ConstUInt(Llvm.I32, m.MethodAttributes), Llvm.ConstUInt(Llvm.I32, m.Flags), m.Function.IsNull ? LlvmContext.Null(Llvm.Ptr) : m.Function,
-            MemberIdentity(m.Method));
+            MemberIdentity(m.Method), m.OpenFunction.IsNull ? LlvmContext.Null(Llvm.Ptr) : m.OpenFunction);
     }
 
     private readonly Dictionary<ISymbol, LLVMValueRef> _memberIdentities = new(SymbolEqualityComparer.Default);

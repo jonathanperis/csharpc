@@ -314,6 +314,38 @@ public sealed partial class FunctionCodeGen
         Finish();
     }
 
+    /// <summary>
+    /// The body of ModuleCodeGen.OpenInstanceFunction: (ignored target, this, args...) => this.method(args...), the
+    /// entry point of an open instance delegate (MethodInfo.CreateDelegate of an instance method without a target:
+    /// the delegate's first parameter is the receiver). Virtual and interface methods dispatch on it, as in .NET.
+    /// </summary>
+    internal void EmitOpenInstanceThunk(IMethodSymbol method, SyntaxNode syntax)
+    {
+        var instance = new IlValueOperation(syntax, method.ContainingType, () => _fn.Fn.Param(1));
+        var arguments = method.Parameters.Select((p, i) => (IArgumentOperation)new IlArgumentOperation(syntax, p,
+            new IlValueOperation(syntax, p.Type, () => _fn.Fn.Param((uint)(i + 2))))).ToImmutableArray();
+        var isVirtual = method.IsVirtual || method.IsAbstract || method.IsOverride || method.ContainingType.TypeKind == TypeKind.Interface;
+        LLVMValueRef result = default;
+        if (!_m.IsUserMethod(method) && method.AssociatedSymbol is IPropertySymbol property && method.ContainingType.TypeKind != TypeKind.Interface
+            && method.MethodKind is MethodKind.PropertyGet or MethodKind.PropertySet)
+        {
+            // Library accessors are properties to the source path (string.Length), not methods it can call.
+            var indexArguments = method.MethodKind == MethodKind.PropertySet ? arguments.RemoveAt(arguments.Length - 1) : arguments;
+            var reference = new IlPropertyReferenceOperation(syntax, property, instance, [.. indexArguments.Select((a, i) =>
+                (IArgumentOperation)new IlArgumentOperation(syntax, property.Parameters[i], a.Value))], null);
+            if (method.MethodKind == MethodKind.PropertyGet) result = EmitValue(reference);
+            else
+            {
+                var value = arguments[^1].Value;
+                EmitPropertySet(reference, () => EmitValue(value), S(property.Type));
+            }
+        }
+        else result = EmitValue(new IlInvocationOperation(syntax, method, instance, isVirtual, arguments, null));
+        if (method.ReturnsVoid) _b.RetVoid();
+        else _b.Ret(ToStorageIfNeeded(result, method.ReturnType));
+        Finish();
+    }
+
     private LLVMValueRef ToStorageIfNeeded(LLVMValueRef value, ITypeSymbol type) =>
         value.Type.Handle == T.Value(type).Handle ? value : Coerce(value, type, type);
 
