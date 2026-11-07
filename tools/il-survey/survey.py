@@ -401,8 +401,11 @@ def merge(args):
                 m["diagnostics"].extend(r["diagnostics"])
     results = []
     for m in merged.values():
-        failed = [x for x in m.pop("statuses") if x != "ok"]
-        m["status"] = "; ".join(sorted(set(s.split(" (")[0] for s in failed))) + f" ({len(failed)}/{len(args.merge)} shard runs)" if failed else "ok"
+        statuses = m.pop("statuses")
+        failed = [x for x in statuses if x != "ok"]
+        # A package in one result file (package shards) keeps its status; a target surveyed in shards reports how many shard runs failed.
+        if len(statuses) == 1: m["status"] = statuses[0]
+        else: m["status"] = "; ".join(sorted(set(s.split(" (")[0] for s in failed))) + f" ({len(failed)}/{len(statuses)} shard runs)" if failed else "ok"
         seen, unique = set(), []
         for d in m["diagnostics"]:
             k = (d["kind"], d["key"], d.get("assembly"), d.get("method"))

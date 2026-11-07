@@ -500,7 +500,12 @@ closed-world answer is compile-time metadata for what is statically known (`type
 `IsGenericType`, `GetGenericArguments` on known types) and diagnostics for the rest, as M6 item 3 plans.
 
 Re-run: `python3 -I tools/il-survey/survey.py --jobs 1 --out il-survey.md` (a fresh `/tmp` work dir by
-default; `--only Id1,Id2` for a subset).
+default; `--only Id1,Id2` for a subset). One package takes minutes now that most methods lower (Newtonsoft.Json:
+323 s and 43 diagnostics, against 25 s and 1 942 on 2026-10-24; NJsonSchema 50 minutes), so the workflow runs
+the packages as 13 parallel jobs (`--package-shard I/13`) whose `results.json` a report job merges (`--merge`); the
+whole survey takes about an hour. The ranking of 2026-11-07 (all 52 packages) and the items taken from it are in
+#146; Newtonsoft.Json, Dapper, NodaTime, AutoMapper, HtmlAgilityPack, RestSharp and ImageSharp report no missing
+library member of their own any more.
 
 ### Roslyn and csharpc
 
