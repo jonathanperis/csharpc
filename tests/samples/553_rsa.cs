@@ -22,7 +22,8 @@ byte[] data = Encoding.UTF8.GetBytes("Hello, from csharpc!");
 using (RSA rsa = RSA.Create())
 {
     Console.WriteLine($"default key {rsa.KeySize} bits, max output {rsa.GetMaxOutputSize()}, {rsa.SignatureAlgorithm}/{rsa.KeyExchangeAlgorithm}");
-    Console.WriteLine($"legal sizes: {string.Join(", ", Array.ConvertAll(rsa.LegalKeySizes, k => $"{k.MinSize}-{k.MaxSize} step {k.SkipSize}"))}");
+    // macOS: .NET's SecKey-based RSA has its own legal sizes, minimum key size and disposal behaviour, not compared here.
+    if (!OperatingSystem.IsMacOS()) Console.WriteLine($"legal sizes: {string.Join(", ", Array.ConvertAll(rsa.LegalKeySizes, k => $"{k.MinSize}-{k.MaxSize} step {k.SkipSize}"))}");
     RSAParameters pub = rsa.ExportParameters(false), priv = rsa.ExportParameters(true);
     Console.WriteLine($"public: modulus {pub.Modulus!.Length}, exponent {Convert.ToHexString(pub.Exponent!)}, private parts {pub.D is null && pub.P is null}");
     Console.WriteLine($"private: D {priv.D!.Length}, P {priv.P!.Length}, Q {priv.Q!.Length}, DP {priv.DP!.Length}, DQ {priv.DQ!.Length}, InverseQ {priv.InverseQ!.Length}");
@@ -84,9 +85,12 @@ try { RSA.Create(new RSAParameters { Modulus = fixedKey.Modulus }); }
 catch (CryptographicException e) { Console.WriteLine($"no exponent: {e.Message}"); }
 try { RSA.Create(new RSAParameters { Modulus = fixedKey.Modulus, Exponent = fixedKey.Exponent, P = fixedKey.P }); }
 catch (CryptographicException e) { Console.WriteLine($"inconsistent: {e.Message}"); }
-try { RSA.Create(1000).Dispose(); Console.WriteLine("1000 bits accepted"); RSA.Create(513); }
+try { if (!OperatingSystem.IsMacOS()) { RSA.Create(1000).Dispose(); Console.WriteLine("1000 bits accepted"); } RSA.Create(513); }
 catch (CryptographicException e) { Console.WriteLine($"513 bits: {e.Message}"); }
-var disposed = RSA.Create();
-disposed.Dispose();
-try { disposed.ExportParameters(false); }
-catch (ObjectDisposedException e) { Console.WriteLine($"disposed: {e.Message}"); }
+if (!OperatingSystem.IsMacOS())
+{
+    var disposed = RSA.Create();
+    disposed.Dispose();
+    try { disposed.ExportParameters(false); }
+    catch (ObjectDisposedException e) { Console.WriteLine($"disposed: {e.Message}"); }
+}

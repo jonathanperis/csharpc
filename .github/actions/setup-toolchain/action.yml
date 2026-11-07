@@ -27,7 +27,8 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        brew install llvm@18 bash coreutils
+        # openssl@3: the corelib's X.509/TLS/RSA code binds it (docs/adr/0022-tls.md, "macOS"); usually preinstalled.
+        brew install llvm@18 bash coreutils openssl@3
         llvm="$(brew --prefix llvm@18)"
         echo "$llvm/bin" >> "$GITHUB_PATH"
         echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"

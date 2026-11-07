@@ -61,7 +61,7 @@ namespace CsharpcCoreLib
     [Shadows("System.Security.Cryptography.RSA")]
     public abstract class RSAImpl : AsymmetricAlgorithm
     {
-#if CSHARPC_TARGET_LINUX
+#if CSHARPC_OPENSSL
         public static new RSA Create() => new RsaOpenSsl(2048);
 
         public static RSA Create(int keySizeInBits)
@@ -413,7 +413,7 @@ namespace CsharpcCoreLib
     {
         internal static byte[] Hash(HashAlgorithmName hashAlgorithm, ReadOnlySpan<byte> data)
         {
-#if CSHARPC_TARGET_LINUX
+#if CSHARPC_OPENSSL
             IntPtr md = RsaOpenSsl.Digest(hashAlgorithm.Name);
             byte* output = stackalloc byte[64];
             uint length;
@@ -431,12 +431,12 @@ namespace CsharpcCoreLib
         }
     }
 
-#if CSHARPC_TARGET_LINUX
+#if CSHARPC_OPENSSL
     // RSAOpenSsl (Common/.../RSAOpenSsl.cs) with the native shim's EVP_PKEY calls inlined. The key is generated
     // on first use, so setting KeySize or importing parameters after Create() costs no key generation.
     internal sealed unsafe class RsaOpenSsl : RSA
     {
-        private const string Lib = "libcrypto.so.3";
+        private const string Lib = Ossl.Crypto;
         private const int EVP_PKEY_PUBLIC_KEY = 0x86, EVP_PKEY_KEYPAIR = 0x87;
         private const int RSA_PKCS1_PADDING = 1, RSA_PKCS1_OAEP_PADDING = 4, RSA_PKCS1_PSS_PADDING = 6, RSA_PSS_SALTLEN_DIGEST = -1;
 

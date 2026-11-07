@@ -10,7 +10,7 @@
 // constructors). Extensions, stores, PKCS#7, exporting a PFX and the non-RSA key getters are explicit
 // NotSupportedExceptions (docs/adr/0022-tls.md).
 #nullable disable
-#if CSHARPC_TARGET_LINUX
+#if CSHARPC_OPENSSL
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -175,12 +175,22 @@ namespace CsharpcCoreLib
                     finally { Ossl.PKCS12_free(p12); }
                 }
                 Ossl.ERR_clear_error();
-                throw Der.Corrupt();
+                throw Unrecognized();
             }
             // PEM: the first CERTIFICATE (and a PRIVATE KEY if one follows)
             byte[] pem = FromPem(data, null, out key);
             if (pem != null) return pem;
-            throw Der.Corrupt();
+            throw Unrecognized();
+        }
+
+        // Data that is no certificate, PEM or PKCS#12: .NET's message depends on its backend (Apple's import API on macOS).
+        private static CryptographicException Unrecognized()
+        {
+#if CSHARPC_TARGET_MACOS
+            return new CryptographicException("Unknown format in import.");
+#else
+            return Der.Corrupt();
+#endif
         }
 
         private static byte[] FromPkcs12(IntPtr p12, string password, out IntPtr key, out List<byte[]> others)
@@ -263,6 +273,10 @@ namespace CsharpcCoreLib
 
         internal static byte[] ReadFile(string path)
         {
+#if CSHARPC_TARGET_MACOS
+            // .NET on macOS reads the file itself: a missing one is the file system's exception.
+            return File.ReadAllBytes(path);
+#else
             // BIO_new_file reports a missing file as OpenSSL's error text, which .NET surfaces unchanged.
             Ossl.EnsureInitialized();
             byte[] name = Ossl.Utf8Z(path);
@@ -271,6 +285,7 @@ namespace CsharpcCoreLib
             if (bio == IntPtr.Zero) throw Ossl.Error();
             Ossl.BIO_free(bio);
             return File.ReadAllBytes(path);
+#endif
         }
     }
 
