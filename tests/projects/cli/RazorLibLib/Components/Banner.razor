@@ -1,0 +1,12 @@
+<div class="banner">
+    <h2>@Title</h2>
+    @if (Subtitle is not null)
+    {
+        <small>@Subtitle</small>
+    }
+</div>
+
+@code {
+    public string Title { get; set; } = "";
+    public string? Subtitle { get; set; }
+}

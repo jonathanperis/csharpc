@@ -459,6 +459,59 @@ namespace CsharpcCoreLib
             return count;
         }
 
+        /// <summary>text.AsSpan(range): a null string is an empty span only for the whole range.</summary>
+        public static ReadOnlySpan<char> AsSpan(string text, Range range)
+        {
+            if (text == null)
+            {
+                if (!range.Equals(Range.All)) throw new ArgumentNullException("text");
+                return default;
+            }
+            // Range.GetOffsetAndLength
+            int start = range.Start.GetOffset(text.Length);
+            int end = range.End.GetOffset(text.Length);
+            if ((uint)end > (uint)text.Length || (uint)start > (uint)end) throw new ArgumentOutOfRangeException("length");
+            return text.AsSpan(start, end - start);
+        }
+
+        /// <summary>span.Split(separator): the ranges between separators (EnumConverter.ConvertFrom splits flag lists with it).</summary>
+        public static SpanSplitEnumeratorImpl<T> Split<T>(ReadOnlySpan<T> source, T separator) where T : IEquatable<T> =>
+            new SpanSplitEnumeratorImpl<T>(source, separator, default, false);
+
+        /// <summary>span.Split(separatorSequence): the sequence is one separator.</summary>
+        public static SpanSplitEnumeratorImpl<T> Split<T>(ReadOnlySpan<T> source, ReadOnlySpan<T> separator) where T : IEquatable<T> =>
+            new SpanSplitEnumeratorImpl<T>(source, default, separator, true);
+
+        /// <summary>The string-separator form (PointConverter splits "10, 20" on the culture's list separator); an empty separator leaves the source whole.</summary>
+        public static int Split(ReadOnlySpan<char> source, Span<Range> destination, ReadOnlySpan<char> separator, StringSplitOptions options = StringSplitOptions.None)
+        {
+            if ((options & ~(StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) != 0)
+                throw new ArgumentException("Value of flags is invalid.", "options");
+            if (destination.IsEmpty) return 0;
+            bool keepEmpty = (options & StringSplitOptions.RemoveEmptyEntries) == 0;
+            bool trim = (options & StringSplitOptions.TrimEntries) != 0;
+            int count = 0, start = 0;
+            while (true)
+            {
+                int index = separator.IsEmpty || count == destination.Length - 1 ? -1 : source.Slice(start).IndexOf(separator);
+                int end = index < 0 ? source.Length : start + index;
+                int s = start, e = end;
+                if (trim)
+                {
+                    while (s < e && char.IsWhiteSpace(source[s])) s++;
+                    while (e > s && char.IsWhiteSpace(source[e - 1])) e--;
+                }
+                if (keepEmpty || e > s)
+                {
+                    destination[count++] = new Range(s, e);
+                    if (count == destination.Length) break;
+                }
+                if (index < 0) break;
+                start = end + separator.Length;
+            }
+            return count;
+        }
+
         public static int SequenceCompareTo<T>(ReadOnlySpan<T> span, ReadOnlySpan<T> other) where T : IComparable<T>
         {
             int n = span.Length < other.Length ? span.Length : other.Length;
@@ -927,10 +980,12 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Threading.Tasks.Task")]
     internal static class TaskExtras
     {
-        public static Task<TResult[]> WhenAll<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAll(Enumerable.ToArray(tasks));
-        public static Task WhenAll(IEnumerable<Task> tasks) => Task.WhenAll(Enumerable.ToArray(tasks));
-        public static Task<Task> WhenAny(IEnumerable<Task> tasks) => Task.WhenAny(Enumerable.ToArray(tasks));
-        public static Task<Task<TResult>> WhenAny<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAny(Enumerable.ToArray(tasks));
+        // The checks .NET makes on the collection itself (a null one is ArgumentNullException 'tasks', not 'source').
+        private static T[] TasksArray<T>(IEnumerable<T> tasks) => tasks == null ? throw new ArgumentNullException("tasks") : Enumerable.ToArray(tasks);
+        public static Task<TResult[]> WhenAll<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAll(TasksArray(tasks));
+        public static Task WhenAll(IEnumerable<Task> tasks) => Task.WhenAll(TasksArray(tasks));
+        public static Task<Task> WhenAny(IEnumerable<Task> tasks) => Task.WhenAny(TasksArray(tasks));
+        public static Task<Task<TResult>> WhenAny<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAny(TasksArray(tasks));
     }
 }
 

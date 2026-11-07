@@ -167,6 +167,11 @@ public sealed partial class ModuleCodeGen
         Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".BoxedConvertible")?.GetMembers(member.Name).OfType<IMethodSymbol>()
             .SingleOrDefault(m => m.Parameters.Length == member.Parameters.Length + 1);
 
+    /// <summary>corelib's TaskState method for an IAsyncResult member of a Task: (object self, args...).</summary>
+    internal IMethodSymbol? TaskAsyncResultMember(IMethodSymbol member) =>
+        Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".TaskState")?.GetMembers(member.Name).OfType<IMethodSymbol>()
+            .SingleOrDefault(m => m.Parameters.Length == member.Parameters.Length + 1);
+
     /// <summary>The CLR's CorElementType of an enum's underlying type (csrt_unbox lets the two unbox as each other).</summary>
     private static int ElementKind(ITypeSymbol underlying) => underlying.SpecialType switch
     {
@@ -303,6 +308,8 @@ public sealed partial class ModuleCodeGen
     /// <summary>A name-only method table identifying a library type for Type objects (never instantiated).</summary>
     private LLVMValueRef TypeOnlyMethodTable(INamedTypeSymbol type)
     {
+        // Task<T> has its own table, which the tasks of that type carry (ModuleCodeGen.TaskTypes.cs).
+        if (IsTypedTask(type) && TaskTypeOf(type) is { } taskType) return TaskMethodTable(taskType, observed: true);
         // The CLR name with type arguments ("System.Collections.Generic.List`1[System.String]"), as
         // Type.ToString prints it; definitions list their parameters ("System.Collections.Generic.List`1[T]").
         // One table per constructed type: List<int> and List<string> are different types for typeof and
@@ -346,6 +353,9 @@ public sealed partial class ModuleCodeGen
         if (Int128Support.Is128(type)) return Builtin(type.Name == "Int128" ? "csrt_Boxed_Int128_MT" : "csrt_Boxed_UInt128_MT");
         if (type is INamedTypeSymbol { Name: "CancellationTokenSource", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } })
             return Builtin("csrt_CancellationTokenSource_MT");
+        // typeof(Task): the table plain tasks carry (the non-generic Task and Task<VoidTaskResult> are one runtime type).
+        if (type is INamedTypeSymbol { Name: "Task", TypeArguments.Length: 0, ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } })
+            return Builtin("csrt_Task_MT");
         switch (type.SpecialType)
         {
             case SpecialType.System_String: return Builtin("csrt_String_MT");
@@ -369,6 +379,8 @@ public sealed partial class ModuleCodeGen
             INamedTypeSymbol { TypeKind: TypeKind.Interface } i when !i.IsUnboundGenericType && !TypeSubstitution.IsOpen(i) => InterfaceMethodTable(i),
             // Delegates: the table delegate instances carry (obj.GetType() == typeof(Func<int>)).
             INamedTypeSymbol { TypeKind: TypeKind.Delegate } d when !d.IsUnboundGenericType && !TypeSubstitution.IsOpen(d) => DelegateMethodTable(d),
+            // An anonymous type's instances carry the table of its layout.
+            INamedTypeSymbol { IsAnonymousType: true } anonymous when !TypeSubstitution.IsOpen(anonymous) => GetAnonymousLayout(anonymous).MethodTable,
             // Closed generic instantiations (and corelib shadows such as List<int>) use the same method
             // table their instances carry, so typeof(G<int>) == obj.GetType() holds.
             INamedTypeSymbol { TypeKind: TypeKind.Class } c when !c.IsStatic && IsUserType(CoreLib.TryMap(c) ?? c) && !c.IsUnboundGenericType && !TypeSubstitution.IsOpen(c) => GetLayout(c).MethodTable,

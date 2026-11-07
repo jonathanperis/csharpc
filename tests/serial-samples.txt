@@ -1,0 +1,19 @@
+# Samples that tests/run.sh runs alone when CSHARPC_JOBS > 1 (one name per line, '#' starts a comment).
+# A sample belongs here when running next to other samples can change what it observes. Everything
+# else is order- and neighbour-independent (own ephemeral ports, per-process temp names, no shared files).
+
+# Connect to a port that was just bound and closed ("closedPort") and expect a refusal: a neighbour
+# binding an ephemeral port could take that number in between.
+196_sockets_loopback
+841_socket_nonblocking_connect
+861_socket_connect_async
+903_stack_trace_socket_connect
+1002_httpclient_errors
+
+# Wall-clock windows of a few tens of milliseconds, or an upper bound on elapsed time.
+152_async_parallel_io_sim
+517_threading_timer
+534_thread_interrupt
+
+# inotify delivery and its timing.
+609_filesystemwatcher

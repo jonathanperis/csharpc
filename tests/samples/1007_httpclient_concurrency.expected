@@ -1,0 +1,10 @@
+item 0, item 1, item 2, item 3, item 4, item 5, item 6, item 7
+connections: 2, max concurrent requests on the server: 2
+received 200000 bytes, checksum 25499040
+download: 300003 chars, ends with END
+HTTP/1.0 OK: close-delimited body (length known: True)
+headers read: OK, length 10
+body: firstlater
+copied: item copy
+sync: OK item sync
+threads done

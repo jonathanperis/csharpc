@@ -1,0 +1,10 @@
+short weak references after finalization: mostly cleared True
+long weak references after finalization: mostly alive True
+weak handles: mostly cleared True, long handles mostly alive True
+finalized: most True
+after the program lets go: long references mostly cleared True, long handles True
+True text
+other
+False
+Handle is not initialized.
+True

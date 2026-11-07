@@ -18,7 +18,7 @@ name: Release
 #     nuget.org. Gated to main+push+success so PR/ci/**
 #     CI completions do not start Release (or burn setup runners), and a docs-only or partial
 #     CI success does not publish: setup requires a successful `diff (` shard for every platform
-#     plus the five `test (` checks (tools/ci-plan.sh release-gate). Does not run inside ci.yml,
+#     plus the five `test (` checks (tools/ci-plan.sh release-gate; an identical-tree skip has a `tree (` job instead of shards). Does not run inside ci.yml,
 #     so it never cancels or slows the five merge-bar jobs.
 #   - Push of v* tags: named release, GitHub Packages, GHCR and nuget.org (the only channel that
 #     publishes there; its packages can't be deleted). The tagged commit must be on main and

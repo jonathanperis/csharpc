@@ -18,7 +18,10 @@ public static class ResourcesFile
     /// <param name="Text">The string value, or null for other types.</param>
     /// <param name="TypeName">The entry's type: "System.String", a primitive's full name, "System.Byte[]", "System.IO.Stream" or a user type's full name.</param>
     /// <param name="Value">A primitive's (or byte[]'s, base64) value in invariant text, for the types csharpc serves from GetObject; else null.</param>
-    public sealed record Entry(string Name, string? Text, string TypeName, string? Value = null);
+    /// <param name="Format">For a preserialized user type, how its data is stored (PreserializedResourceWriter's SerializationFormat:
+    /// 1 BinaryFormatter, 2 TypeConverter byte array, 3 TypeConverter string, 4 activator stream); 0 otherwise.</param>
+    /// <param name="AssemblyQualifiedName">A user type's name as the file spells it ("System.Drawing.Point, System.Drawing.Primitives").</param>
+    public sealed record Entry(string Name, string? Text, string TypeName, string? Value = null, int Format = 0, string? AssemblyQualifiedName = null);
 
     public static IEnumerable<Entry> Read(byte[] bytes)
     {
@@ -54,9 +57,11 @@ public static class ResourcesFile
             var dataOffset = reader.ReadInt32();
             stream.Seek(dataSection + dataOffset, SeekOrigin.Begin);
             var code = Read7BitEncodedInt(reader);
-            entries.Add(code == StringCode
-                ? new Entry(name, reader.ReadString(), "System.String")
-                : new Entry(name, null, TypeNameOf(code, typeNames), ValueOf(code, reader)));
+            if (code == StringCode) { entries.Add(new Entry(name, reader.ReadString(), "System.String")); continue; }
+            var format = code >= StartOfUserTypes ? reader.ReadByte() : 0;
+            var value = ValueOf(code, format, reader);
+            var qualified = code >= StartOfUserTypes && code - StartOfUserTypes < typeNames.Count ? typeNames[code - StartOfUserTypes] : null;
+            entries.Add(new Entry(name, null, TypeNameOf(code, typeNames), value, format, qualified));
         }
         return entries;
     }
@@ -83,7 +88,7 @@ public static class ResourcesFile
         return assemblyQualified;
     }
 
-    private static string? ValueOf(int code, BinaryReader reader)
+    private static string? ValueOf(int code, int format, BinaryReader reader)
     {
         var invariant = System.Globalization.CultureInfo.InvariantCulture;
         return code switch
@@ -101,9 +106,10 @@ public static class ResourcesFile
             12 => reader.ReadSingle().ToString("R", invariant),
             13 => reader.ReadDouble().ToString("R", invariant),
             14 => reader.ReadDecimal().ToString(invariant),
-            32 => Convert.ToBase64String(reader.ReadBytes(reader.ReadInt32())),
+            15 or 16 => reader.ReadInt64().ToString(invariant), // DateTime / TimeSpan: their ticks
+            32 or 33 => Convert.ToBase64String(reader.ReadBytes(reader.ReadInt32())), // byte[] and Stream: the bytes
             // a preserialized user type: format 3 is "the type converter's string" (the text from the .resx)
-            >= StartOfUserTypes => reader.ReadByte() == 3 ? reader.ReadString() : null,
+            >= StartOfUserTypes => format == 3 ? reader.ReadString() : null,
             _ => null,
         };
     }

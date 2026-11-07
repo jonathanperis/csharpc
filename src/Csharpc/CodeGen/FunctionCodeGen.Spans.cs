@@ -43,7 +43,21 @@ public sealed partial class FunctionCodeGen
         _b.Store(LlvmContext.Null(SpanType), result);
         var nonNull = NewBlock("span.array");
         var done = NewBlock("span.done");
-        _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, array, LlvmContext.Null(L.Ptr)), start is null ? done : ThrowNullBlock(), nonNull);
+        // A null array with a window: new Span<T>(null, 0, 0) / AsSpan(null, 0) are the empty span, any other window is
+        // ArgumentOutOfRangeException (System.Net.Http builds a ReadOnlySpan over its possibly missing header array).
+        var nullArray = done;
+        if (start is { } nullStart)
+        {
+            nullArray = NewBlock("span.null");
+            var current = _b.InsertBlock;
+            _b.PositionAtEnd(nullArray);
+            var outside = _b.ICmp(LLVMIntPredicate.NE, nullStart, L.ConstInt(L.I32, 0));
+            if (length is { } nullLength) outside = _b.BinOp(LLVMOpcode.Or, outside, _b.ICmp(LLVMIntPredicate.NE, nullLength, L.ConstInt(L.I32, 0)));
+            ThrowArgumentOutOfRangeIf(outside);
+            _b.Br(done);
+            _b.PositionAtEnd(current);
+        }
+        _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, array, LlvmContext.Null(L.Ptr)), nullArray, nonNull);
         _b.PositionAtEnd(nonNull);
         if (writable) ArrayExactTypeCheck(array, _m.Compilation.CreateArrayTypeSymbol(element));
         var count = _b.Cast(LLVMOpcode.Trunc, _b.Load(L.I64, _b.StructGep(header, array, 1)), L.I32);
@@ -60,17 +74,6 @@ public sealed partial class FunctionCodeGen
         _b.Br(done);
         _b.PositionAtEnd(done);
         return _b.Load(SpanType, result);
-    }
-
-    private LLVMBasicBlockRef ThrowNullBlock()
-    {
-        var block = NewBlock("span.null");
-        var current = _b.InsertBlock;
-        _b.PositionAtEnd(block);
-        CallRuntime("csrt_throw_null_reference", L.Void, []);
-        _b.Unreachable();
-        _b.PositionAtEnd(current);
-        return block;
     }
 
     /// <summary>.NET's check: (ulong)(uint)start + (ulong)(uint)length > (ulong)(uint)total → ArgumentOutOfRange.</summary>

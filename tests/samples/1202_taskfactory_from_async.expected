@@ -1,0 +1,73 @@
+end1 ready same thread True
+returned: RanToCompletion state 
+42 RanToCompletion 
+end3
+end4
+5
+6
+s1
+s2
+s3
+7
+faulted: InvalidOperationException: end failed
+canceled: TaskCanceledException: A task was canceled.
+canceled: TaskCanceledException: A task was canceled. Canceled
+on scheduler True
+queued 0 inline 1
+on scheduler True
+queued 1 inline 1
+end5 b0
+True RanToCompletion
+end5o
+r0!
+r0o!
+end a1=1
+end a1=2
+end 1,two
+end 1,two
+end 1,two,3.5
+end 1,two,3.5
+9?
+9?
+9x?
+9x?
+9x1.5?
+9x1.5?
+g0
+g0o
+g1
+g2
+g12
+g13
+g123
+g124
+deferred: False state6
+end:deferred RanToCompletion
+begin throws: InvalidOperationException: begin failed
+begin returns null: NullReferenceException: Object reference not set to an instance of an object.
+faulted: InvalidOperationException: end failed in begin/end
+canceled: TaskCanceledException: A task was canceled. Canceled
+null asyncResult: ArgumentNullException: Value cannot be null. (Parameter 'asyncResult')
+null endMethod: ArgumentNullException: Value cannot be null. (Parameter 'endMethod')
+null endFunction: ArgumentNullException: Value cannot be null. (Parameter 'endMethod')
+null scheduler: ArgumentNullException: Value cannot be null. (Parameter 'scheduler')
+null begin: ArgumentNullException: Value cannot be null. (Parameter 'beginMethod')
+null end: ArgumentNullException: Value cannot be null. (Parameter 'endMethod')
+null end func: ArgumentNullException: Value cannot be null. (Parameter 'endMethod')
+null begin1: ArgumentNullException: Value cannot be null. (Parameter 'beginMethod')
+null begin2: ArgumentNullException: Value cannot be null. (Parameter 'beginMethod')
+null begin3: ArgumentNullException: Value cannot be null. (Parameter 'beginMethod')
+LongRunning: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'creationOptions')
+PreferFairness: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'creationOptions')
+LongRunning begin/end: ArgumentOutOfRangeException: It is invalid to specify TaskCreationOptions.LongRunning in calls to FromAsync. (Parameter 'creationOptions')
+option AttachedToParent: no exception
+option DenyChildAttach: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'creationOptions')
+option HideScheduler: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'creationOptions')
+option RunContinuationsAsynchronously: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'creationOptions')
+begin/end option AttachedToParent: no exception
+begin/end option DenyChildAttach: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'creationOptions')
+begin/end option HideScheduler: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'creationOptions')
+begin/end option RunContinuationsAsynchronously: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'creationOptions')
+begin/end option PreferFairness: ArgumentOutOfRangeException: It is invalid to specify TaskCreationOptions.PreferFairness in calls to FromAsync. (Parameter 'creationOptions')
+bad options: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'creationOptions')
+AttachedToParent ok: no exception

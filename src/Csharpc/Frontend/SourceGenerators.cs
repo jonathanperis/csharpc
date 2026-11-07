@@ -1,3 +1,5 @@
+extern alias JsonGenerator;
+
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
 using System.Reflection;
@@ -22,20 +24,11 @@ public sealed record GeneratorInputs
 {
     public IReadOnlyList<string> Analyzers { get; init; } = [];
     public IReadOnlyList<string> AdditionalFiles { get; init; } = [];
-    /// <summary>
-    /// Additional files of the projects the root references (analyzer settings such as stylecop.json, or what a
-    /// generator of that project consumes). The generators run once over the merged program with the root's
-    /// options, so a generator reading one of these would produce what a build of that project would not:
-    /// those reads are an explicit error, the files nobody reads are harmless.
-    /// </summary>
-    public IReadOnlyList<ReferencedAdditionalFile> ReferencedAdditionalFiles { get; init; } = [];
     public IReadOnlyList<string> AnalyzerConfigFiles { get; init; } = [];
     public IReadOnlyDictionary<string, string> Features { get; init; } = ImmutableDictionary<string, string>.Empty;
     /// <summary>csc's base directory for generated files (its /out directory): generated trees' paths, as PDBs and stack traces show them.</summary>
     public string? GeneratedFilesDirectory { get; init; }
 }
-
-public sealed record ReferencedAdditionalFile(string Project, string Path);
 
 /// <summary>
 /// Runs Roslyn source generators over the program, as csc does, and compiles the generated C# with the
@@ -46,17 +39,19 @@ public sealed record ReferencedAdditionalFile(string Project, string Path);
 public static class SourceGenerators
 {
     /// <summary>
-    /// Single files: generators worth loading, keyed by the attribute that triggers them. A null assembly is
-    /// a generator built into csharpc: [GeneratedRegex] (GeneratedRegex.cs) replaces the SDK's, whose output
-    /// is built on RegexRunner internals.
+    /// Single files: generators worth running, keyed by the attribute that triggers them. The SDK's JSON and
+    /// LibraryImport generators are linked into csharpc (<see cref="Linked"/>); the entry with a null assembly is a
+    /// generator built into csharpc: [GeneratedRegex] (GeneratedRegex.cs) replaces the SDK's, whose output is built
+    /// on RegexRunner internals.
     /// </summary>
     private static readonly (string Trigger, string? Assembly)[] s_generators =
     [
-        ("LibraryImport", "Microsoft.Interop.LibraryImportGenerator.dll"),
+        ("LibraryImport", LibraryImportGeneratorAssembly),
         ("GeneratedRegex", null),
         ("JsonSerializable", JsonGeneratorAssembly),
     ];
 
+    private const string LibraryImportGeneratorAssembly = "Microsoft.Interop.LibraryImportGenerator.dll";
     private const string JsonGeneratorAssembly = "System.Text.Json.SourceGeneration.dll";
     /// <summary>The SDK's (and the System.Text.RegularExpressions package's) [GeneratedRegex] generator, which csharpc replaces.</summary>
     private const string RegexGeneratorAssembly = "System.Text.RegularExpressions.Generator.dll";
@@ -71,30 +66,23 @@ public static class SourceGenerators
 
         var parseOptions = (CSharpParseOptions)compilation.SyntaxTrees.First().Options;
         ImmutableArray<AdditionalText> additionalTexts = [];
-        List<(ReferencedAdditionalFile Info, AdditionalFile File)> referencedTexts = [];
         AnalyzerConfigOptionsProvider? optionsProvider = null;
         string? generatedDirectory = null;
         if (inputs is not null)
         {
             additionalTexts = [.. inputs.AdditionalFiles.Select(p => (AdditionalText)new AdditionalFile(p))];
-            foreach (var referenced in inputs.ReferencedAdditionalFiles)
-            {
-                var file = new AdditionalFile(referenced.Path);
-                referencedTexts.Add((referenced, file));
-                additionalTexts = additionalTexts.Add(file);
-            }
             optionsProvider = ConfigOptions.Create(inputs.AnalyzerConfigFiles, found);
             generatedDirectory = inputs.GeneratedFilesDirectory is { } dir && Path.IsPathRooted(dir) ? dir : null;
         }
         // csc disables host outputs (RegisterHostOutput is for IDEs) and roots generated files at its /out directory.
         var driver = CSharpGeneratorDriver.Create(generators, additionalTexts, parseOptions, optionsProvider,
             new GeneratorDriverOptions(IncrementalGeneratorOutputKind.Host, trackIncrementalGeneratorSteps: false, generatedDirectory));
-        driver.RunGeneratorsAndUpdateCompilation(compilation, out var updated, out var generatorDiagnostics);
+        var ran = driver.RunGeneratorsAndUpdateCompilation(compilation, out var updated, out var generatorDiagnostics);
         found.AddRange(generatorDiagnostics.Select(GeneratorFailureAsError));
-        foreach (var (info, file) in referencedTexts)
-            if (file.WasRead)
-                found.Add(Error("CSLLVM0001", $"not supported by csharpc yet: a source generator read the additional file '{System.IO.Path.GetFileName(info.Path)}' of the referenced project "
-                    + $"'{info.Project}' (generators run once over the merged program with the root project's options)"));
+        // The diagnostic carries a failed generator's exception type and message only.
+        if (Environment.GetEnvironmentVariable("CSHARPC_TRACE") == "1")
+            foreach (var result in ran.GetRunResult().Results.Where(r => r.Exception is not null))
+                Console.Error.WriteLine($"[csharpc] generator {result.Generator.GetType().Name} failed: {result.Exception}");
         diagnostics = found;
         updated = DropReflectionOnlyMetadata(compilation, (CSharpCompilation)updated);
         if (Environment.GetEnvironmentVariable("CSHARPC_DUMP_GENERATED") is { Length: > 0 } dumpDir)
@@ -106,19 +94,72 @@ public static class SourceGenerators
         return (CSharpCompilation)updated;
     }
 
+    /// <summary>
+    /// With several projects each project's generators have run on its own compilation (RoslynFrontend.BuildProjects).
+    /// What no project owns is the metadata for the JSON contexts csharpc synthesizes for the merged program's
+    /// reflection-style System.Text.Json calls: the JSON generator runs once more over the merged compilation, with the
+    /// root project's options, and only the output for those synthesized contexts is kept (the projects' own contexts
+    /// already have theirs).
+    /// </summary>
+    public static IReadOnlyList<SyntaxTree> RunSynthesizedJsonContexts(CSharpCompilation compilation, GeneratorInputs? inputs, out IReadOnlyList<Diagnostic> diagnostics)
+    {
+        diagnostics = [];
+        if (!compilation.SyntaxTrees.Any(JsonReflectionContexts.IsSynthesizedTree)) return [];
+        var jsonOnly = (inputs ?? new GeneratorInputs()) with
+        {
+            Analyzers = [.. (inputs?.Analyzers ?? []).Where(a => Path.GetFileName(a).Equals(JsonGeneratorAssembly, StringComparison.OrdinalIgnoreCase))],
+            AdditionalFiles = [],
+        };
+        var updated = Run(compilation, [], jsonOnly, out var found);
+        // Findings about the projects' own contexts are the per-project runs' to report.
+        diagnostics = [.. found.Where(d => d.Severity == DiagnosticSeverity.Error && d.Location == Location.None)];
+        return [.. updated.SyntaxTrees.Except(compilation.SyntaxTrees).Where(t => JsonReflectionContexts.IsSynthesizedContextFile(t.FilePath))];
+    }
+
     private static List<ISourceGenerator> DefaultGenerators(IEnumerable<SyntaxTree> userTrees)
     {
         var text = string.Concat(userTrees.Select(t => t.GetText().ToString()));
-        var dir = AnalyzerDirectory();
         List<ISourceGenerator> generators = [];
         foreach (var (trigger, assembly) in s_generators)
         {
             if (!text.Contains(trigger, StringComparison.Ordinal)) continue;
-            if (assembly is null) { generators.Add(new GeneratedRegexGenerator().AsSourceGenerator()); continue; }
-            if (dir is not null && File.Exists(Path.Combine(dir, assembly)))
-                generators.AddRange(Reference(Path.Combine(dir, assembly)).GetGenerators(LanguageNames.CSharp));
+            generators.Add(assembly is null ? new GeneratedRegexGenerator().AsSourceGenerator() : LinkedGenerator(assembly)!);
         }
         return generators;
+    }
+
+    /// <summary>
+    /// The SDK's generators that are linked into csharpc (they come from the Microsoft.NETCore.App.Ref pack of the SDK
+    /// that built it, Csharpc.csproj): no assembly is loaded at run time, so a csharpc compiled by csharpc runs them too.
+    /// </summary>
+    private static ISourceGenerator? LinkedGenerator(string assemblyFile) => assemblyFile.ToLowerInvariant() switch
+    {
+        "system.text.json.sourcegeneration.dll" => new JsonGenerator::System.Text.Json.SourceGeneration.JsonSourceGenerator().AsSourceGenerator(),
+        "microsoft.interop.libraryimportgenerator.dll" => new Microsoft.Interop.LibraryImportGenerator().AsSourceGenerator(),
+        _ => null,
+    };
+
+    /// <summary>
+    /// The linked generator for a project's /analyzer file when it is the same build (assembly version) as the linked
+    /// one: it then makes the same output the file would, and needs no assembly loading. Another version (a NuGet
+    /// package's own copy) is loaded from its file, as csc does.
+    /// </summary>
+    private static ISourceGenerator? LinkedFor(string path)
+    {
+        var file = Path.GetFileName(path);
+        Type? marker = file.ToLowerInvariant() switch
+        {
+            "system.text.json.sourcegeneration.dll" => typeof(JsonGenerator::System.Text.Json.SourceGeneration.JsonSourceGenerator),
+            "microsoft.interop.libraryimportgenerator.dll" => typeof(Microsoft.Interop.LibraryImportGenerator),
+            _ => null,
+        };
+        if (marker is null) return null;
+        try
+        {
+            var identity = System.Reflection.Metadata.MetadataReader.GetAssemblyName(path);
+            return identity.Version == marker.Assembly.GetName().Version ? LinkedGenerator(file) : null;
+        }
+        catch (Exception e) when (e is IOException or BadImageFormatException) { return null; }
     }
 
     /// <summary>
@@ -133,9 +174,8 @@ public static class SourceGenerators
         // csharpc's reflection-based System.Text.Json support synthesizes [JsonSerializable] contexts
         // (JsonReflectionContexts) that the JSON generator must turn into metadata, whatever the project's analyzers.
         if (!analyzers.Any(a => Path.GetFileName(a).Equals(JsonGeneratorAssembly, StringComparison.OrdinalIgnoreCase))
-            && compilation.SyntaxTrees.Any(JsonReflectionContexts.IsSynthesizedTree) && AnalyzerDirectory() is { } sdkDir
-            && File.Exists(Path.Combine(sdkDir, JsonGeneratorAssembly)))
-            analyzers.Add(Path.Combine(sdkDir, JsonGeneratorAssembly));
+            && compilation.SyntaxTrees.Any(JsonReflectionContexts.IsSynthesizedTree))
+            generators.Add(LinkedGenerator(JsonGeneratorAssembly)!);
         foreach (var path in analyzers)
         {
             if (Path.GetFileName(path).Equals(RegexGeneratorAssembly, StringComparison.OrdinalIgnoreCase))
@@ -147,6 +187,11 @@ public static class SourceGenerators
             {
                 // csc: error CS0006 for an /analyzer file that doesn't exist.
                 diagnostics.Add(Error("CS0006", $"Metadata file '{path}' could not be found"));
+                continue;
+            }
+            if (LinkedFor(path) is { } linked)
+            {
+                generators.Add(linked);
                 continue;
             }
             var reference = Reference(path);
@@ -224,21 +269,6 @@ public static class SourceGenerators
             m.GetAttributes().Any(a => a.AttributeClass is { Name: "ObsoleteAttribute", ContainingNamespace.Name: "System" }));
     }
 
-    /// <summary>packs/Microsoft.NETCore.App.Ref/&lt;version&gt;/analyzers/dotnet/cs of the SDK csharpc runs on.</summary>
-    private static string? AnalyzerDirectory()
-    {
-        if (Environment.GetEnvironmentVariable("CSHARPC_ANALYZERS") is { Length: > 0 } explicitDir) return explicitDir;
-        var runtimeDir = RuntimeEnvironment.GetRuntimeDirectory().TrimEnd('/');
-        var version = Path.GetFileName(runtimeDir);
-        var dotnetRoot = Path.GetFullPath(Path.Combine(runtimeDir, "..", "..", ".."));
-        var packs = Path.Combine(dotnetRoot, "packs", "Microsoft.NETCore.App.Ref");
-        if (!Directory.Exists(packs)) return null;
-        var exact = Path.Combine(packs, version, "analyzers", "dotnet", "cs");
-        if (Directory.Exists(exact)) return exact;
-        return Directory.GetDirectories(packs).Order().Select(v => Path.Combine(v, "analyzers", "dotnet", "cs"))
-            .LastOrDefault(Directory.Exists);
-    }
-
     /// <summary>One reference per analyzer file, so generator instances (and loaded assemblies) are shared by every run.</summary>
     private static AnalyzerFileReference Reference(string path) =>
         s_references.GetOrAdd(Path.GetFullPath(path), p => new AnalyzerFileReference(p, Loader.Instance));
@@ -298,11 +328,9 @@ public static class SourceGenerators
     {
         private SourceText? _text;
         public override string Path => path;
-        public bool WasRead { get; private set; }
 
         public override SourceText? GetText(CancellationToken cancellationToken = default)
         {
-            WasRead = true;
             if (_text is not null) return _text;
             try
             {

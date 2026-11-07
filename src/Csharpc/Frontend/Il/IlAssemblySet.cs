@@ -37,7 +37,9 @@ public sealed class IlAssemblySet : IDisposable
     public bool IsCoreLib(ISymbol? symbol) => OwnerOf(symbol) is { IsCoreLib: true };
 
     /// <summary>Opens and validates the assemblies; throws <see cref="InvalidOperationException"/> with a user-facing message.</summary>
-    public static IlAssemblySet Load(IEnumerable<string> paths)
+    /// <param name="nestedTypesVisibleIn">The program whose private nested types the binding compilation must be able to name
+    /// (reflection-based JSON metadata for them is generated in another assembly; JsonReflectionContexts.Il.cs).</param>
+    public static IlAssemblySet Load(IEnumerable<string> paths, string? nestedTypesVisibleIn = null)
     {
         var set = new IlAssemblySet();
         foreach (var path in paths.Select(Path.GetFullPath).Distinct(StringComparer.Ordinal))
@@ -54,7 +56,9 @@ public sealed class IlAssemblySet : IDisposable
             if (!reader.IsAssembly) throw new InvalidOperationException($"'{path}' is a module, not an assembly");
             if (IsReferenceAssembly(reader))
                 throw new InvalidOperationException($"'{path}' is a reference assembly (no method bodies); reference the implementation assembly instead");
-            var reference = MetadataReference.CreateFromImage(bytes, filePath: path);
+            var image = nestedTypesVisibleIn is not null && string.Equals(path, Path.GetFullPath(nestedTypesVisibleIn), StringComparison.Ordinal)
+                ? JsonReflectionContexts.WithPrivateNestedTypesInternal(bytes, pe, reader) : bytes;
+            var reference = MetadataReference.CreateFromImage(image, filePath: path);
             set._assemblies.Add(new IlAssembly(path, pe, reader, reference));
         }
         return set;
@@ -146,6 +150,9 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
     /// <summary>The precompiled corelib (ADR 0015): lowered from IL, but with the source corelib's policies.</summary>
     public bool IsCoreLib { get; }
 
+    /// <summary>An assembly of a shared framework (Microsoft.NETCore.App, Microsoft.AspNetCore.App) rather than a package or the program's own.</summary>
+    public bool IsFramework { get; }
+
     /// <summary>Decoded bodies by generic definition (IlMethodBody.For).</summary>
     internal Dictionary<IMethodSymbol, IlMethodBody> DecodedBodies { get; } = new(SymbolEqualityComparer.Default);
 
@@ -161,6 +168,8 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         Reader = reader;
         Reference = reference;
         IsCoreLib = Name == CoreLibAssembly.Name;
+        var normalized = path.Replace('\\', '/');
+        IsFramework = normalized.Contains("/shared/Microsoft.", StringComparison.Ordinal);
     }
 
     internal void Bind(Compilation compilation, IAssemblySymbol symbol, Dictionary<string, IAssemblySymbol> referenced)
@@ -216,7 +225,10 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         }
         var baseName = name[..^".resources".Length];
         foreach (var entry in entries)
-            yield return (baseName, entry.Name, entry.Text ?? NonStringPrefix + entry.TypeName + "\u0001" + entry.Value);
+            // A preserialized user type is marked with "\u0002<format>" after the type name (3: the value is the type converter's
+            // string, else a byte array, an activator stream or BinaryFormatter output the runtime can't create), so the runtime
+            // can tell it from a primitive stored by type code and say how it is stored.
+            yield return (baseName, entry.Name, entry.Text ?? NonStringPrefix + entry.TypeName + (entry.Format != 0 ? "\u0002" + entry.Format : "") + "\u0001" + entry.Value);
     }
 
     /// <summary>Starts the value of a resource entry that is not a string: the prefix, the type's full name, U+0001 and the value's text (corelib/Resources.cs reads it).</summary>
@@ -264,6 +276,9 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
 
     public PropertyDefinition PropertyDefinitionOf(IPropertySymbol property) =>
         Reader.GetPropertyDefinition(MetadataTokens.PropertyDefinitionHandle(MetadataTokens.GetRowNumber(MetadataTokens.EntityHandle(property.OriginalDefinition.MetadataToken))));
+
+    public EventDefinition EventDefinitionOf(IEventSymbol e) =>
+        Reader.GetEventDefinition(MetadataTokens.EventDefinitionHandle(MetadataTokens.GetRowNumber(MetadataTokens.EntityHandle(e.OriginalDefinition.MetadataToken))));
 
     public FieldDefinition FieldDefinitionOf(IFieldSymbol field) =>
         Reader.GetFieldDefinition(MetadataTokens.FieldDefinitionHandle(MetadataTokens.GetRowNumber(MetadataTokens.EntityHandle(field.OriginalDefinition.MetadataToken))));
@@ -334,6 +349,18 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         foreach (var handle in type.GetFields())
             if (Reader.StringComparer.Equals(Reader.GetFieldDefinition(handle).Name, e.Name)) return true;
         return false;
+    }
+
+    /// <summary>The FieldDef behind a field-like event (the field named like the event), or null.</summary>
+    public (FieldDefinitionHandle Handle, FieldDefinition Definition)? BackingFieldOf(IEventSymbol e)
+    {
+        var type = TypeDefinitionOf(e.ContainingType);
+        foreach (var handle in type.GetFields())
+        {
+            var definition = Reader.GetFieldDefinition(handle);
+            if (Reader.StringComparer.Equals(definition.Name, e.Name)) return (handle, definition);
+        }
+        return null;
     }
 
     /// <summary>Explicit class size (.size) of a type, 0 if none.</summary>

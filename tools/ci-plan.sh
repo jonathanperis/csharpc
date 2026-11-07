@@ -7,15 +7,28 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-# Shard counts measured from CI run 40310822368 (docs/05-testing.md). x86-64 and Windows are the
-# long poles and have runners to spare. arm64 and macOS queue, so two shards keeps them inside
-# the wall-clock target without a second wave. wasm shares ubuntu-24.04 with x86-64; two shards
-# is enough (the unsharded differential step was 21.5 min).
+# Shard counts. With CSHARPC_JOBS samples at once a shard runs 2-3x faster than the sequential one
+# the counts were first measured on (run 40310822368, docs/05-testing.md), so a platform needs only
+# as many shards as it takes to finish near its suites job (7-26 min). That keeps the gate's wall
+# clock where the suites job puts it and spends fewer runner minutes, which are what queue.
+# Measured on run 42269384295 (docs/05-testing.md, "Shard counts").
 shard_count() {
   case "$1" in
-    x86-64|windows-x64) echo 4 ;;
-    arm64|macos-arm64|wasm32-wasi) echo 2 ;;
+    x86-64) echo 3 ;;
+    windows-x64|arm64|macos-arm64|wasm32-wasi) echo 2 ;;
     *) echo "unknown platform: $1" >&2; return 1 ;;
+  esac
+}
+
+# Samples a shard compiles and runs at once (tests/run.sh, CSHARPC_JOBS). GitHub's hosted runners
+# have 4 vCPUs (ubuntu, windows, ubuntu-24.04-arm) and 3 on macOS (macos-15 arm64); a compilation
+# is itself multi-threaded, so about one sample per core already keeps the cores busy while others
+# wait for the linker and the sample's own run. macOS: 2 at once took 19-25 min a shard (run
+# 42269384295), 3 took 16-19 min (run 42308195548); sequential it was 28-35.
+jobs_for_platform() {
+  case "$1" in
+    x86-64|arm64|windows-x64|wasm32-wasi|macos-arm64) echo 3 ;;
+    *) echo 1 ;;
   esac
 }
 
@@ -318,6 +331,38 @@ find_green_ancestor() {
   return 1
 }
 
+# A push to main whose tree equals the tree of a commit that already has the five green `test (*)`
+# checks: the merged PR's head (second parent of a merge commit), a parent, the pushed commit itself
+# (fast-forward) or a head GitHub lists for the pushed commit. Sets TREE_TWIN to that commit.
+#
+# The green checks of a pull request describe its merge with the base at the time, which is the head's
+# own tree only when the head already contained that base. So the twin must descend from the commit
+# main pointed at before this push: main only moves forward, which makes every base the PR run used
+# an ancestor of the twin, and the tree it tested the twin's tree. A PR that was behind main when
+# it ran (or a merge that brought in other changes) has a different tree here and runs the suite.
+find_green_tree() {
+  local sha="$1" before="$2" tree cand cands seen=" "
+  [[ -n "$before" && "$before" != 0000000* ]] || return 1
+  git cat-file -e "${before}^{commit}" 2>/dev/null || return 1
+  tree="$(git rev-parse "${sha}^{tree}" 2>/dev/null)" || return 1
+  cands="$sha $(git rev-list --parents -n 1 "$sha" 2>/dev/null | cut -d' ' -f2-)"
+  if [[ -n "${CI_REPO:-}" ]]; then
+    cands+=" $(gh api "/repos/${CI_REPO}/commits/${sha}/pulls" --jq '.[].head.sha' 2>/dev/null | tr '\n' ' ')"
+  fi
+  for cand in $cands; do
+    [[ "$seen" == *" $cand "* ]] && continue
+    seen+="$cand "
+    # A squash- or rebase-merged PR head is not in the clone's history; ask the remote for it.
+    git cat-file -e "${cand}^{commit}" 2>/dev/null || git fetch -q --no-tags origin "$cand" 2>/dev/null || continue
+    [[ "$(git rev-parse "${cand}^{tree}" 2>/dev/null)" == "$tree" ]] || continue
+    git merge-base --is-ancestor "$before" "$cand" 2>/dev/null || continue
+    parent_gate_green "$cand" || continue
+    TREE_TWIN="$cand"
+    return 0
+  done
+  return 1
+}
+
 emit_outputs() {
   local dest="${GITHUB_OUTPUT:-}"
   local diff_json suites_json
@@ -450,6 +495,17 @@ cmd_emit() {
         REASON="docs-only paths, but no ancestor has a green test (*) gate (in progress, failed, or cancelled). Running the full suite."
       fi
     fi
+    # main only: the pushed tree was already tested (typically the merged PR's head). Pull requests and
+    # ci/** pushes always run, so a PR's own run is the evidence this reuses.
+    if [[ "$MODE" == full && "$event" == push && "$ref" == refs/heads/main && -n "${CI_SHA:-}" ]]; then
+      TREE_TWIN=""
+      if find_green_tree "$CI_SHA" "${CI_BEFORE:-}"; then
+        MODE=tree
+        RUN_SUITES=false
+        DOCS_PARENT="$TREE_TWIN"
+        REASON="identical tree: commit $TREE_TWIN has the same files as this push and already has a green test (*) gate on a tree that contains main's previous tip. Compiler suite skipped; the five merge-bar checks report success."
+      fi
+    fi
   fi
 
   emit_outputs
@@ -494,7 +550,9 @@ cmd_run_shard() {
   if [[ "$opt" == all ]]; then args+=(--all-opts); else args+=(--opt "$opt"); fi
   if [[ "$repeat" != 1 ]]; then args+=(--repeat "$repeat"); fi
   if [[ -n "$filter" ]]; then args+=("$filter"); fi
-  bash "$ROOT/tests/run.sh" "${args[@]}"
+  # CSHARPC_JOBS from the workflow (or a local override) wins; a flake-hunting repeat stays sequential
+  # inside tests/run.sh whatever this says.
+  CSHARPC_JOBS="${CSHARPC_JOBS:-$(jobs_for_platform "${CI_PLATFORM:-}")}" bash "$ROOT/tests/run.sh" "${args[@]}"
 }
 
 cmd_coverage() {
@@ -586,11 +644,17 @@ cmd_release_gate() {
   norm="$(mktemp)"
   sed -E 's/[[:space:]]+(success|failure|cancelled|skipped|neutral|timed_out|startup_failure)$/	\1/' "$tsv" >"$norm"
   local p
+  # An identical-tree skip (mode `tree`, ci.yml) has no sharded diff jobs; its `tree (` job succeeding says the
+  # planner found a commit with this tree and a green gate that descends from main's previous tip. A docs-only
+  # skip has no such job, so it still does not count.
+  local tree_skip=0
+  grep -qx 'tree (identical tested tree)	success' "$norm" && tree_skip=1
   for p in $ALL_PLATFORMS; do
     if ! grep -qx "test (${p})	success" "$norm"; then
       echo "not a full gate: test ($p) is not success"
       fail=1
     fi
+    [[ "$tree_skip" == 1 ]] && continue
     if ! grep -E "^diff \\(${p} .+	success$" "$norm" >/dev/null; then
       echo "not a full gate: no successful diff shard for $p"
       fail=1
@@ -628,7 +692,7 @@ cmd_self_check() {
   all="$(bash "$ROOT/tests/run.sh" --list | LC_ALL=C sort)"
   : >"$tmp/union"
   local i n
-  for n in 2 4; do
+  for n in 2 3 4; do
     : >"$tmp/union"
     for ((i = 0; i < n; i++)); do
       bash "$ROOT/tests/run.sh" --list --shard "$i/$n" >>"$tmp/union"
@@ -703,12 +767,95 @@ EOF
     fail=1
   fi
 
+  # An identical-tree skip: the five checks plus the tree job, no diff shards. Any failing check, a skipped or
+  # missing tree job (a docs skip), or a partial run next to it is not a gate.
+  printf '%s\n' "plan	success" "tree (identical tested tree)	success" 'diff (${{ matrix.job_name }})	skipped' \
+    "test (x86-64)	success" "test (arm64)	success" "test (macos-arm64)	success" "test (windows-x64)	success" "test (wasm32-wasi)	success" >"$tmp/tree"
+  if ! cmd_release_gate "$tmp/tree" >/dev/null; then
+    echo "tree-skip fixture should pass the release gate"
+    fail=1
+  fi
+  sed 's/^test (arm64)	success$/test (arm64)	failure/' "$tmp/tree" >"$tmp/tree-fail"
+  if cmd_release_gate "$tmp/tree-fail" >/dev/null; then
+    echo "tree-skip fixture with a failed test (arm64) should not pass the release gate"
+    fail=1
+  fi
+  sed 's/^tree (identical tested tree)	success$/tree (identical tested tree)	skipped/' "$tmp/tree" >"$tmp/tree-skipped"
+  if cmd_release_gate "$tmp/tree-skipped" >/dev/null; then
+    echo "a skipped tree job (docs-only) should not pass the release gate"
+    fail=1
+  fi
+  sed '/^test (wasm32-wasi)/d' "$tmp/tree" >"$tmp/tree-missing"
+  if cmd_release_gate "$tmp/tree-missing" >/dev/null; then
+    echo "tree-skip fixture without test (wasm32-wasi) should not pass the release gate"
+    fail=1
+  fi
+  { cat "$tmp/tree"; echo "partial (macos-arm64)	success"; } >"$tmp/tree-partial"
+  if cmd_release_gate "$tmp/tree-partial" >/dev/null; then
+    echo "tree-skip fixture with a partial job should not pass the release gate"
+    fail=1
+  fi
+
   # Manifest pairs for one shard match --list.
   bash "$ROOT/tools/ci-plan.sh" write-manifest --shard 0/4 --opt all >"$tmp/man"
   local listed pairs
   listed="$(bash "$ROOT/tests/run.sh" --list --shard 0/4 | wc -l)"
   pairs="$(wc -l <"$tmp/man")"
   [[ "$pairs" == $((listed * 2)) ]] || { echo "manifest pair count $pairs vs $listed"; fail=1; }
+
+  # Every platform has a parallelism, and every name in tests/serial-samples.txt is a real sample.
+  local p line
+  for p in $ALL_PLATFORMS; do
+    [[ "$(jobs_for_platform "$p")" =~ ^[1-9][0-9]*$ ]] || { echo "no sample parallelism for $p"; fail=1; }
+  done
+  while IFS= read -r line; do
+    line="${line%%#*}"; line="${line//[[:space:]]/}"
+    [[ -z "$line" ]] && continue
+    [[ -f "$ROOT/tests/samples/$line.cs" ]] || { echo "tests/serial-samples.txt names a missing sample: $line"; fail=1; }
+  done < "$ROOT/tests/serial-samples.txt"
+
+  # Identical-tree skip, on a scratch repository with the gate lookup stubbed to a list of green commits.
+  # `main` is A; the PR forks at A with P (one file changed).
+  parent_gate_green() { grep -qx "$1" "$tmp/green"; }
+  local g="git -c user.name=t -c user.email=t@t -c commit.gpgsign=false" repo="$tmp/repo"
+  mkdir "$repo"
+  (
+    cd "$repo" || exit 1
+    export CI_REPO=""
+    $g init -q -b main . && echo a > a && $g add a && $g commit -q -m A
+    A="$(git rev-parse HEAD)"
+    $g checkout -q -b pr && echo p > p && $g add p && $g commit -q -m P
+    P="$(git rev-parse HEAD)"
+    : >"$tmp/green"
+    expect() { # name want sha before
+      local want="$2" got=0 twin
+      TREE_TWIN=""
+      find_green_tree "$3" "$4" || got=1
+      twin="$TREE_TWIN"
+      [[ "$got" == "$want" ]] || { echo "tree skip '$1': find_green_tree returned $got, wanted $want"; return 1; }
+      [[ "$want" == 1 || -n "$twin" ]] || { echo "tree skip '$1': no twin reported"; return 1; }
+    }
+    rc=0
+    # A merge commit of an up-to-date PR has the head's tree: skip only once the head's gate is green.
+    $g checkout -q main && $g merge -q --no-ff pr -m M1 && M1="$(git rev-parse HEAD)"
+    expect "merge, head not green" 1 "$M1" "$A" || rc=1
+    echo "$P" >"$tmp/green"
+    expect "merge, head green" 0 "$M1" "$A" || rc=1
+    [[ "$TREE_TWIN" == "$P" ]] || { echo "tree skip: twin is $TREE_TWIN, not $P"; rc=1; }
+    # A fast-forward push is the head itself.
+    expect "fast-forward" 0 "$P" "$A" || rc=1
+    # Main moved after the PR forked: the merge has files the head does not, so no skip.
+    $g checkout -q -b moved "$A" && echo b > b && $g add b && $g commit -q -m B && B="$(git rev-parse HEAD)"
+    $g merge -q --no-ff pr -m M2 && M2="$(git rev-parse HEAD)"
+    expect "main moved" 1 "$M2" "$B" || rc=1
+    # Equal tree but the twin does not contain main's previous tip: its gate tested something else.
+    T="$(git rev-parse "${P}^{tree}")"
+    M3="$(git commit-tree "$T" -p "$B" -p "$P" -m M3)"
+    expect "twin behind main" 1 "$M3" "$B" || rc=1
+    # No previous tip (new branch, force push) never skips.
+    expect "no before" 1 "$M1" "0000000000000000000000000000000000000000" || rc=1
+    exit "$rc"
+  ) || fail=1
 
   rm -rf "$tmp"
   if [[ "$fail" != 0 ]]; then

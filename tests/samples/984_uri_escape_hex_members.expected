@@ -1,0 +1,72 @@
+escape uri [a b] => a%20b
+escape data [a b] => a%20b
+try escape [a b] => True 5 a%20b
+try escape small [a b] => False 0
+escape uri [a%b] => a%25b
+escape data [a%b] => a%25b
+try escape [a%b] => True 5 a%25b
+try escape small [a%b] => False 0
+escape uri [http://h/a b?c d#e f] => http://h/a%20b?c%20d#e%20f
+escape data [http://h/a b?c d#e f] => http%3A%2F%2Fh%2Fa%20b%3Fc%20d%23e%20f
+try escape [http://h/a b?c d#e f] => True 38 http%3A%2F%2Fh%2Fa%20b%3Fc%20d%23e%20f
+try escape small [http://h/a b?c d#e f] => False 0
+escape uri [é] => %C3%A9
+escape data [é] => %C3%A9
+try escape [é] => True 6 %C3%A9
+try escape small [é] => False 0
+escape uri [~!*'();:@&=+$,/?#[]] => ~!*'();:@&=+$,/?#[]
+escape data [~!*'();:@&=+$,/?#[]] => ~%21%2A%27%28%29%3B%3A%40%26%3D%2B%24%2C%2F%3F%23%5B%5D
+try escape [~!*'();:@&=+$,/?#[]] => False 0 
+try escape small [~!*'();:@&=+$,/?#[]] => False 0
+escape uri [%41] => %2541
+escape data [%41] => %2541
+try escape [%41] => True 5 %2541
+try escape small [%41] => False 0
+escape uri [�] => %EF%BF%BD
+escape data [�] => %EF%BF%BD
+try escape [�] => True 9 %EF%BF%BD
+try escape small [�] => False 0
+escape uri [xéy] => x%C3%A9y
+escape data [xéy] => x%C3%A9y
+try escape [xéy] => True 8 x%C3%A9y
+try escape small [xéy] => False 0
+escape uri [] => 
+escape data [] => 
+try escape [] => True 0 
+try escape small [] => True 0
+escape uri null !! ArgumentNullException: Value cannot be null. (Parameter 'stringToEscape')
+hex escape 97 => %61
+hex escape 32 => %20
+hex escape 255 => %FF
+hex escape 256 !! ArgumentOutOfRangeException: character ('Ā') must be less than or equal to 'ÿ'. (Parameter 'character')
+Actual value was Ā.
+hex escape 37 => %25
+hex escape 0 => %00
+hex unescape [%41] 0 => 65 3
+hex unescape [a%41] 1 => 65 4
+hex unescape [%4] 0 => 37 1
+hex unescape [%zz] 0 => 37 1
+hex unescape [abc] 1 => 98 2
+hex unescape [abc] 3 !! ArgumentOutOfRangeException: index ('3') must be less than '3'. (Parameter 'index')
+Actual value was 3.
+hex unescape [abc] -1 !! ArgumentOutOfRangeException: index ('-1') must be a non-negative value. (Parameter 'index')
+Actual value was -1.
+hex unescape [%e9x] 0 => 233 3
+hex unescape [%41] 1 => 52 2
+hex unescape [] 0 !! ArgumentOutOfRangeException: index ('0') must be less than '0'. (Parameter 'index')
+Actual value was 0.
+hex unescape [%2f%2F] 3 => 47 6
+from hex 48 => 0
+from hex 57 => 9
+from hex 97 => 10
+from hex 70 => 15
+from hex 103 !! ArgumentException: Value does not fall within the expected range. (Parameter 'digit')
+from hex 32 !! ArgumentException: Value does not fall within the expected range. (Parameter 'digit')
+from hex 1632 !! ArgumentException: Value does not fall within the expected range. (Parameter 'digit')
+True False True False
+gopher news nntp ssh sftp telnet net.tcp net.pipe data ftps mailto
+False
+ctor options => http://h/b
+try options => True http://h/b
+try options bad => False 
+ctor options bad !! UriFormatException: Invalid URI: The format of the URI could not be determined.

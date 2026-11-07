@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- ResourceManager.GetResourceSet / ResourceSet and GetStream over two kinds of embedded resources: Strings.resx
+       (non-string entries make the SDK write preserialized resources, GenerateResourceUsePreserializedResources) and
+       Blobs.resources, a .resources file written with ResourceWriter (GenerateBlobs.cs.txt is the program that wrote it:
+       primitives by type code, a byte array and Stream entries), embedded as it is. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>disable</Nullable>
+    <RootNamespace>Repro</RootNamespace>
+    <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Resources.Extensions" Version="10.0.0" />
+    <EmbeddedResource Include="Blobs.resources" LogicalName="Repro.Blobs.resources" />
+    <None Include="GenerateBlobs.cs.txt" />
+  </ItemGroup>
+</Project>

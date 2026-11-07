@@ -1,0 +1,16 @@
+Span(null, 0, 0): length 0, empty True
+ReadOnlySpan(null, 0, 0): length 0
+Span(null): length 0
+AsSpan(null, 0): 0
+AsSpan(null, 0, 0): 0
+AsMemory(null, 0, 0): 0
+Memory(null, 0, 0): 0
+Span(null, 1, 0): ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+Span(null, 0, 1): ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+ReadOnlySpan(null, 0, 2): ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+AsSpan(null, 1): ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+AsSpan(null, 0, 3): ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+Memory(null, 2, 0): ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+2 2 3
+Span(data, 3, 2): ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+AsSpan(data, 5): ArgumentOutOfRangeException: Specified argument was out of the range of valid values.

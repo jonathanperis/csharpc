@@ -57,7 +57,8 @@ enum { CSRT_MT_ABSTRACT = 1, CSRT_MT_INTERFACE = 2, CSRT_MT_ITERATOR = 4 /* src/
        CSRT_MT_REFERENCE_ELEMENTS = 512 /* an array type whose elements are references (array covariance) */,
        CSRT_MT_DELEGATE = 1024 /* a delegate type (`is System.Delegate`) */,
        CSRT_MT_PRIMITIVE = 2048 /* a boxed primitive; with CSRT_MT_ENUM: `reserved` is the (underlying) CorElementType */,
-       CSRT_MT_SYNTHESIZED_INTERFACE = 1 << 16 /* made by csrt from a csrt_LazyInterface (type.c) */ };
+       CSRT_MT_SYNTHESIZED_INTERFACE = 1 << 16 /* made by csrt from a csrt_LazyInterface (type.c) */,
+       CSRT_MT_TRACKED_REFERENCE = 1 << 17 /* [ObjectiveCTrackedType] (inherited) and a finalizer: ObjectiveCMarshal tracking (gc.c) */ };
 // Array types of integers and enums: the ECMA-335 reduced element type (4 bits: 1 int8, 2 int16, 3 int32,
 // 4 int64, 5 native int), so int[] and uint[] (and an enum's array) are cast-compatible like in the CLR.
 #define CSRT_MT_ELEMENT_CLASS_SHIFT 12
@@ -81,6 +82,7 @@ typedef struct { const csrt_MethodTable* mt; int64_t length; uint8_t data[]; } c
 typedef struct { const csrt_MethodTable* mt; int64_t length; int64_t lengths[]; } csrt_MdArray;
 int32_t csrt_array_rank(void* array);                               // Array.Rank of an `Array`
 int64_t csrt_array_dimension_length(void* array, int32_t dimension); // Array.GetLength(d) of an `Array`
+void* csrt_array_data(void* array);                                 // the first element of an `Array` of any rank
 
 // Every method table is followed by its vtable. Slots 0..2 are System.Object's virtuals.
 enum { CSRT_SLOT_TO_STRING = 0, CSRT_SLOT_EQUALS = 1, CSRT_SLOT_GET_HASH_CODE = 2 };
@@ -88,6 +90,7 @@ typedef struct { csrt_MethodTable header; void* vtable[3]; } csrt_BuiltinMethodT
 
 extern const csrt_BuiltinMethodTable csrt_Object_MT;
 extern const csrt_BuiltinMethodTable csrt_String_MT;
+extern const csrt_BuiltinMethodTable csrt_Task_MT;  // async.c; Task<T> tables derive from it
 // Array method tables (per element type, ModuleCodeGen.Bcl.cs; synthesized ones, type.c; the untagged
 // tables below) end with the element type's method table, the one its instances carry, for array covariance
 // (stelem.ref's store check, ldelema's exact-type check, casts between array types). NULL: a value type, or
@@ -183,6 +186,7 @@ typedef struct csrt_Exception {
     // clause that accepted it and its frame record, CSRT_EH_SEARCHED, or null (no filter has run).
     const void* eh_clause;
     void* eh_frame;
+    void* data;                 // TaskCanceledException.Task (the canceled task); null otherwise
 } csrt_Exception;
 typedef struct { csrt_MethodTable header; void* vtable[4]; } csrt_ExceptionMethodTable;
 enum { CSRT_SLOT_GET_MESSAGE = 3 };
@@ -190,6 +194,7 @@ enum { CSRT_SLOT_GET_MESSAGE = 3 };
 CSRT_THROWS void csrt_throw_object(void* exception);
 int32_t csrt_exception_get_hresult(void* exception);
 void csrt_exception_set_token(void* exception, void* token);
+void* csrt_exception_get_token(void* exception);
 void csrt_exception_set_hresult(void* exception, int32_t hresult);
 CSRT_THROWS void csrt_rethrow(void* exception);
 CSRT_THROWS void csrt_propagate(void* exception);
@@ -219,11 +224,20 @@ csrt_String* csrt_object_disposed_message(csrt_String* message, csrt_String* obj
 csrt_String* csrt_exception_get_message(void* exception);
 csrt_String* csrt_exception_to_string(void* exception);
 _Noreturn void csrt_unhandled_exception(void* exception);
+/// Calls fn(arg); the exception that escapes it (finally blocks run), or NULL (eh.c).
+void* csrt_trap_call(void (*fn)(void*), void* arg);
+/// Finalizers (gc.c): an object of a class with a finalizer is allocated with csrt_alloc_finalizable, `fn` runs its
+/// finalizers; GC.SuppressFinalize, GC.ReRegisterForFinalize and GC.WaitForPendingFinalizers.
+void* csrt_alloc_finalizable(const csrt_MethodTable* mt, int64_t size, void (*fn)(void*));
+void csrt_gc_suppress_finalize(void* obj);
+void csrt_gc_reregister_finalizer(void* obj);
+void csrt_gc_wait_for_pending_finalizers(void);
 void* csrt_aggregate_exception_new(void** inners, int64_t count);
 void csrt_exception_set_inners(void* exception, csrt_Array* inners);
 int32_t csrt_exception_inner_count(void* exception);
 void* csrt_exception_inner_at(void* exception, int32_t index);
 void* csrt_task_canceled_exception_new(void);
+void* csrt_task_canceled_exception_for(void* task);  // TaskCanceledException(Task): Task and its token
 bool csrt_is_operation_canceled(void* exception);
 void* csrt_operation_canceled_exception_new(void* token);
 void* csrt_object_disposed_exception_new(const char* message); // ObjectDisposedException(null, message)
@@ -343,6 +357,8 @@ typedef struct csrt_MethodRecord {
     const void* function;                      // an instance method's own function (MethodInfo.CreateDelegate); NULL: none
     const void* identity;                      // one address per method: records of the same method (in a type's list,
                                                // a property's accessor, an expression tree's ldtoken) are one MethodInfo
+    const void* open_function;                 // (ignored target, this, args...) of an instance method of a class or
+                                               // interface (an open instance delegate, MethodInfo.CreateDelegate); NULL: none
 } csrt_MethodRecord;
 
 // MethodInfo.CreateDelegate: the Invoke signatures of the delegate types the program names.
@@ -355,7 +371,8 @@ void* csrt_gc_object_base(const void* p);   // the heap object an interior point
 enum { CSRT_RI_PUBLIC_CONSTRUCTORS = 1, CSRT_RI_NONPUBLIC_CONSTRUCTORS = 2, CSRT_RI_PUBLIC_METHODS = 4,
        CSRT_RI_NONPUBLIC_METHODS = 8, CSRT_RI_ATTRIBUTES = 16, CSRT_RI_PUBLIC_PROPERTIES = 32, CSRT_RI_NONPUBLIC_PROPERTIES = 64,
        CSRT_RI_ATTRIBUTES_UNKNOWN = 128 /* the type's attributes can't be listed exactly: querying them throws */,
-       CSRT_RI_PUBLIC_FIELDS = 256, CSRT_RI_NONPUBLIC_FIELDS = 512 };
+       CSRT_RI_PUBLIC_FIELDS = 256, CSRT_RI_NONPUBLIC_FIELDS = 512,
+       CSRT_RI_PUBLIC_EVENTS = 1024, CSRT_RI_NONPUBLIC_EVENTS = 2048 };
 enum { CSRT_PROPERTY_PUBLIC = 1 /* an accessor is public */, CSRT_PROPERTY_STATIC = 2 };
 typedef struct csrt_PropertyRecord {
     const char* name;
@@ -374,8 +391,25 @@ typedef struct csrt_FieldRecord {
     void (*set)(void* target, void* value);    // SetValue (throws for constants)
     const csrt_AttributeRecord* attributes;
     uint32_t attribute_count;
-    uint32_t field_attributes;                 // FieldAttributes
+    uint32_t field_attributes;                 // FieldAttributes | CSRT_FIELD_*
 } csrt_FieldRecord;
+enum { CSRT_FIELD_ATTRIBUTES_UNKNOWN = 1 << 30 /* the field's attributes can't be listed exactly: querying them throws */ };
+enum { CSRT_EVENT_PUBLIC = 1 /* an accessor is public */, CSRT_EVENT_STATIC = 2,
+       CSRT_EVENT_ATTRIBUTES_UNKNOWN = 4 /* the event's attributes can't be listed exactly: querying them throws */,
+       CSRT_EVENT_HAS_OTHER_METHODS = 8 /* IL `.other` accessors, not described: GetOtherMethods throws */ };
+typedef struct csrt_EventRecord {
+    const char* name;
+    const csrt_MethodTable* declaring;
+    const csrt_MethodTable* type;              // the event handler type
+    const csrt_MethodRecord* add;              // NULL: no accessor visible from the reflected type
+    const csrt_MethodRecord* remove;
+    const csrt_MethodRecord* raise;
+    const csrt_AttributeRecord* attributes;
+    uint32_t attribute_count;
+    uint32_t flags;                            // CSRT_EVENT_*
+    uint32_t event_attributes;                 // EventAttributes
+    uint32_t reserved;
+} csrt_EventRecord;
 typedef struct csrt_ReflectionInfo {
     const csrt_MethodTable* mt;
     const csrt_MethodRecord* constructors;
@@ -389,6 +423,8 @@ typedef struct csrt_ReflectionInfo {
     uint32_t property_count;
     uint32_t field_count;
     const csrt_FieldRecord* fields;
+    const csrt_EventRecord* events;
+    uint32_t event_count;
 } csrt_ReflectionInfo;
 typedef struct { int64_t count; const csrt_ReflectionInfo* entries; } csrt_ReflectionTable;
 

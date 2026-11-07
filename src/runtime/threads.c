@@ -26,6 +26,7 @@ csrt_String* csrt_string_from_utf8(const char* text);
 static const csrt_MethodTable mt_thread_state = { NULL, "System.Threading.ThreadStateException", 0, 0, NULL, 0, 0 };
 static const csrt_MethodTable mt_sync_lock = { NULL, "System.Threading.SynchronizationLockException", 0, 0, NULL, 0, 0 };
 static const csrt_MethodTable mt_argument_null = { NULL, "System.ArgumentNullException", 0, 0, NULL, 0, 0 };
+static const csrt_MethodTable mt_argument = { NULL, "System.ArgumentException", 0, 0, NULL, 0, 0 };
 static const csrt_MethodTable mt_argument_out_of_range = { NULL, "System.ArgumentOutOfRangeException", 0, 0, NULL, 0, 0 };
 static const csrt_MethodTable mt_invalid_operation = { NULL, "System.InvalidOperationException", 0, 0, NULL, 0, 0 };
 static const csrt_MethodTable mt_platform_not_supported = { NULL, "System.PlatformNotSupportedException", 0, 0, NULL, 0, 0 };
@@ -900,6 +901,13 @@ int32_t csrt_event_set(csrt_Event* e, int32_t n) {
     return previous;
 }
 
+/// The kind of a wait handle (EVENT_MANUAL 0, EVENT_AUTO 1, EVENT_SEMAPHORE 2, EVENT_COUNTDOWN 3): WaitHandle.WaitAll
+/// (corelib/Threading/WaitHandles.cs) gives back what a failed attempt took from auto-reset events and semaphores.
+int32_t csrt_event_kind(csrt_Event* e) {
+    if (!e) csrt_throw_null_reference();
+    return e->kind;
+}
+
 void csrt_event_reset(csrt_Event* e) {
     if (!e) csrt_throw_null_reference();
     pthread_mutex_lock(e->mutex);
@@ -1320,6 +1328,8 @@ static void job_retire(Job** slot) {
     pthread_mutex_unlock(&s_parallel_lock);
 }
 
+/// A body exception reaches the caller as it was thrown; the corelib's ParallelForSupport.Run wraps it in the
+/// AggregateException .NET's loops throw (a catch in C# sees it wherever the loop ran: C can't catch).
 void csrt_parallel_for(int64_t from, int64_t to, void (*body)(void*, int64_t), void* context) {
     if (to <= from) return;
     int64_t count = to - from;
@@ -1362,7 +1372,7 @@ static void invoke_action(void* context, int64_t i) { invoke_void(((Delegate**)(
 void csrt_parallel_invoke(csrt_Array* actions) {
     if (!actions) throw_msg(&mt_argument_null, "Value cannot be null. (Parameter 'actions')");
     for (int64_t i = 0; i < actions->length; i++)
-        if (!((Delegate**)actions->data)[i]) throw_msg(&mt_argument_null, "One of the actions was null. (Parameter 'actions')");
+        if (!((Delegate**)actions->data)[i]) throw_msg(&mt_argument, "One of the actions was null.");
     csrt_parallel_for(0, actions->length, invoke_action, actions);
 }
 

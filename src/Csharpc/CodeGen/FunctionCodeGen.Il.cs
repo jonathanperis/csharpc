@@ -25,6 +25,8 @@ internal sealed record IlEntry(IlKind Kind, LLVMValueRef Value, ITypeSymbol? Typ
 {
     public ISymbol? Symbol { get; init; }         // MethodPtr: the method; Token: the type/field
     public IlEntry? Target { get; init; }         // ldvirtftn: the receiver
+    /// <summary>The local a System.Type value was loaded from: the `typeof`s stored into it count for reflection (FunctionCodeGen.TypeofLocals.cs).</summary>
+    public int? FromLocal { get; init; }
     public bool IsThis { get; init; }
     public bool NonNull { get; init; }
     /// <summary>
@@ -156,6 +158,9 @@ public sealed partial class FunctionCodeGen
             }
             il.Locals[i] = _allocas.Alloca(storage, $"loc{i}");
             _allocas.Store(LlvmContext.Null(storage), il.Locals[i]);
+            // -g: the PDB's names for the locals.
+            if (_dbg?.Il is { } lines && !local.IsByRef && lines.LocalNames.TryGetValue(i, out var localName))
+                _dbg.Owner.DeclareVariable(_dbg, il.Locals[i], localName, S(local.Type), null, 0, _entry);
         }
 
         if (IsRuntimeAsync(body.Assembly, body.Method)) BeginCoroutine(CoroutineKind.Async);
@@ -335,6 +340,7 @@ public sealed partial class FunctionCodeGen
             var instruction = IlBody.Instructions[i];
             il.Current = instruction;
             _ilIndex = i;
+            if (_dbg?.Il is not null) _dbg.SetIlLocation(_b, instruction.Offset);
             try { terminated = EmitIlInstruction(instruction, stack, block); }
             catch (IlException e) { throw IlError(e.Message); }
             catch (CompileError e) when (!e.Message.Contains(" [in '", StringComparison.Ordinal)) { throw IlError(e.Message, e.Id, e.Location); }

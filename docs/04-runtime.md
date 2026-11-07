@@ -187,10 +187,19 @@ pthread subset csrt uses):
 An uncaught exception on Windows: `_Unwind_RaiseException` raises an SEH exception that no frame
 handles, and MinGW's top-level filter (`_gnu_exception_handler`) resumes it, so it returns
 `_URC_END_OF_STACK` as on Unix; csrt then runs the `finally` blocks (forced unwind) and reports it.
-The thread-pool trap (`csrt_trap_call`) uses `__builtin_setjmp`/`__builtin_longjmp` there, because
-MinGW's `longjmp` unwinds the stack through SEH (`RtlUnwindEx`) and it jumps out of a forced unwind.
+The thread-pool trap (`csrt_trap_call`) needs a plain register-restoring jump there, because MinGW's
+`longjmp` unwinds the stack through SEH (`RtlUnwindEx`) and it jumps out of a forced unwind. It is not
+`__builtin_setjmp`/`__builtin_longjmp`: on Windows x64 LLVM's frame address is the SEH establisher frame
+(RBP minus the `.seh_setframe` offset), which `__builtin_longjmp` loads into RBP, so the code after the jump
+addressed its locals 128 bytes below the real frame (an access violation, or a garbage exception, whenever an
+iteration threw on a pool worker). `eh.c` carries its own `csrt_trap_save`/`csrt_trap_restore` pair in module
+assembly instead (callee-saved registers, RDI/RSI and XMM6-15 included).
 `win32.c` supplies C library functions the UCRT lacks (`roundeven`, which LLVM calls for
 `Math.Round` without SSE4.1).
+`windows-shims/msvc_compat.c` is not part of the runtime proper: it holds the MSVC runtime symbols that
+.NET's Windows shim archives (zlib-ng, brotli, zstd from the NativeAOT pack, built with `/GS` and `/guard:cf`)
+reference, is compiled on demand, and is linked only into a program that links one of those shims
+([16-interop-io.md](16-interop-io.md#binding)).
 
 errno values, `open` flags and struct layouts that C# code needs are selected in the corelib at
 compile time from the target triple, not in C ([16-interop-io.md](16-interop-io.md#systemio)).
@@ -256,14 +265,37 @@ recommit on Windows), and glibc's free memory with `malloc_trim`. Under load the
 trimming, so no allocation pays a page fault for it; after a burst (TechEmpower's 10,000-row cache
 fill at start-up) the idle process shrinks to about its live heap.
 
+### Finalizers
+
+A class of the program that declares `~T()` (or, from IL, overrides `Finalize`) allocates its instances with
+`csrt_alloc_finalizable`, which registers the object with the collector; the compiler passes a thunk that runs
+the finalizers of the class chain, most derived first. After marking, the registered objects nobody reached move,
+in registration order, to a queue, and the queue is marked (the objects and everything they reach survive this
+collection). A finalizer thread, started at the first registration, runs them; `GC.WaitForPendingFinalizers`
+waits for it (on WebAssembly, with no threads, it runs what is pending itself). `GC.SuppressFinalize` and
+`GC.ReRegisterForFinalize` edit the registry; an exception escaping a finalizer is unhandled and ends the
+process like any other. Nothing runs at exit, as in .NET. Details and limits: [ADR 0021](adr/0021-finalizers.md).
+
+### Objective-C reference tracking
+
+`ObjectiveCMarshal` (corelib `ObjectiveCMarshal.cs`, macOS only) keeps a table of tracked objects in `gc.c`, outside the
+managed heap like the finalizer registry. A class with `[ObjectiveCTrackedType]` (inherited) and a finalizer carries
+`CSRT_MT_TRACKED_REFERENCE`; `GetOrCreateReferenceTrackingMemory` gives such an object two words of native-owned tagged
+memory and `CreateReferenceTrackingHandle` adds a handle to it (a weak slot that tracks resurrection). After marking,
+each collection calls the registered begin/end callback around one pass: for every object with a handle that nothing else
+reached it calls `isReferenced(taggedMemory)`, and marks the object (and what it reaches) when the answer is non-zero. An
+object that enters the finalizer queue is announced to `trackedObjectEnteredFinalization(taggedMemory)` first; the tagged
+memory is freed once the object is gone for good. The callbacks run with the world stopped on the collecting thread and
+must not call managed code (real CoreCLR aborts when they do). `SetMessageSendCallback` fills a per-kind override table that the P/Invoke stubs of libobjc's `objc_msgSend`, `_fpret`, `_stret`, `Super` and `Super_stret` consult before every call, and `SetMessageSendPendingException` leaves an exception on the thread that the stub throws after the call. Programs that never call `Initialize` have none of this in the binary.
+
 ### Weak references and ephemerons
 
 `WeakReference`, `WeakReference<T>` and `ConditionalWeakTable<TKey, TValue>` (corelib
 `WeakReferences.cs`) sit on a table of weak slots in `gc.c`, kept outside the managed heap so the
 conservative scan never sees the targets. After marking, a slot whose target wasn't reached is
-cleared. A `ConditionalWeakTable` entry is an ephemeron: its value is marked only while its key is
+cleared. A weak reference that tracks resurrection (`WeakReference(target, true)`, `GCHandleType.WeakTrackResurrection`) is cleared only once finalization has run and the object is gone for good, so it stays alive across a finalizer that resurrects its target; weak `GCHandle`s are slots of the same table. A `ConditionalWeakTable` entry is an ephemeron: its value is marked only while its key is
 reachable some other way, to a fixed point, so a value referenced only by the table lives exactly as
-long as its key. csharpc runs no finalizers, so each slot names its owner (the `WeakReference`, the
-table) and the collector frees the slot when the owner dies — when .NET's finalizer would release the
-handle. Whether an unreferenced target is collected at a given `GC.Collect()` is up to the
+long as its key. The corelib's own types declare no finalizers, so each slot names its owner (the
+`WeakReference`, the table) and the collector frees the slot when the owner dies — when .NET's
+finalizer would release the handle. Whether an unreferenced target is collected at a given `GC.Collect()` is up to the
 (conservative) collector, as it is up to .NET's.

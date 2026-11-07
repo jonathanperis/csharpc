@@ -104,6 +104,31 @@ namespace CsharpcCoreLib
             }
         }
 
+        // Task.InternalRunSynchronously(scheduler, waitForCompletion: false), which TaskFactory.FromAsync uses for
+        // its end method: the default scheduler runs it on the calling thread; a custom one is asked through
+        // TryExecuteTaskInline first and gets the task queued when it declines.
+        internal void RunInline(Task task, Action work)
+        {
+            TaskSupport.MarkQueued(task);
+            if (this is ThreadPoolTaskSchedulerImpl)
+            {
+                work();
+                return;
+            }
+            lock (_pending) _pending.Add(new KeyValuePair<Task, Action>(task, work));
+            try
+            {
+                if (!TryExecuteTaskInline(task, false)) QueueTask(task);
+            }
+            catch (Exception e)
+            {
+                lock (_pending)
+                    for (int i = 0; i < _pending.Count; i++)
+                        if (ReferenceEquals(_pending[i].Key, task)) { _pending.RemoveAt(i); break; }
+                throw new TaskSchedulerException(e);
+            }
+        }
+
         public static TaskSchedulerImpl FromCurrentSynchronizationContext() =>
             throw new InvalidOperationException("The current SynchronizationContext may not be used as a TaskScheduler.");
 
@@ -132,6 +157,7 @@ namespace CsharpcCoreLib
         public AggregateException Exception => _exception;
     }
 
+    [Shadows("System.Threading.Tasks.ThreadPoolTaskScheduler")] // .NET's name, as GetType() reports it
     internal sealed class ThreadPoolTaskSchedulerImpl : TaskSchedulerImpl
     {
         protected internal override void QueueTask(Task task) { }
@@ -155,6 +181,9 @@ namespace CsharpcCoreLib
         private static extern void MarkRunning(IntPtr task);
         internal static void MarkQueued(Task task) => MarkQueued(CoreIntrinsics.ObjectToPointer(task));
         internal static void MarkRunning(Task task) => MarkRunning(CoreIntrinsics.ObjectToPointer(task));
+        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_task_mark_waiting_children")]
+        private static extern void MarkWaitingForChildren(IntPtr task);
+        internal static void MarkWaitingForChildren(Task task) => MarkWaitingForChildren(CoreIntrinsics.ObjectToPointer(task));
 
         internal static void CheckCreationOptions(TaskCreationOptions creationOptions)
         {
@@ -173,6 +202,7 @@ namespace CsharpcCoreLib
             private List<Exception> _exceptions;
             private bool _canceled;
             private readonly Action<List<Exception>, bool> _finish;
+            internal Task Task; // the parent: reported WaitingForChildrenToComplete once its body is done with children pending
 
             internal ParentScope(Action<List<Exception>, bool> finish) { _finish = finish; }
 
@@ -188,11 +218,14 @@ namespace CsharpcCoreLib
 
             internal void BodyDone(Exception exception, bool canceled)
             {
+                bool waiting;
                 lock (_lock)
                 {
                     if (exception != null) (_exceptions ??= new List<Exception>()).Insert(0, exception);
                     _canceled = canceled;
+                    waiting = _pending > 1;
                 }
+                if (waiting && Task != null) MarkWaitingForChildren(Task);
                 Release();
             }
 
@@ -238,7 +271,7 @@ namespace CsharpcCoreLib
                 ParentScope savedParent = t_parent;
                 t_currentScheduler = (options & TaskCreationOptions.HideScheduler) != 0 || scheduler is ThreadPoolTaskSchedulerImpl ? null : scheduler;
                 TResult result = default;
-                var scope = new ParentScope((exceptions, canceled) => finish(exceptions, canceled, result));
+                var scope = new ParentScope((exceptions, canceled) => finish(exceptions, canceled, result)) { Task = task };
                 t_parent = (options & TaskCreationOptions.DenyChildAttach) == 0 ? scope : null;
                 IntPtr savedTask = ColdTasks.SwapCurrent(CoreIntrinsics.ObjectToPointer(task)); // Task.CurrentId
                 Exception error = null;
@@ -264,24 +297,26 @@ namespace CsharpcCoreLib
             };
         }
 
-        internal static Task StartNew(object callback, Action body, CancellationToken token, TaskCreationOptions options, TaskSchedulerImpl scheduler)
+        internal static Task StartNew(object callback, Action body, CancellationToken token, TaskCreationOptions options, TaskSchedulerImpl scheduler, object state = null)
         {
             if (scheduler == null) throw new ArgumentNullException("scheduler");
             if (callback == null) throw new ArgumentNullException("action");
             CheckCreationOptions(options);
             TaskCompletionSource tcs = new TaskCompletionSource();
             AttachToParent(tcs.Task, options);
+            TaskState.Set(tcs.Task, state, options);
             scheduler.Schedule(tcs.Task, Work(body, tcs, token, options, scheduler)); // canceled when it would run
             return tcs.Task;
         }
 
-        internal static Task<TResult> StartNew<TResult>(object callback, Func<TResult> body, CancellationToken token, TaskCreationOptions options, TaskSchedulerImpl scheduler)
+        internal static Task<TResult> StartNew<TResult>(object callback, Func<TResult> body, CancellationToken token, TaskCreationOptions options, TaskSchedulerImpl scheduler, object state = null)
         {
             if (scheduler == null) throw new ArgumentNullException("scheduler");
             if (callback == null) throw new ArgumentNullException("function");
             CheckCreationOptions(options);
             TaskCompletionSource<TResult> tcs = new TaskCompletionSource<TResult>();
             AttachToParent(tcs.Task, options);
+            TaskState.Set(tcs.Task, state, options);
             scheduler.Schedule(tcs.Task, Work(body, tcs, token, options, scheduler)); // canceled when it would run
             return tcs.Task;
         }
@@ -311,25 +346,32 @@ namespace CsharpcCoreLib
             : antecedent.IsFaulted ? (options & TaskContinuationOptions.NotOnFaulted) != 0
             : (options & TaskContinuationOptions.NotOnRanToCompletion) != 0;
 
-        internal static Task ContinueWith(Task antecedent, Action body, object callback, CancellationToken token, TaskContinuationOptions options, TaskSchedulerImpl scheduler, string callbackName)
+        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_task_mark_continuation")]
+        private static extern void MarkContinuation(IntPtr task);
+
+        internal static Task ContinueWith(Task antecedent, Action body, object callback, CancellationToken token, TaskContinuationOptions options, TaskSchedulerImpl scheduler, string callbackName, object state = null)
         {
             if (callback == null) throw new ArgumentNullException(callbackName);
             if (scheduler == null) throw new ArgumentNullException("scheduler");
             TaskCreationOptions creation = CreationOptionsFromContinuationOptions(options);
             TaskCompletionSource tcs = new TaskCompletionSource();
             AttachToParent(tcs.Task, creation);
+            TaskState.Set(tcs.Task, state, creation);
+            MarkContinuation(CoreIntrinsics.ObjectToPointer(tcs.Task));
             Action work = Work(body, tcs, token, creation, scheduler);
             Hook(antecedent, () => tcs.TrySetCanceled(), tcs.Task, work, token, options, scheduler);
             return tcs.Task;
         }
 
-        internal static Task<TResult> ContinueWith<TResult>(Task antecedent, Func<TResult> body, object callback, CancellationToken token, TaskContinuationOptions options, TaskSchedulerImpl scheduler)
+        internal static Task<TResult> ContinueWith<TResult>(Task antecedent, Func<TResult> body, object callback, CancellationToken token, TaskContinuationOptions options, TaskSchedulerImpl scheduler, object state = null)
         {
             if (callback == null) throw new ArgumentNullException("continuationFunction");
             if (scheduler == null) throw new ArgumentNullException("scheduler");
             TaskCreationOptions creation = CreationOptionsFromContinuationOptions(options);
             TaskCompletionSource<TResult> tcs = new TaskCompletionSource<TResult>();
             AttachToParent(tcs.Task, creation);
+            TaskState.Set(tcs.Task, state, creation);
+            MarkContinuation(CoreIntrinsics.ObjectToPointer(tcs.Task));
             Action work = Work(body, tcs, token, creation, scheduler);
             Hook(antecedent, () => tcs.TrySetCanceled(), tcs.Task, work, token, options, scheduler);
             return tcs.Task;
@@ -352,7 +394,7 @@ namespace CsharpcCoreLib
     }
 
     [Shadows("System.Threading.Tasks.TaskFactory")]
-    public class TaskFactoryImpl
+    public partial class TaskFactoryImpl
     {
         private readonly CancellationToken m_defaultCancellationToken;
         private readonly TaskSchedulerImpl m_defaultScheduler;
@@ -391,12 +433,12 @@ namespace CsharpcCoreLib
         public Task StartNew(Action action, CancellationToken cancellationToken, TaskCreationOptions creationOptions, TaskScheduler scheduler) =>
             TaskSupport.StartNew(action, action, cancellationToken, creationOptions, (TaskSchedulerImpl)(object)scheduler);
 
-        public Task StartNew(Action<object> action, object state) => TaskSupport.StartNew(action, () => action(state), m_defaultCancellationToken, m_defaultCreationOptions, DefaultScheduler);
-        public Task StartNew(Action<object> action, object state, CancellationToken cancellationToken) => TaskSupport.StartNew(action, () => action(state), cancellationToken, m_defaultCreationOptions, DefaultScheduler);
-        public Task StartNew(Action<object> action, object state, TaskCreationOptions creationOptions) => TaskSupport.StartNew(action, () => action(state), m_defaultCancellationToken, creationOptions, DefaultScheduler);
+        public Task StartNew(Action<object> action, object state) => TaskSupport.StartNew(action, () => action(state), m_defaultCancellationToken, m_defaultCreationOptions, DefaultScheduler, state);
+        public Task StartNew(Action<object> action, object state, CancellationToken cancellationToken) => TaskSupport.StartNew(action, () => action(state), cancellationToken, m_defaultCreationOptions, DefaultScheduler, state);
+        public Task StartNew(Action<object> action, object state, TaskCreationOptions creationOptions) => TaskSupport.StartNew(action, () => action(state), m_defaultCancellationToken, creationOptions, DefaultScheduler, state);
         public Task StartNew(Action<object> action, object state, CancellationToken cancellationToken, TaskCreationOptions creationOptions, TaskScheduler scheduler)
         {
-            return TaskSupport.StartNew(action, () => action(state), cancellationToken, creationOptions, (TaskSchedulerImpl)(object)scheduler);
+            return TaskSupport.StartNew(action, () => action(state), cancellationToken, creationOptions, (TaskSchedulerImpl)(object)scheduler, state);
         }
 
         public Task<TResult> StartNew<TResult>(Func<TResult> function) => TaskSupport.StartNew(function, function, m_defaultCancellationToken, m_defaultCreationOptions, DefaultScheduler);
@@ -405,17 +447,17 @@ namespace CsharpcCoreLib
         public Task<TResult> StartNew<TResult>(Func<TResult> function, CancellationToken cancellationToken, TaskCreationOptions creationOptions, TaskScheduler scheduler) =>
             TaskSupport.StartNew(function, function, cancellationToken, creationOptions, (TaskSchedulerImpl)(object)scheduler);
 
-        public Task<TResult> StartNew<TResult>(Func<object, TResult> function, object state) => TaskSupport.StartNew(function, () => function(state), m_defaultCancellationToken, m_defaultCreationOptions, DefaultScheduler);
-        public Task<TResult> StartNew<TResult>(Func<object, TResult> function, object state, CancellationToken cancellationToken) => TaskSupport.StartNew(function, () => function(state), cancellationToken, m_defaultCreationOptions, DefaultScheduler);
-        public Task<TResult> StartNew<TResult>(Func<object, TResult> function, object state, TaskCreationOptions creationOptions) => TaskSupport.StartNew(function, () => function(state), m_defaultCancellationToken, creationOptions, DefaultScheduler);
+        public Task<TResult> StartNew<TResult>(Func<object, TResult> function, object state) => TaskSupport.StartNew(function, () => function(state), m_defaultCancellationToken, m_defaultCreationOptions, DefaultScheduler, state);
+        public Task<TResult> StartNew<TResult>(Func<object, TResult> function, object state, CancellationToken cancellationToken) => TaskSupport.StartNew(function, () => function(state), cancellationToken, m_defaultCreationOptions, DefaultScheduler, state);
+        public Task<TResult> StartNew<TResult>(Func<object, TResult> function, object state, TaskCreationOptions creationOptions) => TaskSupport.StartNew(function, () => function(state), m_defaultCancellationToken, creationOptions, DefaultScheduler, state);
         public Task<TResult> StartNew<TResult>(Func<object, TResult> function, object state, CancellationToken cancellationToken, TaskCreationOptions creationOptions, TaskScheduler scheduler)
         {
-            return TaskSupport.StartNew(function, () => function(state), cancellationToken, creationOptions, (TaskSchedulerImpl)(object)scheduler);
+            return TaskSupport.StartNew(function, () => function(state), cancellationToken, creationOptions, (TaskSchedulerImpl)(object)scheduler, state);
         }
     }
 
     [Shadows("System.Threading.Tasks.TaskFactory`1")]
-    public class TaskFactoryImpl<TResult>
+    public partial class TaskFactoryImpl<TResult>
     {
         private readonly CancellationToken m_defaultCancellationToken;
         private readonly TaskSchedulerImpl m_defaultScheduler;
@@ -457,12 +499,12 @@ namespace CsharpcCoreLib
         public Task<TResult> StartNew(Func<TResult> function, CancellationToken cancellationToken, TaskCreationOptions creationOptions, TaskScheduler scheduler) =>
             TaskSupport.StartNew(function, function, cancellationToken, creationOptions, (TaskSchedulerImpl)(object)scheduler);
 
-        public Task<TResult> StartNew(Func<object, TResult> function, object state) => TaskSupport.StartNew(function, () => function(state), m_defaultCancellationToken, m_defaultCreationOptions, DefaultScheduler);
-        public Task<TResult> StartNew(Func<object, TResult> function, object state, CancellationToken cancellationToken) => TaskSupport.StartNew(function, () => function(state), cancellationToken, m_defaultCreationOptions, DefaultScheduler);
-        public Task<TResult> StartNew(Func<object, TResult> function, object state, TaskCreationOptions creationOptions) => TaskSupport.StartNew(function, () => function(state), m_defaultCancellationToken, creationOptions, DefaultScheduler);
+        public Task<TResult> StartNew(Func<object, TResult> function, object state) => TaskSupport.StartNew(function, () => function(state), m_defaultCancellationToken, m_defaultCreationOptions, DefaultScheduler, state);
+        public Task<TResult> StartNew(Func<object, TResult> function, object state, CancellationToken cancellationToken) => TaskSupport.StartNew(function, () => function(state), cancellationToken, m_defaultCreationOptions, DefaultScheduler, state);
+        public Task<TResult> StartNew(Func<object, TResult> function, object state, TaskCreationOptions creationOptions) => TaskSupport.StartNew(function, () => function(state), m_defaultCancellationToken, creationOptions, DefaultScheduler, state);
         public Task<TResult> StartNew(Func<object, TResult> function, object state, CancellationToken cancellationToken, TaskCreationOptions creationOptions, TaskScheduler scheduler)
         {
-            return TaskSupport.StartNew(function, () => function(state), cancellationToken, creationOptions, (TaskSchedulerImpl)(object)scheduler);
+            return TaskSupport.StartNew(function, () => function(state), cancellationToken, creationOptions, (TaskSchedulerImpl)(object)scheduler, state);
         }
     }
 
@@ -606,7 +648,7 @@ namespace CsharpcCoreLib
         {
             if (!cancellationToken.IsCancellationRequested) throw new ArgumentOutOfRangeException("cancellationToken");
             TaskCompletionSource tcs = new TaskCompletionSource();
-            tcs.SetCanceled();
+            tcs.SetCanceled(cancellationToken);
             return tcs.Task;
         }
 
@@ -614,7 +656,7 @@ namespace CsharpcCoreLib
         {
             if (!cancellationToken.IsCancellationRequested) throw new ArgumentOutOfRangeException("cancellationToken");
             TaskCompletionSource<TResult> tcs = new TaskCompletionSource<TResult>();
-            tcs.SetCanceled();
+            tcs.SetCanceled(cancellationToken);
             return tcs.Task;
         }
 
@@ -784,7 +826,7 @@ namespace CsharpcCoreLib
         [ShadowInstance] public static Task ContinueWith(Task task, Action<Task, object> continuationAction, object state, TaskContinuationOptions continuationOptions) =>
             ContinueWith(task, continuationAction, state, CancellationToken.None, continuationOptions, TaskScheduler.Current);
         [ShadowInstance] public static Task ContinueWith(Task task, Action<Task, object> continuationAction, object state, CancellationToken cancellationToken, TaskContinuationOptions continuationOptions, TaskScheduler scheduler) =>
-            TaskSupport.ContinueWith(task, () => continuationAction(task, state), continuationAction, cancellationToken, continuationOptions, (TaskSchedulerImpl)(object)scheduler, "continuationAction");
+            TaskSupport.ContinueWith(task, () => continuationAction(task, state), continuationAction, cancellationToken, continuationOptions, (TaskSchedulerImpl)(object)scheduler, "continuationAction", state: state);
 
         [ShadowInstance] public static Task<TResult> ContinueWith<TResult>(Task task, Func<Task, TResult> continuationFunction) =>
             ContinueWith(task, continuationFunction, CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Current);
@@ -806,7 +848,7 @@ namespace CsharpcCoreLib
         [ShadowInstance] public static Task<TResult> ContinueWith<TResult>(Task task, Func<Task, object, TResult> continuationFunction, object state, TaskContinuationOptions continuationOptions) =>
             ContinueWith(task, continuationFunction, state, CancellationToken.None, continuationOptions, TaskScheduler.Current);
         [ShadowInstance] public static Task<TResult> ContinueWith<TResult>(Task task, Func<Task, object, TResult> continuationFunction, object state, CancellationToken cancellationToken, TaskContinuationOptions continuationOptions, TaskScheduler scheduler) =>
-            TaskSupport.ContinueWith(task, () => continuationFunction(task, state), continuationFunction, cancellationToken, continuationOptions, (TaskSchedulerImpl)(object)scheduler);
+            TaskSupport.ContinueWith(task, () => continuationFunction(task, state), continuationFunction, cancellationToken, continuationOptions, (TaskSchedulerImpl)(object)scheduler, state: state);
     }
 
     /// <summary>Task&lt;TResult&gt;.ContinueWith: Intrinsics.cs forwards each overload here with all five arguments.</summary>
@@ -839,12 +881,12 @@ namespace CsharpcCoreLib
             TaskSupport.ContinueWith(task, () => continuationAction(task), continuationAction, cancellationToken, continuationOptions, (TaskSchedulerImpl)(object)scheduler, "continuationAction");
 
         public static Task ContinueWithStateAction<TResult>(Task<TResult> task, Action<Task<TResult>, object> continuationAction, object state, CancellationToken cancellationToken, TaskContinuationOptions continuationOptions, TaskScheduler scheduler) =>
-            TaskSupport.ContinueWith(task, () => continuationAction(task, state), continuationAction, cancellationToken, continuationOptions, (TaskSchedulerImpl)(object)scheduler, "continuationAction");
+            TaskSupport.ContinueWith(task, () => continuationAction(task, state), continuationAction, cancellationToken, continuationOptions, (TaskSchedulerImpl)(object)scheduler, "continuationAction", state: state);
 
         public static Task<TNewResult> ContinueWithFunction<TResult, TNewResult>(Task<TResult> task, Func<Task<TResult>, TNewResult> continuationFunction, CancellationToken cancellationToken, TaskContinuationOptions continuationOptions, TaskScheduler scheduler) =>
             TaskSupport.ContinueWith(task, () => continuationFunction(task), continuationFunction, cancellationToken, continuationOptions, (TaskSchedulerImpl)(object)scheduler);
 
         public static Task<TNewResult> ContinueWithStateFunction<TResult, TNewResult>(Task<TResult> task, Func<Task<TResult>, object, TNewResult> continuationFunction, object state, CancellationToken cancellationToken, TaskContinuationOptions continuationOptions, TaskScheduler scheduler) =>
-            TaskSupport.ContinueWith(task, () => continuationFunction(task, state), continuationFunction, cancellationToken, continuationOptions, (TaskSchedulerImpl)(object)scheduler);
+            TaskSupport.ContinueWith(task, () => continuationFunction(task, state), continuationFunction, cancellationToken, continuationOptions, (TaskSchedulerImpl)(object)scheduler, state: state);
     }
 }

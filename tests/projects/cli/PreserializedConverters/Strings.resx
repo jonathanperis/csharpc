@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="Title" xml:space="preserve"><value>Form1</value></data>
+  <data name="Location" type="System.Drawing.Point, System.Drawing"><value>10, 20</value></data>
+  <data name="ClientSize" type="System.Drawing.Size, System.Drawing"><value>284, 261</value></data>
+  <data name="Bounds" type="System.Drawing.Rectangle, System.Drawing"><value>1, 2, 300, 400</value></data>
+  <data name="Scale" type="System.Drawing.SizeF, System.Drawing"><value>1.5, 2.25</value></data>
+  <data name="BackColor" type="System.Drawing.Color, System.Drawing"><value>Control</value></data>
+  <data name="ForeColor" type="System.Drawing.Color, System.Drawing"><value>Red</value></data>
+  <data name="Accent" type="System.Drawing.Color, System.Drawing"><value>128, 64, 32</value></data>
+  <data name="Overlay" type="System.Drawing.Color, System.Drawing"><value>64, 1, 2, 3</value></data>
+  <data name="Hex" type="System.Drawing.Color, System.Drawing"><value>#FF8000</value></data>
+  <data name="EmptyPoint" type="System.Drawing.Point, System.Drawing"><value></value></data>
+  <data name="BadPoint" type="System.Drawing.Point, System.Drawing"><value>x, y</value></data>
+  <data name="ShortPoint" type="System.Drawing.Point, System.Drawing"><value>1</value></data>
+  <data name="Day" type="System.DayOfWeek, System.Private.CoreLib"><value>Friday</value></data>
+  <data name="Stamp" type="System.DateTime, System.Private.CoreLib"><value>2024-03-05T06:07:08</value></data>
+  <data name="Span" type="System.TimeSpan, System.Private.CoreLib"><value>01:02:03</value></data>
+  <data name="Id" type="System.Guid, System.Private.CoreLib"><value>6f9619ff-8b86-d011-b42d-00c04fc964ff</value></data>
+  <data name="Ver" type="System.Version, System.Private.CoreLib"><value>1.2.3.4</value></data>
+  <data name="Home" type="System.Uri, System.Private.Uri"><value>https://example.com/a?b=c</value></data>
+  <data name="Culture" type="System.Globalization.CultureInfo, System.Private.CoreLib"><value>de-DE</value></data>
+  <data name="Price" type="System.Decimal, System.Private.CoreLib"><value>12.50</value></data>
+  <data name="Limit" type="System.Int64, System.Private.CoreLib"><value>9000000000</value></data>
+  <data name="Flag" type="System.Boolean, System.Private.CoreLib"><value>True</value></data>
+  <data name="Letter" type="System.Char, System.Private.CoreLib"><value>x</value></data>
+  <data name="Padding" type="Repro.Margin, PreserializedConverters"><value>1;2;3;4</value></data>
+  <data name="Anchor" type="Repro.Edges, PreserializedConverters"><value>Top, Left</value></data>
+  <data name="EmptyUri" type="System.Uri, System.Private.Uri"><value></value></data>
+  <data name="EmptyDate" type="System.DateTime, System.Private.CoreLib"><value></value></data>
+  <data name="EmptyColor" type="System.Drawing.Color, System.Drawing"><value></value></data>
+  <data name="EmptyMargin" type="Repro.Margin, PreserializedConverters"><value>1;2;3;x</value></data>
+  <data name="Hexish" type="System.Int32, System.Private.CoreLib"><value>0x1F</value></data>
+</root>

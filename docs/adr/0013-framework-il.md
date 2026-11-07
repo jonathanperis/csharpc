@@ -89,6 +89,17 @@ everything the corelib covers — compile and link exactly as before.
   in-memory CoreLib facade (`Frontend/CoreLibFacade.cs`) that type-forwards each type to the reference
   pack or to the corelib shadow; statics the reference pack doesn't declare resolve through the shadow
   index (`IlAssemblySet.ShadowOf`).
+- *Mixed assemblies* (`FrameworkIl.MixedWithShadows`, 2026-11-05: System.Net.Primitives). An assembly that
+  holds some types csharpc implements itself and otherwise plain C# is eligible anyway: every member of a
+  shadowed type (IPAddress, IPEndPoint, EndPoint) is the shadow's and its IL is never lowered
+  (`ModuleCodeGen.IsShadowedIlType`: a member the shadow lacks is "has no implementation", as for a
+  reference-assembly type, not an IL body over the shadow's layout), and the other types — Cookie,
+  CookieContainer, CredentialCache, NetworkCredential, DnsEndPoint, HttpVersion — come from IL. System.Net.Http
+  needed them, and writing them again as shadows would have been ~3 000 lines of ported code. The
+  libSystem.Native calls of that assembly (socket-address shims) sit in the shadowed types only. A program that
+  names System.Net.Sockets takes System.Net.Primitives too, since the corelib's sockets test for its DnsEndPoint.
+- System.Collections.NonGeneric is mixed too (2026-11-06): `CollectionBase` is a shadow ([ADR 0022](0022-tls.md): the
+  certificate collections derive from it), `SortedList`, `Queue` and `Stack` come from IL.
 - A framework method csharpc deliberately doesn't compile (it would pull in a whole subsystem, such as
   System.Xml's http(s) downloads needing System.Net.Http) is a boundary (`ModuleCodeGen.IlBoundary`):
   a CSLLVM0008 warning at compile time and a stub that prints the reason and aborts if called.

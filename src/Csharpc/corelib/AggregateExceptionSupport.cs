@@ -33,10 +33,12 @@ namespace CsharpcCoreLib
             return new Exception[] { innerException };
         }
 
-        /// <summary>`message` null: a null message argument (Exception's "Exception of type ... was thrown.").</summary>
+        /// <summary>A null message argument is the default text (.NET's constructors pass SR.AggregateException_ctor_DefaultMessage for it).</summary>
+        public static string OrDefault(string message) => message ?? "One or more errors occurred.";
+
         public static string Message(string message, Exception[] innerExceptions)
         {
-            string text = message ?? "Exception of type 'System.AggregateException' was thrown.";
+            string text = OrDefault(message);
             for (int i = 0; i < innerExceptions.Length; i++) text = text + " (" + innerExceptions[i].Message + ")";
             return text;
         }
@@ -57,9 +59,14 @@ namespace CsharpcCoreLib
             return inners;
         }
 
-        /// <summary>AggregateException.InnerExceptions: the exceptions it was created with, read-only.</summary>
+        private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<Exception, System.Collections.ObjectModel.ReadOnlyCollection<Exception>> s_readOnlyInners = new();
+
+        /// <summary>
+        /// AggregateException.InnerExceptions: the exceptions it was created with, read-only. One collection per
+        /// exception, as .NET's property returns its field (its list never changes after construction).
+        /// </summary>
         public static System.Collections.ObjectModel.ReadOnlyCollection<Exception> InnerExceptions(Exception aggregate) =>
-            new System.Collections.ObjectModel.ReadOnlyCollection<Exception>(Inners(aggregate));
+            s_readOnlyInners.GetValue(aggregate, static e => new System.Collections.ObjectModel.ReadOnlyCollection<Exception>(Inners(e)));
 
         /// <summary>
         /// AggregateException.Flatten: the inner exceptions of nested AggregateExceptions, breadth first, in a

@@ -423,11 +423,15 @@ public sealed partial class ModuleCodeGen
         return (map, entries.Count);
     }
 
-    /// <summary>thunk(box, args...) => method(box + 8, args...)</summary>
-    private LLVMValueRef UnboxingThunk(IMethodSymbol method)
+    private readonly Dictionary<nint, LLVMValueRef> _unboxingThunks = [];
+
+    /// <summary>thunk(box, args...) => method(box + 8, args...); one per method (vtable and interface slots, delegates share it).</summary>
+    internal LLVMValueRef UnboxingThunk(IMethodSymbol method)
     {
         var target = GetFunction(method);
+        if (_unboxingThunks.TryGetValue(target.Fn.Handle, out var existing)) return existing;
         var fn = Module.AddFunction(Mangler.Method(method) + "$unbox", target.Type);
+        _unboxingThunks[target.Fn.Handle] = fn;
         Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
         using var b = new IrBuilder(Llvm);
         b.PositionAtEnd(b.AppendBlock(fn, "entry"));

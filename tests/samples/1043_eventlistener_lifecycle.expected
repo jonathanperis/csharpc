@@ -1,0 +1,60 @@
+-- a source first, then a listener (replay)
+enabled before: False
+  [listener (ctor not run) sees source Life-A]
+  [A.OnEventCommand Enable enabled=True]
+enabled: True True True
+  [first] Life-A/Net Informational example.org
+  [first] Life-A/Disk Warning /tmp/x,12
+  [first] Life-A/Chatty Verbose 1
+  [first] Life-A/Boom Critical bad
+-- a second listener with a filter, a source created later
+  [listener (ctor not run) sees source Life-A]
+  [A.OnEventCommand Enable enabled=True]
+  [first] Life-A/Net Informational both?
+  [second] Life-A/Disk Warning /var,1
+  [first] Life-A/Disk Warning /var,1
+  [first] Life-A/Chatty Verbose 2
+  [second] Life-A/Boom Critical again
+  [first] Life-A/Boom Critical again
+  [listener second sees source Life-B]
+  [listener first sees source Life-B]
+b enabled: False
+Life-A,Life-B
+-- disable one source for one listener
+  [A.OnEventCommand Disable enabled=True]
+  [second] Life-A/Disk Warning /y,2
+enabled: True True True
+  [A.OnEventCommand Enable enabled=True]
+  [first] Life-A/Chatty Verbose 3
+-- EventWritten / EventSourceCreated events and arguments
+  [listener (ctor not run) sees source Life-A]
+  [A.OnEventCommand Enable enabled=True]
+  [disabling event 3: True, unknown: False]
+  [listener (ctor not run) sees source Life-B]
+  [first] Life-A/Chatty Verbose 4
+  [third] Life-A/Net Informational last
+  [first] Life-A/Net Informational last
+  [A.OnEventCommand Disable enabled=True]
+  [A.OnEventCommand Disable enabled=True]
+  [A.OnEventCommand Disable enabled=False]
+enabled after: False
+11 3 1
+-- handlers instead of an override
+  [A.OnEventCommand Enable enabled=True]
+  [command executed: Enable]
+  [A.OnEventCommand Enable enabled=True]
+  [command executed: Enable]
+  [handler] Boom via handler
+  [A.OnEventCommand Disable enabled=False]
+  [command executed: Disable]
+commands: 3
+-- dispose the source
+  [listener (ctor not run) sees source Life-A]
+  [A.OnEventCommand Enable enabled=True]
+  [disabling event 3: True, unknown: False]
+  [command executed: Enable]
+  [listener (ctor not run) sees source Life-B]
+enabled: False
+-- errors
+ArgumentNullException: Value cannot be null. (Parameter 'eventSource')
+ArgumentNullException: Value cannot be null. (Parameter 'eventSource')

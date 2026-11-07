@@ -5,7 +5,7 @@
 // SafeHandle{ZeroOrMinusOne,MinusOne}IsInvalid.cs; see THIRD-PARTY-NOTICES.md.
 // SafeHandle's reference counting and its closed/disposed state machine are .NET's: framework IL compiled
 // by csharpc (System.IO.Compression's zlib streams) derives from it and its [LibraryImport] marshalling
-// adds and releases references around every native call. csharpc runs no finalizers (docs/04-runtime.md):
+// adds and releases references around every native call. SafeHandle declares no finalizer here (docs/04-runtime.md):
 // a handle that is never disposed is released when the process exits, not when it is collected.
 #nullable disable
 using System;

@@ -75,7 +75,9 @@ _Static_assert(offsetof(csrt_Task, payload) == (sizeof(void*) == 8 ? 56 : 40), "
 // (TaskStatus.Created). Distinct bits: a created task can also be waited on.
 // The bits from TF_TRACE_SHIFT up: the number of stack-trace frames the exception of a faulted task had
 // when it faulted it (csrt_trace_await).
-enum { TF_DELEGATE = 1, TF_RUNNING = 2, TF_WAITED = 4, TF_CREATED = 8, TF_TRACE_SHIFT = 8 };
+// TF_WAIT_CHILDREN: the body has finished but attached children haven't (WaitingForChildrenToComplete).
+// TF_DENY_CHILD: a Task.Run task, whose Task.CreationOptions is DenyChildAttach (corelib TaskState).
+enum { TF_DELEGATE = 1, TF_RUNNING = 2, TF_WAITED = 4, TF_CREATED = 8, TF_DENY_CHILD = 16, TF_WAIT_CHILDREN = 32, TF_CONTINUATION = 64, TF_TRACE_SHIFT = 8 };
 
 typedef struct csrt_Iterator {
     const csrt_MethodTable* mt;
@@ -131,6 +133,8 @@ __attribute__((weak)) void* csrt_call_catching_ptr(void* (*fn)(void*), void* arg
 #endif
 
 static const csrt_MethodTable mt_invalid_operation = { NULL, "System.InvalidOperationException", 0, 0 };
+static const csrt_MethodTable mt_argument = { NULL, "System.ArgumentException", 0, 0 };
+static const csrt_MethodTable mt_argument_null = { NULL, "System.ArgumentNullException", 0, 0 };
 static const char k_already_completed[] = "An attempt was made to transition a task to a final state when it had already completed.";
 
 typedef struct {
@@ -348,12 +352,21 @@ void* csrt_coro_alloc(int64_t size) {
     return (uint8_t*)frame + CORO_FRAME_OFFSET;
 }
 
+/// A task, or an object of a class deriving from TaskCompletionSource (laid out over csrt_Task, whose
+/// method table chains to csrt_Task_MT: the compiler's ModuleCodeGen.TaskSources.cs).
+static inline bool is_task_mt(const csrt_MethodTable* mt) {
+    for (; mt; mt = mt->base)
+        if (mt == &csrt_Task_MT.header) return true;
+    return false;
+}
+
 #if defined(CSRT_GC_NURSERY_DEFAULT) || (defined(CSRT_GC_CONCURRENT) && !defined(__wasi__))
 /// The objects csrt_gc_remember is called for: iterator frames and tasks (an async method's frame is
 /// inside its task; other tasks are scanned too, which is only conservative).
 bool csrt_gc_remembered_object(const void* obj) {
     const csrt_MethodTable* mt = *(const csrt_MethodTable* const*)obj;
-    return mt == &csrt_CoroFrame_MT.header || mt == &csrt_Task_MT.header;
+    // A Task<T> carries its own table, derived from csrt_Task_MT (compiler: ModuleCodeGen.TaskTypes.cs).
+    return mt == &csrt_CoroFrame_MT.header || mt == &csrt_Task_MT.header || mt->base == &csrt_Task_MT.header;
 }
 #endif
 
@@ -436,7 +449,7 @@ bool csrt_task_is_completed_successfully(csrt_Task* t) { return !t || task_state
 
 /// Task.Status as System.Threading.Tasks.TaskStatus (a null task is a default, completed ValueTask).
 int32_t csrt_task_status(csrt_Task* t) {
-    enum { WaitingForActivation = 1, WaitingToRun = 2, Running = 3, RanToCompletion = 5, Canceled = 6, Faulted = 7 };
+    enum { WaitingForActivation = 1, WaitingToRun = 2, Running = 3, WaitingForChildrenToComplete = 4, RanToCompletion = 5, Canceled = 6, Faulted = 7 };
     if (!t) return RanToCompletion;
     switch (task_state(t)) {
         case T_DONE: return RanToCompletion;
@@ -445,6 +458,7 @@ int32_t csrt_task_status(csrt_Task* t) {
     }
     int32_t flags = __atomic_load_n(&t->flags, __ATOMIC_ACQUIRE);
     if (flags & TF_CREATED) return 0; // Created
+    if (flags & TF_WAIT_CHILDREN) return WaitingForChildrenToComplete;
     if (!(flags & TF_DELEGATE)) return WaitingForActivation;
     return flags & TF_RUNNING ? Running : WaitingToRun;
 }
@@ -456,8 +470,16 @@ void csrt_task_mark_queued(csrt_Task* t) {
     __atomic_and_fetch(&t->flags, ~TF_CREATED, __ATOMIC_RELEASE);
     __atomic_or_fetch(&t->flags, TF_DELEGATE, __ATOMIC_RELEASE);
 }
+/// Task.CreationOptions of the tasks the runtime creates itself: Task.Run's are DenyChildAttach (the flag survives completion).
+/// int32_t, not bool: the corelib imports it as a BOOL (i32), and on wasm32 a call whose IR return type (i32) differs from the
+/// callee's (zeroext i1) compiles to `unreachable`, which trapped Task.CreationOptions of every default task (#118).
+int32_t csrt_task_denies_children(csrt_Task* t) { return t && (__atomic_load_n(&t->flags, __ATOMIC_ACQUIRE) & TF_DENY_CHILD) ? 1 : 0; }
+void csrt_task_mark_waiting_children(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_WAIT_CHILDREN, __ATOMIC_RELEASE); }
 void csrt_task_mark_created(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_CREATED, __ATOMIC_RELEASE); }
 void csrt_task_clear_created(csrt_Task* t) { if (t) __atomic_and_fetch(&t->flags, ~TF_CREATED, __ATOMIC_RELEASE); }
+/// ContinueWith's task: Start and RunSynchronously refuse it with a message of its own (ColdTasks.cs).
+void csrt_task_mark_continuation(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_CONTINUATION, __ATOMIC_RELEASE); }
+int32_t csrt_task_is_continuation(csrt_Task* t) { return t && (__atomic_load_n(&t->flags, __ATOMIC_ACQUIRE) & TF_CONTINUATION) ? 1 : 0; }
 void csrt_task_mark_running(csrt_Task* t) { if (t) __atomic_or_fetch(&t->flags, TF_DELEGATE | TF_RUNNING, __ATOMIC_RELEASE); }
 
 static int32_t s_task_id_counter;
@@ -562,7 +584,13 @@ static void finish(csrt_Task* t, int32_t state, void* exception) {
 void csrt_task_complete(csrt_Task* t) { finish(t, T_DONE, NULL); }
 
 /// Stores an exception that escaped an async method (or SetException) and completes the task.
-void csrt_task_fault(csrt_Task* t, void* exception) { finish(t, T_FAULTED, exception); }
+static bool exception_given(void* exception) {
+    if (exception) return true;
+    csrt_throw(&mt_argument_null, csrt_string_from_utf8("Value cannot be null. (Parameter 'exception')"));
+    return false;
+}
+
+void csrt_task_fault(csrt_Task* t, void* exception) { if (exception_given(exception)) finish(t, T_FAULTED, exception); }
 
 void csrt_task_cancel(csrt_Task* t) { finish(t, T_CANCELED, NULL); }
 
@@ -578,14 +606,16 @@ void csrt_task_fault_async(csrt_Task* t, void* exception) {
 }
 
 bool csrt_task_try_complete(csrt_Task* t) { return try_finish(t, T_DONE, NULL); }
-bool csrt_task_try_fault(csrt_Task* t, void* e) { return try_finish(t, T_FAULTED, e); }
+bool csrt_task_try_fault(csrt_Task* t, void* e) { return exception_given(e) && try_finish(t, T_FAULTED, e); }
 bool csrt_task_try_cancel(csrt_Task* t) { return try_finish(t, T_CANCELED, NULL); }
 
+void csrt_exception_set_data(void* exception, void* data);
 /// TrySetCanceled(token): awaiting the task throws a TaskCanceledException whose CancellationToken is `token`.
 bool csrt_task_try_cancel_token(csrt_Task* t, void* token) {
     if (!token) return csrt_task_try_cancel(t);
     void* e = csrt_task_canceled_exception_new();
     csrt_exception_set_token(e, token);
+    csrt_exception_set_data(e, t);  // TaskCanceledException.Task
     return try_finish(t, T_CANCELED, e);
 }
 
@@ -726,11 +756,18 @@ void csrt_task_throw_if_faulted(csrt_Task* t) {
     if (st == T_FAULTED) { csrt_trace_await(t->exception, depth); csrt_rethrow(t->exception); }
     if (st == T_CANCELED) {
         if (t->exception) { csrt_trace_await(t->exception, depth); csrt_rethrow(t->exception); } // canceled by an OperationCanceledException
-        csrt_throw_object(csrt_task_canceled_exception_new());
+        csrt_throw_object(csrt_task_canceled_exception_for(t));
     }
 }
 
-/// Task.Exception: an AggregateException for faulted tasks, else null.
+/// The token a canceled task was canceled with (the one of its TaskCanceledException / OperationCanceledException): Task.CancellationToken.
+void* csrt_task_cancellation_token(void* task) {
+    csrt_Task* t = task;
+    return t && task_state(t) == T_CANCELED && t->exception ? csrt_exception_get_token(t->exception) : NULL;
+}
+
+/// Task.Exception: an AggregateException for faulted tasks, else null. Like .NET's (Task.GetExceptions) a new
+/// one on every read, over the same inner exceptions: t->aggregate only keeps that list.
 void* csrt_task_exception(csrt_Task* t) {
     if (!t || task_state(t) != T_FAULTED) return NULL;
     if (!__atomic_load_n(&t->aggregate, __ATOMIC_ACQUIRE)) {
@@ -739,7 +776,9 @@ void* csrt_task_exception(csrt_Task* t) {
         CSRT_DIRTY(&t->aggregate, sizeof(void*));
         __atomic_compare_exchange_n(&t->aggregate, &expected, created, false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE);
     }
-    return t->aggregate;
+    csrt_Exception* kept = t->aggregate;
+    return kept->inners ? csrt_aggregate_exception_new((void**)kept->inners->data, kept->inners->length)
+                        : csrt_aggregate_exception_new(&t->exception, 1);
 }
 
 /// .Result / .Wait(): failures surface wrapped in an AggregateException.
@@ -748,7 +787,7 @@ void csrt_task_throw_aggregate_if_faulted(csrt_Task* t) {
     int32_t st = task_state(t);
     if (st == T_FAULTED) csrt_throw_object(csrt_task_exception(t));
     if (st == T_CANCELED) {
-        void* inner = csrt_task_canceled_exception_new();
+        void* inner = csrt_task_canceled_exception_for(t);
         csrt_throw_object(csrt_aggregate_exception_new(&inner, 1));
     }
 }
@@ -762,7 +801,7 @@ void csrt_task_throw_aggregate_if_faulted_traced(csrt_Task* t, const void* const
     void* aggregate;
     if (st == T_FAULTED) aggregate = csrt_task_exception(t);
     else {
-        void* inner = csrt_task_canceled_exception_new();
+        void* inner = csrt_task_canceled_exception_for(t);
         aggregate = csrt_aggregate_exception_new(&inner, 1);
     }
     csrt_trace_preset(aggregate, sites, count);
@@ -771,7 +810,7 @@ void csrt_task_throw_aggregate_if_faulted_traced(csrt_Task* t, const void* const
 
 /// Task.FromException(e) / FromException<T>(e)
 csrt_Task* csrt_task_from_exception(void* exception, int32_t payload_size) {
-    if (!exception) csrt_throw_null_reference();
+    if (!exception_given(exception)) return NULL;
     csrt_Task* t = csrt_task_new(payload_size);
     CSRT_STORE_REF(t->exception, exception);
     t->state = T_FAULTED;
@@ -820,7 +859,7 @@ void csrt_task_on_completed(csrt_Task* t, void* frame) {
 void csrt_task_on_completed_no_context(csrt_Task* t, void* frame) { on_completed_no_context(t, frame); }
 
 /// ValueTask<T>'s object (corelib/Tasks/ValueTaskOfT.cs): a csrt task, as opposed to an IValueTaskSource.
-int32_t csrt_object_is_task(void* obj) { return obj && ((csrt_Object*)obj)->mt == &csrt_Task_MT.header; }
+int32_t csrt_object_is_task(void* obj) { return obj && is_task_mt(((csrt_Object*)obj)->mt); }
 
 /// `await` of a pending source-backed ValueTask: the state the source hands back to csrt_coro_resume_state,
 /// the frame itself or, when the await has an execution-context flow, the frame and that flow (as
@@ -1383,8 +1422,24 @@ CancellationSource* csrt_cts_new_linked(CancellationSource* a, CancellationSourc
 // ---------------------------------------------------------------------------------------------
 // Combinators and Task.Run
 // ---------------------------------------------------------------------------------------------
+/// Task.WhenAll / WhenAny's argument checks, before anything is registered: no null array (ArgumentNullException),
+/// no null element (ArgumentException), and for WhenAny at least one task. False where wasm32 returns from the throw.
+static bool check_when_tasks(csrt_Array* tasks, bool require_any) {
+    if (!tasks) { csrt_throw(&mt_argument_null, csrt_string_from_utf8("Value cannot be null. (Parameter 'tasks')")); return false; }
+    if (require_any && tasks->length == 0) {
+        csrt_throw(&mt_argument, csrt_string_from_utf8("The tasks argument contains no tasks. (Parameter 'tasks')"));
+        return false;
+    }
+    for (int64_t i = 0; i < tasks->length; i++)
+        if (!words(tasks)[i]) {
+            csrt_throw(&mt_argument, csrt_string_from_utf8("The tasks argument included a null value. (Parameter 'tasks')"));
+            return false;
+        }
+    return true;
+}
+
 csrt_Task* csrt_task_when_all(csrt_Array* tasks, int32_t element_size) {
-    if (!tasks) csrt_throw_null_reference();
+    if (!check_when_tasks(tasks, false)) return NULL;
     csrt_Task* result = csrt_task_new(element_size > 0 ? (int32_t)sizeof(void*) : 0);
     WhenAllState* s = csrt_alloc(&csrt_Object_MT.header, sizeof(WhenAllState));
     CSRT_STORE_REF(s->result, result);
@@ -1393,7 +1448,6 @@ csrt_Task* csrt_task_when_all(csrt_Array* tasks, int32_t element_size) {
     s->remaining = 1;  // guard: completes only after registration
     for (int64_t i = 0; i < tasks->length; i++) {
         csrt_Task* t = words(tasks)[i];
-        if (!t) csrt_throw_null_reference();
         __atomic_add_fetch(&s->remaining, 1, __ATOMIC_ACQ_REL);
         if (!add_continuation(t, K_WHEN_ALL, s)) when_all_step(s, t);
     }
@@ -1402,8 +1456,7 @@ csrt_Task* csrt_task_when_all(csrt_Array* tasks, int32_t element_size) {
 }
 
 csrt_Task* csrt_task_when_any(csrt_Array* tasks) {
-    if (!tasks) csrt_throw_null_reference();
-    if (tasks->length == 0) async_fail("The tasks argument contains no tasks.");
+    if (!check_when_tasks(tasks, true)) return NULL;
     csrt_Task* result = csrt_task_new(sizeof(void*));
     for (int64_t i = 0; i < tasks->length; i++) {
         csrt_Task* t = words(tasks)[i];
@@ -1418,7 +1471,7 @@ csrt_Task* csrt_task_when_any(csrt_Array* tasks) {
 csrt_Task* csrt_task_run_action(void* del) {
     if (!del) csrt_throw_null_reference();
     csrt_Task* t = csrt_task_new(0);
-    t->flags = TF_DELEGATE;
+    t->flags = TF_DELEGATE | TF_DENY_CHILD;
     enqueue(K_RUN_ACTION, del, t);
     return t;
 }
@@ -1438,7 +1491,7 @@ typedef struct { const csrt_MethodTable* mt; void* del; csrt_Task* task; void (*
 csrt_Task* csrt_task_run_thunk(void (*thunk)(void*), void* del, int32_t payload_size) {
     if (!del) csrt_throw_null_reference();
     csrt_Task* t = csrt_task_new(payload_size);
-    t->flags = TF_DELEGATE;
+    t->flags = TF_DELEGATE | TF_DENY_CHILD;
     RunThunk* pack = csrt_alloc(&csrt_Object_MT.header, sizeof(RunThunk));
     CSRT_STORE_REF(pack->del, del);
     CSRT_STORE_REF(pack->task, t);
@@ -1479,8 +1532,11 @@ static void run_item(intptr_t kind, void* a, void* b) {
             csrt_Task* inner = NULL;
             tl_current_task = csrt_task_new(0); // .NET's hidden delegate task behind the unwrapping proxy
             void* exception = csrt_call_catching_ptr((void* (*)(void*))d->fn, d->target, (void**)&inner);
-            if (exception) csrt_task_fault(b, exception);
-            else if (!inner || !add_continuation(inner, K_CHAIN, b)) chain(inner, b);
+            // Task.Run's proxy looks for an OperationCanceledException (UnwrapPromise lookForOce): it cancels the
+            // proxy, as it does an async method.
+            if (exception) csrt_task_try_fault_async(b, exception);
+            else if (!inner) csrt_task_cancel(b);  // a null task is a cancellation (UnwrapPromise)
+            else if (!add_continuation(inner, K_CHAIN, b)) chain(inner, b);
             break;
         }
         case K_RUN_THUNK: {

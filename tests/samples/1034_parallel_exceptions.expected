@@ -1,0 +1,10 @@
+For throws: AggregateException: One or more errors occurred. (two) [InvalidOperationException:two]
+For long throws: AggregateException: One or more errors occurred. (two) [InvalidOperationException:two]
+ForEach array throws: AggregateException: One or more errors occurred. (two) [InvalidOperationException:two]
+ForEach list throws: AggregateException: One or more errors occurred. (two) [InvalidOperationException:two]
+ForEach enumerable throws: AggregateException: One or more errors occurred. (two) [InvalidOperationException:two]
+Invoke throws: AggregateException: One or more errors occurred. (a) [InvalidOperationException:a]
+Invoke 1 throws: AggregateException: One or more errors occurred. (only) [InvalidOperationException:only]
+Invoke null elem: ArgumentException: One of the actions was null.
+Invoke null: ArgumentNullException: Value cannot be null. (Parameter 'actions')
+For nested exception: AggregateException: One or more errors occurred. (One or more errors occurred. (n00)) [AggregateException:One or more errors occurred. (n00)]

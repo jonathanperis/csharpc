@@ -94,6 +94,7 @@ public sealed partial class FunctionCodeGen
             var taskSlot = _allocas.Alloca(L.Ptr, "coro.task.slot");
             mem = CallRuntime("csrt_coro_alloc_task", L.Ptr, [L.I64, L.I32, L.Ptr], size, L.ConstInt(L.I32, payloadSize), taskSlot);
             coro.Promise = _b.Load(L.Ptr, taskSlot, "task");
+            if (valueType is not null) StampTaskResult(coro.Promise, valueType); // the task is a Task<T> (ModuleCodeGen.TaskTypes.cs)
         }
         else mem = CallRuntime("csrt_coro_alloc", L.Ptr, [L.I64], size);
         var begin = CoroIntrinsic("llvm.coro.begin", L.Ptr, L.Token, L.Ptr);
@@ -450,6 +451,7 @@ public sealed partial class FunctionCodeGen
     {
         if (resultType is null) return CallRuntime("csrt_task_completed_task", L.Ptr, []);
         var task = CallRuntime("csrt_task_new", L.Ptr, [L.I32], L.ConstInt(L.I32, (long)T.Target.SizeOf(T.Storage(resultType))));
+        StampTaskResult(task, resultType);
         StoreValue(ToStorage(value, resultType), _b.InBoundsGep(L.I8, task, [L.ConstInt(L.I64, TaskPayloadOffset)]));
         CallRuntime("csrt_task_complete", L.Void, [L.Ptr], task);
         return task;

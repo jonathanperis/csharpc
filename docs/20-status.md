@@ -312,6 +312,10 @@ attribute factories) with a ~25 % faster build.
   ([ADR 0019](adr/0019-dynamic.md), "From IL"); IL libraries' dynamic code too (IlDynamicApp). Also fixes the
   binder's compound-assignment semantics on both paths (`d += 0.5` on a dynamic int was 2, now 2.5) and a
   simple-name dynamic call in a static member (rejected before). 480/481 via IL. Samples 760–761.
+- `feat/m5-via-il-diagnostic` — M5, the last `--via-il` diagnostic: reflection-based JSON of a private or
+  protected nested type. The binding compilation reads the program with those types marked internal (its
+  internals access is already granted), so the generator names them from a context outside the declaring
+  class; reflection keeps the real accessibility. 481/481 via IL. Sample 1160.
 
 ## Measured state
 
@@ -342,8 +346,8 @@ interim plaintext/JSON app, ratios within one runner:
 2. M2: library gaps as programs reach them.
 3. M5: user code through the IL front-end (what `csc` hands the fork). `csharpc app.dll` and the
    `--via-il` differential mode exist (471/479 with `ci/il-gaps`: reflection-based JSON, `[GeneratedRegex]`
-   and rectangular-array enumeration from IL); `dynamic` from IL with `ci/il-dynamic` (480/481); left:
-   JSON of a private nested type (1, stays a diagnostic); then `-g` from the PDB. The Roslyn
+   and rectangular-array enumeration from IL); `dynamic` from IL with `ci/il-dynamic` (480/481), JSON of private
+   nested types from IL with `feat/m5-via-il-diagnostic` (481/481); `-g` from the PDB is done (`tests/debuginfo.sh`). The Roslyn
    path stays for standalone use; gaps between the two are bugs.
 4. M6: Roslyn's remaining blockers (non-generic ~170 methods, then generic methods), then csharpc
    compiling itself.

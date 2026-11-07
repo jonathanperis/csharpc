@@ -62,7 +62,10 @@ namespace CsharpcCoreLib
         public override Type FieldType => ReflectionRuntime.TypeOf(ReflectionRecords.FieldType(_record));
         public override Type DeclaringType => ReflectionRuntime.TypeOf(ReflectionRecords.FieldDeclaring(_record));
         public override Type ReflectedType => DeclaringType;
-        public override FieldAttributes Attributes => (FieldAttributes)ReflectionRecords.FieldFlags(_record);
+        public override FieldAttributes Attributes => (FieldAttributes)(ReflectionRecords.FieldFlags(_record) & ~AttributesUnknown);
+
+        // CSRT_FIELD_ATTRIBUTES_UNKNOWN: csc synthesizes attributes csharpc can't reproduce exactly (the [Nullable] of an event's backing field).
+        private const int AttributesUnknown = 1 << 30;
         public override RuntimeFieldHandle FieldHandle => throw new NotSupportedException("FieldInfo.FieldHandle is not supported by csharpc yet.");
 
         public override object GetValue(object obj)
@@ -99,13 +102,28 @@ namespace CsharpcCoreLib
             return value is Enum ? Convert.ChangeType(value, FieldType.GetEnumUnderlyingType(), CultureInfo.InvariantCulture) : value;
         }
 
-        public override bool IsDefined(Type attributeType, bool inherit) =>
-            ReflectionRuntime.IsDefined(ReflectionRecords.FieldAttributes(_record), ReflectionRecords.FieldAttributeCount(_record), attributeType);
+        private void RequireAttributes()
+        {
+            if ((ReflectionRecords.FieldFlags(_record) & AttributesUnknown) != 0)
+                throw new NotSupportedException("The custom attributes of the field '" + Name + "' are not supported by csharpc yet (csc synthesizes attributes csharpc can't reproduce exactly).");
+        }
+
+        public override bool IsDefined(Type attributeType, bool inherit)
+        {
+            RequireAttributes();
+            return ReflectionRuntime.IsDefined(ReflectionRecords.FieldAttributes(_record), ReflectionRecords.FieldAttributeCount(_record), attributeType);
+        }
         public override object[] GetCustomAttributes(bool inherit) => GetCustomAttributes(typeof(object), inherit);
-        public override object[] GetCustomAttributes(Type attributeType, bool inherit) =>
-            ReflectionRuntime.CreateAttributes(ReflectionRecords.FieldAttributes(_record), ReflectionRecords.FieldAttributeCount(_record), attributeType);
-        public override IList<CustomAttributeData> GetCustomAttributesData() =>
-            ReflectionRuntime.AttributeData(ReflectionRecords.FieldAttributes(_record), ReflectionRecords.FieldAttributeCount(_record));
+        public override object[] GetCustomAttributes(Type attributeType, bool inherit)
+        {
+            RequireAttributes();
+            return ReflectionRuntime.CreateAttributes(ReflectionRecords.FieldAttributes(_record), ReflectionRecords.FieldAttributeCount(_record), attributeType);
+        }
+        public override IList<CustomAttributeData> GetCustomAttributesData()
+        {
+            RequireAttributes();
+            return ReflectionRuntime.AttributeData(ReflectionRecords.FieldAttributes(_record), ReflectionRecords.FieldAttributeCount(_record));
+        }
 
         public override string ToString() => ReflectionRuntime.FormatTypeName(FieldType) + " " + Name;
     }
@@ -153,7 +171,7 @@ namespace CsharpcCoreLib
             {
                 byte* record = records + i * ReflectionRecords.FieldSize;
                 bool inherited = ReflectionRecords.FieldDeclaring(record) != self;
-                if (Matches((FieldAttributes)ReflectionRecords.FieldFlags(record), inherited, flags)) list.Add(Field(record));
+                if (Matches((FieldAttributes)(ReflectionRecords.FieldFlags(record) & ~(1 << 30)), inherited, flags)) list.Add(Field(record));
             }
             return list.ToArray();
         }

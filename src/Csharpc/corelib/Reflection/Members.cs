@@ -34,7 +34,10 @@ namespace CsharpcCoreLib
         public virtual IEnumerable<CustomAttributeData> CustomAttributes => GetCustomAttributesData();
         public virtual IList<CustomAttributeData> GetCustomAttributesData() => throw new NotImplementedException();
         public virtual bool IsCollectible => true;
-        public virtual int MetadataToken => throw new InvalidOperationException();
+        /// <summary>The member's assembly's one module (a Type's Module is lowered in BclValueTypes.Reflection.cs).</summary>
+        public virtual Module Module => DeclaringType.Module;
+        /// <summary>Tokens of a program's members aren't kept: .NET answers with the metadata token.</summary>
+        public virtual int MetadataToken => throw new NotSupportedException("MemberInfo.MetadataToken is not supported by csharpc yet.");
         public override bool Equals(object obj) => base.Equals(obj);
         public override int GetHashCode() => base.GetHashCode();
 
@@ -447,9 +450,10 @@ namespace CsharpcCoreLib
     {
         internal static readonly int P = sizeof(nint);
         // csrt_MethodRecord
-        internal static int MethodSize => 8 * P + 16;
+        internal static int MethodSize => 9 * P + 16;
         internal static nint MethodIdentity(byte* m) => *(nint*)(m + 7 * P + 16);
         internal static nint MethodFunction(byte* m) => *(nint*)(m + 6 * P + 16);
+        internal static nint MethodOpenFunction(byte* m) => *(nint*)(m + 8 * P + 16);
         internal static byte* MethodName(byte* m) => (byte*)*(nint*)m;
         internal static nint MethodDeclaring(byte* m) => *(nint*)(m + P);
         internal static nint MethodReturnType(byte* m) => *(nint*)(m + 2 * P);
@@ -485,6 +489,19 @@ namespace CsharpcCoreLib
         internal static int InfoPropertyCount(byte* i) => *(int*)(i + 5 * P + 16);
         internal static int InfoFieldCount(byte* i) => *(int*)(i + 5 * P + 20);
         internal static byte* InfoFields(byte* i) => (byte*)*(nint*)(i + 5 * P + 24);
+        internal static byte* InfoEvents(byte* i) => (byte*)*(nint*)(i + 6 * P + 24);
+        internal static int InfoEventCount(byte* i) => *(int*)(i + 7 * P + 24);
+        // csrt_EventRecord
+        internal static int EventSize => 7 * P + 16;
+        internal static byte* EventName(byte* e) => (byte*)*(nint*)e;
+        internal static nint EventDeclaring(byte* e) => *(nint*)(e + P);
+        internal static byte* EventAdd(byte* e) => (byte*)*(nint*)(e + 3 * P);
+        internal static byte* EventRemove(byte* e) => (byte*)*(nint*)(e + 4 * P);
+        internal static byte* EventRaise(byte* e) => (byte*)*(nint*)(e + 5 * P);
+        internal static byte* EventAttributeRecords(byte* e) => (byte*)*(nint*)(e + 6 * P);
+        internal static int EventAttributeCount(byte* e) => *(int*)(e + 7 * P);
+        internal static int EventFlags(byte* e) => *(int*)(e + 7 * P + 4);
+        internal static int EventAttributes(byte* e) => *(int*)(e + 7 * P + 8);
         // csrt_FieldRecord
         internal static int FieldSize => 6 * P + 8;
         internal static byte* FieldName(byte* f) => (byte*)*(nint*)f;
@@ -574,6 +591,13 @@ namespace CsharpcCoreLib
                     throw new ArgumentException("Cannot bind to the target method because its signature is not compatible with that of the delegate type.");
                 return CoreIntrinsics.ReinterpretAs<Delegate>(CoreIntrinsics.PointerToObject((nint)CoreIntrinsics.csrt_delegate_create(CoreIntrinsics.csrt_type_handle(delegateType), 0, fn)));
             }
+            // An instance method without a target: an open instance delegate, whose first parameter is the receiver.
+            if (!IsStatic && target == null && signature != null && ReflectionRecords.MethodOpenFunction(_record) is var open and not 0)
+            {
+                if (!CompatibleOpen(signature))
+                    throw new ArgumentException("Cannot bind to the target method because its signature is not compatible with that of the delegate type.");
+                return CoreIntrinsics.ReinterpretAs<Delegate>(CoreIntrinsics.PointerToObject((nint)CoreIntrinsics.csrt_delegate_create(CoreIntrinsics.csrt_type_handle(delegateType), 0, open)));
+            }
             if (signature == null || fn == 0 || target == null || IsStatic)
                 throw new NotSupportedException("MethodInfo.CreateDelegate of '" + this + "' to '" + delegateType + "'" + (target == null ? " without a target" : "") + " is not supported by csharpc yet.");
             if (!DeclaringType.IsInstanceOfType(target) || !Compatible(signature))
@@ -585,17 +609,23 @@ namespace CsharpcCoreLib
 
         // The delegate's parameters must be passable to the method's (the same type, or a reference type the
         // method's accepts) and the method's return must be the delegate's (or a reference type assignable to it).
-        private bool Compatible(byte* signature)
+        private bool Compatible(byte* signature) => Compatible(signature, 0);
+
+        // An open instance delegate's first parameter is the receiver: any type the declaring type is assignable from.
+        private bool CompatibleOpen(byte* signature) => Compatible(signature, 1);
+
+        private bool Compatible(byte* signature, int receivers)
         {
             int count = *(int*)(signature + 3 * ReflectionRecords.P);
-            if (count != ReflectionRecords.MethodParameterCount(_record)) return false;
+            if (count != ReflectionRecords.MethodParameterCount(_record) + receivers) return false;
             nint* delegateParameters = (nint*)*(nint*)(signature + 2 * ReflectionRecords.P);
+            if (receivers == 1 && !Passable(delegateParameters[0], ReflectionRecords.MethodDeclaring(_record))) return false;
             byte* parameters = ReflectionRecords.MethodParameters(_record);
-            for (int i = 0; i < count; i++)
+            for (int i = 0; i < count - receivers; i++)
             {
                 byte* p = parameters + i * ReflectionRecords.ParameterSize;
                 if ((ReflectionRecords.ParameterFlags(p) & (1 << 17)) != 0) return false; // by-ref
-                if (!Passable(delegateParameters[i], ReflectionRecords.ParameterType(p))) return false;
+                if (!Passable(delegateParameters[i + receivers], ReflectionRecords.ParameterType(p))) return false;
             }
             nint delegateReturn = *(nint*)(signature + ReflectionRecords.P);
             nint methodReturn = ReflectionRecords.MethodReturnType(_record);
@@ -607,6 +637,11 @@ namespace CsharpcCoreLib
         {
             if (from == to) return true;
             Type source = ReflectionRuntime.TypeOf(from), destination = ReflectionRuntime.TypeOf(to);
+            // An enum and its underlying type are interchangeable (the CLR compares the types' reduced forms).
+            if (source.IsEnum && destination.IsEnum) return false;
+            if (source.IsEnum || destination.IsEnum)
+                return source.IsValueType && destination.IsValueType
+                    && (source.IsEnum ? Enum.GetUnderlyingType(source) : source) == (destination.IsEnum ? Enum.GetUnderlyingType(destination) : destination);
             return !source.IsValueType && !destination.IsValueType && destination.IsAssignableFrom(source);
         }
 
@@ -685,7 +720,7 @@ namespace CsharpcCoreLib
             if (!IsStatic)
             {
                 if (obj == null) throw new TargetException("Non-static method requires a target.");
-                if (!DeclaringType.IsInstanceOfType(obj)) throw new TargetException("Object does not match target type.");
+                if (!DeclaringType.IsInstanceOfType(obj)) throw new TargetException("Object type " + DeclaringType + " does not match target type " + obj.GetType() + ".");
             }
             return ReflectionRuntime.Invoke(_record, ParametersNoCopy, IsStatic ? null : obj, invokeAttr, parameters, this);
         }
@@ -1010,12 +1045,34 @@ namespace CsharpcCoreLib
 
         internal static object CallFactory(nint factory) => factory == 0 ? null : ((delegate*<object>)factory)();
 
-        internal static object[] CreateAttributes(byte* records, int count, Type attributeType)
+        // An attribute list's count carries more than the number of records (ModuleCodeGen.AttributeCount):
+        // bits 0-23 the records, bits 24-29 how many of the last records are pseudo-custom attributes (CoreCLR
+        // lists those after the metadata's attributes in GetCustomAttributes but before them in
+        // GetCustomAttributesData), bit 30 that csc synthesizes attributes csharpc can't reproduce for the member.
+        internal const int AttributesUnknown = 0x40000000;
+
+        /// <summary>
+        /// Whether a typed query could have matched an attribute csc synthesizes into metadata (nullable annotations,
+        /// [CompilerGenerated], [ParamArray], state machines, [IsReadOnly], ...): those are System attributes, and
+        /// an untyped query (object, Attribute, an interface) asks for all of them.
+        /// </summary>
+        private static bool MaybeSynthesized(Type attributeType) =>
+            attributeType == typeof(object) || attributeType == typeof(Attribute) || attributeType.IsInterface
+            || attributeType.Namespace == "System.Runtime.CompilerServices" || attributeType.Namespace == "System.Diagnostics"
+            || attributeType == typeof(ParamArrayAttribute);
+
+        private static NotSupportedException UnknownAttributes() =>
+            new NotSupportedException("The custom attributes of this member are not supported by csharpc yet: it can't reproduce the attributes " +
+                "the C# compiler synthesizes for it (nullable annotations, state machines, readonly members, ...).");
+
+        internal static object[] CreateAttributes(byte* records, int raw, Type attributeType)
         {
             ArgumentNullException.ThrowIfNull(attributeType);
+            int count = raw & 0xFFFFFF;
             bool all = attributeType == typeof(object);
             if (!all && attributeType != typeof(Attribute) && !attributeType.IsSubclassOf(typeof(Attribute)) && !attributeType.IsInterface)
                 throw new ArgumentException("Type passed in must be derived from System.Attribute or System.Attribute itself.");
+            if ((raw & AttributesUnknown) != 0 && MaybeSynthesized(attributeType)) throw UnknownAttributes();
             var list = new List<object>();
             for (int i = 0; i < count; i++)
             {
@@ -1034,18 +1091,28 @@ namespace CsharpcCoreLib
             return result;
         }
 
-        internal static bool IsDefined(byte* records, int count, Type attributeType)
+        internal static bool IsDefined(byte* records, int raw, Type attributeType)
         {
             ArgumentNullException.ThrowIfNull(attributeType);
+            int count = raw & 0xFFFFFF;
             for (int i = 0; i < count; i++)
                 if (attributeType.IsAssignableFrom(TypeOf(ReflectionRecords.AttributeType(records + i * ReflectionRecords.AttributeSize)))) return true;
+            if ((raw & AttributesUnknown) != 0 && MaybeSynthesized(attributeType)) throw UnknownAttributes();
             return false;
         }
 
-        internal static IList<CustomAttributeData> AttributeData(byte* records, int count)
+        /// <summary>CustomAttributeData lists the pseudo-custom attributes (In, Optional, MarshalAs, ...) before the metadata's.</summary>
+        internal static IList<CustomAttributeData> AttributeData(byte* records, int raw)
         {
+            if ((raw & AttributesUnknown) != 0) throw UnknownAttributes();
+            int count = raw & 0xFFFFFF;
+            int pseudo = (raw >> 24) & 0x3F;
             var list = new CustomAttributeData[count];
-            for (int i = 0; i < count; i++) list[i] = (CustomAttributeData)CallFactory(ReflectionRecords.AttributeData(records + i * ReflectionRecords.AttributeSize));
+            for (int i = 0; i < count; i++)
+            {
+                int slot = i < pseudo ? count - pseudo + i : i - pseudo;
+                list[i] = (CustomAttributeData)CallFactory(ReflectionRecords.AttributeData(records + slot * ReflectionRecords.AttributeSize));
+            }
             return new ReadOnlyCollection<CustomAttributeData>(list);
         }
 

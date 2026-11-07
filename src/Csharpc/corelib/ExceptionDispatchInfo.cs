@@ -31,6 +31,17 @@ namespace CsharpcCoreLib
             CoreIntrinsics.ThrowWithStackTrace(source, CoreIntrinsics.CaptureStackTrace(source));
         }
 
+        /// <summary>
+        /// .NET (5+): the exception's stack trace becomes the current stack, without throwing it (System.Net.Http
+        /// builds exceptions this way on its error paths). The current frames are not materialized here: the
+        /// exception keeps the trace it had, and Throw() records the frames from where it is thrown.
+        /// </summary>
+        public static Exception SetCurrentStackTrace(Exception source)
+        {
+            if (source == null) throw new ArgumentNullException("source");
+            return source;
+        }
+
         public Exception SourceException => _source;
 
         public void Throw() { CoreIntrinsics.ThrowWithStackTrace(_source, _frames); }

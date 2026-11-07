@@ -1,0 +1,28 @@
+102030405060708 12345 8 1286
+72623859790382856
+99
+99
+3
+0,1,2,3
+9,8,7
+5,6
+5,-6
+ab
+1.5,-2.5
+1.5,-2.5
+1,2
+copy range: ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+copy null: ArgumentNullException: Value cannot be null. (Parameter 'source')
+copy negative: ArgumentOutOfRangeException: Specified argument was out of the range of valid values.
+8
+4
+héllo
+h�
+héllo
+hél
+héllo
+hé
+auto
+bstr
+True
+True

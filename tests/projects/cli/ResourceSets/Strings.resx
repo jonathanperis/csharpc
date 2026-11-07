@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <data name="Hello" xml:space="preserve"><value>Hello from resources</value></data>
+  <data name="Multi" xml:space="preserve"><value>line one
+line two</value></data>
+  <data name="Unicode" xml:space="preserve"><value>caf&#233; &#8364;</value></data>
+  <data name="Empty" xml:space="preserve"><value></value></data>
+  <data name="Count" type="System.Int32, System.Private.CoreLib"><value>42</value></data>
+  <data name="Price" type="System.Decimal, System.Private.CoreLib"><value>12.50</value></data>
+  <data name="Flag" type="System.Boolean, System.Private.CoreLib"><value>True</value></data>
+  <data name="Id" type="System.Guid, System.Private.CoreLib"><value>6f9619ff-8b86-d011-b42d-00c04fc964ff</value></data>
+  <data name="Location" type="System.Drawing.Point, System.Drawing.Primitives"><value>10, 20</value></data>
+  <data name="Last" xml:space="preserve"><value>last string</value></data>
+</root>

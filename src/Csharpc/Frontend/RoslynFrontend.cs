@@ -89,12 +89,53 @@ public static class RoslynFrontend
         List<Diagnostic> jsonDiagnostics = [];
         compilation = JsonReflectionContexts.Add(compilation, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath))],
             settings.JsonReflectionEnabled, jsonDiagnostics, out _, settings.IlSet, settings.JsonFromIl ? settings.ProgramIl : null);
+        // ResourceManager.GetObject of preserialized TypeConverter strings (System.Drawing.Point from a .resx), TypeDescriptor.GetConverter(typeof(X)).
+        if (settings.ProgramIl is null) compilation = ResourceConverters.Add(compilation, settings.ResourceTypes, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath))],
+            compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions);
+        // The same for an IL program: its resources' types, and its ldtokens next to a GetConverter call (internals visible, as for JSON).
+        if (settings.ProgramIl is { } converterProgram && settings.ConvertersFromIl && settings.IlSet is { } converterSet)
+        {
+            var symbols = compilation.WithOptions(compilation.Options.WithMetadataImportOptions(MetadataImportOptions.All));
+            converterSet.Bind(symbols);
+            compilation = ResourceConverters.AddFromIl(compilation, symbols, settings.ResourceTypes, converterProgram,
+                compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions);
+        }
         // The IL program's [GeneratedRegex] members, as the source path's generator makes them.
         if (settings.ProgramIl is { } programIl && IlGeneratedRegex.Synthesize(programIl, compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions) is { } regexHolders)
             compilation = compilation.AddSyntaxTrees(regexHolders);
         // Dynamic call sites in IL bind at a position of their own (IlDynamicBinding).
         if (IlDynamicBinding.Needed(settings.IlSet))
             compilation = compilation.AddSyntaxTrees(IlDynamicBinding.Tree(compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions));
+        if (settings.Projects.Count > 1)
+        {
+            // Several projects: each one's generators ran on its own compilation, with its own references, options and
+            // additional files (BuildProjects); the merged program gets their output next to the sources.
+            var builds = BuildProjects(settings);
+            HashSet<(string Name, string Text)> seen = [];
+            HashSet<string> paths = new(StringComparer.Ordinal);
+            List<SyntaxTree> generated = [];
+            s_generatedFiles = [];
+            foreach (var build in builds.Ordered)
+            {
+                var files = s_generatedFiles[build.ProjectPath] = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var tree in build.Generated)
+                {
+                    // Post-initialization sources (an attribute every project's generator declares) are identical per
+                    // project but would be duplicate types in one compilation.
+                    if (!seen.Add((Path.GetFileName(tree.FilePath), tree.GetText().ToString()))) continue;
+                    // Projects whose generated files are not rooted (no /out directory) can generate the same path: keep them apart.
+                    var kept = paths.Add(tree.FilePath) ? tree : tree.WithFilePath(Path.Combine(build.AssemblyName, tree.FilePath));
+                    paths.Add(kept.FilePath);
+                    files.Add(Path.GetFullPath(kept.FilePath));
+                    generated.Add(kept);
+                }
+            }
+            compilation = compilation.AddSyntaxTrees(generated);
+            var contexts = SourceGenerators.RunSynthesizedJsonContexts(compilation, settings.Generators, out var contextDiagnostics);
+            compilation = compilation.AddSyntaxTrees(contexts);
+            GeneratorDiagnostics = [.. builds.Ordered.SelectMany(b => b.GeneratorDiagnostics), .. contextDiagnostics, .. jsonDiagnostics];
+            return compilation;
+        }
         // Source generators: the project's (SDK, packages), or for single files the ones the SDK runs implicitly
         // ([LibraryImport], [GeneratedRegex], [JsonSerializable]).
         compilation = SourceGenerators.Run(compilation, compilation.SyntaxTrees.Where(t => !IsCoreLibTree(t)), settings.Generators, out var generatorDiagnostics);
@@ -119,7 +160,7 @@ public static class RoslynFrontend
             // a project's /features (e.g. InterceptorsNamespaces for generated interceptors) as csc gets them.
             .WithFeatures([new("FileBasedProgram", "true"), .. (features ?? ImmutableDictionary<string, string>.Empty).Where(f => f.Key != "FileBasedProgram")]);
 
-    private static NullableContextOptions NullableOf(string? text) => text?.ToLowerInvariant() switch
+    internal static NullableContextOptions NullableOf(string? text) => text?.ToLowerInvariant() switch
     {
         "disable" => NullableContextOptions.Disable,
         "warnings" => NullableContextOptions.Warnings,
@@ -136,24 +177,43 @@ public static class RoslynFrontend
     /// </summary>
     public static readonly IReadOnlySet<string> DefiniteAssignmentErrors = new HashSet<string> { "CS0165", "CS0170", "CS0171", "CS0177", "CS0188", "CS0269" };
 
-    /// <summary>
-    /// What `dotnet build` reports: each project compiled on its own, referencing the compilations
-    /// of the projects it references (csharpc still generates code from one merged compilation).
-    /// </summary>
-    public static ImmutableArray<Diagnostic> ProjectDiagnostics(FrontendSettings settings)
-    {
-        var byPath = settings.Projects.ToDictionary(p => p.ProjectPath, StringComparer.Ordinal);
-        var built = new Dictionary<string, CSharpCompilation>(StringComparer.Ordinal);
-        var builder = ImmutableArray.CreateBuilder<Diagnostic>();
-        foreach (var project in settings.Projects) Build(project);
-        return builder.ToImmutable();
+    /// <summary>One project's own compilation, generated trees included, and what its generators reported.</summary>
+    private sealed record ProjectBuild(string ProjectPath, string AssemblyName, CSharpCompilation Compilation, IReadOnlyList<SyntaxTree> Generated, IReadOnlyList<Diagnostic> GeneratorDiagnostics);
 
-        CSharpCompilation Build(ProjectUnit project)
+    /// <summary>The projects' builds, dependencies first.</summary>
+    private sealed record ProjectBuilds(IReadOnlyList<ProjectBuild> Ordered);
+
+    private static (FrontendSettings Settings, ProjectBuilds Builds)? s_projectBuilds;
+
+    private static Dictionary<string, HashSet<string>> s_generatedFiles = [];
+
+    /// <summary>The full paths of the trees a project's own generators produced (they belong to its assembly: Type.Assembly).</summary>
+    public static IReadOnlySet<string> GeneratedFilesOf(string projectPath) =>
+        s_generatedFiles.TryGetValue(projectPath, out var files) ? files : new HashSet<string>();
+
+    /// <summary>
+    /// Each project compiled on its own, as `dotnet build` does: referencing the compilations of the projects it
+    /// references, with its own parse options, and with its own source generators run on that compilation (its
+    /// analyzers, global options, additional files). The generated trees are folded into the merged program
+    /// (Analyze), and the compilations are what ProjectDiagnostics reports on; computed once per settings.
+    /// </summary>
+    private static ProjectBuilds BuildProjects(FrontendSettings settings)
+    {
+        if (s_projectBuilds is { } cached && ReferenceEquals(cached.Settings, settings)) return cached.Builds;
+        var byPath = settings.Projects.ToDictionary(p => p.ProjectPath, StringComparer.Ordinal);
+        var built = new Dictionary<string, ProjectBuild>(StringComparer.Ordinal);
+        List<ProjectBuild> ordered = [];
+        foreach (var project in settings.Projects) Build(project);
+        var result = new ProjectBuilds(ordered);
+        s_projectBuilds = (settings, result);
+        return result;
+
+        ProjectBuild Build(ProjectUnit project)
         {
             if (built.TryGetValue(project.ProjectPath, out var existing)) return existing;
             List<MetadataReference> references = [.. FrameworkReferences(settings), .. settings.IlReferences, .. CoreLibFacadeFor(settings)];
             foreach (var reference in project.References)
-                if (byPath.TryGetValue(reference, out var referenced)) references.Add(Build(referenced).ToMetadataReference());
+                if (byPath.TryGetValue(reference, out var referenced)) references.Add(Build(referenced).Compilation.ToMetadataReference());
             var parseOptions = ParseOptions(LanguageVersionOf(project.LanguageVersion), project.Defines, project.Generators?.Features);
             List<SyntaxTree> trees = [.. project.Files.Select(f => s_parsed[Path.GetFullPath(f)])];
             if (project.GlobalUsings is { Length: > 0 } usings)
@@ -167,12 +227,32 @@ public static class RoslynFrontend
                 mainTypeName: project.IsRoot ? settings.MainTypeName : null,
                 specificDiagnosticOptions: new Dictionary<string, ReportDiagnostic> { ["CS8019"] = ReportDiagnostic.Suppress });
             var compilation = CSharpCompilation.Create(project.AssemblyName, trees, references, options);
-            compilation = SourceGenerators.Run(compilation, trees, project.Generators, out var generatorDiagnostics);
-            builder.AddRange(generatorDiagnostics);
-            foreach (var tree in compilation.SyntaxTrees)
-                builder.AddRange(compilation.GetSemanticModel(tree).GetDiagnostics());
-            return built[project.ProjectPath] = compilation;
+            var withGenerated = SourceGenerators.Run(compilation, trees, project.Generators, out var generatorDiagnostics);
+            return built[project.ProjectPath] = Record(new ProjectBuild(project.ProjectPath, project.AssemblyName, withGenerated, [.. withGenerated.SyntaxTrees.Except(compilation.SyntaxTrees)], [.. generatorDiagnostics]));
         }
+
+        ProjectBuild Record(ProjectBuild build)
+        {
+            ordered.Add(build);
+            return build;
+        }
+    }
+
+    /// <summary>
+    /// What `dotnet build` reports: each project compiled on its own, referencing the compilations
+    /// of the projects it references (csharpc still generates code from one merged compilation, which
+    /// gets the generated trees of these).
+    /// </summary>
+    public static ImmutableArray<Diagnostic> ProjectDiagnostics(FrontendSettings settings)
+    {
+        var builder = ImmutableArray.CreateBuilder<Diagnostic>();
+        foreach (var build in BuildProjects(settings).Ordered)
+        {
+            builder.AddRange(build.GeneratorDiagnostics);
+            foreach (var tree in build.Compilation.SyntaxTrees)
+                builder.AddRange(build.Compilation.GetSemanticModel(tree).GetDiagnostics());
+        }
+        return builder.ToImmutable();
     }
 
     /// <summary>
@@ -385,14 +465,26 @@ public sealed record FrontendSettings
     /// </summary>
     public IReadOnlyList<ProgramResource> EmbeddedResources { get; init; } = [];
     /// <summary>
+    /// Native libraries the program's packages ship for its target (runtimes/&lt;rid&gt;/native, a deployed app's
+    /// native files): copied next to the executable, where P/Invoke probing finds them as .NET's does.
+    /// </summary>
+    public IReadOnlyList<string> NativeAssets { get; init; } = [];
+    /// <summary>
+    /// The full names of the types the embedded .resources files hold as TypeConverter strings (ResourceConverters.TypeNames):
+    /// the front end generates their conversions, and FrameworkIl takes the framework assemblies that define them.
+    /// </summary>
+    public IReadOnlyList<string> ResourceTypes { get; init; } = [];
+    /// <summary>The IL program's converter hooks are generated (its resources name converted types, or it calls TypeDescriptor.GetConverter) in a compilation that sees its internals.</summary>
+    public bool ConvertersFromIl { get; init; }
+    /// <summary>
     /// How `dotnet build` would compile and describe the program (stack-trace names and lines);
     /// null for single files, decided by the configuration (`dotnet run app.cs`).
     /// </summary>
     public DebugSymbolSettings? Symbols { get; init; }
     /// <summary>
     /// The project's source generators and their inputs, as csc gets them (null: single files, which get
-    /// the SDK's implicit LibraryImport/JSON/[GeneratedRegex] generators). With several projects, the
-    /// merged program's: the root's options and the union of the projects' analyzers (ProjectLoader.Load).
+    /// the SDK's implicit LibraryImport/JSON/[GeneratedRegex] generators). With several projects, the root's
+    /// (each project's own are in <see cref="ProjectUnit.Generators"/>, run on its own compilation).
     /// </summary>
     public GeneratorInputs? Generators { get; init; }
 }

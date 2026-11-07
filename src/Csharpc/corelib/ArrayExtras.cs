@@ -330,6 +330,25 @@ namespace CsharpcCoreLib
             return CoreIntrinsics.csrt_array_new_of_type(arrayType, length);
         }
 
+        /// <summary>Array.Sort(Array, IComparer) of a one-dimensional array: the elements are sorted as objects and stored back.</summary>
+        public static void Sort(Array array, System.Collections.IComparer comparer)
+        {
+            if (array == null) ThrowHelper.ArgumentNull("array");
+            if (array.Rank != 1) throw new RankException("Only single dimensional arrays are supported for the requested action.");
+            var items = new object[array.Length];
+            for (int i = 0; i < items.Length; i++) items[i] = array.GetValue(i);
+            comparer ??= System.Collections.Comparer.Default;
+            SortHelper<object>.Sort(items, 0, items.Length, new ComparerAdapter(comparer));
+            for (int i = 0; i < items.Length; i++) array.SetValue(items[i], i);
+        }
+
+        private sealed class ComparerAdapter : IComparer<object>
+        {
+            private readonly System.Collections.IComparer _comparer;
+            public ComparerAdapter(System.Collections.IComparer comparer) => _comparer = comparer;
+            public int Compare(object x, object y) => _comparer.Compare(x, y);
+        }
+
         public static int BinarySearch(Array array, object value) => BinarySearch(array, value, null);
 
         public static int BinarySearch(Array array, object value, System.Collections.IComparer comparer)

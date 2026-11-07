@@ -1,21 +1,28 @@
 // System.Uri, the subset whose .NET behaviour is simple to state exactly: absolute http, https, ftp, ws
 // and wss URIs with a DNS name or a canonical IPv4 address, an optional port, and a path, query and
 // fragment made of characters .NET neither escapes nor unescapes (RFC 3986 unreserved, sub-delims, ':'
-// and '@', no '%'), without dot segments. For those, .NET only lowercases the scheme and host, drops a
-// default port and turns an empty path into "/". Everything else .NET accepts (relative URIs, other
-// schemes, user info, IPv6, percent-encoding, escaping, IDN, dot-segment removal, implicit file paths)
-// throws NotSupportedException rather than risk a different result. Also exact: file URIs of plain
+// and '@', no '%'). For those, .NET only lowercases the scheme and host, drops a default port, turns an
+// empty path into "/" and removes the path's dot segments. Everything else .NET accepts (other
+// schemes, user info, IPv6, percent-encoding, escaping, IDN, relative references with a ':' in their first
+// segment) throws NotSupportedException rather than risk a different result. Also exact: file URIs of plain
 // absolute paths ("/tmp/x.xml", "C:\\dir\\x.xml", "file:///tmp/x.xml": System.Xml loads files through
 // them) and relative URIs of plain text (UriKind.RelativeOrAbsolute / Relative). UnescapeDataString is
-// exact; the static escaping helpers are in UriMembers.cs.
+// exact; the static escaping helpers are in UriMembers.cs, MakeRelativeUri, base + relative resolution,
+// GetComponents, IsBaseOf and Compare in UriRelative.cs.
 #nullable disable
 using System;
 using System.Text;
 
 namespace CsharpcCoreLib
 {
+    [Shadows("System.UriCreationOptions")]
+    public struct UriCreationOptionsImpl
+    {
+        public bool DangerousDisablePathAndQueryCanonicalization { get; set; }
+    }
+
     [Shadows("System.Uri")]
-    public class UriImpl : IEquatable<Uri>
+    public partial class UriImpl : IEquatable<Uri>
     {
         public static readonly string UriSchemeHttp = "http";
         public static readonly string UriSchemeHttps = "https";
@@ -25,6 +32,15 @@ namespace CsharpcCoreLib
         public static readonly string UriSchemeMailto = "mailto";
         public static readonly string UriSchemeWs = "ws";
         public static readonly string UriSchemeWss = "wss";
+        public static readonly string UriSchemeGopher = "gopher";
+        public static readonly string UriSchemeNews = "news";
+        public static readonly string UriSchemeNntp = "nntp";
+        public static readonly string UriSchemeSsh = "ssh";
+        public static readonly string UriSchemeSftp = "sftp";
+        public static readonly string UriSchemeTelnet = "telnet";
+        public static readonly string UriSchemeNetTcp = "net.tcp";
+        public static readonly string UriSchemeNetPipe = "net.pipe";
+        public static readonly string UriSchemeData = "data";
         public static readonly string SchemeDelimiter = "://";
 
         private readonly string _original;
@@ -38,6 +54,17 @@ namespace CsharpcCoreLib
         private readonly bool _relative;    // a relative URI: only OriginalString / ToString
         private readonly bool _file;        // a file URI (_path: its absolute path, '/'-separated)
         private readonly string _localPath; // a file URI's LocalPath
+        private readonly bool _implicitFile; // a file URI given as a plain path ("/tmp/x", "C:\\dir\\x")
+        private bool _userEscaped;           // Uri(string, bool dontEscape)
+
+        private readonly struct RawRelative { }
+
+        // A relative URI that was built by the library (MakeRelativeUri), not parsed: .NET accepts any text there.
+        private UriImpl(string relative, RawRelative marker)
+        {
+            _original = relative;
+            _relative = true;
+        }
 
         public UriImpl(string uriString) : this(uriString, UriKind.Absolute) { }
 
@@ -45,11 +72,16 @@ namespace CsharpcCoreLib
         {
             if (uriString == null) throw new ArgumentNullException("uriString");
             if (uriKind != UriKind.Absolute && uriKind != UriKind.RelativeOrAbsolute && uriKind != UriKind.Relative)
-                throw new ArgumentException("The value '" + ((int)uriKind).ToString() + "' passed for the UriKind parameter is invalid.", "uriKind");
+                throw InvalidKind(uriKind);
             _original = uriString;
+            if (uriString.Length == 0 && uriKind != UriKind.Absolute)
+            {
+                _relative = true;
+                return;
+            }
             // On Unix an implicit file path ("/dir/x") is absolute only for UriKind.Absolute: with
-            // RelativeOrAbsolute .NET takes it for a relative reference.
-            if (uriKind == UriKind.RelativeOrAbsolute && IsImplicitUnixPath(uriString))
+            // Relative or RelativeOrAbsolute .NET takes it for a relative reference.
+            if (uriKind != UriKind.Absolute && IsImplicitUnixPath(uriString))
             {
                 CheckRelative(uriString);
                 _relative = true;
@@ -59,6 +91,7 @@ namespace CsharpcCoreLib
             {
                 if (uriKind == UriKind.Relative) throw new UriFormatException(FormatNotDetermined);
                 _file = true;
+                _implicitFile = !uriString.StartsWith("file:", StringComparison.OrdinalIgnoreCase);
                 _scheme = "file";
                 _host = "";
                 _port = -1;
@@ -76,17 +109,44 @@ namespace CsharpcCoreLib
             if (uriKind == UriKind.Relative) throw new UriFormatException(FormatNotDetermined);
         }
 
+        public UriImpl(string uriString, bool dontEscape) : this(uriString, UriKind.Absolute) { _userEscaped = dontEscape; }
+
+        // The only option turns .NET's path and query canonicalization off, which this Uri has no mode for.
+        public UriImpl(string uriString, in UriCreationOptions creationOptions) : this(uriString, UriKind.Absolute)
+        {
+            if (creationOptions.DangerousDisablePathAndQueryCanonicalization) throw Unsupported("UriCreationOptions.DangerousDisablePathAndQueryCanonicalization");
+        }
+
+        public static bool TryCreate(string uriString, in UriCreationOptions creationOptions, out Uri result)
+        {
+            if (creationOptions.DangerousDisablePathAndQueryCanonicalization) throw Unsupported("UriCreationOptions.DangerousDisablePathAndQueryCanonicalization");
+            return TryCreate(uriString, UriKind.Absolute, out result);
+        }
+
+        private static ArgumentException InvalidKind(UriKind uriKind) =>
+            new ArgumentException("The value '" + ((int)uriKind).ToString() + "' passed for the UriKind parameter is invalid.");
+
+        // A rooted path ("/dir/x"): relative for UriKind.Relative and RelativeOrAbsolute. On Unix it is also an implicit
+        // file path (so absolute for UriKind.Absolute); on Windows it is not: only "C:\dir" and UNC paths are implicit file
+        // paths there, so scheme parsing fails, which relative kinds accept as a relative reference (see TryParseFile).
         private static bool IsImplicitUnixPath(string s) =>
 #if CSHARPC_TARGET_WINDOWS
-            false; // .NET on Windows takes "/dir/x" for no implicit file path (see TryParseFile)
+            IsWindowsRootedPath(s);
 #else
             s.Length > 0 && s[0] == '/' && !s.StartsWith("file:", StringComparison.OrdinalIgnoreCase);
+#endif
+
+#if CSHARPC_TARGET_WINDOWS
+        // "/x" and "/": one slash, not the "//" or "/\" of a UNC path (those, and "\x", stay explicit diagnostics).
+        private static bool IsWindowsRootedPath(string s) =>
+            s.Length > 0 && s[0] == '/' && (s.Length == 1 || (s[1] != '/' && s[1] != '\\'));
 #endif
 
         // A relative reference is kept as it is: only text .NET neither escapes nor unescapes.
         private static void CheckRelative(string s)
         {
-            if (s.Trim().Length == 0 || !IsPlain(s, 0, true) || s.IndexOf('#') >= 0) throw Unsupported("this relative URI");
+            // '#' starts a fragment: .NET keeps it as it is, but calls such a reference not well formed.
+            if (s.Length != 0 && (s.Trim().Length == 0 || !IsPlain(s.Replace('#', '/'), 0, true))) throw Unsupported("this relative URI");
         }
 
         /// <summary>
@@ -113,9 +173,14 @@ namespace CsharpcCoreLib
             }
             if (!drive && rest.Length > 1 && (rest[1] == '/' || rest[1] == '\\')) throw Unsupported("UNC paths");
 #if CSHARPC_TARGET_WINDOWS
-            // .NET on Windows takes "/dir/x" for no implicit file path, and gives drive-less file URIs other
-            // local paths than on Unix: not modelled.
-            if (!drive) throw Unsupported("drive-less file paths on Windows");
+            // .NET on Windows takes "/dir/x" for no implicit file path: no scheme can be determined (Parse reports
+            // that, as for "dir/x"). A "file:///dir/x" URI without a drive letter gives other local paths than on
+            // Unix there, which is not modelled.
+            if (!drive)
+            {
+                if (!explicitScheme) return false;
+                throw Unsupported("file: URIs without a drive letter on Windows");
+            }
 #endif
             string slashed = drive ? rest.Replace('\\', '/') : rest;
             if (!IsPlain(slashed, 0, false) || HasDotSegment(slashed) || slashed.Contains("//")) throw Unsupported("file paths .NET escapes or rewrites");
@@ -127,14 +192,17 @@ namespace CsharpcCoreLib
         private InvalidOperationException NotAbsolute() => new InvalidOperationException("This operation is not supported for a relative URI.");
         private string Absolute(string value) => _relative ? throw NotAbsolute() : value;
 
-        public UriImpl(Uri baseUri, string relativeUri) => throw Unsupported("new Uri(Uri, string)");
-        public UriImpl(Uri baseUri, Uri relativeUri) => throw Unsupported("new Uri(Uri, Uri)");
-
         public static bool TryCreate(string uriString, UriKind uriKind, out Uri result)
         {
             result = null;
+            if (uriKind < UriKind.RelativeOrAbsolute || uriKind > UriKind.Relative) throw InvalidKind(uriKind);
             if (uriString == null) return false;
-            if (uriKind == UriKind.RelativeOrAbsolute && IsImplicitUnixPath(uriString))
+            if (uriString.Length == 0 && uriKind != UriKind.Absolute)
+            {
+                result = (Uri)(object)new UriImpl(uriString, uriKind);
+                return true;
+            }
+            if (uriKind != UriKind.Absolute && IsImplicitUnixPath(uriString))
             {
                 CheckRelative(uriString);
                 result = (Uri)(object)new UriImpl(uriString, uriKind);
@@ -176,6 +244,9 @@ namespace CsharpcCoreLib
             {
                 // Without a scheme only an implicit file path ("/x", "\\server\share") is absolute.
                 string trimmed = s.Trim();
+#if CSHARPC_TARGET_WINDOWS
+                if (IsWindowsRootedPath(s)) return FormatNotDetermined; // not an implicit file path on Windows
+#endif
                 if (trimmed.Length == 0 || trimmed[0] == '/' || trimmed[0] == '\\') throw Unsupported("implicit file paths or blank strings");
                 return FormatNotDetermined;
             }
@@ -211,13 +282,14 @@ namespace CsharpcCoreLib
 
             int queryAt = s.IndexOf('?', end), hashAt = s.IndexOf('#', end);
             if (queryAt > hashAt && hashAt >= 0) queryAt = -1; // a '?' inside the fragment
+            if (queryAt >= 0 && scheme == "ftp") throw Unsupported("a '?' in an ftp URI (.NET escapes it)");
             int pathEnd = queryAt >= 0 ? queryAt : hashAt >= 0 ? hashAt : s.Length;
             path = s.Substring(end, pathEnd - end);
             query = queryAt >= 0 ? s.Substring(queryAt, (hashAt >= 0 ? hashAt : s.Length) - queryAt) : "";
             fragment = hashAt >= 0 ? s.Substring(hashAt) : "";
             if (!IsPlain(path, 0, false) || !IsPlain(query, 1, true) || !IsPlain(fragment, 1, true)) throw Unsupported("characters .NET escapes or unescapes");
             if (path.Length == 0) path = "/";
-            if (HasDotSegment(path)) throw Unsupported("dot segments ('.' or '..') in the path");
+            path = Compress(path);
             return null;
         }
 
@@ -232,6 +304,87 @@ namespace CsharpcCoreLib
                 if (!ok) return false;
             }
             return true;
+        }
+
+        // UriHelper.Compress for the http-like syntaxes (no back slashes here): "." and ".." segments go.
+        private static string Compress(string path)
+        {
+            if (path.IndexOf('.') < 0) return path;
+            char[] span = path.ToCharArray();
+            var removed = new System.Collections.Generic.List<int>(); // (start, length) pairs, last segment first
+            int slashCount = 0, lastSlash = 0, dotCount = 0, removeSegments = 0;
+            for (int i = span.Length - 1; i >= 0; i--)
+            {
+                char ch = span[i];
+                if (ch == '/') ++slashCount;
+                else
+                {
+                    if (slashCount > 1) lastSlash = i + 1;
+                    slashCount = 0;
+                }
+                if (ch == '.')
+                {
+                    ++dotCount;
+                    continue;
+                }
+                else if (dotCount != 0)
+                {
+                    // CanonicalizeAsFilePath (http, https, ftp, ws, wss): only whole "." and ".." segments go.
+                    bool skipSegment = dotCount > 2 || ch != '/';
+                    if (!skipSegment
+                        && (lastSlash == i + dotCount + 1 || (lastSlash == 0 && i + dotCount + 1 == span.Length))
+                        && dotCount <= 2)
+                    {
+                        removed.Add(i + 1);
+                        removed.Add(dotCount + (lastSlash == 0 ? 0 : 1));
+                        lastSlash = i;
+                        if (dotCount == 2) ++removeSegments;
+                        dotCount = 0;
+                        continue;
+                    }
+                    dotCount = 0;
+                }
+                if (ch == '/')
+                {
+                    if (removeSegments != 0)
+                    {
+                        removeSegments--;
+                        removed.Add(i + 1);
+                        removed.Add(lastSlash - i);
+                    }
+                    lastSlash = i;
+                }
+            }
+            if (slashCount <= 1)
+            {
+                if (removeSegments != 0 && span[0] != '/')
+                {
+                    // remove the first, not rooted segment
+                    removed.Add(0);
+                    removed.Add(lastSlash + 1);
+                }
+                else if (dotCount != 0)
+                {
+                    // the path starts with a segment of dots
+                    if (lastSlash == dotCount || (lastSlash == 0 && dotCount == span.Length))
+                    {
+                        removed.Add(0);
+                        removed.Add(dotCount + (lastSlash == 0 ? 0 : 1));
+                    }
+                }
+            }
+            if (removed.Count == 0) return path;
+            var result = new StringBuilder(path.Length);
+            int read = removed[removed.Count - 2];
+            result.Append(span, 0, read);
+            for (int i = removed.Count - 2; i >= 0; i -= 2)
+            {
+                int start = removed[i], length = removed[i + 1];
+                if (read != start) result.Append(span, read, start - read);
+                read = start + length;
+            }
+            if (read != span.Length) result.Append(span, read, span.Length - read);
+            return result.ToString();
         }
 
         private static bool HasDotSegment(string path)
@@ -283,13 +436,13 @@ namespace CsharpcCoreLib
         public int Port => _relative ? throw NotAbsolute() : _port;
         public bool IsDefaultPort => _relative ? throw NotAbsolute() : _port == DefaultPort(_scheme);
         public string Authority => Absolute(_file ? "" : IsDefaultPort ? _host : _host + ":" + _port.ToString());
-        public string AbsolutePath => Absolute(_path);
+        public string AbsolutePath => Absolute(IsDosPath ? _path.Substring(1) : _path);
         public string LocalPath => Absolute(_file ? _localPath : _path);
         public string Query => Absolute(_query);
         public string Fragment => Absolute(_fragment);
-        public string PathAndQuery => Absolute(_path + _query);
+        public string PathAndQuery => Absolute((IsDosPath ? _path.Substring(1) : _path) + _query);
         public string UserInfo => Absolute("");
-        public bool UserEscaped => false;
+        public bool UserEscaped => _userEscaped;
         public bool IsFile => _relative ? throw NotAbsolute() : _file;
         public bool IsUnc => _relative ? throw NotAbsolute() : false;
         public bool IsLoopback => _relative ? throw NotAbsolute() : _file || _host == "localhost" || _host == "127.0.0.1";
@@ -314,14 +467,22 @@ namespace CsharpcCoreLib
             }
         }
 
-        public string GetLeftPart(UriPartial part) => _relative ? throw NotAbsolute() : part switch
+        // A DOS path ("C:\\x", "file:///C:/x"): .NET's AbsolutePath drops the slash before the drive letter.
+        private bool IsDosPath => _file && _path.Length >= 3 && _path[2] == ':';
+
+        public string GetLeftPart(UriPartial part)
         {
-            UriPartial.Scheme => _scheme + "://",
-            UriPartial.Authority => _scheme + "://" + Authority,
-            UriPartial.Path => _scheme + "://" + Authority + _path,
-            UriPartial.Query => _scheme + "://" + Authority + _path + _query,
-            _ => throw new ArgumentException("The part parameter has an invalid value.", "part"),
-        };
+            if (_relative) throw NotAbsolute();
+            const UriComponents NonPath = UriComponents.Scheme | UriComponents.UserInfo | UriComponents.Host | UriComponents.Port;
+            switch (part)
+            {
+                case UriPartial.Scheme: return GetParts(UriComponents.Scheme | UriComponents.KeepDelimiter, UriFormat.UriEscaped);
+                case UriPartial.Authority: return IsDosPath ? "" : GetParts(NonPath, UriFormat.UriEscaped);
+                case UriPartial.Path: return GetParts(NonPath | UriComponents.Path, UriFormat.UriEscaped);
+                case UriPartial.Query: return GetParts(NonPath | UriComponents.Path | UriComponents.Query, UriFormat.UriEscaped);
+            }
+            throw new ArgumentException("The subcomponent, " + ((int)part).ToString() + ", of this uri is not valid.", "part");
+        }
 
         private static int DefaultPort(string scheme) => scheme switch { "http" => 80, "https" => 443, "ftp" => 21, "ws" => 80, "wss" => 443, _ => -1 };
 

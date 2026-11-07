@@ -1,0 +1,32 @@
+== handshake and echo
+  server: auth=True enc=True signed=True server=True mutual=False tls12+=True read=True write=True seek=False local=CN=localhost, O=csharpc tests, C=BR remote=True alpn=[] host=localhost cipher known=True end-of-stream=0
+  client: auth=True enc=True signed=True server=False mutual=False tls12+=True read=True write=True seek=False remote=CN=localhost, O=csharpc tests, C=BR local=True host=localhost alpn=[]
+    callback: sender=SslStream cert=CN=localhost, O=csharpc tests, C=BR errors=RemoteCertificateChainErrors chain=1/1 status=UntrustedRoot
+    echo:HELLO TLS | This stream does not support seek operations. | This stream does not support seek operations.
+== synchronous and large
+  server: first=7 received=1000000 sum=980790502
+  client: echoed=1000000 equal=True sum=980790502 last=255
+== only Tls12
+  server: protocol=Tls12
+  client: protocol=Tls12
+== only Tls13
+  server: protocol=Tls13
+  client: protocol=Tls13
+== mutual authentication
+  server: cert=CN=localhost, O=csharpc tests, C=BR errors=RemoteCertificateChainErrors mutual=True remote=CN=localhost, O=csharpc tests, C=BR
+  client: mutual=True local=CN=localhost, O=csharpc tests, C=BR
+== application protocol negotiation
+  server: negotiated=http/1.1
+  client: negotiated=http/1.1 equals=True
+== not authenticated
+  server: idle
+  client: write: InvalidOperationException: This operation is only allowed using a successfully authenticated context.
+    read: InvalidOperationException: This operation is only allowed using a successfully authenticated context.
+    protocol: InvalidOperationException: This operation is only allowed using a successfully authenticated context.
+    remote certificate: InvalidOperationException: This operation is only allowed using a successfully authenticated context.
+    local certificate: InvalidOperationException: This operation is only allowed using a successfully authenticated context.
+    negotiated protocol: InvalidOperationException: This operation is only allowed using a successfully authenticated context.
+    flags auth=False enc=False signed=False server=False mutual=False read=False write=False seek=False leaveOpen=False
+== shutdown
+  server: read=3 then=0
+  client: shutdown write=False

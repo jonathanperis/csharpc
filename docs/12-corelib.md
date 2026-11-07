@@ -124,7 +124,21 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   port; `ConcurrentQueue<T>` and `ConcurrentBag<T>` are lock-based with .NET's observable order (FIFO; per
   thread LIFO, stealing oldest-first from other threads, snapshots newest queue first) and snapshot
   enumeration. `BlockingCollection<T>` is a port (its blocking waits are cancelable SemaphoreSlim waits
-  over the runtime's events); `Partitioner` is not implemented yet (CSLLVM0001/0002).
+  over the runtime's events; `AddToAny`/`TakeFromAny` wait on several of them with
+  `WaitHandle.WaitAny`, `corelib/Threading/WaitHandles.cs`: the runtime has no multi-object wait, so a wait that
+  has to block sleeps on the first handle in 1-4 ms slices and re-checks the others, and `WaitAll` takes an
+  auto-reset event back (`Set`) when another handle isn't signaled yet; `CancellationToken.WaitHandle` and
+  `SemaphoreSlim.AvailableWaitHandle` are `ManualResetEvent`s kept in step as .NET's). `Partitioner`,
+  `OrderablePartitioner<T>` and the range/array/list/enumerable partitioners are ports (`corelib/Concurrent/Partitioner.cs`).
+  `Parallel.For` / `ForEach` with a `ParallelLoopState`, an index, thread-local state, `ParallelOptions` or a
+  partitioner, `Parallel.Invoke(options, ...)`, `ForEachAsync` and `ForAsync` are corelib C#
+  (`corelib/Tasks/ParallelState.cs`: .NET's flags: `Stop` starts nothing new, `Break` lets lower iterations finish and
+  starts none above it, an orderable partitioner's keys are the iteration indexes); the plain loops run on the
+  runtime's pool loop and throw an `AggregateException` around the body's exception, as .NET's. Differences: workers claim
+  indexes one by one (not in .NET's growing ranges), so how many iterations above a `Break` run differs, and
+  `Enumerable.Range` is not an `IList<int>` here (.NET loops over its positions: a `Break` in a
+  `ForEach` over a range stops at a different iteration); `ForEachAsync` over an `IAsyncEnumerable<T>`
+  has no implementation yet (explicit CSLLVM0002).
 * **Observable behavior follows .NET's implementations:** `List` growth (`Capacity`), `Dictionary`/`HashSet`
   bucket+entries+free-list design (iteration order after removals, prime sizes, FastMod), `PriorityQueue`'s
   4-ary heap (dequeue order of equal priorities), the introsort port (order of equal keys in `List.Sort` /
@@ -165,16 +179,78 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   [10-async.md](10-async.md#async-state-machines-compiled-from-il)); `ResourceManager` over the IL
   assemblies' embedded string resources and `AppContext` over runtimeconfig data (`Resources.cs`; both
   read constants codegen builds through the `ResourceStrings()`/`RuntimeConfig()` core intrinsics).
+* **`TypeConverter` / `TypeDescriptor`** (`corelib/ComponentModel/TypeConverter.cs`, `EnumConverter.cs`):
+  `TypeConverter` (and `EnumConverter`) are shadows with dotnet/runtime's full virtual surface, so the other converters
+  (`PointConverter`, `SizeConverter`, `RectangleConverter`, `ColorConverter`, `DateTimeConverter`, `UriTypeConverter` ...)
+  come from `System.ComponentModel.TypeConverter`'s IL (a "mixed" assembly, [ADR 0013](adr/0013-framework-il.md)).
+  `TypeDescriptor.GetConverter(Type)` creates the primitives itself and asks a hook for the rest: the front end
+  (`Frontend/ResourceConverters.cs`) generates `ProgramHooks.TypeConverterFor` for the types the sources name in `typeof(...)`
+  (the IL front-end: every `ldtoken`) when they call `GetConverter`, and `ProgramHooks.ResourceObject` for the types a
+  program's preserialized `.resources` name, which `ResourceManager.GetObject` creates with `ConvertFromInvariantString`
+  as `DeserializingResourceReader` does. A type the closed world can't resolve, `InstanceDescriptor`, `Enum[]`
+  conversions, `GetStandardValues` of an enum, and resources stored as BinaryFormatter data, byte arrays or activator
+  streams (`Bitmap`, `Icon`, `ResXFileRef`) are explicit `NotSupportedException`s naming the type.
+* **`ResourceSet`, `GetResourceSet` and `GetStream`** (`corelib/ResourceSets.cs`, `Resources.cs`): `ResourceManager` keeps
+  the neutral culture's set (`RuntimeResourceSet`) as .NET's does, so `GetString`/`GetObject` and `GetResourceSet` share it
+  (closing it closes it for the manager until `ReleaseAllResources`). A culture other than the invariant one gets the
+  neutral set only with `tryParents` (there are no satellite assemblies), and a set found through the fallback is
+  remembered under the cultures asked for. `ResourceSet` has `GetString`/`GetObject` with `ignoreCase`, the enumerator,
+  `GetDefaultReader`/`GetDefaultWriter`, `Close`/`Dispose`. Values stored by type code (`ResourceWriter`'s primitives)
+  are boxed once and cached (reading one as a string afterwards is an `InvalidCastException`), byte arrays and
+  `Stream` entries are created on every read, objects `DeserializingResourceReader` creates from preserialized types are
+  made again each time; `GetString` of a non-string names the type code (`'Int32'`, `'ByteArray'`, `'Stream'`) for the former and
+  the type for the latter. `GetStream` is a new read-only `UnmanagedMemoryStream` over a native copy of the bytes
+  (shared per entry, never freed, as the assembly's image is), `GetObject` of a `Stream` entry its
+  `UnmanagedMemoryStreamWrapper`. The front end now keeps `Stream` entries' bytes (`ResourcesFile`). Not provided (rejected
+  at compile time): `new ResourceSet(file|stream|reader)` and subclassing `ResourceSet`. A resource set the closed world
+  has no table for is still the explicit `NotSupportedException` of `GetString`.
 * **`System.Text.Json`** (`corelib/Json/`, see [System.Text.Json](#systemtextjson)).
-* **`EventSource`** (`corelib/Tracing/EventSource.cs`): a csharpc executable has no EventPipe/ETW session
-  and no `EventListener` (deriving from it is a CSLLVM0001 error), the state in which .NET's EventSource
-  writes nothing: `IsEnabled()` is false and `WriteEvent`/`WriteEventCore`/`Write` return at once.
-  What a program can observe without a listener is .NET's: the `EventSource.IsSupported` feature switch
-  (off for file-based apps unless `#:property EventSourceSupport=true`), `Name` and `Guid` from
-  `[EventSource]` (read at compile time: `ModuleCodeGen.EventSource.cs` compares the Type's method table
-  with the program's classes) or derived from the name with .NET's SHA-1 name hashing, settings
-  validation, traits, `ConstructionException`, `ToString`. `GetSources`, `SendCommand`,
-  `GenerateManifest` and the event counters are not implemented (CSLLVM0002).
+* **`EventSource` and `EventListener`** (`corelib/Tracing/EventSource.cs`, `EventListener.cs`): a csharpc executable
+  has no EventPipe/ETW session, so what enables an `EventSource` is an in-process `EventListener` (derivable). Without
+  one `IsEnabled()` is false and `WriteEvent`/`WriteEventCore`/`Write` return at once. A listener's `EnableEvents`
+  builds the event table from the `[Event]` methods (the compiler records them as text, `EventSourceAttribute(type, 2)`
+  in `ModuleCodeGen.EventSource.cs`, instead of .NET's reflection), checks it as .NET checks a manifest (positive
+  ids, no duplicate ids, keywords defined in the nested `Keywords` class, defined opcodes, supported parameter types:
+  an error reaches the listener as an `EventSourceMessage` event and the source stays disabled), calls
+  `OnEventCommand`, and then `WriteEvent` dispatches to every listener whose level and keyword filter lets the event
+  through, newest listener first: `EventWrittenEventArgs` has .NET's id, name, level, keywords (with ETW's session
+  bits), opcode, task (an event with neither task nor opcode gets 0xFFFE minus its id), version, channel, tags,
+  message, payload names and values (the declared parameter types for the fixed-arity `WriteEvent` overloads, the
+  boxed arguments for `params object[]`), activity ids, thread id and time stamp. `OnEventSourceCreated` runs for
+  the sources that exist when a listener is created (from the listener's base constructor, before the derived
+  constructor, as in .NET) and for later ones; a new `EventSourceCreated` handler hears of the existing sources
+  at once. `Write(name)` / `Write(name, options)` dispatch (null `Payload` and `PayloadNames`). `Write<T>` reads the
+  payload as .NET does (`corelib/Tracing/SelfDescribing.cs`): the public instance properties of an anonymous type or a
+  type marked `[EventData]` (derived type first, `[EventIgnore]` honored), as scalars (primitives, enums, `Guid`,
+  `DateTime`, `DateTimeOffset`, `TimeSpan`, `decimal`, nullables), strings (null becomes `""`), nested payload types (a
+  read-only `IDictionary<string, object>`), and arrays (the array itself for primitives and `Guid`, an `object[]` of the
+  converted elements otherwise), through csharpc's reflection metadata (`T` is annotated `PublicProperties`; the compiler
+  adds the types of its properties, `MarkEventPayloadGraph`; an anonymous type has a Type object and getter functions
+  for it). The analysis runs whenever the source is enabled and fails as .NET does (`ArgumentException` for a
+  non-compliant type, `ArgumentNullException` for a primitive or enumerable `T`, `NotSupportedException` for string and
+  nested arrays, an `EventSourceMessage` event when the data can't be read); a self-describing event is checked
+  against the source's widest level and keywords and then goes to every listener that enabled the source. Not
+  reproduced (an explicit `NotSupportedException`): multi-dimensional array and non-array enumerable properties,
+  recursive payload types. Differences: a listener does not see the EventSources .NET's runtime
+  and libraries create (`Microsoft-Windows-DotNETRuntime`, `System.Runtime`, `System.Threading.Tasks.TplEventSource` ...),
+  so `GetSources()` lists only the program's own; the manifest check that .NET makes by reading each event method's IL
+  ("Event X was assigned event ID n but m was passed to WriteEvent") is not made; `SendCommand`, `GenerateManifest`
+  and the event counters are not implemented (CSLLVM0002), `WriteEventCore` of a `DateTime` parameter is a NotSupportedException (boxing one would link the whole date formatter), and a program that writes events with typed payloads links the boxed-primitive formatters its payload values need (the 446 sample grows from 204 to 274 KB). Without `#:property EventSourceSupport=true` (the file-based
+  app default) `EventSource.IsSupported` is false, a source never registers and no listener sees it, as in .NET.
+  What a program can observe without a listener is .NET's: the `IsSupported` feature switch, `Name` and `Guid` from
+  `[EventSource]` or derived from the name with .NET's SHA-1 name hashing, settings validation, traits,
+  `ConstructionException`, `ToString`.
+
+* **`System.Uri`** (`corelib/Net/Uri.cs`, `UriRelative.cs`, `UriMembers.cs`): the URIs whose .NET behaviour needs no
+  escaping rules (absolute http, https, ftp, ws and wss URIs with a DNS name or canonical IPv4 host, plain file
+  paths, relative references of plain text); everything else is a `NotSupportedException` naming the case. On
+  those it is exact, down to messages: dot-segment removal (`Uri.Compress`), `MakeRelativeUri` / `MakeRelative`
+  (`PathDifference`, the case-insensitive DOS-path comparison, the `./` guard for a ':' in the first segment),
+  `new Uri(Uri, string/Uri)` and `Uri.TryCreate(Uri, ...)` (`CombineUri`), `GetComponents` / `GetLeftPart` /
+  `Compare` / `IsBaseOf`, `IsWellFormedOriginalString`, `TryFormat`, `CheckHostName` for DNS and IPv4 names,
+  `EscapeUriString`, `TryEscapeDataString`, `HexEscape` / `HexUnescape` / `FromHex`, `UriCreationOptions`
+  (the canonicalization-off option is a `NotSupportedException`). Resolving against a file URI, references
+  with a ':' in the first segment (`g:h`, `http:g`) and IPv6/IDN/user info hosts are not covered.
 
 ### Regular expressions
 
@@ -320,7 +396,10 @@ and only for programs that ask:
   `shared/Microsoft.NETCore.App/11.*` with System.Reflection.Metadata (`Frontend/SharedFramework.cs`):
   `List<T>` binds against the `System.Collections` reference assembly but lives in
   `System.Private.CoreLib`. `Assembly`, `AssemblyName` and `Version` are corelib C#
-  (`corelib/Reflection/Assembly.cs`), one `Assembly` object per name so `==` holds.
+  (`corelib/Reflection/Assembly.cs`), one `Assembly` object per name so `==` holds. The program's own and the IL assemblies
+  also have a compiled-in type list (`GetTypes`, `ExportedTypes`, `Module.GetTypes`, in metadata order, csc's synthesized
+  types included: the program is emitted once with Roslyn to read them), a manifest `Module`, `EntryPoint` and, for the program,
+  `GetReferencedAssemblies` ([ADR 0018](adr/0018-reflection-metadata.md)).
 * **Assignability** (`type.c`, `assignable`) follows the CLR: base chains, interfaces, generic variance
   (reference-type arguments only), array covariance for reference elements and for primitives sharing
   storage (`int[]`/`uint[]`/enum arrays), `T[]` as `IList<U>`, `Nullable<T>` from `T`, delegates.
@@ -330,8 +409,8 @@ of the kind/visibility/generic families, `BaseType`, `GetElementType`, `GetArray
 `GetGenericTypeDefinition`, `GetGenericArguments`, `GenericTypeArguments`, `GenericParameterPosition`,
 `UnderlyingSystemType`, `Nullable.GetUnderlyingType`, `FullName`, `AssemblyQualifiedName`, `Assembly`,
 `Assembly.GetExecutingAssembly`/`GetEntryAssembly`, with .NET's exception types and messages.
-Member reflection — constructors, methods, properties, fields, parameters, attributes, `Invoke`,
-`GetValue`/`SetValue`, `CreateDelegate`, `GetInterfaces`, `Activator.CreateInstance(Type)`, and
+Member reflection — constructors, methods, properties, fields, events, parameters, attributes, `Invoke`,
+`GetValue`/`SetValue`, `CreateDelegate` (closed over a target, static, or open instance with the receiver as first parameter), `GetInterfaces`, `Activator.CreateInstance(Type)`, and
 `MakeGenericType` over the instantiations the program has — works over metadata kept for what
 `[DynamicallyAccessedMembers]` and constant `typeof(X).GetMethod("Name")` patterns reach, as under
 NativeAOT ([ADR 0018](adr/0018-reflection-metadata.md)). Members that would need code or metadata the
@@ -353,11 +432,17 @@ corelib methods the program reaches from IL, with no parsing or binding of the c
   `NotSupportedException` when executed. (Boxed structs do have interface maps: the corelib's struct
   enumerators are `IEnumerator<T>`/`IEnumerator`/`IDisposable` when boxed, as in .NET.)
 * Anonymous types (multi-`from` queries with `let`/`where`), `ImmutableArray`/`Immutable*`,
-  `BitArray`, `ObservableCollection`, `Tuple<...>` classes, `BlockingCollection`, `Partitioner` not yet shadowed.
+  `BitArray`, `ObservableCollection`, `Tuple<...>` classes not yet shadowed (this list predates the ports above).
 * `SortedDictionary`/`SortedSet` use sorted arrays (same order, O(n) insertion).
-* **`ObjectiveCMarshal`** (`corelib/ObjectiveCMarshal.cs`, the hooks of the .NET for macOS / iOS bindings): the
-  API compiles and, off macOS, throws `PlatformNotSupportedException` from every member as .NET does. On a macOS
-  target every member is an explicit `NotSupportedException`: .NET's reference tracking is built on finalizers
-  (tracked types need one; the collector calls `isReferencedCallback` while it marks and
-  `trackedObjectEnteredFinalization` as an object enters the finalizer queue), and csharpc runs no finalizers
-  ([04-runtime.md](04-runtime.md)). Finalization in the collector, then these hooks, is what remains.
+* **`ObjectiveCMarshal`** (`corelib/ObjectiveCMarshal.cs`, the hooks of the .NET for macOS / iOS bindings): off macOS
+  every member throws `PlatformNotSupportedException` as .NET does. On macOS the reference tracking works as in
+  NativeAOT: `Initialize` registers the begin/end, `isReferenced` and entered-finalization callbacks with the
+  collector; a class with `[ObjectiveCTrackedType]` and a finalizer gets tagged memory (`GetOrCreateReferenceTrackingMemory`)
+  and reference-tracking handles (`CreateReferenceTrackingHandle`); each collection asks `isReferenced(taggedMemory)`
+  about the tracked objects nothing else reached (a referenced one survives with what it reaches), and announces an
+  object entering the finalizer queue ([04-runtime.md](04-runtime.md#objective-c-reference-tracking),
+  [ADR 0021](adr/0021-finalizers.md)). `SetMessageSendCallback` overrides libobjc's `objc_msgSend` family (the P/Invoke
+  stubs of those entry points call the registered function) and `SetMessageSendPendingException` stores an exception
+  the stub throws when the call returns. Verified on the macOS runner against real .NET (samples 970, 977, 978). The
+  unhandled-exception propagation handler is stored but never called (an exception escaping an `[UnmanagedCallersOnly]`
+  method ends the process).

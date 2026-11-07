@@ -89,6 +89,18 @@ namespace CsharpcCoreLib
             return bytes;
         }
 
+        public bool TryWriteBytes(Span<byte> destination, out int bytesWritten)
+        {
+            int length = _v6 == null ? 4 : 16;
+            if (destination.Length < length) { bytesWritten = 0; return false; }
+            GetAddressBytes().AsSpan().CopyTo(destination);
+            bytesWritten = length;
+            return true;
+        }
+
+        // internal in .NET: Cookie's host/domain matching asks whether a host is an address literal.
+        internal static bool IsValid(ReadOnlySpan<char> ipSpan) => TryParseCore(ipSpan.ToString()) != null;
+
         public IPAddress MapToIPv6()
         {
             if (_v6 != null) return (IPAddress)(object)this;
