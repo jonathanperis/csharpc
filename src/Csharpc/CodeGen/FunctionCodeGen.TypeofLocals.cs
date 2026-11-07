@@ -26,6 +26,8 @@ public sealed partial class FunctionCodeGen
         {
             ITypeOfOperation t => [t.TypeOperand],
             ILocalReferenceOperation { Local: { IsConst: false, RefKind: RefKind.None } local } => TypeofAssignedTo(local),
+            // typeof(X).GetTypeInfo() is the Type object itself (`var info = typeof(X).GetTypeInfo(); info.GetDeclaredProperty(..)`).
+            IInvocationOperation { TargetMethod.Name: "GetTypeInfo", Arguments: [{ Value: { } viaInfo }] } => KnownTypeofValues(viaInfo),
             _ => [],
         };
     }
@@ -37,9 +39,11 @@ public sealed partial class FunctionCodeGen
         void Add(IOperation? value)
         {
             while (value is IConversionOperation { Operand: { } inner }) value = inner;
+            if (value is IInvocationOperation { TargetMethod.Name: "GetTypeInfo", Arguments: [{ Value: ITypeOfOperation viaInfo }] }) value = viaInfo;
             if (value is ITypeOfOperation t && !types.Any(x => SymbolEqualityComparer.Default.Equals(x, t.TypeOperand))) types.Add(t.TypeOperand);
         }
-        if (local.Type is { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } }
+        if ((local.Type is { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } }
+                || local.Type is { Name: "TypeInfo", ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } })
             && local.DeclaringSyntaxReferences.FirstOrDefault()?.GetSyntax() is VariableDeclaratorSyntax declarator
             && _m.Compilation.ContainsSyntaxTree(declarator.SyntaxTree)) // not the synthesized compilations that bind `dynamic` operations
         {

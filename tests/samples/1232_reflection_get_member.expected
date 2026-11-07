@@ -1,0 +1,40 @@
+Method:M, Method:M
+Method:M, Method:M
+Property:X
+
+Field:Name
+Event:Changed
+Constructor:.ctor, Constructor:.ctor
+Constructor:.ctor, Constructor:.ctor
+
+Method:Hidden
+Field:BaseField
+
+
+Field:BaseStatic
+
+Field:Name
+Method:M, Method:M
+Method:Over
+
+Property:Item
+Property:X
+Method:M, Method:M
+
+Constructor:.ctor, Constructor:.ctor, Event:Changed, Field:Name, Method:Fire, Method:M, Method:M, Method:Over, Method:add_Changed, Method:get_Item, Method:get_S, Method:get_X, Method:remove_Changed, Method:set_Item, Method:set_S, Method:set_X, Property:Item, Property:S, Property:X
+True
+ArgumentNullException
+Mget_X Mset_X Mget_Item Mset_Item Madd_Changed Mremove_Changed MM MM MOver C.ctor C.ctor PX PItem EChanged FName
+X String S
+True
+1
+True
+Hidden2,Item,S,X
+String True
+Changed,Name
+EventHandler True
+Changed
+Fire,Hidden,M,M,Over,add_Changed,get_Hidden2,get_Item,get_S,get_X,remove_Changed,set_Hidden2,set_Item,set_S,set_X
+.ctor,.ctor,Changed,Changed,Fire,Hidden,Hidden2,Item,M,M,Name,Over,S,X,add_Changed,get_Hidden2,get_Item,get_S,get_X,remove_Changed,set_Hidden2,set_Item,set_S,set_X
+2
+ArgumentNullException
