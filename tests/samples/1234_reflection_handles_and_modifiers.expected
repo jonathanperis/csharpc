@@ -1,0 +1,32 @@
+System.Int32
+True
+False
+True
+False
+False
+True
+True
+True
+True
+System.Collections.Generic.List`1[System.Int32]
+True
+2 int again string False
+before RunClassConstructor
+static constructor of WithCctor ran
+after RunClassConstructor
+5
+True False
+ArgumentException: Must specify one or more parameters.
+IndexOutOfRangeException
+0 3
+Void M(Int32, Int32)
+Void M(Int32, Int32)
+Void .ctor(Int32)
+Void .ctor()
+Int32 P
+System.Object True
+True
+System.Object
+True System.Object
+False True
+0 0 1

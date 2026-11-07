@@ -79,6 +79,7 @@ every failure is a clean "not supported by csharpc yet" diagnostic.
 | Area | Status | Notes |
 |---|---|---|
 | `Console`, `Math`, `Environment`, `GC` | ✅ | intrinsics + csrt |
+| Reflection handles and member lookup (`RuntimeTypeHandle`, `ParameterModifier`, `DefaultValueAttribute`, `Type.GetMember`, `TypeInfo.GetDeclaredProperty`) | 🟡 | done except nested types (not in the reflection metadata) and a run-time-only handle for `RunClassConstructor` ([12-corelib.md](12-corelib.md), samples 1232-1234) |
 | Parsing/formatting numbers | ✅ | standard + custom format strings |
 | `System.Collections.Generic` (`List`, `Dictionary`, `HashSet`, ...) | ✅ | shadow corelib in C# |
 | `System.Linq` | ✅ | shadow corelib in C# |

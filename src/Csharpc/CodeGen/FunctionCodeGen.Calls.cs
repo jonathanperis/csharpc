@@ -32,6 +32,17 @@ public sealed partial class FunctionCodeGen
             foreach (var known in KnownTypeofValues(inv.Instance)) NoteReflectedType(target, S(known), reflectedName);
         if (inv.Instance is { } shadowReceiver && _m.CoreLib.MapForReceiver(target, TypeOf(shadowReceiver)) is { } shadowMember) target = shadowMember;
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
+        if (target is { Name: "RunClassConstructor", IsStatic: true, ContainingType: { Name: "RuntimeHelpers", ContainingNamespace.Name: "CompilerServices" } } && inv.Arguments.Length == 1)
+        {
+            // Static initialization is lazy per type with compile-time triggers (ModuleCodeGen.StaticInit.cs), so only a handle
+            // that names its type in the program (typeof(X).TypeHandle) can be run; a handle in a variable is an explicit diagnostic.
+            if (inv.Arguments[0].Value is IPropertyReferenceOperation { Property.Name: "TypeHandle", Instance: ITypeOfOperation known })
+            {
+                if (S(known.TypeOperand) is INamedTypeSymbol named) EnsureClassInitialized(named);
+                return default;
+            }
+            throw CompileError.Unsupported("RuntimeHelpers.RunClassConstructor with a handle that is not typeof(X).TypeHandle", inv);
+        }
         if (target.IsStatic) CheckJsonSerializerRoots(target, inv);
         if (TypeObjectMember(inv.TargetMethod, inv.Instance) is { } typeMember) return CallBcl(typeMember, inv.TargetMethod, inv.Instance, inv.Arguments, inv);
         if (UnsafeAccessorOf(target) is { } unsafeAccessor) return EmitUnsafeAccessor(target, unsafeAccessor, inv);
@@ -469,6 +480,9 @@ public sealed partial class FunctionCodeGen
             DirectCall(ctor, [obj]);
             return obj;
         }
+        // `new object()`: LazyInitializer.EnsureInitialized(ref object) and locks created on demand.
+        if (type.SpecialType == SpecialType.System_Object)
+            return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
         if (type.IsValueType && type.TypeKind != TypeKind.TypeParameter
             && (type is not INamedTypeSymbol s || s.InstanceConstructors.All(c => !c.Parameters.IsEmpty || c.IsImplicitlyDeclared)))
             return LlvmContext.Null(T.Value(type));
@@ -737,9 +751,13 @@ public sealed partial class FunctionCodeGen
             {
                 "GetDeclaredMethods" or "GetDeclaredMethod" or "get_DeclaredMethods" => ModuleCodeGen.DamMethods,
                 "get_DeclaredConstructors" => ModuleCodeGen.DamConstructors,
+                "GetDeclaredProperty" or "get_DeclaredProperties" => ModuleCodeGen.DamProperties,
+                "GetDeclaredField" or "get_DeclaredFields" => ModuleCodeGen.DamFields,
+                "GetDeclaredEvent" or "get_DeclaredEvents" => ModuleCodeGen.DamEvents,
+                "get_DeclaredMembers" => ModuleCodeGen.DamMethods | ModuleCodeGen.DamConstructors | ModuleCodeGen.DamProperties | ModuleCodeGen.DamFields | ModuleCodeGen.DamEvents,
                 _ => 0,
             };
-            if (declared != 0) _m.MarkDynamicallyAccessed(type, declared, target.Name is "GetDeclaredMethods" or "GetDeclaredMethod" ? name : null);
+            if (declared != 0) _m.MarkDynamicallyAccessed(type, declared, target.Name is "GetDeclaredMethods" or "GetDeclaredMethod" or "GetDeclaredProperty" or "GetDeclaredField" or "GetDeclaredEvent" ? name : null);
             return;
         }
         if (target.ContainingType is not { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } })
@@ -751,6 +769,8 @@ public sealed partial class FunctionCodeGen
             "GetConstructor" or "GetConstructors" => ModuleCodeGen.DamConstructors,
             "GetField" or "GetFields" => ModuleCodeGen.DamFields,
             "GetEvent" or "GetEvents" => ModuleCodeGen.DamEvents,
+            // GetMember(s) look through every kind; the name filter of a GetMember also matches ".ctor", so it stays unrestricted.
+            "GetMember" or "GetMembers" => ModuleCodeGen.DamMethods | ModuleCodeGen.DamConstructors | ModuleCodeGen.DamProperties | ModuleCodeGen.DamFields | ModuleCodeGen.DamEvents,
             _ => 0,
         };
         if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds, target.Name is "GetProperty" or "GetMethod" or "GetField" or "GetEvent" ? name : null);
@@ -780,6 +800,9 @@ public sealed partial class FunctionCodeGen
     {
         // An indexer's [DynamicallyAccessedMembers] parameters (AttributeCollection[typeof(A)]) keep members as a call's do.
         if (!p.Arguments.IsEmpty && p.Property.GetMethod is { } indexerGetter) NoteDynamicallyAccessedArguments(S(indexerGetter), p.Arguments);
+        // typeInfo.DeclaredProperties and friends: the call-site hook of EmitInvocation doesn't see a property, so keep the members here.
+        if (p.Property.GetMethod is { ContainingType: { Name: "TypeInfo", ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } } } infoGetter && p.Instance is { } infoInstance)
+            foreach (var known in KnownTypeofValues(infoInstance)) NoteReflectedType(S(infoGetter), S(known), null);
         if (p.Property.GetMethod is { } typeGetter && TypeObjectMember(typeGetter, p.Instance) is { } typeMember)
             return CallBcl(typeMember, typeGetter, p.Instance, p.Arguments, p);
         var property = S(p.Property);

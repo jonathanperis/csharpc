@@ -172,6 +172,15 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
 * **Members-only shadows:** `string.Join<T>/Join(IEnumerable)/Concat<T>/Compare`, `double`/`float`
   `IsNaN`/`IsInfinity`/`IsFinite`..., generic `System.Array` helpers (`Sort` incl. keys+items, `Reverse`,
   `IndexOf`, `Resize`, `Fill`, `Find*`, `Exists`, `TrueForAll`, `ConvertAll`, `BinarySearch`, `Empty`).
+* **Reflection handles and member lookup** (`corelib/Reflection/Handles.cs`, `MemberLookup.cs`): `ParameterModifier` is .NET's struct;
+  `RuntimeTypeHandle` holds the runtime's Type object (`Type.TypeHandle`, `GetTypeFromHandle`, `GetTypeHandle`, equality, `Value`; an IL
+  `ldtoken` passed as a handle becomes one), and `RuntimeHelpers.RunClassConstructor(typeof(X).TypeHandle)` runs X's lazy static
+  initialization (a handle only known at run time is a diagnostic). `DefaultValueAttribute` is a shadow of .NET's class
+  (all constructors, the `IsSupported` switch). `Type.GetMember(s)` and TypeInfo's `GetDeclared*`/`Declared*` are composed from the
+  per-kind queries in RuntimeType's order (methods, constructors, properties, events, fields) with its name filter (exact, `IgnoreCase`,
+  trailing `*`) and always return a `MemberInfo[]` (csharpc arrays carry their element type, and a `MethodInfo[]` would not be an
+  `IEnumerable<MemberInfo>`). Nested types are not described by the reflection metadata: asking for them alone, or for
+  `DeclaredNestedTypes`, throws `NotSupportedException`, while `MemberTypes.All`, `GetMembers` and `DeclaredMembers` leave them out.
 * **`System.Text.RegularExpressions`** (`corelib/Regex/`, see [Regular expressions](#regular-expressions)).
 * **Compiled-code support for the IL front-end** (docs/adr/0010-il-frontend.md): async method builders,
   `AsyncIteratorMethodBuilder`, `ManualResetValueTaskSourceCore<T>`, `ConfiguredCancelableAsyncEnumerable<T>`,
