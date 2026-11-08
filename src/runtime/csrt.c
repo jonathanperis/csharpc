@@ -119,8 +119,21 @@ void csrt_init(int argc, char** argv) {
 
 void csrt_threads_wait_foreground(void);
 
+// AppDomain.ProcessExit: the corelib's AppDomain registers its first handler here and exports csrt_process_exit_raise
+// (RuntimeExport, triggered by the register call); programs that never subscribe link the empty fallback. Raised once, at
+// the end of Main (after the foreground threads) or in Environment.Exit, before the output is flushed; not on a crash.
+__attribute__((weak)) void csrt_process_exit_raise(void) {}
+static int s_process_exit_registered, s_process_exit_raised;
+void csrt_process_exit_register(void) { __atomic_store_n(&s_process_exit_registered, 1, __ATOMIC_RELEASE); }
+static void process_exit_raise_once(void) {
+    if (!__atomic_load_n(&s_process_exit_registered, __ATOMIC_ACQUIRE)) return;
+    if (__atomic_exchange_n(&s_process_exit_raised, 1, __ATOMIC_ACQ_REL)) return;
+    csrt_process_exit_raise();
+}
+
 void csrt_shutdown(void) {
     csrt_threads_wait_foreground();  // like .NET: the process outlives Main while foreground threads run
+    process_exit_raise_once();
     fflush(stdout);
     csrt_gc_shutdown();
 }
@@ -904,7 +917,10 @@ void csrt_console_newline(void) { fputs(CSRT_NEWLINE, stdout); fflush(stdout); }
 // ---------------------------------------------------------------------------------------------
 // Environment
 // ---------------------------------------------------------------------------------------------
+void csrt_set_exit_code(int32_t code);
 void csrt_environment_exit(int32_t code) {
+    csrt_set_exit_code(code); // the handlers see it as Environment.ExitCode
+    process_exit_raise_once();
     fflush(stdout);
     exit(code);
 }

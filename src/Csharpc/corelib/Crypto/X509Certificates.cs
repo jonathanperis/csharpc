@@ -195,6 +195,63 @@ namespace CsharpcCoreLib
 #endif
         }
 
+        /// <summary>
+        /// The DER of every certificate bag of a PFX, in the order the file holds them (what .NET's collection loaders return),
+        /// or null if the structure can't be walked (the caller falls back to PKCS12_parse's order). The password has been
+        /// accepted by <see cref="Load"/> already.
+        /// </summary>
+        internal static List<byte[]> Pkcs12CertificatesInFileOrder(byte[] data, string password)
+        {
+            Ossl.EnsureInitialized();
+            IntPtr p12;
+            fixed (byte* p = data)
+            {
+                byte* cursor = p;
+                p12 = Ossl.d2i_PKCS12(null, &cursor, data.Length);
+            }
+            if (p12 == IntPtr.Zero) { Ossl.ERR_clear_error(); return null; }
+            var result = new List<byte[]>();
+            bool walked = false;
+            byte[] pass = Ossl.Utf8Z(password);
+            IntPtr safes = Ossl.PKCS12_unpack_authsafes(p12);
+            try
+            {
+                if (safes == IntPtr.Zero) return null;
+                walked = true;
+                for (int i = 0, n = Ossl.OPENSSL_sk_num(safes); i < n; i++)
+                {
+                    IntPtr p7 = Ossl.OPENSSL_sk_value(safes, i);
+                    IntPtr bags;
+                    fixed (byte* pw = pass) bags = Ossl.PKCS12_unpack_p7encdata(p7, pw, -1);
+                    if (bags == IntPtr.Zero && string.IsNullOrEmpty(password)) bags = Ossl.PKCS12_unpack_p7encdata(p7, null, 0);
+                    if (bags == IntPtr.Zero) bags = Ossl.PKCS12_unpack_p7data(p7);
+                    Ossl.ERR_clear_error(); // the attempt that didn't fit the safe's type
+                    if (bags == IntPtr.Zero) { walked = false; continue; }
+                    for (int j = 0, m = Ossl.OPENSSL_sk_num(bags); j < m; j++)
+                    {
+                        IntPtr bag = Ossl.OPENSSL_sk_value(bags, j);
+                        if (Ossl.PKCS12_SAFEBAG_get_nid(bag) != 152 /* NID_certBag */) continue;
+                        IntPtr x = Ossl.PKCS12_SAFEBAG_get1_cert(bag);
+                        if (x == IntPtr.Zero) { Ossl.ERR_clear_error(); walked = false; continue; }
+                        result.Add(Ossl.ToDer(x));
+                        Ossl.X509_free(x);
+                    }
+                    for (int j = 0, m = Ossl.OPENSSL_sk_num(bags); j < m; j++) Ossl.PKCS12_SAFEBAG_free(Ossl.OPENSSL_sk_value(bags, j));
+                    Ossl.OPENSSL_sk_free(bags);
+                }
+            }
+            finally
+            {
+                if (safes != IntPtr.Zero)
+                {
+                    for (int i = 0, n = Ossl.OPENSSL_sk_num(safes); i < n; i++) Ossl.PKCS7_free(Ossl.OPENSSL_sk_value(safes, i));
+                    Ossl.OPENSSL_sk_free(safes);
+                }
+                Ossl.PKCS12_free(p12);
+            }
+            return walked ? result : null;
+        }
+
         private static byte[] FromPkcs12(IntPtr p12, string password, out IntPtr key, out List<byte[]> others)
         {
             // .NET tries the password as given and, for an absent or empty one, both the null and the empty password.
@@ -241,8 +298,13 @@ namespace CsharpcCoreLib
             }
         }
 
-        /// <summary>The first certificate of PEM text (DER) and, when <paramref name="keyPem"/> is given, the private key it holds (required: an unreadable one throws).</summary>
-        internal static byte[] FromPem(byte[] pemText, byte[] keyPem, out IntPtr key)
+        /// <summary>
+        /// The first certificate of PEM text (DER) and, when <paramref name="keyPem"/> is given, the private key it holds (required: an
+        /// unreadable one throws). With <paramref name="password"/> (NUL-terminated UTF-8) the key must be a PKCS#8 "ENCRYPTED PRIVATE KEY"
+        /// and is decrypted with it, as CreateFromEncryptedPem does; without, an encrypted key is unreadable (OpenSSL is given an empty
+        /// password so that it never prompts on the terminal).
+        /// </summary>
+        internal static byte[] FromPem(byte[] pemText, byte[] keyPem, out IntPtr key, byte[] password = null)
         {
             key = IntPtr.Zero;
             IntPtr bio;
@@ -258,14 +320,20 @@ namespace CsharpcCoreLib
             }
             finally { Ossl.BIO_free(bio); }
             if (keyPem == null) return der;
+            bool encryptedLabel = password != null && Encoding.ASCII.GetString(keyPem).Contains("-----BEGIN ENCRYPTED PRIVATE KEY-----", StringComparison.Ordinal);
+            if (password != null && !encryptedLabel)
+                throw new CryptographicException("The key contents do not contain a PEM, the content is malformed, or the key does not match the certificate.");
             fixed (byte* p = keyPem) bio = Ossl.BIO_new_mem_buf(p, keyPem.Length);
             try
             {
-                IntPtr k = Ossl.PEM_read_bio_PrivateKey(bio, null, IntPtr.Zero, null);
+                IntPtr k;
+                fixed (byte* pw = password ?? new byte[1]) k = Ossl.PEM_read_bio_PrivateKey(bio, null, IntPtr.Zero, pw);
                 if (k == IntPtr.Zero)
                 {
                     Ossl.TakeErrorString();
-                    throw new CryptographicException("The key contents do not contain a PEM, the content is malformed, or the key does not match the certificate.");
+                    throw new CryptographicException(encryptedLabel
+                        ? "The EncryptedPrivateKeyInfo structure was decoded but was not successfully interpreted, the password may be incorrect."
+                        : "The key contents do not contain a PEM, the content is malformed, or the key does not match the certificate.");
                 }
                 key = k;
             }
@@ -742,8 +810,25 @@ namespace CsharpcCoreLib
         public static X509Certificate2 CreateFromPemFile(string certPemFilePath, string keyPemFilePath = null)
         {
             if (certPemFilePath == null) throw new ArgumentNullException("certPemFilePath");
+            // .NET reads the key from the certificate's file when no key file is given (and fails if it holds none).
             string cert = File.ReadAllText(certPemFilePath);
-            return keyPemFilePath == null ? CreateFromPem(cert) : CreateFromPem(cert, File.ReadAllText(keyPemFilePath));
+            return CreateFromPem(cert, keyPemFilePath == null ? cert : File.ReadAllText(keyPemFilePath));
+        }
+
+        public static X509Certificate2 CreateFromEncryptedPem(ReadOnlySpan<char> certPem, ReadOnlySpan<char> keyPem, ReadOnlySpan<char> password)
+        {
+            // The certificate is read first (its error wins), then the key.
+            byte[] der = X509Reader.FromPem(Encoding.UTF8.GetBytes(certPem.ToString()), Encoding.UTF8.GetBytes(keyPem.ToString()), out IntPtr key,
+                Encoding.UTF8.GetBytes(password.ToString() + "\0"));
+            if (der == null) throw new CryptographicException("The certificate contents do not contain a PEM with a CERTIFICATE label, or the content is malformed.");
+            return Wrap(der, key);
+        }
+
+        public static X509Certificate2 CreateFromEncryptedPemFile(string certPemFilePath, ReadOnlySpan<char> password, string keyPemFilePath = null)
+        {
+            if (certPemFilePath == null) throw new ArgumentNullException("certPemFilePath");
+            string cert = File.ReadAllText(certPemFilePath);
+            return CreateFromEncryptedPem(cert, keyPemFilePath == null ? cert : File.ReadAllText(keyPemFilePath), password);
         }
 
         public string ExportCertificatePem()
@@ -839,6 +924,52 @@ namespace CsharpcCoreLib
         {
             if (path == null) throw new ArgumentNullException("path");
             return Load(X509Reader.ReadFile(path), password, true);
+        }
+
+        /// <summary>Every certificate of a PFX, in the reverse of the file's order (what .NET 11 on Linux returns for PFX files whose private-key certificate comes first, as OpenSSL writes them).</summary>
+        private static X509Certificate2Collection LoadCollection(byte[] data, string password)
+        {
+            var main = Load(data, password, true);
+            var mainImpl = (X509Certificate2Impl)(object)main;
+            var collection = new X509Certificate2CollectionImpl();
+            // The certificate of the private key is the bag equal to the one PKCS12_parse found.
+            List<byte[]> order = X509Reader.Pkcs12CertificatesInFileOrder(data, password);
+            if (order == null)
+            {
+                order = new List<byte[]> { mainImpl._der };
+                if (mainImpl._others != null) order.AddRange(mainImpl._others);
+            }
+            order.Reverse();
+            bool mainAdded = false;
+            foreach (byte[] der in order)
+            {
+                if (!mainAdded && der.AsSpan().SequenceEqual(mainImpl._der))
+                {
+                    collection.Add(main);
+                    mainAdded = true;
+                    continue;
+                }
+                var other = new X509Certificate2Impl();
+                other.Load(der, null, false);
+                collection.Add((X509Certificate2)(object)other);
+            }
+            if (!mainAdded) collection.Add(main);
+            return (X509Certificate2Collection)(object)collection;
+        }
+
+        public static X509Certificate2Collection LoadPkcs12Collection(byte[] data, string password, X509KeyStorageFlags keyStorageFlags = X509KeyStorageFlags.DefaultKeySet, Pkcs12LoaderLimits loaderLimits = null)
+        {
+            if (data == null) throw new ArgumentNullException("data");
+            return LoadCollection(data, password);
+        }
+
+        public static X509Certificate2Collection LoadPkcs12Collection(ReadOnlySpan<byte> data, ReadOnlySpan<char> password, X509KeyStorageFlags keyStorageFlags = X509KeyStorageFlags.DefaultKeySet, Pkcs12LoaderLimits loaderLimits = null)
+            => LoadCollection(data.ToArray(), password.ToString());
+
+        public static X509Certificate2Collection LoadPkcs12CollectionFromFile(string path, string password, X509KeyStorageFlags keyStorageFlags = X509KeyStorageFlags.DefaultKeySet, Pkcs12LoaderLimits loaderLimits = null)
+        {
+            if (path == null) throw new ArgumentNullException("path");
+            return LoadCollection(X509Reader.ReadFile(path), password);
         }
     }
 

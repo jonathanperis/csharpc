@@ -1,0 +1,4 @@
+main done
+foreground thread done
+first: sender=True args=True code=0
+second: setting the exit code to 7

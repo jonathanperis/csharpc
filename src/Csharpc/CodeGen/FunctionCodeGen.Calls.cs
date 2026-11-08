@@ -692,6 +692,11 @@ public sealed partial class FunctionCodeGen
             _m.ExternalGlobal("csrt_Type_MT"),
         INamedTypeSymbol { Name: "CancellationTokenSource", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } =>
             _m.ExternalGlobal("csrt_CancellationTokenSource_MT"), // a runtime object (runtime/async.c)
+        // ManualResetEvent and AutoResetEvent are runtime objects with a table each (runtime/threads.c; `new` makes
+        // them there): System.Transactions casts its lock's handle to ManualResetEvent. A test against their bases
+        // (WaitHandle, EventWaitHandle) stays an explicit diagnostic: the tables have no base chain to them.
+        INamedTypeSymbol { Name: "ManualResetEvent" or "AutoResetEvent", ContainingType: null, ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } named =>
+            _m.ExternalGlobal(named.Name == "ManualResetEvent" ? "csrt_ManualResetEvent_MT" : "csrt_AutoResetEvent_MT"),
         // Threads and locks are runtime objects of sealed types with one method table each (runtime/threads.c):
         // `x is Thread`, List<Thread>'s IList.Add(object) ...
         INamedTypeSymbol { Name: "Thread" or "Lock", ContainingType: null, ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } named =>

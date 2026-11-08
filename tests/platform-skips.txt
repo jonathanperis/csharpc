@@ -277,3 +277,5 @@ wasi 1230_file_set_last_write_time  known gap: File/Directory.SetLastWriteTime[U
 windows 1237_file_attributes   Unix permission bits: real .NET on Windows throws PlatformNotSupportedException from File.SetUnixFileMode and reports no Unix modes
 wasi 1237_file_attributes      known gap: WASI has no permission bits to change (File.SetAttributes and the Unix modes are a PlatformNotSupportedException there)
 windows 1229_math_double_members       live: the sign of the NaN Log/Log2 return for a negative number is the C runtime's on Windows (the sample prints those lines elsewhere only)
+windows 1261_process_wait_for_exit_async  runs a POSIX sh; csharpc's Process.Start on Windows is an explicit NotSupportedException (not implemented yet)
+wasi 1261_process_wait_for_exit_async     WASI has no processes to start

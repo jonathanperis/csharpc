@@ -1,0 +1,9 @@
+bytes: 3 [CN=test ca 2, O=csharpc tests, C=BR key=False; CN=test ca, O=csharpc tests, C=BR key=False; CN=localhost, O=csharpc tests, C=BR key=True]
+span: 3 [CN=test ca 2, O=csharpc tests, C=BR key=False; CN=test ca, O=csharpc tests, C=BR key=False; CN=localhost, O=csharpc tests, C=BR key=True]
+wrong password: CryptographicException: The certificate data cannot be read with the provided password, the password may be incorrect.
+null data: ArgumentNullException: Value cannot be null. (Parameter 'data')
+single certificate: CN=localhost, O=csharpc tests, C=BR
+file: 3 [CN=test ca 2, O=csharpc tests, C=BR key=False; CN=test ca, O=csharpc tests, C=BR key=False; CN=localhost, O=csharpc tests, C=BR key=True]
+file, wrong password: CryptographicException: The certificate data cannot be read with the provided password, the password may be incorrect.
+missing file: CryptographicException
+null path: ArgumentNullException: Value cannot be null. (Parameter 'path')

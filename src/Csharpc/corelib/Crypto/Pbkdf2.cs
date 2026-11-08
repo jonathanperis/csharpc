@@ -17,7 +17,7 @@ namespace CsharpcCoreLib
         {
             _inner = HashEngine.For(name);
             _outer = HashEngine.For(name);
-            int BlockSize = _inner is Sha512Engine ? 128 : 64; // SHA-384/512 hash 128-byte blocks, SHA-1/256 64-byte ones
+            int BlockSize = _inner.BlockSizeInBytes;
             byte[] k = new byte[BlockSize];
             if (key.Length > BlockSize)
             {

@@ -1,0 +1,16 @@
+string: CN=localhost, O=csharpc tests, C=BR private key True signature verifies True
+spans: CN=localhost, O=csharpc tests, C=BR private key True signature verifies True
+wrong password: CryptographicException: The EncryptedPrivateKeyInfo structure was decoded but was not successfully interpreted, the password may be incorrect.
+empty password: CryptographicException: The EncryptedPrivateKeyInfo structure was decoded but was not successfully interpreted, the password may be incorrect.
+plain key, password given: CryptographicException: The key contents do not contain a PEM, the content is malformed, or the key does not match the certificate.
+unencrypted key, password given: CryptographicException: The key contents do not contain a PEM, the content is malformed, or the key does not match the certificate.
+no certificate: CryptographicException: The certificate contents do not contain a PEM with a CERTIFICATE label, or the content is malformed.
+file, separate key: CN=localhost, O=csharpc tests, C=BR private key True signature verifies True
+file, span password: CN=localhost, O=csharpc tests, C=BR private key True signature verifies True
+file, key in the certificate's file: CN=localhost, O=csharpc tests, C=BR private key True signature verifies True
+file, no key anywhere: CryptographicException: The key contents do not contain a PEM, the content is malformed, or the key does not match the certificate.
+file, wrong password: CryptographicException: The EncryptedPrivateKeyInfo structure was decoded but was not successfully interpreted, the password may be incorrect.
+file, missing certificate file: FileNotFoundException
+file, missing key file: FileNotFoundException
+file, null path: ArgumentNullException: Value cannot be null. (Parameter 'certPemFilePath')
+plain file, key in the certificate's file: CryptographicException: The key contents do not contain a PEM, the content is malformed, or the key does not match the certificate.
