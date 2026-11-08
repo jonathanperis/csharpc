@@ -574,6 +574,12 @@ namespace CsharpcCoreLib
             Pkcs12LoaderLimits loaderLimits = null) => throw Tls.NotSupported();
         public static X509Certificate2 LoadPkcs12FromFile(string path, string password, X509KeyStorageFlags keyStorageFlags = X509KeyStorageFlags.DefaultKeySet,
             Pkcs12LoaderLimits loaderLimits = null) => throw Tls.NotSupported();
+        public static X509Certificate2Collection LoadPkcs12Collection(byte[] data, string password, X509KeyStorageFlags keyStorageFlags = X509KeyStorageFlags.DefaultKeySet,
+            Pkcs12LoaderLimits loaderLimits = null) => throw Tls.NotSupported();
+        public static X509Certificate2Collection LoadPkcs12Collection(ReadOnlySpan<byte> data, ReadOnlySpan<char> password, X509KeyStorageFlags keyStorageFlags = X509KeyStorageFlags.DefaultKeySet,
+            Pkcs12LoaderLimits loaderLimits = null) => throw Tls.NotSupported();
+        public static X509Certificate2Collection LoadPkcs12CollectionFromFile(string path, string password, X509KeyStorageFlags keyStorageFlags = X509KeyStorageFlags.DefaultKeySet,
+            Pkcs12LoaderLimits loaderLimits = null) => throw Tls.NotSupported();
     }
 #endif
 
@@ -690,6 +696,11 @@ namespace CsharpcCoreLib
         public X509Certificate2 CopyWithPrivateKey(CompositeMLDsa privateKey) => throw Tls.NotSupported();
         public static X509ContentType GetCertContentType(byte[] rawData) => throw Tls.NotSupported();
         public static X509ContentType GetCertContentType(string fileName) => throw Tls.NotSupported();
+        public static X509Certificate2 CreateFromPem(ReadOnlySpan<char> certPem, ReadOnlySpan<char> keyPem) => throw Tls.NotSupported();
+        public static X509Certificate2 CreateFromPem(ReadOnlySpan<char> certPem) => throw Tls.NotSupported();
+        public static X509Certificate2 CreateFromPemFile(string certPemFilePath, string keyPemFilePath = null) => throw Tls.NotSupported();
+        public static X509Certificate2 CreateFromEncryptedPem(ReadOnlySpan<char> certPem, ReadOnlySpan<char> keyPem, ReadOnlySpan<char> password) => throw Tls.NotSupported();
+        public static X509Certificate2 CreateFromEncryptedPemFile(string certPemFilePath, ReadOnlySpan<char> password, string keyPemFilePath = null) => throw Tls.NotSupported();
     }
 #endif
 

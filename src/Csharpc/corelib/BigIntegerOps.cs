@@ -627,17 +627,6 @@ namespace CsharpcCoreLib
             return bytes;
         }
 
-        internal static int GetByteCount(uint[] a, bool isUnsigned) => ToByteArray(a, isUnsigned, false).Length;
-
-        internal static bool TryWriteBytes(uint[] a, Span<byte> destination, out int bytesWritten, bool isUnsigned, bool isBigEndian)
-        {
-            byte[] bytes = ToByteArray(a, isUnsigned, isBigEndian);
-            if (destination.Length < bytes.Length) { bytesWritten = 0; return false; }
-            bytes.CopyTo(destination);
-            bytesWritten = bytes.Length;
-            return true;
-        }
-
         /// <summary>A bitwise operation over the operands' two's complement forms, sign-extended to a common width.</summary>
         private static uint[] Bitwise(uint[] a, uint[] b, int op)
         {
@@ -693,6 +682,38 @@ namespace CsharpcCoreLib
             }
             uint[] result = Make(negative ? -1 : 1, r, 0, outLength);
             return negative && lost ? Add(result, FromInt64(-1)) : result;
+        }
+
+        /// <summary>
+        /// BigInteger.GetByteCount(isUnsigned): the length ToByteArray() has (signed), or the magnitude's bytes
+        /// (unsigned, where zero takes one byte and a negative value throws, as in .NET).
+        /// </summary>
+        internal static int GetByteCount(uint[] a, bool isUnsigned)
+        {
+            if (!isUnsigned) return ToByteArray(a).Length;
+            int length = LengthOf(a);
+            if (length == 0) return 1;
+            if (SignOf(a) < 0) throw new OverflowException("Negative values do not have an unsigned representation.");
+            uint top = a[length];
+            int topBytes = top > 0xFFFFFF ? 4 : top > 0xFFFF ? 3 : top > 0xFF ? 2 : 1;
+            return (length - 1) * 4 + topBytes;
+        }
+
+        /// <summary>
+        /// BigInteger.TryWriteBytes(destination, out bytesWritten, isUnsigned, isBigEndian): ToByteArray()'s bytes (the magnitude's
+        /// for the unsigned form, which a negative value does not have), reversed for big-endian; false with nothing written
+        /// when the destination is too small.
+        /// </summary>
+        internal static bool TryWriteBytes(uint[] a, Span<byte> destination, ref int bytesWritten, bool isUnsigned, bool isBigEndian)
+        {
+            if (isUnsigned && SignOf(a) < 0) throw new OverflowException("Negative values do not have an unsigned representation.");
+            byte[] bytes = ToByteArray(a);
+            int count = bytes.Length;
+            if (isUnsigned && count > 1 && bytes[count - 1] == 0) count--; // the sign byte of a positive value
+            if (destination.Length < count) { bytesWritten = 0; return false; }
+            for (int i = 0; i < count; i++) destination[i] = bytes[isBigEndian ? count - 1 - i : i];
+            bytesWritten = count;
+            return true;
         }
 
         [RuntimeExport("csrt_bigint_get_hash_code", "csrt_Boxed_BigInteger_MT")]

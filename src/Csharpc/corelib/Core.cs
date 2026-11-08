@@ -240,6 +240,8 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_event_wait_token(object e, int milliseconds, object source);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_event_kick(object e);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_task_try_fault_many(object task, Exception[] exceptions);
+        // AppDomain.ProcessExit's first subscription (runtime/csrt.c).
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_process_exit_register();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_event_new(int kind, int count, int max);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_event_set(object e, int n);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_event_reset(object e);

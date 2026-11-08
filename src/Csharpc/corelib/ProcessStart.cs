@@ -190,6 +190,24 @@ namespace CsharpcCoreLib
 
         public bool WaitForExit(TimeSpan timeout) => WaitForExit((int)timeout.TotalMilliseconds);
 
+        /// <summary>
+        /// Completes when the process has exited (at once if it already did, even with a cancelled token, as in .NET);
+        /// a token cancelled while waiting cancels the task. No SIGCHLD handler to wake it, so it polls waitpid with a
+        /// delay that grows to 10 ms.
+        /// </summary>
+        public async System.Threading.Tasks.Task WaitForExitAsync(System.Threading.CancellationToken cancellationToken = default)
+        {
+            RequireStarted();
+            // The current process never "exits" while it waits (its _pid is 0, which waitpid would take for any child).
+            if (!_current && (_exited || Reap(wait: false))) return;
+            cancellationToken.ThrowIfCancellationRequested();
+            for (int delay = 1; ; delay = Math.Min(delay * 2, 10))
+            {
+                await System.Threading.Tasks.Task.Delay(delay, cancellationToken);
+                if (!_current && Reap(wait: false)) return;
+            }
+        }
+
         public void Kill()
         {
             RequireStarted();

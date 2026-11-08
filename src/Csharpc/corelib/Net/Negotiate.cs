@@ -14,8 +14,18 @@ namespace CsharpcCoreLib
     [Shadows("System.Net.Security.NegotiateAuthenticationClientOptions")]
     public class NegotiateAuthenticationClientOptionsImpl
     {
+        private NetworkCredential _credential;
+        private bool _credentialSet;
+
         public string Package { get; set; } = "Negotiate";
-        public NetworkCredential Credential { get; set; } = CredentialCache.DefaultNetworkCredentials;
+        // Defaults to CredentialCache.DefaultNetworkCredentials (System.Net.Primitives' placeholder with empty user name, password
+        // and domain, from IL), read when asked for rather than in the constructor: the corelib is lowered without that assembly
+        // unless the program uses it, so a program that only creates the options object does not need it.
+        public NetworkCredential Credential
+        {
+            get => _credentialSet ? _credential : CredentialCache.DefaultNetworkCredentials;
+            set { _credential = value; _credentialSet = true; }
+        }
         public string TargetName { get; set; }
         public ChannelBinding Binding { get; set; }
         public ProtectionLevel RequiredProtectionLevel { get; set; } = ProtectionLevel.None;
@@ -29,8 +39,26 @@ namespace CsharpcCoreLib
         public NegotiateAuthenticationImpl(NegotiateAuthenticationClientOptions clientOptions) =>
             throw new NotSupportedException("csharpc: NTLM and Negotiate (Kerberos) authentication (System.Net.Security.NegotiateAuthentication) are not supported yet.");
 
+        public NegotiateAuthenticationImpl(NegotiateAuthenticationServerOptions serverOptions) =>
+            throw new NotSupportedException("csharpc: NTLM and Negotiate (Kerberos) authentication (System.Net.Security.NegotiateAuthentication) are not supported yet.");
+
+        // The constructors throw, so no instance exists and none of these runs: they are here so that code which
+        // uses them (Npgsql's GSS / SSPI authentication, HttpClient's Negotiate handler) compiles.
         public bool IsAuthenticated => false;
+        public bool IsEncrypted => false;
+        public bool IsSigned => false;
+        public bool IsServer => false;
+        public bool IsMutuallyAuthenticated => false;
+        public string Package => throw NotSupported();
+        public string TargetName => throw NotSupported();
+        public ProtectionLevel ProtectionLevel => throw NotSupported();
+        public TokenImpersonationLevel ImpersonationLevel => throw NotSupported();
+        public IIdentity RemoteIdentity => throw NotSupported();
         public string GetOutgoingBlob(string incomingBlob, out NegotiateAuthenticationStatusCode statusCode) => throw NotSupported();
+        public byte[] GetOutgoingBlob(ReadOnlySpan<byte> incomingBlob, out NegotiateAuthenticationStatusCode statusCode) => throw NotSupported();
+        public NegotiateAuthenticationStatusCode Wrap(ReadOnlySpan<byte> input, System.Buffers.IBufferWriter<byte> outputWriter, bool requestEncryption, out bool isEncrypted) => throw NotSupported();
+        public NegotiateAuthenticationStatusCode Unwrap(ReadOnlySpan<byte> input, System.Buffers.IBufferWriter<byte> outputWriter, out bool wasEncrypted) => throw NotSupported();
+        public NegotiateAuthenticationStatusCode UnwrapInPlace(Span<byte> input, out int unwrappedOffset, out int unwrappedLength, out bool wasEncrypted) => throw NotSupported();
         public void Dispose() { }
 
         private static NotSupportedException NotSupported() =>
