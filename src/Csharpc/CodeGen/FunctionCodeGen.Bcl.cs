@@ -178,6 +178,9 @@ public sealed partial class FunctionCodeGen
                 return value.Type.Kind == LLVMTypeKind.Double
                     ? DecimalCall("csrt_decimal_from_f64", [L.F64], value)
                     : DecimalCall("csrt_decimal_from_f32", [L.F32], value);
+            // Int128/UInt128 are 128 bits wide: widening them to 64 would be a trunc, and wrong; exact up to 96 bits.
+            if (value.Type.IntWidth == 128)
+                return CallCoreLib("DecimalOps", TypeMapper.IsSigned(from) ? "FromInt128" : "FromUInt128", value);
             var wide = value.Type.IntWidth == 64 ? value
                 : _b.Cast(TypeMapper.IsSigned(from) ? LLVMOpcode.SExt : LLVMOpcode.ZExt, value, L.I64);
             return TypeMapper.IsSigned(from)
