@@ -100,6 +100,68 @@ for dir in "$ROOT"/tests/projects/cli-errors/*/; do
   else echo "FAIL $name: wrong diagnostic"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
 done
 
+# NativeAOT's native-linking items (docs/16-interop-io.md, "Static archives and DirectPInvoke"): DirectPInvoke makes a library's
+# [DllImport]s direct calls and NativeLibrary adds a static archive to the link line. tests/projects/native/DirectPInvoke
+# calls a tiny C library, built here as a shared library (`dotnet run` loads it next to the program: the reference output)
+# and as a static archive (linked into the csharpc executable, which is then run where no shared copy exists).
+# Windows (MSVC-style libraries, import libraries) is not covered yet.
+if [[ $HOST_OS == windows ]]; then
+  echo "SKIP DirectPInvoke: static archives are not tested on Windows yet"
+elif ! command -v clang > /dev/null || ! command -v ar > /dev/null; then
+  echo "SKIP DirectPInvoke: no clang/ar to build the native library"
+else
+  native="$WORK/native"; rm -rf "$native"; mkdir -p "$native"; cp -r "$ROOT/tests/projects/native/DirectPInvoke" "$native/app"
+  shared=libnativeadd.so; shared_flags=(-shared -fPIC); [[ $HOST_OS == macos ]] && { shared=libnativeadd.dylib; shared_flags=(-dynamiclib); }
+  if clang -c -fPIC -O1 "$native/app/nativeadd.c" -o "$native/nativeadd.o" && ar rcs "$native/libnativeadd.a" "$native/nativeadd.o" \
+     && clang "${shared_flags[@]}" "$native/nativeadd.o" -o "$native/$shared"; then
+    (cd "$native/app" && "$DOTNET" run -v quiet -p:NativeShared="$native/$shared" 2>/dev/null) > "$WORK/expected" || { echo "FAIL DirectPInvoke: dotnet run failed"; fail=$((fail+1)); }
+    rm -rf "$native/app/bin" "$native/app/obj"
+    # Project items: <DirectPInvoke Include="nativeadd" /> and <NativeLibrary Include="libnativeadd.a" />.
+    if "$DOTNET" "$CSHARPC_DLL" "$native/app/DirectPInvoke.csproj" -p:NativeArchive="$native/libnativeadd.a" -o "$native/out/" > "$WORK/log" 2>&1; then
+      "$native/out/DirectPInvoke$EXE_SUFFIX" > "$WORK/actual" 2>&1; check "DirectPInvoke: project items (DirectPInvoke + NativeLibrary)" "$WORK/expected" "$WORK/actual"
+      if [[ $HOST_OS == linux ]]; then
+        if ldd "$native/out/DirectPInvoke" | grep -q nativeadd; then echo "FAIL DirectPInvoke: the executable depends on a shared nativeadd"; fail=$((fail+1));
+        else echo "PASS DirectPInvoke: the native library is linked in, not loaded"; pass=$((pass+1)); fi
+      fi
+    else echo "FAIL DirectPInvoke: csharpc <project>"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+    # The same through the command line: DirectPInvokeList item (entries as "library!entry" too) and --native-library.
+    printf '%s\n' '# NativeAOT list: a library, or one entry point of it' 'nativeadd!native_add' 'nativeadd' > "$native/direct.txt"
+    rm -rf "$native/app/bin" "$native/app/obj"
+    if "$DOTNET" "$CSHARPC_DLL" "$native/app/DirectPInvoke.csproj" -p:DirectPInvokeListFile="$native/direct.txt" --native-library "$native/libnativeadd.a" -o "$native/out-list/" > "$WORK/log" 2>&1; then
+      "$native/out-list/DirectPInvoke$EXE_SUFFIX" > "$WORK/actual" 2>&1; check "DirectPInvoke: DirectPInvokeList item + --native-library" "$WORK/expected" "$WORK/actual"
+    else echo "FAIL DirectPInvoke: DirectPInvokeList"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+    # A package that ships only a static archive (runtimes/<rid>/native/libnativeadd.a): the DirectPInvoke of the project links it.
+    case "$(uname -s)-$(uname -m)" in
+      Darwin-arm64) rid=osx-arm64 ;; Darwin-*) rid=osx-x64 ;; Linux-aarch64|Linux-arm64) rid=linux-arm64 ;; *) rid=linux-x64 ;;
+    esac
+    rm -rf "$native/app/bin" "$native/app/obj"
+    cp -r "$ROOT/tests/projects/native/NativeArchivePackage" "$native/pkg"
+    if "$DOTNET" pack "$native/pkg/NativeArchivePkg.csproj" -c Release -o "$native/feed" -v quiet -nologo -p:NativeArchive="$native/libnativeadd.a" -p:PackRid="$rid" > "$WORK/log" 2>&1; then
+      printf '<configuration><packageSources><clear/><add key="local" value="%s"/></packageSources></configuration>\n' "$native/feed" > "$native/app/nuget.config"
+      if "$DOTNET" "$CSHARPC_DLL" "$native/app/DirectPInvoke.csproj" -p:NativePackage=true -o "$native/out-pkg/" > "$WORK/log" 2>&1; then
+        "$native/out-pkg/DirectPInvoke$EXE_SUFFIX" > "$WORK/actual" 2>&1; check "DirectPInvoke: static archive from a package's runtimes/<rid>/native" "$WORK/expected" "$WORK/actual"
+        [[ ! -e "$native/out-pkg/libnativeadd.a" ]] && { echo "PASS DirectPInvoke: the archive is linked, not copied next to the executable"; pass=$((pass+1)); } \
+                                                    || { echo "FAIL DirectPInvoke: the package's archive was copied next to the executable"; fail=$((fail+1)); }
+      else echo "FAIL DirectPInvoke: project with a static-archive package"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+      rm -f "$native/app/nuget.config"
+    else echo "FAIL DirectPInvoke: packing the static-archive package"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+    # The program as IL (a csc-built assembly), with ILC-style options.
+    rm -rf "$native/app/bin" "$native/app/obj"
+    if (cd "$native/app" && "$DOTNET" build -c Release -v quiet > "$WORK/log" 2>&1) \
+       && "$DOTNET" "$CSHARPC_DLL" "$native/app/bin/Release/net11.0/DirectPInvoke.dll" --directpinvoke:nativeadd --native-library "$native/libnativeadd.a" -o "$native/out-il/" >> "$WORK/log" 2>&1; then
+      "$native/out-il/DirectPInvoke$EXE_SUFFIX" > "$WORK/actual" 2>&1; check "DirectPInvoke: program as IL (--directpinvoke:nativeadd --native-library)" "$WORK/expected" "$WORK/actual"
+    else echo "FAIL DirectPInvoke: program as IL"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+    # Explicit failures: a missing archive is reported by name, a direct import nothing defines is a link error.
+    rm -rf "$native/app/bin" "$native/app/obj"
+    "$DOTNET" "$CSHARPC_DLL" "$native/app/DirectPInvoke.csproj" --directpinvoke nativeadd --native-library "$native/missing.a" -o "$native/out-err/" > "$WORK/log" 2>&1; code=$?
+    if [[ $code == 1 ]] && grep -q "NativeLibrary: file '.*missing.a' not found" "$WORK/log"; then echo "PASS DirectPInvoke: a missing NativeLibrary is a diagnostic"; pass=$((pass+1));
+    else echo "FAIL DirectPInvoke: missing NativeLibrary (exit $code)"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+    "$DOTNET" "$CSHARPC_DLL" "$native/app/DirectPInvoke.csproj" --directpinvoke nativeadd -o "$native/out-err/" > "$WORK/log" 2>&1; code=$?
+    if [[ $code != 0 ]] && grep -q "native_add" "$WORK/log"; then echo "PASS DirectPInvoke: an undefined direct import is a link error naming the symbol"; pass=$((pass+1));
+    else echo "FAIL DirectPInvoke: undefined direct import (exit $code)"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+  else echo "FAIL DirectPInvoke: could not build the native library"; fail=$((fail+1)); fi
+fi
+
 echo
 echo "$pass passed, $fail failed"
 [[ $fail == 0 ]]

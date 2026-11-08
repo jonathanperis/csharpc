@@ -49,6 +49,12 @@ public sealed record ProjectInfo
     public List<(string Name, string Path)> EmbeddedResources { get; } = [];
     /// <summary>The native libraries NuGet selected for the target's runtime identifier (runtimes/&lt;rid&gt;/native): copied next to the executable.</summary>
     public List<string> NativeAssets { get; } = [];
+    /// <summary>NativeAOT's native-linking items (--directpinvoke &amp; co., CompilerOptions): DirectPInvoke, DirectPInvokeList, NativeLibrary, NativeSystemLibrary, LinkerArg.</summary>
+    public List<string> DirectPInvokes { get; } = [];
+    public List<string> DirectPInvokeLists { get; } = [];
+    public List<string> NativeLibraries { get; } = [];
+    public List<string> NativeSystemLibraries { get; } = [];
+    public List<string> LinkerArgs { get; } = [];
     public string ProjectDirectory => Path.GetDirectoryName(ProjectPath)!;
 }
 
@@ -101,7 +107,8 @@ public static class ProjectLoader
         foreach (var v in new[] { "1_0", "1_1", "2_0", "2_1", "2_2", "3_0", "3_1" }) yield return $"NETCOREAPP{v}_OR_GREATER";
     }
 
-    private static readonly string[] Items = ["Compile", "Using", "ProjectReference", "PackageReference", "Reference", "RuntimeHostConfigurationOption", "FrameworkReference", "AssemblyAttribute"];
+    private static readonly string[] Items = ["Compile", "Using", "ProjectReference", "PackageReference", "Reference", "RuntimeHostConfigurationOption", "FrameworkReference", "AssemblyAttribute",
+        "DirectPInvoke", "DirectPInvokeList", "NativeLibrary", "NativeSystemLibrary", "LinkerArg"];
 
     /// <summary>Computes the AssemblyAttribute items the SDK's GenerateAssemblyInfo writes (with the git commit SourceLink adds).</summary>
     private const string AssemblyAttributesTarget = "GetAssemblyAttributes";
@@ -473,6 +480,17 @@ public static class ProjectLoader
                 info.RuntimeConfig.RemoveAll(kv => kv.Key == name);
                 info.RuntimeConfig.Add(new(name, bool.TryParse(value, out var flag) ? (flag ? "true" : "false") : value));
             }
+
+        // NativeAOT's native-linking items (Microsoft.NETCore.Native.targets): library names whose P/Invokes are direct calls,
+        // and what the linker gets. File items (a list, an archive) are relative to the project; NativeLibrary and LinkerArg
+        // may also be plain linker words (-lfoo), which stay as written.
+        foreach (var d in Item("DirectPInvoke")) if (Meta(d, "Identity") is { } name) info.DirectPInvokes.Add(name);
+        foreach (var d in Item("DirectPInvokeList")) if ((Meta(d, "FullPath") ?? Meta(d, "Identity")) is { } list) info.DirectPInvokeLists.Add(Path.GetFullPath(list, info.ProjectDirectory));
+        foreach (var n in Item("NativeLibrary"))
+            if (Meta(n, "Identity") is { } library)
+                info.NativeLibraries.Add(File.Exists(Path.GetFullPath(library, info.ProjectDirectory)) ? Path.GetFullPath(library, info.ProjectDirectory) : library);
+        foreach (var n in Item("NativeSystemLibrary")) if (Meta(n, "Identity") is { } name) info.NativeSystemLibraries.Add(name);
+        foreach (var a in Item("LinkerArg")) if (Meta(a, "Identity") is { } arg) info.LinkerArgs.Add(arg);
 
         foreach (var p in Item("PackageReference"))
             if (!string.Equals(Meta(p, "IsImplicitlyDefined"), "true", StringComparison.OrdinalIgnoreCase))
