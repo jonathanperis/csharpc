@@ -161,6 +161,38 @@ namespace CsharpcCoreLib
             return new string(chars);
         }
 
+        /// <summary>
+        /// Convert.TryFromBase64Chars: the same alphabet and white-space rules as FromBase64String, false (not an exception)
+        /// for malformed text or a destination that is too short; bytesWritten is 0 then.
+        /// </summary>
+        public static bool TryFromBase64Chars(ReadOnlySpan<char> chars, Span<byte> bytes, out int bytesWritten)
+        {
+            bytesWritten = 0;
+            int count = 0, padding = 0;
+            int[] values = new int[chars.Length];
+            foreach (char c in chars)
+            {
+                if (c == ' ' || c == '\t' || c == '\r' || c == '\n') continue;
+                if (c == '=') { padding++; values[count++] = 0; continue; }
+                int v = Base64Alphabet.IndexOf(c);
+                if (v < 0 || padding > 0) return false;
+                values[count++] = v;
+            }
+            if (count % 4 != 0 || padding > 2) return false;
+            int length = count / 4 * 3 - padding;
+            if (bytes.Length < length) return false;
+            int r = 0;
+            for (int i = 0; i < count; i += 4)
+            {
+                int v = values[i] << 18 | values[i + 1] << 12 | values[i + 2] << 6 | values[i + 3];
+                if (r < length) bytes[r++] = (byte)(v >> 16);
+                if (r < length) bytes[r++] = (byte)(v >> 8);
+                if (r < length) bytes[r++] = (byte)v;
+            }
+            bytesWritten = length;
+            return true;
+        }
+
         public static byte[] FromBase64String(string s)
         {
             if (s == null) throw new ArgumentNullException("s");

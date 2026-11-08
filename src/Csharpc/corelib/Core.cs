@@ -78,6 +78,8 @@ namespace CsharpcCoreLib
         /// <summary>A span over a reference and a length, as given: unlike the pointer constructors, a negative length is not rejected.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern Span<T> SpanOf<T>(ref T reference, int length);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern ReadOnlySpan<T> ReadOnlySpanOf<T>(in T reference, int length);
+        /// <summary>A memory over a reference and a length (a Memory&lt;T&gt; is { pointer, length } like a span; MemoryManager&lt;T&gt;).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern Memory<T> MemoryOf<T>(ref T reference, int length);
         /// <summary>The address a reference points at.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint RefAddress<T>(in T value);
         /// <summary>

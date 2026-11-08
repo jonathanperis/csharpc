@@ -561,6 +561,140 @@ namespace CsharpcCoreLib
             return result;
         }
 
+        // ---- bytes, bit operations and shifts (System.Formats.Asn1 and System.Security.Cryptography use them) ----
+
+        internal static uint[] FromByteArray(byte[] value)
+        {
+            if (value == null) throw new ArgumentNullException("value");
+            return FromBytes(value, false, false);
+        }
+
+        /// <summary>new BigInteger(ReadOnlySpan&lt;byte&gt;, isUnsigned, isBigEndian): two's complement (or unsigned) bytes.</summary>
+        internal static uint[] FromBytes(ReadOnlySpan<byte> value, bool isUnsigned, bool isBigEndian)
+        {
+            int n = value.Length;
+            if (n == 0) return null;
+            bool negative = !isUnsigned && (value[isBigEndian ? 0 : n - 1] & 0x80) != 0;
+            uint[] limbs = new uint[(n + 3) / 4];
+            int carry = 1;
+            for (int i = 0; i < n; i++)
+            {
+                int b = value[isBigEndian ? n - 1 - i : i];
+                if (negative)
+                {
+                    int t = (byte)~b + carry;   // magnitude = ~x + 1
+                    b = t & 0xFF;
+                    carry = t >> 8;
+                }
+                limbs[i / 4] |= (uint)b << (8 * (i % 4));
+            }
+            return Make(negative ? -1 : 1, limbs, 0, limbs.Length);
+        }
+
+        private static bool IsPowerOfTwoMagnitude(uint[] a)
+        {
+            int length = LengthOf(a), ones = 0;
+            for (int i = 1; i <= length; i++)
+                for (uint limb = a[i]; limb != 0; limb &= limb - 1) ones++;
+            return ones == 1;
+        }
+
+        /// <summary>BigInteger.GetBitLength(): the bits of the shortest two's complement form, sign bit excluded.</summary>
+        internal static long GetBitLength(uint[] a)
+        {
+            int length = LengthOf(a);
+            if (length == 0) return 0;
+            long bits = (length - 1) * 32L;
+            for (uint top = a[length]; top != 0; top >>= 1) bits++;
+            return SignOf(a) < 0 && IsPowerOfTwoMagnitude(a) ? bits - 1 : bits;
+        }
+
+        /// <summary>BigInteger.ToByteArray(isUnsigned, isBigEndian).</summary>
+        internal static byte[] ToByteArray(uint[] a, bool isUnsigned, bool isBigEndian)
+        {
+            byte[] bytes = ToByteArray(a);
+            if (isUnsigned)
+            {
+                if (SignOf(a) < 0) throw new OverflowException("Negative values do not have an unsigned representation.");
+                if (bytes.Length > 1 && bytes[bytes.Length - 1] == 0)
+                {
+                    byte[] shorter = new byte[bytes.Length - 1];
+                    Array.Copy(bytes, shorter, shorter.Length);
+                    bytes = shorter;
+                }
+            }
+            if (isBigEndian) Array.Reverse(bytes);
+            return bytes;
+        }
+
+        internal static int GetByteCount(uint[] a, bool isUnsigned) => ToByteArray(a, isUnsigned, false).Length;
+
+        internal static bool TryWriteBytes(uint[] a, Span<byte> destination, out int bytesWritten, bool isUnsigned, bool isBigEndian)
+        {
+            byte[] bytes = ToByteArray(a, isUnsigned, isBigEndian);
+            if (destination.Length < bytes.Length) { bytesWritten = 0; return false; }
+            bytes.CopyTo(destination);
+            bytesWritten = bytes.Length;
+            return true;
+        }
+
+        /// <summary>A bitwise operation over the operands' two's complement forms, sign-extended to a common width.</summary>
+        private static uint[] Bitwise(uint[] a, uint[] b, int op)
+        {
+            byte[] x = ToByteArray(a), y = ToByteArray(b);
+            int n = Math.Max(x.Length, y.Length);
+            byte fillX = SignOf(a) < 0 ? (byte)0xFF : (byte)0, fillY = SignOf(b) < 0 ? (byte)0xFF : (byte)0;
+            byte[] r = new byte[n];
+            for (int i = 0; i < n; i++)
+            {
+                byte p = i < x.Length ? x[i] : fillX, q = i < y.Length ? y[i] : fillY;
+                r[i] = (byte)(op == 0 ? p & q : op == 1 ? p | q : p ^ q);
+            }
+            return FromBytes(r, false, false);
+        }
+
+        internal static uint[] And(uint[] a, uint[] b) => Bitwise(a, b, 0);
+        internal static uint[] Or(uint[] a, uint[] b) => Bitwise(a, b, 1);
+        internal static uint[] Xor(uint[] a, uint[] b) => Bitwise(a, b, 2);
+
+        internal static uint[] ShiftLeft(uint[] a, int n)
+        {
+            if (n < 0) return n == int.MinValue ? throw new OverflowException() : ShiftRight(a, -n);
+            if (a == null || n == 0) return a;
+            int length = LengthOf(a), words = n / 32, bits = n % 32;
+            uint[] r = new uint[length + words + 1];
+            for (int i = 0; i < length; i++)
+            {
+                uint v = a[i + 1];
+                r[i + words] |= v << bits;
+                if (bits != 0) r[i + words + 1] |= v >> (32 - bits);
+            }
+            return Make(SignOf(a), r, 0, r.Length);
+        }
+
+        /// <summary>Arithmetic shift: rounds toward negative infinity, as two's complement does.</summary>
+        internal static uint[] ShiftRight(uint[] a, int n)
+        {
+            if (n < 0) return n == int.MinValue ? throw new OverflowException() : ShiftLeft(a, -n);
+            if (a == null || n == 0) return a;
+            int length = LengthOf(a), words = n / 32, bits = n % 32;
+            bool negative = SignOf(a) < 0;
+            if (words >= length) return negative ? FromInt64(-1) : null;
+            bool lost = false;
+            for (int i = 0; i < words; i++) if (a[i + 1] != 0) lost = true;
+            if (bits != 0 && (a[words + 1] & ((1u << bits) - 1)) != 0) lost = true;
+            int outLength = length - words;
+            uint[] r = new uint[outLength];
+            for (int i = 0; i < outLength; i++)
+            {
+                uint low = a[words + i + 1] >> bits;
+                uint high = bits != 0 && words + i + 2 <= length ? a[words + i + 2] << (32 - bits) : 0;
+                r[i] = low | high;
+            }
+            uint[] result = Make(negative ? -1 : 1, r, 0, outLength);
+            return negative && lost ? Add(result, FromInt64(-1)) : result;
+        }
+
         [RuntimeExport("csrt_bigint_get_hash_code", "csrt_Boxed_BigInteger_MT")]
         internal static int Hash(uint[] a)
         {
