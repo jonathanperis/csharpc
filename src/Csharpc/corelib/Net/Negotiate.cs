@@ -11,18 +11,6 @@ using System.Security.Principal;
 
 namespace CsharpcCoreLib
 {
-    /// <summary>
-    /// The current user's credentials are the ticket cache's, which needs the GSSAPI binding this file lacks (and
-    /// NetworkCredential itself is not implemented yet): an explicit NotSupportedException, so that code reaching the
-    /// property compiles instead of stopping the build.
-    /// </summary>
-    [ShadowMembers("System.Net.CredentialCache")]
-    internal static class CredentialCacheMembers
-    {
-        public static NetworkCredential DefaultNetworkCredentials => throw Tls.NotSupported("CredentialCache.DefaultNetworkCredentials (the current user's credentials)");
-        public static ICredentials DefaultCredentials => throw Tls.NotSupported("CredentialCache.DefaultCredentials (the current user's credentials)");
-    }
-
     [Shadows("System.Net.Security.NegotiateAuthenticationClientOptions")]
     public class NegotiateAuthenticationClientOptionsImpl
     {
@@ -30,8 +18,9 @@ namespace CsharpcCoreLib
         private bool _credentialSet;
 
         public string Package { get; set; } = "Negotiate";
-        // Defaults to the current user's credentials, read when asked for (an options object can be made and used with its
-        // own credential without them).
+        // Defaults to CredentialCache.DefaultNetworkCredentials (System.Net.Primitives' placeholder with empty user name, password
+        // and domain, from IL), read when asked for rather than in the constructor: the corelib is lowered without that assembly
+        // unless the program uses it, so a program that only creates the options object does not need it.
         public NetworkCredential Credential
         {
             get => _credentialSet ? _credential : CredentialCache.DefaultNetworkCredentials;
