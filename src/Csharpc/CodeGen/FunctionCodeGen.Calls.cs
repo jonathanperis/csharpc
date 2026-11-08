@@ -274,15 +274,15 @@ public sealed partial class FunctionCodeGen
         if (!target.IsStatic || target.ContainingType.TypeKind != TypeKind.Interface || constrainedTo is null) return null;
         var concrete = S(constrainedTo);
         if (concrete is ITypeParameterSymbol || !_m.IsUserType(concrete)) return null; // primitives: generic-math paths
-        // A generic member (`static abstract ValueTask<T> WaitAsync<T>(ValueTask<T>)`, SslStream's IReadWriteAdapter): Roslyn finds the
-        // implementation of the interface member's definition, which is then instantiated with the call's own type arguments.
-        var generic = target.IsGenericMethod;
-        var implementation = concrete.FindImplementationForInterfaceMember(generic ? target.OriginalDefinition : target) as IMethodSymbol
+        // A generic static abstract member (`static abstract ValueTask<T> WaitAsync<T>(ValueTask<T>)`, SslStream's IReadWriteAdapter) is
+        // looked up through the interface member's definition and implemented by the type's generic method definition: it takes the
+        // call's type arguments, or its body would be lowered open.
+        var implementation = concrete.FindImplementationForInterfaceMember(target.IsGenericMethod ? target.OriginalDefinition : target) as IMethodSymbol;
+        if (implementation is { IsGenericMethod: true } && target.IsGenericMethod && SymbolEqualityComparer.Default.Equals(implementation, implementation.ConstructedFrom)
+            && implementation.TypeParameters.Length == target.TypeArguments.Length)
+            implementation = implementation.Construct([.. target.TypeArguments.Select(a => S(a))]);
+        return implementation
             ?? (target.IsAbstract ? throw CompileError.Unsupported($"no implementation of '{target}' on '{concrete}'", target) : target);
-        if (generic && implementation is { IsGenericMethod: true } open && open.TypeArguments.Length == target.TypeArguments.Length
-            && open.TypeArguments.SequenceEqual<ITypeSymbol>(open.TypeParameters, SymbolEqualityComparer.Default))
-            implementation = open.Construct([.. target.TypeArguments.Select(a => S(a))]);
-        return implementation;
     }
 
     /// <summary>
