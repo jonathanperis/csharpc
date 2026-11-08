@@ -497,6 +497,47 @@ namespace CsharpcCoreLib
         public static byte* ConvertToUnmanaged(string managed) => Utf8.ToNative(managed);
         public static string ConvertToManaged(byte* unmanaged) => Utf8.FromNative(unmanaged);
         public static void Free(byte* unmanaged) => Libc.free(unmanaged);
+
+        /// <summary>
+        /// What LibraryImport's generated code uses for a string passed as ANSI (the CNG and crypt32 interop passes OID strings so).
+        /// The text goes out as UTF-8, the same bytes as the system code page for the ASCII these APIs take.
+        /// </summary>
+        [Shadows("System.Runtime.InteropServices.Marshalling.AnsiStringMarshaller+ManagedToUnmanagedIn")]
+        internal unsafe ref struct AnsiManagedToUnmanagedIn
+        {
+            private byte* _native;
+            private bool _allocated;
+
+            public static int BufferSize => 0x100;
+
+            public void FromManaged(string managed, Span<byte> buffer)
+            {
+                _allocated = false;
+                if (managed == null) { _native = null; return; }
+                int needed = Utf8.GetByteCount(managed) + 1;
+                if (needed <= buffer.Length)
+                {
+                    fixed (byte* b = buffer)
+                    {
+                        int n = Utf8.Encode(managed, b);
+                        b[n] = 0;
+                        _native = b; // stackalloc'd by the caller: stays valid for the call
+                    }
+                }
+                else
+                {
+                    _native = Utf8.ToNative(managed);
+                    _allocated = true;
+                }
+            }
+
+            public byte* ToUnmanaged() => _native;
+
+            public void Free()
+            {
+                if (_allocated) Libc.free(_native);
+            }
+        }
     }
 
     [Shadows("System.Runtime.InteropServices.Marshalling.Utf16StringMarshaller")]

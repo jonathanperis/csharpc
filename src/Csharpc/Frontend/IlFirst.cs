@@ -8,7 +8,8 @@ namespace Csharpc.Frontend;
 /// for the listed shared-framework assemblies the corelib's shadows are not mapped and the types they
 /// define no longer count as "implemented by csharpc", so FrameworkIl compiles the assembly from the shared framework's IL
 /// when the program uses it. Never the default: without the switch nothing in this class has an effect. It generalizes
-/// the Windows native-TLS switch, which drops a hand-picked family of shadows instead of whole assemblies.
+/// the Windows native-TLS switch (NativeTls), which is the same mechanism with a hand-picked family of shadows
+/// ("partial", <see cref="UsePartial"/>) instead of whole assemblies.
 /// </summary>
 public static class IlFirst
 {
@@ -18,10 +19,28 @@ public static class IlFirst
     /// <summary>The assemblies named by the switch, sorted and without ".dll".</summary>
     public static IReadOnlyList<string> Assemblies => s_assemblies;
 
-    public static bool On => s_assemblies.Length > 0;
+    private static string? s_partialName;
+    private static string[] s_partialPrefixes = [];
+    private static string[] s_partialAssemblies = [];
+
+    public static bool On => s_assemblies.Length > 0 || s_partialName is not null;
 
     /// <summary>Part of the cache keys that depend on which shadows are mapped (the corelib assembly, the framework index).</summary>
-    public static string Key => On ? "il-first:" + string.Join(",", s_assemblies) : "";
+    public static string Key => !On ? "" : (s_assemblies.Length > 0 ? "il-first:" + string.Join(",", s_assemblies) : "")
+        + (s_partialName is null ? "" : "|" + s_partialName);
+
+    /// <summary>
+    /// A named family of shadows dropped by type-name prefix, with the assemblies that stay mixed (the shadows that are not
+    /// dropped keep serving their types, everything else of the assembly is IL: ADR 0013, "Mixed assemblies"). The Windows
+    /// native-TLS mode is such a family. Call after <see cref="Configure"/>.
+    /// </summary>
+    public static void UsePartial(string name, string[] prefixes, string[] mixedAssemblies)
+    {
+        s_partialName = name; s_partialPrefixes = prefixes; s_partialAssemblies = mixedAssemblies;
+    }
+
+    /// <summary>Whether this assembly is mixed because of <see cref="UsePartial"/>.</summary>
+    public static bool IsPartial(string assembly) => s_partialAssemblies.Contains(assembly, StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
     /// Set once by the driver, before the corelib index is read or built: the driver's <c>--il-first</c> names plus
@@ -37,6 +56,7 @@ public static class IlFirst
                     names.Add(name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? name[..^4] : name);
         s_assemblies = [.. names];
         s_types = new HashSet<string>(StringComparer.Ordinal);
+        s_partialName = null; s_partialPrefixes = []; s_partialAssemblies = [];
         if (names.Count == 0) return;
 
         if (SharedFramework.Directory is not { } dir)
@@ -70,5 +90,8 @@ public static class IlFirst
     /// defines. <paramref name="real"/> is the metadata name the shadow attribute gives ("System.Collections.Generic.List`1",
     /// "System.Text.Json.Utf8JsonReader+Enumerator").
     /// </summary>
-    public static bool Excluded(string real) => On && s_types.Contains(real.Split('+')[0]);
+    public static bool Excluded(string real) => On && (InListedAssembly(real) || s_partialPrefixes.Any(p => real.StartsWith(p, StringComparison.Ordinal)));
+
+    /// <summary>Whether the (top-level part of the) real type is defined by an assembly named by the switch.</summary>
+    public static bool InListedAssembly(string real) => s_types.Count > 0 && s_types.Contains(real.Split('+')[0]);
 }

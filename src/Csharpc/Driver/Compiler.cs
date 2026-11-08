@@ -33,8 +33,13 @@ public sealed class Compiler(CompilerOptions options)
         var darwin = TargetMachine.IsDarwinTriple(triple);
         var windows = TargetMachine.IsWindowsTriple(triple);
         var wasm = TargetMachine.IsWasmTriple(triple);
-        // Before the corelib index or the framework index is read: they depend on which shadows are mapped.
-        try { IlFirst.Configure(options.IlFirst); }
+        // Before the corelib index or the framework index is read: they depend on which shadows are mapped. The Windows
+        // native-TLS mode is the same mechanism with a hand-picked family of shadows (NativeTls).
+        try
+        {
+            IlFirst.Configure(options.IlFirst);
+            if (NativeTls.Enabled(windows)) NativeTls.Apply();
+        }
         catch (InvalidOperationException e) { return Fail(e.Message); }
         if (wasm && WasmTargetError(triple) is { } wasmError) return Fail(wasmError);
         if (wasm) options.Target = triple = "wasm32-unknown-wasip1"; // clang's spelling (the runtime's bitcode)
@@ -53,7 +58,10 @@ public sealed class Compiler(CompilerOptions options)
         string[] coreLibDefines = [wasm ? "CSHARPC_TARGET_WASI" : windows ? "CSHARPC_TARGET_WINDOWS" : darwin ? "CSHARPC_TARGET_MACOS" : "CSHARPC_TARGET_LINUX",
             // The targets whose X.509/TLS/RSA corelib code runs on OpenSSL 3 (docs/adr/0022-tls.md): libssl.so.3 on Linux,
             // Homebrew's openssl@3 on macOS, libssl-3-x64.dll beside the executable (or on PATH) on Windows.
-            .. (!wasm ? new[] { "CSHARPC_OPENSSL" } : Array.Empty<string>()),
+            .. (!wasm && !NativeTls.Enabled(windows) ? new[] { "CSHARPC_OPENSSL" } : Array.Empty<string>()),
+            // Opt-in spike (docs/adr/0022-tls.md, "Windows without OpenSSL"): the TLS/X.509/RSA shadows are left out of the shadow
+            // index and System.Net.Security / System.Security.Cryptography are compiled from the shared framework's IL.
+            .. (NativeTls.Enabled(windows) ? new[] { "CSHARPC_NATIVE_TLS" } : Array.Empty<string>()),
             // The architecture (RuntimeInformation.ProcessArchitecture, the runtime identifier).
             wasm ? "CSHARPC_TARGET_WASM32" : triple.StartsWith("aarch64", StringComparison.Ordinal) || triple.StartsWith("arm64", StringComparison.Ordinal) ? "CSHARPC_TARGET_ARM64" : "CSHARPC_TARGET_X64"];
         FrontendSettings settings;

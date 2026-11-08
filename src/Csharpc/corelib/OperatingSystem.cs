@@ -31,6 +31,23 @@ namespace CsharpcCoreLib
         public static bool IsTvOS() => false;
         public static bool IsWatchOS() => false;
 
+        /// <summary>
+        /// OperatingSystem.IsWindowsVersionAtLeast: false off Windows, else the running version (RtlGetVersion, as .NET reads it)
+        /// compared field by field. The framework's own Windows code (CNG, SSPI) gates features on it.
+        /// </summary>
+        public static bool IsWindowsVersionAtLeast(int major, int minor = 0, int build = 0, int revision = 0)
+        {
+#if CSHARPC_TARGET_WINDOWS
+            var v = OSVersionMembers.WindowsVersion();
+            if (v.Major != major) return v.Major > major;
+            if (v.Minor != minor) return v.Minor > minor;
+            if (v.Build != build) return v.Build > build;
+            return true; // the revision (UBR) is not part of RtlGetVersion's answer; .NET reads it from the registry
+#else
+            return false;
+#endif
+        }
+
         /// <summary>.NET compares the name case-insensitively; macOS answers to "OSX" too.</summary>
         public static bool IsOSPlatform(string platform)
         {

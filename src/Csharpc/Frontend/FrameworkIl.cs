@@ -88,7 +88,8 @@ public static partial class FrameworkIl
     /// </summary>
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> NotCompiledFromIl = new(StringComparer.OrdinalIgnoreCase);
 
-    public static bool IsMixedWithShadows(string? assembly) => assembly is not null && MixedWithShadows.Contains(assembly, StringComparer.OrdinalIgnoreCase);
+    public static bool IsMixedWithShadows(string? assembly) => assembly is not null && (MixedWithShadows.Contains(assembly, StringComparer.OrdinalIgnoreCase)
+        || IlFirst.IsPartial(assembly));
 
     /// <summary>Shared frameworks a project can reference besides Microsoft.NETCore.App.</summary>
     public static readonly string[] SupportedFrameworks = ["Microsoft.AspNetCore.App"];
@@ -370,7 +371,7 @@ public static partial class FrameworkIl
         // System.Private.* assemblies (Xml, Xml.Linq, DataContractSerialization, Uri) are ordinary libraries
         // behind facades and get the same checks as any other assembly.
         a.Ineligible = a.Name.Equals("System.Private.CoreLib", StringComparison.OrdinalIgnoreCase) ? "it is part of the runtime itself"
-            : MixedWithShadows.Contains(a.Name, StringComparer.OrdinalIgnoreCase) ? null
+            : IsMixedWithShadows(a.Name) ? null
             : ModuleOfRuntime() is { } native ? $"it calls native code of the .NET runtime ({native})"
             : fullNames.FirstOrDefault(known.Contains) is { } shadowed ? $"csharpc implements its type '{shadowed}' itself"
             : null;
@@ -488,7 +489,7 @@ public static partial class FrameworkIl
             for (var i = head.IndexOf('.'); i >= 0; i = head.IndexOf('.', i + 1)) known.Add(head[..i]);
         }
         // --il-first: an assembly named there is eligible whatever the hand-written intrinsics say about its types.
-        if (IlFirst.On) known.RemoveWhere(IlFirst.Excluded);
+        if (IlFirst.On) known.RemoveWhere(IlFirst.InListedAssembly);
         return s_known = known;
     }
 

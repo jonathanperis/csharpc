@@ -93,13 +93,18 @@ namespace CsharpcCoreLib
     [Shadows("System.Threading.AsyncLocal`1")]
     public sealed class AsyncLocalImpl<T>
     {
+        private readonly Action<AsyncLocalValueChangedArgs<T>> _valueChangedHandler;
+
         public AsyncLocalImpl() { }
 
+        /// <summary>
+        /// The handler is called when Value is assigned a different value (ThreadContextChanged false). .NET also calls it when
+        /// an execution-context switch changes the value on a thread (ThreadContextChanged true); csharpc's flows don't track
+        /// that, so code that depends on those notifications (WindowsIdentity closing an impersonation token) doesn't get them.
+        /// </summary>
         public AsyncLocalImpl(Action<AsyncLocalValueChangedArgs<T>> valueChangedHandler)
         {
-            // .NET calls the handler on every execution-context switch; csharpc's flows don't track that.
-            if (valueChangedHandler != null)
-                throw new NotSupportedException("An AsyncLocal<T> value-changed handler is not supported by csharpc yet.");
+            _valueChangedHandler = valueChangedHandler;
         }
 
         public T Value
@@ -109,7 +114,18 @@ namespace CsharpcCoreLib
                 object value = ExecutionFlow.Get(this);
                 return value == null ? default : (T)value;
             }
-            set => ExecutionFlow.Set(this, value);
+            set
+            {
+                if (_valueChangedHandler == null) { ExecutionFlow.Set(this, value); return; }
+                T previous = Value;
+                ExecutionFlow.Set(this, value);
+                if (!System.Collections.Generic.EqualityComparer<T>.Default.Equals(previous, value))
+                {
+                    // The real struct's constructor is internal; the shadow has the same fields in the same order.
+                    var args = new AsyncLocalValueChangedArgsImpl<T>(previous, value, false);
+                    _valueChangedHandler(System.Runtime.CompilerServices.Unsafe.As<AsyncLocalValueChangedArgsImpl<T>, AsyncLocalValueChangedArgs<T>>(ref args));
+                }
+            }
         }
     }
 
