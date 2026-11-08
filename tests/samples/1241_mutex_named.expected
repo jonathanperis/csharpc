@@ -1,0 +1,52 @@
+first created: True
+second created: False
+third created: False
+third WaitOne(0), the owner thread acquires again: True
+released by a different handle than the one that acquired it: True
+one release too many: System.InvalidOperationException: Cannot release a lock that is not owned by the current thread.
+unowned release through another handle: System.InvalidOperationException: Cannot release a lock that is not owned by the current thread.
+thread WaitOne(0): False
+thread release: System.InvalidOperationException: Cannot release a lock that is not owned by the current thread.
+thread WaitOne(0), now free: True
+opener created: False
+visitor WaitOne(0): True
+plain created: True
+Local\ created: False
+Global\ created: True
+Global\ again created: False
+other case created: True
+default options with Global\: System.ArgumentException: The specified name 'Global\<prefix>o1' has a prefix that is not compatible with the specified option 'CurrentSessionOnly'. (Parameter 'name')
+session false with Local\: System.ArgumentException: The specified name 'Local\<prefix>o2' has a prefix that is not compatible with the specified option 'CurrentSessionOnly'. (Parameter 'name')
+session false with Global\: ok
+user+session created: True
+any user created: True
+legacy overload created: False
+legacy Global\ created: True
+user, any session created: False
+name and options: True
+TryOpenExisting: True True
+TryOpenExisting missing: False True
+TryOpenExisting Global\: True
+TryOpenExisting Global\ options: True
+TryOpenExisting options scope: True
+TryOpenExisting other options: False
+OpenExisting missing: System.Threading.WaitHandleCannotBeOpenedException: No handle of the given name exists.
+OpenExisting missing, options: System.Threading.WaitHandleCannotBeOpenedException: No handle of the given name exists.
+OpenExisting null: System.ArgumentNullException: Value cannot be null. (Parameter 'name')
+OpenExisting empty: System.ArgumentException: The value cannot be an empty string. (Parameter 'name')
+TryOpenExisting null: System.ArgumentNullException: Value cannot be null. (Parameter 'name')
+TryOpenExisting incompatible prefix: System.ArgumentException: The specified name 'Global\x' has a prefix that is not compatible with the specified option 'CurrentSessionOnly'. (Parameter 'name')
+name with a slash: System.IO.IOException: The value may not contain directory separator characters.
+OpenExisting is the same mutex: True
+disposed handle: System.ObjectDisposedException: Cannot access a disposed object.|Object name: 'Microsoft.Win32.SafeHandles.SafeWaitHandle'.
+still open through the other handle: True
+two still works: True
+gone after the last handle: False
+created again: True
+named, abandoned: System.Threading.AbandonedMutexException: The wait completed due to an abandoned mutex.
+WaitAny alone: 0
+WaitAll alone: True
+WaitAny with another handle: System.PlatformNotSupportedException: Wait operations on multiple wait handles including a named synchronization primitive are not supported on this platform.
+WaitAll with another handle: System.PlatformNotSupportedException: Wait operations on multiple wait handles including a named synchronization primitive are not supported on this platform.
+WaitAll with an unnamed mutex: System.PlatformNotSupportedException: Wait operations on multiple wait handles including a named synchronization primitive are not supported on this platform.
+WaitAny, null element first: System.ArgumentNullException: At least one element in the specified array was null. (Parameter 'waitHandles[1]')

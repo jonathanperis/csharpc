@@ -1,0 +1,52 @@
+True True
+System.Threading.Mutex
+release unowned: System.ApplicationException: Object synchronization method was called from an unsynchronized block of code.
+True
+True
+True
+release one too many: System.ApplicationException: Object synchronization method was called from an unsynchronized block of code.
+release after initial owner: System.ApplicationException: Object synchronization method was called from an unsynchronized block of code.
+release not owned: System.ApplicationException: Object synchronization method was called from an unsynchronized block of code.
+worker release: System.ApplicationException: Object synchronization method was called from an unsynchronized block of code.
+worker WaitOne(0): False
+worker WaitOne(5): False
+main releasing
+worker acquired
+main WaitOne(0): True
+abandoned: -1 True The wait completed due to an abandoned mutex.
+owned after abandoned: True
+deep abandoned
+deep release again: System.ApplicationException: Object synchronization method was called from an unsynchronized block of code.
+clean: True
+WaitAny: 0
+WaitAll: True
+WaitAll with an unsignaled event: False
+a free again: True
+WaitAny abandoned: 1 True
+WaitAll abandoned: -1 True
+both owned: True True
+other WaitOne(10): False
+other WaitAny: 1
+other WaitAll: False
+semaphore still there: True
+disposed WaitOne: System.ObjectDisposedException: Cannot access a disposed object.|Object name: 'Microsoft.Win32.SafeHandles.SafeWaitHandle'.
+disposed ReleaseMutex: System.ObjectDisposedException: Cannot access a disposed object.|Object name: 'Microsoft.Win32.SafeHandles.SafeWaitHandle'.
+disposed through IDisposable: System.ObjectDisposedException: Cannot access a disposed object.|Object name: 'Microsoft.Win32.SafeHandles.SafeWaitHandle'.
+WaitOne(-2): System.ArgumentOutOfRangeException: millisecondsTimeout ('-2') must be greater than or equal to '-1'. (Parameter 'millisecondsTimeout')|Actual value was -2.
+WaitOne(TimeSpan -2 ms): System.ArgumentOutOfRangeException: timeout ('-2') must be greater than or equal to '-1'. (Parameter 'timeout')|Actual value was -2.
+True
+WaitAny null: System.ArgumentNullException: Value cannot be null. (Parameter 'waitHandles')
+WaitAll empty: System.ArgumentException: Waithandle array may not be empty. (Parameter 'waitHandles')
+WaitAll duplicate: System.DuplicateWaitObjectException: Duplicate objects in argument. (Parameter 'waitHandles[1]')
+The wait completed due to an abandoned mutex.
+3 True
+-1
+custom
+True
+8013152D
+Error in the application.
+True
+Adding the specified count to the semaphore would cause it to exceed its maximum count.
+No handle of the given name exists.
+True
+counter: 8000

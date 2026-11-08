@@ -13,7 +13,7 @@ isn't.
 | Unhandled exceptions | an exception escaping a thread's delegate is reported ("Unhandled exception. …") and aborts the process (exit 134), as in .NET |
 | `lock` / `Monitor` | real reentrant monitors: `Enter`, `Enter(o, ref taken)`, `TryEnter` (+timeout / `ref taken`), `Exit` (`SynchronizationLockException` when not owned), `IsEntered`, `Wait` (+timeout), `Pulse`, `PulseAll` |
 | `System.Threading.Lock` (.NET 9) | `lock (l)`, `Enter`, `Exit`, `TryEnter`, `EnterScope`, `IsHeldByCurrentThread` |
-| Wait handles | `ManualResetEventSlim`, `ManualResetEvent`, `AutoResetEvent` (`Set`/`Reset`/`Wait`/`WaitOne`/`IsSet`), `SemaphoreSlim` (`Wait`/`Release`/`CurrentCount`), `CountdownEvent` (`Signal`/`AddCount`/`Wait`/`IsSet`/`CurrentCount`) |
+| Wait handles | `Mutex` and `Semaphore` (see "Mutex and Semaphore" below), `ManualResetEventSlim`, `ManualResetEvent`, `AutoResetEvent` (`Set`/`Reset`/`Wait`/`WaitOne`/`IsSet`), `SemaphoreSlim` (`Wait`/`Release`/`CurrentCount`), `CountdownEvent` (`Signal`/`AddCount`/`Wait`/`IsSet`/`CurrentCount`) |
 | `Interlocked` | `Increment`, `Decrement`, `Add`, `Exchange`, `CompareExchange` (int, long, float, double, references, generic `T`), `And`, `Or`, `Read`, `MemoryBarrier` — inline LLVM `atomicrmw`/`cmpxchg`, sequentially consistent |
 | `Volatile` / `volatile` | `Volatile.Read`/`Write` and `volatile` fields lower to acquire loads / release stores |
 | `[ThreadStatic]` | static fields become LLVM `thread_local` globals (one copy per thread, default-initialized on new threads) |
@@ -77,6 +77,41 @@ spins briefly, then parks on the `Lock`'s monitor-table entry (its `lock_release
 and System.IO.Pipelines take a `Lock` a dozen times per request. `Monitor` on a `Lock` instance is a
 separate lock, as in .NET. A `Lock.Scope` value is represented by the `Lock` pointer itself.
 
+## Mutex and Semaphore
+
+`System.Threading.Mutex` and `Semaphore` are two more kinds of the runtime's one wait-handle object (`csrt_Event`,
+`EVENT_MUTEX` / `EVENT_SEMAPHORE`), so they are real `WaitHandle`s: `WaitOne`, `WaitAny` and `WaitAll` compose them with
+events and each other (`corelib/Threading/WaitHandles.cs`), `ReleaseMutex` and `Release` are `csrt_event_set`, and
+`Dispose`/`Close` (also through `IDisposable`) are real: later use throws `ObjectDisposedException`. The argument
+checks, name handling and scopes are C# (`corelib/Threading/MutexHandles.cs`); the type tests `is Mutex` /
+`is Semaphore` are method-table tests.
+
+* **Ownership.** A mutex is owned by the thread that acquired it, identified by the address of a thread-local byte (pool
+  threads and the main thread have no `Thread` object until asked). Re-acquiring counts; `ReleaseMutex` by another thread, or
+  once too often, is `ApplicationException` ("Object synchronization method was called from an unsynchronized block of code.");
+  for a named mutex .NET's Unix implementation throws `InvalidOperationException` ("Cannot release a lock that is not owned by
+  the current thread."), and so do we.
+* **Abandonment.** Each thread keeps the list of the mutexes it owns; when a managed thread's delegate returns they are
+  marked abandoned and their waiters woken (`mutex_abandon_all`, called through `s_mutex_op` so that programs without a mutex
+  don't link it). The next wait acquires the mutex and throws `AbandonedMutexException` (`MutexIndex` -1 and `Mutex` null
+  for `WaitOne`/`WaitAll`, the index and handle for `WaitAny`; `WaitAll` acquires every handle first).
+* **Named mutexes.** Handles with one name and scope in the process are one mutex: the registry holds one state per
+  (scope, name) and each `new Mutex(..., name)`/`OpenExisting` is a thin handle onto it, so ownership, recursion and
+  abandonment are shared and the name is dropped when its last handle is disposed. The scope follows .NET 11: `Local\x` is
+  `x`, `Global\x` is another mutex, and the `NamedWaitHandleOptions` overloads select (CurrentUserOnly, CurrentSessionOnly)
+  and reject a prefix that contradicts `CurrentSessionOnly`; `initiallyOwned` counts only for the call that creates the
+  mutex. As on Unix in .NET, a named mutex may be waited on alone but not together with other handles
+  (`PlatformNotSupportedException`).
+* **Semaphore.** Unnamed only: `new Semaphore(initial, max)`, `Release()`/`Release(n)` (the previous count;
+  `SemaphoreFullException` above the maximum), the same checks and messages as .NET. Named semaphores and
+  `OpenExisting`/`TryOpenExisting` are `PlatformNotSupportedException` ("The named version of this synchronization primitive
+  is not supported on this platform."), which is what .NET throws on Linux and macOS.
+* **Not implemented (explicit diagnostics).** A mutex shared *between processes*: .NET shares it through lock files in
+  shared memory; csharpc keeps a per-name `flock`ed file under `$TMPDIR/.csharpc-sync-<uid>` only to notice that another
+  process holds the name and then stops with `NotSupportedException` instead of silently not excluding it (a real .NET
+  process using the same name is not noticed). Named mutexes on Windows (`NotSupportedException`), `SafeWaitHandle` of a
+  mutex on Unix, and `Mutex.GetAccessControl`.
+
 ## Parallel loops
 
 `Parallel.For` builds a job on the calling thread's stack (`{ body thunk, context, range,
@@ -104,8 +139,9 @@ calling thread after the loop drains.
   fans out.
 - `Thread.Sleep(TimeSpan)`, `Join(TimeSpan)`, `Thread.Abort` (obsolete) and thread
   priorities are not supported (the current culture is per thread and flows like in .NET, see
-  [19 — Globalization](19-globalization.md)). `Mutex`/`Semaphore` (named, OS-level) are not
-  implemented. The concurrent collections are in the C# corelib (`corelib/Concurrent`).
+  [19 — Globalization](19-globalization.md)). Named `EventWaitHandle`s are not implemented, and `Mutex` shared
+  between processes and named `Mutex` on Windows are explicit diagnostics (see "Mutex and Semaphore" below). The
+  concurrent collections are in the C# corelib (`corelib/Concurrent`).
 - Monitor `Wait` may wake spuriously (pthread condition variables); idiomatic `while` loops are
   unaffected.
 - With nullable analysis enabled, Roslyn's CFG drops `lock (System.Threading.Lock)` inside lambdas

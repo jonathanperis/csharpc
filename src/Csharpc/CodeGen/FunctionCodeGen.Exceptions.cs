@@ -421,6 +421,9 @@ public sealed partial class FunctionCodeGen
         ["System.Threading.Tasks.TaskCanceledException"] = "A task was canceled.",
         ["System.AggregateException"] = "One or more errors occurred.",
         ["System.DuplicateWaitObjectException"] = "Duplicate objects in argument.",
+        ["System.ApplicationException"] = "Error in the application.",
+        ["System.Threading.AbandonedMutexException"] = "The wait completed due to an abandoned mutex.",
+        ["System.Threading.WaitHandleCannotBeOpenedException"] = "No handle of the given name exists.",
         ["System.Threading.SemaphoreFullException"] = "Adding the specified count to the semaphore would cause it to exceed its maximum count.",
         ["System.TimeoutException"] = "The operation has timed out.",
         ["System.IO.IOException"] = "I/O error occurred.",
@@ -441,6 +444,7 @@ public sealed partial class FunctionCodeGen
     private void EmitExceptionConstructor(IMethodSymbol constructor, LLVMValueRef exception, ImmutableArray<IArgumentOperation> arguments)
     {
         LLVMValueRef? message = null, inner = null, paramName = null, actualValue = null, objectName = null, inners = null, hresult = null, token = null, task = null;
+        LLVMValueRef? mutexIndex = null, mutexHandle = null; // AbandonedMutexException(..., int location, WaitHandle handle)
         var aggregate = Mangler.MetadataName(constructor.ContainingType) == "System.AggregateException";
         foreach (var argument in arguments)
         {
@@ -468,6 +472,8 @@ public sealed partial class FunctionCodeGen
                 case "hresult" when argument.Parameter!.Type.SpecialType == SpecialType.System_Int32: hresult = value; break; // IOException(message, hresult)
                 case "token" when argument.Parameter!.Type.Name == "CancellationToken": token = value; break; // OperationCanceledException(..., token)
                 case "task" when argument.Parameter!.Type.Name == "Task": task = value; break; // TaskCanceledException(Task)
+                case "location": mutexIndex = value; break;
+                case "handle": mutexHandle = value; break;
                 case "innerExceptions" when aggregate: // Exception[] or IEnumerable<Exception>
                     inners = CallCoreLib("AggregateExceptionSupport", argument.Parameter!.Type is IArrayTypeSymbol ? "FromArray" : "FromEnumerable", value);
                     break;
@@ -497,6 +503,7 @@ public sealed partial class FunctionCodeGen
         if (hresult is { } h) CallRuntime("csrt_exception_set_hresult", L.Void, [L.Ptr, L.I32], exception, h);
         if (token is { } t) CallRuntime("csrt_exception_set_token", L.Void, [L.Ptr, L.Ptr], exception, t);
         if (task is { } canceledTask) CallRuntime("csrt_exception_set_task", L.Void, [L.Ptr, L.Ptr], exception, canceledTask);
+        if (mutexIndex is { } index) CallRuntime("csrt_exception_set_mutex", L.Void, [L.Ptr, L.I32, L.Ptr], exception, index, mutexHandle ?? none);
     }
 
     /// <summary>
@@ -649,9 +656,16 @@ public sealed partial class FunctionCodeGen
         var innerExceptions = property.Name == "InnerExceptions" && Mangler.MetadataName(property.ContainingType) == "System.AggregateException";
         var cancellationToken = property.Name == "CancellationToken" && Mangler.MetadataName(property.ContainingType) == "System.OperationCanceledException";
         var canceledTask = property.Name == "Task" && Mangler.MetadataName(property.ContainingType) == "System.Threading.Tasks.TaskCanceledException";
-        if (field is null && property.Name is not ("Message" or "StackTrace") && !innerExceptions && !cancellationToken && !canceledTask) return false;
+        var abandoned = property.Name is "MutexIndex" or "Mutex" && Mangler.MetadataName(property.ContainingType) == "System.Threading.AbandonedMutexException";
+        if (field is null && property.Name is not ("Message" or "StackTrace") && !innerExceptions && !cancellationToken && !canceledTask && !abandoned) return false;
         var self = EmitValue(p.Instance!);
         NullCheck(self);
+        if (abandoned)
+        {
+            result = property.Name == "Mutex" ? CallRuntime("csrt_exception_get_data", L.Ptr, [L.Ptr], self)
+                : CallRuntime("csrt_exception_get_mutex_index", L.I32, [L.Ptr], self);
+            return true;
+        }
         if (canceledTask)
         {
             result = CallRuntime("csrt_exception_get_data", L.Ptr, [L.Ptr], self); // TaskCanceledException.Task
