@@ -324,6 +324,9 @@ namespace CsharpcCoreLib
             return text.ToString(format is { Length: > 0 } && (format[0] | 0x20) == 'r' ? "G" : format, provider);
         }
 
+        public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null) =>
+            NumberTryFormat.CopyUtf8(ToString(format.Length == 0 ? null : format.ToString(), provider), utf8Destination, out bytesWritten);
+
         public bool TryFormat(Span<char> destination, out int charsWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null)
         {
             string text = ToString(format.Length == 0 ? null : format.ToString(), provider);

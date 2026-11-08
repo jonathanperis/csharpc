@@ -20,6 +20,19 @@ namespace CsharpcCoreLib
         [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_widen_ascii")]
         private static extern int WidenAscii(byte* source, char* destination, int length);
 
+        /// <summary>Utf8.IsValid: whether the bytes are well-formed UTF-8 (no overlong forms, surrogates or values above U+10FFFF).</summary>
+        public static bool IsValid(ReadOnlySpan<byte> value)
+        {
+            int read = 0;
+            while (read < value.Length)
+            {
+                if (value[read] < 0x80) { read++; continue; }
+                if (Rune.DecodeFromUtf8(value.Slice(read), out _, out int consumed) != OperationStatus.Done) return false;
+                read += consumed;
+            }
+            return true;
+        }
+
         public static OperationStatus FromUtf16(ReadOnlySpan<char> source, Span<byte> destination, out int charsRead, out int bytesWritten,
             bool replaceInvalidSequences = true, bool isFinalBlock = true)
         {
