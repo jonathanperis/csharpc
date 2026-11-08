@@ -43,6 +43,8 @@ public sealed record CompilerOptions
     public List<string> LinkerArgs { get; } = [];
     /// <summary>--framework-il: shared-framework assemblies forced to compile from IL (docs/adr/0013-framework-il.md).</summary>
     public List<string> FrameworkIl { get; } = [];
+    /// <summary>--il-first (or $CSHARPC_IL_FIRST): shared-framework assemblies whose corelib shadows are dropped so they compile from IL (docs/adr/0023-framework-il-first.md).</summary>
+    public List<string> IlFirst { get; } = [];
     /// <summary>--framework-il none: no automatic choice of framework assemblies to compile from IL.</summary>
     public bool FrameworkIlAutomatic { get; set; } = true;
     /// <summary>--framework: shared frameworks besides Microsoft.NETCore.App (a project's &lt;FrameworkReference&gt;).</summary>
@@ -132,6 +134,8 @@ public sealed record CompilerOptions
           --framework-il <names> Compile these shared-framework assemblies from their IL (comma-separated);
                                  'none' turns off the automatic choice (assemblies the program uses that
                                  csharpc's corelib does not implement)
+          --il-first <names>     Opt-in: drop the corelib's shadows of these shared-framework assemblies (comma-separated;
+                                 also $CSHARPC_IL_FIRST) so they compile from the framework's IL, e.g. System.Text.Json
           --framework <name>     Also reference this shared framework, like <FrameworkReference> in a project
                                  (Microsoft.AspNetCore.App); its assemblies are compiled from IL
           --corelib <il|source>  Lower the corelib from its precompiled IL (cached) or bind its C# sources
@@ -219,6 +223,9 @@ public sealed record CompilerOptions
                     foreach (var name in Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                         if (name.Equals("none", StringComparison.OrdinalIgnoreCase)) o.FrameworkIlAutomatic = false;
                         else o.FrameworkIl.Add(name.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) ? name[..^4] : name);
+                    break;
+                case "--il-first":
+                    o.IlFirst.AddRange(Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries));
                     break;
                 case "--framework":
                     o.SharedFrameworks.Add(Next());

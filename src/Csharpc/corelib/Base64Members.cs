@@ -2,6 +2,7 @@
 // whitespace (space, tab, CR, LF) is ignored, '=' pads the last quartet by one or two chars.
 #nullable disable
 using System;
+using System.Buffers;
 
 namespace CsharpcCoreLib
 {
@@ -20,6 +21,46 @@ namespace CsharpcCoreLib
         {
             ArgumentOutOfRangeException.ThrowIfNegative(length, "base64Length");
             return (length >> 2) * 3;
+        }
+
+        // Base64.EncodeToUtf8 (dotnet/runtime's Base64Encoder): whole 3-byte groups while the destination has room for the
+        // four characters; a 1 or 2 byte tail is padded with '=' when this is the final block, else left for the next call.
+        public static OperationStatus EncodeToUtf8(ReadOnlySpan<byte> bytes, Span<byte> utf8, out int bytesConsumed, out int bytesWritten, bool isFinalBlock = true)
+        {
+            const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            int read = 0, written = 0;
+            while (bytes.Length - read >= 3)
+            {
+                if (utf8.Length - written < 4)
+                {
+                    bytesConsumed = read; bytesWritten = written;
+                    return OperationStatus.DestinationTooSmall;
+                }
+                int group = (bytes[read] << 16) | (bytes[read + 1] << 8) | bytes[read + 2];
+                utf8[written] = (byte)alphabet[group >> 18];
+                utf8[written + 1] = (byte)alphabet[(group >> 12) & 63];
+                utf8[written + 2] = (byte)alphabet[(group >> 6) & 63];
+                utf8[written + 3] = (byte)alphabet[group & 63];
+                read += 3; written += 4;
+            }
+            int rest = bytes.Length - read;
+            OperationStatus status = OperationStatus.Done;
+            if (rest > 0)
+            {
+                if (!isFinalBlock) status = OperationStatus.NeedMoreData;
+                else if (utf8.Length - written < 4) status = OperationStatus.DestinationTooSmall;
+                else
+                {
+                    int group = bytes[read] << 16 | (rest == 2 ? bytes[read + 1] << 8 : 0);
+                    utf8[written] = (byte)alphabet[group >> 18];
+                    utf8[written + 1] = (byte)alphabet[(group >> 12) & 63];
+                    utf8[written + 2] = rest == 2 ? (byte)alphabet[(group >> 6) & 63] : (byte)'=';
+                    utf8[written + 3] = (byte)'=';
+                    read += rest; written += 4;
+                }
+            }
+            bytesConsumed = read; bytesWritten = written;
+            return status;
         }
 
         public static bool IsValid(ReadOnlySpan<char> base64Text) => IsValid(base64Text, out _);

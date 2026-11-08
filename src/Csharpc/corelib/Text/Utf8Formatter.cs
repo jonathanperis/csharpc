@@ -37,6 +37,23 @@ namespace CsharpcCoreLib
             return true;
         }
 
+        // Utf8Formatter.Float.cs / Decimal.cs: 'G' (the default, shortest round-trippable for float and double), 'g', 'F', 'f',
+        // 'E', 'e' with an optional precision, written as the invariant culture's ASCII text.
+        public static bool TryFormat(double value, Span<byte> destination, out int bytesWritten, StandardFormat format = default) =>
+            CopyAscii(value.ToString(FloatFormat(format), System.Globalization.CultureInfo.InvariantCulture), destination, out bytesWritten);
+        public static bool TryFormat(float value, Span<byte> destination, out int bytesWritten, StandardFormat format = default) =>
+            CopyAscii(value.ToString(FloatFormat(format), System.Globalization.CultureInfo.InvariantCulture), destination, out bytesWritten);
+        public static bool TryFormat(decimal value, Span<byte> destination, out int bytesWritten, StandardFormat format = default) =>
+            CopyAscii(value.ToString(FloatFormat(format), System.Globalization.CultureInfo.InvariantCulture), destination, out bytesWritten);
+
+        private static string FloatFormat(StandardFormat format)
+        {
+            char symbol = format.IsDefault ? 'G' : format.Symbol;
+            if (symbol is not ('G' or 'g' or 'F' or 'f' or 'E' or 'e')) throw new FormatException("Format specifier was invalid.");
+            // (default(StandardFormat) reports HasPrecision with precision 0, but means plain 'G')
+            return !format.IsDefault && format.HasPrecision ? symbol + format.Precision.ToString(System.Globalization.CultureInfo.InvariantCulture) : symbol.ToString();
+        }
+
         // Dates (Utf8Formatter.Date.cs): each standard format is the invariant culture's custom pattern, so
         // ToString with the pattern gives the same ASCII text .NET writes.
         public static bool TryFormat(DateTime value, Span<byte> destination, out int bytesWritten, StandardFormat format = default)

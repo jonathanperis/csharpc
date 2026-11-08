@@ -1,0 +1,30 @@
+0
+1.5
+-123.456789
+1E+20
+0.3333333333333333
+1.7976931348623157E+308
+5E-324
+3.142
+1.23E+003
+0.1
+16777216
+2.5
+0
+79228162514264337593543950335
+-1.2300
+10.01
+<false>
+<false>
+FormatException: Format specifier was invalid.
+Done consumed=0 written=0 ''
+Done consumed=1 written=4 'AQ=='
+Done consumed=2 written=4 'AQI='
+Done consumed=3 written=4 'AQID'
+Done consumed=4 written=8 'AQIDBA=='
+NeedMoreData consumed=3 written=4 'AQID'
+NeedMoreData consumed=3 written=4 'AQID'
+Done consumed=5 written=8 'AQIDBAU='
+DestinationTooSmall consumed=3 written=4 'AQID'
+Done consumed=7 written=12 '//79/Pv6+Q=='
+Done consumed=14 written=20 'SGVsbG8sIGJhc2U2NCE='

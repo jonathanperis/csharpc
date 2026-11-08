@@ -34,6 +34,14 @@ public sealed class Compiler(CompilerOptions options)
         var windows = TargetMachine.IsWindowsTriple(triple);
         NativeTls.On = NativeTls.Enabled(windows, darwin);
         var wasm = TargetMachine.IsWasmTriple(triple);
+        // Before the corelib index or the framework index is read: they depend on which shadows are mapped. The Windows
+        // native-TLS mode is the same mechanism with a hand-picked family of shadows (NativeTls).
+        try
+        {
+            IlFirst.Configure(options.IlFirst);
+            if (NativeTls.On) NativeTls.Apply();
+        }
+        catch (InvalidOperationException e) { return Fail(e.Message); }
         if (wasm && WasmTargetError(triple) is { } wasmError) return Fail(wasmError);
         if (wasm) options.Target = triple = "wasm32-unknown-wasip1"; // clang's spelling (the runtime's bitcode)
         if (wasm && options.Sanitize is not null)

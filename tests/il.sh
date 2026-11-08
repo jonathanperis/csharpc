@@ -193,6 +193,10 @@ if [[ -z "$FILTER" || "framework-il" == *"$FILTER"* ]]; then
   # (native shims on Unix, its csharpc intrinsics on Windows, where it calls kernel32 directly)
   expect_failure "--framework-il System.Console" "--framework-il: 'System.Console' can't be compiled from IL" "$metadata" --framework-il System.Console
   expect_failure "--framework-il NoSuchAssembly" "--framework-il: 'NoSuchAssembly' is not an assembly of the shared framework" "$metadata" --framework-il NoSuchAssembly
+  # --il-first (docs/adr/0023-framework-il-first.md): the opt-in drop of an assembly's shadows; the runtime's own code and facades stay hand-implemented.
+  expect_failure "--il-first NoSuchAssembly" "--il-first: 'NoSuchAssembly' is not an assembly of the shared framework" "$metadata" --il-first NoSuchAssembly
+  expect_failure "--il-first System.Private.CoreLib" "--il-first: System.Private.CoreLib is the runtime's own code" "$metadata" --il-first System.Private.CoreLib
+  expect_failure "--il-first System.Runtime" "--il-first: 'System.Runtime' is a facade of the runtime's CoreLib" "$metadata" --il-first System.Runtime
 fi
 
 echo
