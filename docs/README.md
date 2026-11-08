@@ -26,6 +26,7 @@ Start with the [top-level README](../README.md) for what csharpc is and how to i
 | 18 | [Compatibility](18-compatibility.md) | Real-world compatibility: Microsoft sample programs vs .NET and NativeAOT, the IL survey, ASP.NET Core |
 | 19 | [Globalization](19-globalization.md) | Cultures via ICU, culture selection, invariant mode, size |
 | 20 | [Status](20-status.md) | Where the project stands and how to pick the work up |
+| 21 | [Ownership](21-ownership.md) | Who owns what: the corelib mapped against "upstream owns it" (issue #191), with `tools/il-first/ownership.sh` |
 | | [Contributing](CONTRIBUTING.md) | Reporting bugs, adding a test, CI, where things live |
 
 ## Architecture decision records
