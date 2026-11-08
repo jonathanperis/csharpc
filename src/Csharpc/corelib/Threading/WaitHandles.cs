@@ -17,9 +17,9 @@ namespace CsharpcCoreLib
         private const int MaxWaitHandles = 64;
         private const int WaitTimeout = 0x102;
 
-        // The runtime event behind a handle: manual 0, auto 1, semaphore 2, countdown 3 (threads.c). A wait takes
-        // (resets, or decrements) an auto-reset event and a semaphore, which a failed WaitAll must give back.
-        private static bool IsConsumed(WaitHandle handle) => CoreIntrinsics.csrt_event_kind(handle) is 1 or 2;
+        // The runtime event behind a handle: manual 0, auto 1, semaphore 2, countdown 3, mutex 4 (threads.c). A wait takes
+        // (resets, or decrements) an auto-reset event and a semaphore, and acquires a mutex, which a failed WaitAll must give back.
+        private static bool IsConsumed(WaitHandle handle) => CoreIntrinsics.csrt_event_kind(handle) is 1 or 2 or 4;
         private static void Restore(WaitHandle handle) => CoreIntrinsics.csrt_event_set(handle, 1);
 
         public static int WaitAny(WaitHandle[] waitHandles) => WaitAnyCore(waitHandles, Timeout.Infinite);
@@ -55,6 +55,11 @@ namespace CsharpcCoreLib
             if (waitHandles.Length > MaxWaitHandles) throw new NotSupportedException("The number of WaitHandles must be less than or equal to 64.");
             for (int i = 0; i < waitHandles.Length; i++)
                 if (waitHandles[i] == null) throw new ArgumentNullException("waitHandles[" + i + "]", "At least one element in the specified array was null.");
+            // As on Unix in .NET: a named mutex can be waited on alone, not together with other handles.
+            if (waitHandles.Length > 1)
+                for (int i = 0; i < waitHandles.Length; i++)
+                    if (CoreIntrinsics.csrt_event_named(waitHandles[i]))
+                        throw new PlatformNotSupportedException("Wait operations on multiple wait handles including a named synchronization primitive are not supported on this platform.");
             if (checkForDuplicates)
                 for (int i = 1; i < waitHandles.Length; i++)
                     for (int j = 0; j < i; j++)
@@ -84,24 +89,39 @@ namespace CsharpcCoreLib
                     }
                     if (remaining < slice) slice = (int)remaining;
                 }
-                if (waitHandles[0].WaitOne(slice)) return 0;
+                if (WaitOneAt(waitHandles, 0, slice)) return 0;
                 found = FirstSignaled(waitHandles, 1);
                 if (found >= 0) return found;
             }
+        }
+
+        // A mutex acquired from an exited owner: WaitOne throws AbandonedMutexException, WaitAny names the handle that was.
+        private static bool WaitOneAt(WaitHandle[] waitHandles, int index, int milliseconds)
+        {
+            try { return waitHandles[index].WaitOne(milliseconds); }
+            catch (AbandonedMutexException) { throw new AbandonedMutexException(index, waitHandles[index]); }
+        }
+
+        // WaitAll acquires every mutex, abandoned or not, and only then reports that one was.
+        private static bool TakeOne(WaitHandle handle, int milliseconds, ref bool abandoned)
+        {
+            try { return handle.WaitOne(milliseconds); }
+            catch (AbandonedMutexException) { abandoned = true; return true; }
         }
 
         /// <summary>The lowest index from `first` whose handle is signaled (an auto-reset one is consumed), else -1.</summary>
         private static int FirstSignaled(WaitHandle[] waitHandles, int first)
         {
             for (int i = first; i < waitHandles.Length; i++)
-                if (waitHandles[i].WaitOne(0)) return i;
+                if (WaitOneAt(waitHandles, i, 0)) return i;
             return -1;
         }
 
         private static bool WaitAllCore(WaitHandle[] waitHandles, int millisecondsTimeout)
         {
             Validate(waitHandles, true);
-            if (TryTakeAll(waitHandles)) return true;
+            bool abandoned = false;
+            if (TryTakeAll(waitHandles, ref abandoned)) return Finish(abandoned);
             if (millisecondsTimeout == 0) return false;
             long start = Environment.TickCount64;
             for (int rounds = 0; ; rounds++)
@@ -110,14 +130,20 @@ namespace CsharpcCoreLib
                 if (millisecondsTimeout != Timeout.Infinite)
                 {
                     long remaining = millisecondsTimeout - (Environment.TickCount64 - start);
-                    if (remaining <= 0) return TryTakeAll(waitHandles);
+                    if (remaining <= 0) return TryTakeAll(waitHandles, ref abandoned) && Finish(abandoned);
                     if (remaining < slice) slice = (int)remaining;
                 }
                 // Sleep on the first handle that isn't signaled yet; an auto-reset event that woke it was consumed: signaled again.
                 WaitHandle sleeper = waitHandles[FirstUnsignaled(waitHandles)];
-                if (sleeper.WaitOne(slice) && IsConsumed(sleeper)) Restore(sleeper);
-                if (TryTakeAll(waitHandles)) return true;
+                if (TakeOne(sleeper, slice, ref abandoned) && IsConsumed(sleeper)) Restore(sleeper);
+                if (TryTakeAll(waitHandles, ref abandoned)) return Finish(abandoned);
             }
+        }
+
+        private static bool Finish(bool abandoned)
+        {
+            if (abandoned) throw new AbandonedMutexException();
+            return true;
         }
 
         private static int FirstUnsignaled(WaitHandle[] waitHandles)
@@ -132,11 +158,11 @@ namespace CsharpcCoreLib
 
         // All handles at once or none: an auto-reset event taken before a handle that isn't signaled is signaled
         // again (the other kinds are not consumed by a wait).
-        private static bool TryTakeAll(WaitHandle[] waitHandles)
+        private static bool TryTakeAll(WaitHandle[] waitHandles, ref bool abandoned)
         {
             for (int i = 0; i < waitHandles.Length; i++)
             {
-                if (waitHandles[i].WaitOne(0)) continue;
+                if (TakeOne(waitHandles[i], 0, ref abandoned)) continue;
                 for (int j = 0; j < i; j++)
                     if (IsConsumed(waitHandles[j])) Restore(waitHandles[j]);
                 return false;

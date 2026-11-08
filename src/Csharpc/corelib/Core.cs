@@ -245,6 +245,13 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_event_reset(object e);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_event_is_set(object e);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_event_wait(object e, int milliseconds);
+        // Mutex handles (runtime/threads.c): an unnamed mutex; a handle onto the named one in `scope` (null: no such mutex and
+        // `create` is off), after which csrt_mutex_created_new tells whether the call created it.
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_mutex_new();
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_semaphore_new(int initialCount, int maximumCount);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_mutex_open(string name, int scope, bool create);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_mutex_created_new();
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_event_named(object handle);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_cts_link(System.Threading.CancellationTokenSource linked, System.Threading.CancellationToken token);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_cts_token(System.Threading.CancellationTokenSource source);
     }

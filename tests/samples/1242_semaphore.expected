@@ -1,0 +1,37 @@
+negative initial: System.ArgumentOutOfRangeException: initialCount ('-1') must be a non-negative value. (Parameter 'initialCount')|Actual value was -1.
+zero maximum: System.ArgumentOutOfRangeException: maximumCount ('0') must be a non-negative and non-zero value. (Parameter 'maximumCount')|Actual value was 0.
+negative maximum: System.ArgumentOutOfRangeException: maximumCount ('-3') must be a non-negative and non-zero value. (Parameter 'maximumCount')|Actual value was -3.
+initial above maximum: System.ArgumentException: The initial count for the semaphore must be greater than or equal to zero and less than the maximum count.
+System.Threading.Semaphore
+take: True False
+Release() returns the previous count: 0
+Release(2): 1
+Release above the maximum: System.Threading.SemaphoreFullException: Adding the specified count to the semaphore would cause it to exceed its maximum count.
+Release(0): System.ArgumentOutOfRangeException: releaseCount ('0') must be a non-negative and non-zero value. (Parameter 'releaseCount')|Actual value was 0.
+Release(-1): System.ArgumentOutOfRangeException: releaseCount ('-1') must be a non-negative and non-zero value. (Parameter 'releaseCount')|Actual value was -1.
+Release(4): System.Threading.SemaphoreFullException: Adding the specified count to the semaphore would cause it to exceed its maximum count.
+count kept: True True True False
+False
+False
+WaitOne(-2): System.ArgumentOutOfRangeException: millisecondsTimeout ('-2') must be greater than or equal to '-1'. (Parameter 'millisecondsTimeout')|Actual value was -2.
+named: System.PlatformNotSupportedException: The named version of this synchronization primitive is not supported on this platform.
+named, createdNew: System.PlatformNotSupportedException: The named version of this synchronization primitive is not supported on this platform.
+OpenExisting: System.PlatformNotSupportedException: The named version of this synchronization primitive is not supported on this platform.
+TryOpenExisting: System.PlatformNotSupportedException: The named version of this synchronization primitive is not supported on this platform.
+OpenExisting null: System.PlatformNotSupportedException: The named version of this synchronization primitive is not supported on this platform.
+OpenExisting empty: System.PlatformNotSupportedException: The named version of this synchronization primitive is not supported on this platform.
+unnamed through the named constructor: True False
+empty name: System.PlatformNotSupportedException: The named version of this synchronization primitive is not supported on this platform.
+WaitAny: 1
+WaitAny again: 2
+WaitAll: True
+WaitAll, one is empty: False
+nothing was taken: False
+WaitAll, all there: True
+with a mutex: True
+disposed WaitOne: System.ObjectDisposedException: Cannot access a disposed object.|Object name: 'Microsoft.Win32.SafeHandles.SafeWaitHandle'.
+disposed Release: System.ObjectDisposedException: Cannot access a disposed object.|Object name: 'Microsoft.Win32.SafeHandles.SafeWaitHandle'.
+disposed through IDisposable: System.ObjectDisposedException: Cannot access a disposed object.|Object name: 'Microsoft.Win32.SafeHandles.SafeWaitHandle'.
+done: 1200, never more than two inside: True, at the end: 0
+all permits back: True True False
+0,10,20,30,40

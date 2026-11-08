@@ -280,3 +280,8 @@ windows 1229_math_double_members       live: the sign of the NaN Log/Log2 return
 windows 1261_process_wait_for_exit_async  runs a POSIX sh; csharpc's Process.Start on Windows is an explicit NotSupportedException (not implemented yet)
 wasi 1261_process_wait_for_exit_async     WASI has no processes to start
 wasi 1268_appdomain_process_exit    needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly (1269 covers ProcessExit there)
+wasi 1240_mutex_unnamed         needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 1241_mutex_named           needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 1242_semaphore             needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+windows 1241_mutex_named        known gap: named mutexes are not implemented on Windows yet (csharpc stops with NotSupportedException; real .NET uses kernel mutexes, whose release error and multi-handle waits differ from the Unix ones recorded here)
+windows 1242_semaphore  live: named semaphores exist on Windows and throw PlatformNotSupportedException on Unix in .NET; the sample leaves them out on Windows, so its expectation there is recorded from real .NET on the Windows runner

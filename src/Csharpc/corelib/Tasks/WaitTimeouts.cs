@@ -7,6 +7,13 @@ namespace CsharpcCoreLib
 {
     internal static class WaitTimeouts
     {
+        /// <summary>WaitHandle.WaitOne(int) and CountdownEvent.Wait(int): below -1 is an error, not an infinite wait.</summary>
+        public static int Milliseconds(int millisecondsTimeout)
+        {
+            ArgumentOutOfRangeException.ThrowIfLessThan(millisecondsTimeout, -1);
+            return millisecondsTimeout;
+        }
+
         public static int TimeoutMilliseconds(TimeSpan timeout)
         {
             long totalMilliseconds = (long)timeout.TotalMilliseconds;

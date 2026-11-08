@@ -21,7 +21,7 @@ of the milestone below says where it is tracked.
 | M3 Platforms | ✅ done | per-platform limits are documented, see M3 below |
 | M4 Real-world validation | 🟡 open | parity is 98.4 % (242 of 246) in the latest Compatibility run, down from 100 % (#163) |
 | M5 Binary packages and the program as IL | 🟡 open | the BCL surface packages use (#146) |
-| M6 Bootstrapping | 🟡 open | `Mutex` (#174, the last 3 methods of the Roslyn survey), quadratic lowering on very large programs (#93) |
+| M6 Bootstrapping | 🟡 open | quadratic lowering on very large programs (#93) |
 | M7 TechEmpower with the `csharpc` CLI | ⏸ on hold (owner) | started 2026-10-31 before M2–M6 were done, against the owner's rule; on hold since 2026-11-05. Last good measurement 288 of 456 metrics ahead of NativeAOT; on `main` today csharpc does not build the entry (#164) |
 | M8 The dotnet fork | ⬜ not started | |
 | M9 TechEmpower through the fork | ⬜ not started | |
@@ -88,7 +88,7 @@ of the milestone below says where it is tracked.
 |---|---|---|
 | Garbage collection | ✅ | conservative, non-moving mark-sweep; thread-safe (stop-the-world); opt-in nursery and concurrent marker ([ADR 0004](adr/0004-memory-management.md), [ADR 0020](adr/0020-concurrent-marking.md)) |
 | Finalizers | ✅ | `~T()` and IL `Finalize` overrides of the program's classes, `GC.SuppressFinalize`/`ReRegisterForFinalize`/`WaitForPendingFinalizers`, resurrection, a finalizer thread ([ADR 0021](adr/0021-finalizers.md)); the corelib's own types declare none |
-| Multithreading (`Thread`, `Monitor`, `Interlocked`, `Parallel`, thread pool) | ✅ | `Task.Run` and continuations run on the runtime's thread pool |
+| Multithreading (`Thread`, `Monitor`, `Interlocked`, `Parallel`, thread pool, wait handles incl. `Mutex` and `Semaphore`) | ✅ | `Task.Run` and continuations run on the runtime's thread pool; named mutexes in one process ([14](14-threading.md)); shared between processes stays an explicit diagnostic (#174) |
 | Unhandled exceptions (message + exit 134) | ✅ | |
 | Static initialization | ✅ | lazy per type with CoreCLR's triggers, `TypeInitializationException`, separate statics per generic instantiation (sample 381) |
 | Reflection | 🟡 | `GetType()`, `typeof`, names; `System.Type` predicates, generics, assignability and `Type.Assembly` over compile-time metadata ([12-corelib.md](12-corelib.md#type-metadata-systemtype-reflection)); constructors, methods, properties, attributes (including the `[Nullable]`/`[NullableContext]` csc writes for `#nullable enable` source, [ADR 0018](adr/0018-reflection-metadata.md)), `Invoke`, `CreateDelegate`, closed-world `MakeGenericType`, fields (with `GetValue`/`SetValue`, including the compiler-generated backing field of field-like events, as `Type.GetFields` lists it), events and `GetInterfaces`, for the types `[DynamicallyAccessedMembers]` or a constant `typeof(C).GetX(...)` pattern reaches, also through a local assigned `typeof(C)`. Explicit `NotSupportedException` where csharpc can't answer as .NET does: a type no such flow reaches (also `typeof(C)` reached through a field, a parameter without the annotation or `obj.GetType()`, a lambda-captured local in IL), non-public fields of reference-assembly types, fixed buffers and ref fields, the `[Nullable]`/`[NullableContext]` attributes of the shapes csharpc doesn't model (records, delegates, indexers, primary constructors, constrained type parameters, type aliases...: the untyped attribute queries throw), a struct's event field, `FieldInfo.FieldHandle`, `MakeByRefType`, `Reflection.Emit` |
@@ -322,7 +322,7 @@ structs (26 packages) first, both done; next are `MathF` and the reflection look
 `TypeInfo.GetDeclaredProperty`).
 
 ### M6 — Bootstrapping
-**Status:** 🟡 open (#174, #93).
+**Status:** 🟡 open (#93).
 
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.
 
@@ -368,11 +368,11 @@ about 35 s (15 % / 6 %) for a second set of types, declarations and constants in
 
 **Roslyn-from-IL survey, re-measured 2026-11-07 (#169):** 32 methods of Roslyn, `csharpc.dll` and the framework IL failed to
 lower (the 38 of 2026-10-31 had shrunk with earlier work), 4 after the fixes of that issue, and every shard now compiles to
-the end ([18-compatibility.md](18-compatibility.md#roslyn-and-csharpc)); the 4 are `Mutex` (#174). **Threaded lowering is a
+the end ([18-compatibility.md](18-compatibility.md#roslyn-and-csharpc)); the remaining ones were `Mutex` (#174, now implemented). **Threaded lowering is a
 decision, not an open item** (owner, 2026-11-06; [ADR 0014](adr/0014-compile-time.md), "Next hot spots"): deferred, the
 measured saving is about 35 s of a 238 s (-O0) and 577 s (-O2) self-compile.
 
-**Open (#174, #93):** `Mutex`; lowering scales quadratically on a very large program (#93: a ~250-assembly application, the
+**Open (#93):** lowering scales quadratically on a very large program (#93: a ~250-assembly application, the
 builtin interface tables are the largest step left).
 
 ### Runtime tiers — C# for library code, C where it is the right tool
