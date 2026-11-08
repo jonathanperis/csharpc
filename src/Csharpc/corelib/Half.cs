@@ -281,6 +281,17 @@ namespace CsharpcCoreLib
         public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out Half result) =>
             TryParseCore(s, style, provider, out result, false);
 
+        // IUtf8SpanParsable: the text of the bytes, parsed as the chars would be (bytes that aren't valid UTF-8 decode to
+        // U+FFFD, which no number syntax accepts).
+        public static Half Parse(ReadOnlySpan<byte> utf8Text, NumberStyles style = DefaultStyle, IFormatProvider provider = null) =>
+            Parse(System.Text.Encoding.UTF8.GetString(utf8Text).AsSpan(), style, provider);
+        public static Half Parse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider) => Parse(utf8Text, DefaultStyle, provider);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, NumberStyles style, IFormatProvider provider, out Half result) =>
+            TryParseCore(System.Text.Encoding.UTF8.GetString(utf8Text).AsSpan(), style, provider, out result, false);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider, out Half result) =>
+            TryParse(utf8Text, DefaultStyle, provider, out result);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, out Half result) => TryParse(utf8Text, DefaultStyle, null, out result);
+
         // ---- text ----
         public override string ToString() => ToString(null, null);
         public string ToString(string format) => ToString(format, null);

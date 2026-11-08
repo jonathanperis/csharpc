@@ -1101,6 +1101,9 @@ namespace CsharpcCoreLib
             return false;
         }
 
+        /// <summary>Assembly.GetCustomAttributesData() over an assembly's compiled-in attribute records.</summary>
+        public static IList<CustomAttributeData> AssemblyAttributesData(byte* records, int raw) => AttributeData(records, raw);
+
         /// <summary>CustomAttributeData lists the pseudo-custom attributes (In, Optional, MarshalAs, ...) before the metadata's.</summary>
         internal static IList<CustomAttributeData> AttributeData(byte* records, int raw)
         {
@@ -1178,9 +1181,24 @@ namespace CsharpcCoreLib
             }
         }
 
+        /// <summary>
+        /// Whether `type` is a System.Private.CoreLib type that csharpc keeps no attributes for and `attributeType` an attribute
+        /// class from another assembly: CoreLib references no other assembly, so none of its types carries such an attribute and
+        /// the exact answer is "none" (a query for CoreLib's own attribute classes, or for all of them, stays unanswerable).
+        /// </summary>
+        private static bool CannotCarry(Type type, Type attributeType)
+        {
+            if (InfoOf(type, "custom attributes") != null) return false;
+            try { return IsCoreLib(type.Assembly) && !IsCoreLib(attributeType.Assembly); }
+            catch (NotSupportedException) { return false; }
+        }
+
+        private static bool IsCoreLib(Assembly assembly) => assembly.FullName.StartsWith("System.Private.CoreLib,", StringComparison.Ordinal);
+
         internal static object[] GetTypeCustomAttributes(Type type, Type attributeType, bool inherit)
         {
             ArgumentNullException.ThrowIfNull(attributeType);
+            if (CannotCarry(type, attributeType)) return CreateAttributes(null, 0, attributeType);
             byte* info = TypeAttributeInfo(type);
             CheckInherited(type, inherit);
             return info == null ? CreateAttributes(null, 0, attributeType)
@@ -1211,6 +1229,7 @@ namespace CsharpcCoreLib
         public static bool IsTypeDefined(Type type, Type attributeType, bool inherit)
         {
             ArgumentNullException.ThrowIfNull(attributeType);
+            if (CannotCarry(type, attributeType)) return false;
             byte* info = TypeAttributeInfo(type);
             CheckInherited(type, inherit);
             return info != null && IsDefined(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
@@ -1259,10 +1278,14 @@ namespace CsharpcCoreLib
         private static Dictionary<Type, ConstructorInfo> s_defaultConstructors = new Dictionary<Type, ConstructorInfo>();
         private static readonly object s_defaultConstructorsLock = new object();
 
-        public static object ActivatorCreateInstance(Type type)
+        public static object ActivatorCreateInstance(Type type) => ActivatorCreateInstance(type, false);
+
+        /// <summary>Activator.CreateInstance(Type, bool nonPublic): the parameterless constructor, a non-public one too when asked;
+        /// a value type without one is a boxed default, as in .NET (RuntimeType.CreateInstanceDefaultCtor).</summary>
+        public static object ActivatorCreateInstance(Type type, bool nonPublic)
         {
             ArgumentNullException.ThrowIfNull(type);
-            if (Volatile.Read(ref s_defaultConstructors).TryGetValue(type, out ConstructorInfo known)) return known.Invoke(null);
+            if (!nonPublic && Volatile.Read(ref s_defaultConstructors).TryGetValue(type, out ConstructorInfo known)) return known.Invoke(null);
             if (type.ContainsGenericParameters)
                 throw new ArgumentException("Cannot create an instance of " + type + " because Type.ContainsGenericParameters is true.");
             if (type.IsInterface)
@@ -1271,9 +1294,10 @@ namespace CsharpcCoreLib
                 throw new MissingMethodException("Cannot dynamically create an instance of type '" + type + "'. Reason: Cannot create an abstract class.");
             if (type.IsArray || type.IsPointer || type.IsByRef || type.IsSubclassOf(typeof(Delegate)))
                 throw new NotSupportedException("Activator.CreateInstance(" + type + ") is not supported by csharpc yet.");
-            ConstructorInfo ctor = GetConstructor(type, BindingFlags.Public | BindingFlags.Instance, null, Type.EmptyTypes, null);
+            ConstructorInfo ctor = GetConstructor(type, (nonPublic ? BindingFlags.Public | BindingFlags.NonPublic : BindingFlags.Public) | BindingFlags.Instance, null, Type.EmptyTypes, null);
             if (ctor != null)
             {
+                if (nonPublic) return ctor.Invoke(null);
                 lock (s_defaultConstructorsLock)
                 {
                     var grown = new Dictionary<Type, ConstructorInfo>(s_defaultConstructors);
@@ -1282,10 +1306,8 @@ namespace CsharpcCoreLib
                 }
                 return ctor.Invoke(null);
             }
-            // .NET returns a boxed default for a struct without a parameterless constructor; csharpc can't
-            // allocate one from a run-time Type yet.
-            if (type.IsValueType)
-                throw new NotSupportedException("Activator.CreateInstance of value type '" + type + "' is not supported by csharpc yet.");
+            // .NET returns a boxed default for a struct without a parameterless constructor.
+            if (type.IsValueType) return GetUninitializedObject(type);
             throw new MissingMethodException("Cannot dynamically create an instance of type '" + type + "'. Reason: No parameterless constructor defined.");
         }
 
