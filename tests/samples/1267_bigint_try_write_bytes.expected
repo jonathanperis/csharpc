@@ -1,0 +1,55 @@
+0 unsigned=False bigEndian=False: True 1 00EE; small True 1 00EE
+0 unsigned=False bigEndian=True: True 1 00EE; small True 1 00EE
+0 unsigned=True bigEndian=False: True 1 00EE; small True 1 00EE
+0 unsigned=True bigEndian=True: True 1 00EE; small True 1 00EE
+1 unsigned=False bigEndian=False: True 1 01EE; small True 1 01EE
+1 unsigned=False bigEndian=True: True 1 01EE; small True 1 01EE
+1 unsigned=True bigEndian=False: True 1 01EE; small True 1 01EE
+1 unsigned=True bigEndian=True: True 1 01EE; small True 1 01EE
+255 unsigned=False bigEndian=False: True 2 FF00EE; small True 2 FF00
+255 unsigned=False bigEndian=True: True 2 00FFEE; small True 2 00FF
+255 unsigned=True bigEndian=False: True 1 FFEE; small True 1 FFEE
+255 unsigned=True bigEndian=True: True 1 FFEE; small True 1 FFEE
+256 unsigned=False bigEndian=False: True 2 0001EE; small True 2 0001
+256 unsigned=False bigEndian=True: True 2 0100EE; small True 2 0100
+256 unsigned=True bigEndian=False: True 2 0001EE; small True 2 0001
+256 unsigned=True bigEndian=True: True 2 0100EE; small True 2 0100
+-1 unsigned=False bigEndian=False: True 1 FFEE; small True 1 FFEE
+-1 unsigned=False bigEndian=True: True 1 FFEE; small True 1 FFEE
+-1 unsigned=True bigEndian=False: OverflowException: Negative values do not have an unsigned representation.
+-1 unsigned=True bigEndian=True: OverflowException: Negative values do not have an unsigned representation.
+-128 unsigned=False bigEndian=False: True 1 80EE; small True 1 80EE
+-128 unsigned=False bigEndian=True: True 1 80EE; small True 1 80EE
+-128 unsigned=True bigEndian=False: OverflowException: Negative values do not have an unsigned representation.
+-128 unsigned=True bigEndian=True: OverflowException: Negative values do not have an unsigned representation.
+-129 unsigned=False bigEndian=False: True 2 7FFFEE; small True 2 7FFF
+-129 unsigned=False bigEndian=True: True 2 FF7FEE; small True 2 FF7F
+-129 unsigned=True bigEndian=False: OverflowException: Negative values do not have an unsigned representation.
+-129 unsigned=True bigEndian=True: OverflowException: Negative values do not have an unsigned representation.
+65535 unsigned=False bigEndian=False: True 3 FFFF00EE; small False 0 EEEE
+65535 unsigned=False bigEndian=True: True 3 00FFFFEE; small False 0 EEEE
+65535 unsigned=True bigEndian=False: True 2 FFFFEE; small True 2 FFFF
+65535 unsigned=True bigEndian=True: True 2 FFFFEE; small True 2 FFFF
+-65536 unsigned=False bigEndian=False: True 3 0000FFEE; small False 0 EEEE
+-65536 unsigned=False bigEndian=True: True 3 FF0000EE; small False 0 EEEE
+-65536 unsigned=True bigEndian=False: OverflowException: Negative values do not have an unsigned representation.
+-65536 unsigned=True bigEndian=True: OverflowException: Negative values do not have an unsigned representation.
+4294967295 unsigned=False bigEndian=False: True 5 FFFFFFFF00EE; small False 0 EEEE
+4294967295 unsigned=False bigEndian=True: True 5 00FFFFFFFFEE; small False 0 EEEE
+4294967295 unsigned=True bigEndian=False: True 4 FFFFFFFFEE; small False 0 EEEE
+4294967295 unsigned=True bigEndian=True: True 4 FFFFFFFFEE; small False 0 EEEE
+4294967296 unsigned=False bigEndian=False: True 5 0000000001EE; small False 0 EEEE
+4294967296 unsigned=False bigEndian=True: True 5 0100000000EE; small False 0 EEEE
+4294967296 unsigned=True bigEndian=False: True 5 0000000001EE; small False 0 EEEE
+4294967296 unsigned=True bigEndian=True: True 5 0100000000EE; small False 0 EEEE
+123456789012345678901234567890 unsigned=False bigEndian=False: True 13 D20A3F4EEEE073C3F60FE98E01EE; small False 0 EEEE
+123456789012345678901234567890 unsigned=False bigEndian=True: True 13 018EE90FF6C373E0EE4E3F0AD2EE; small False 0 EEEE
+123456789012345678901234567890 unsigned=True bigEndian=False: True 13 D20A3F4EEEE073C3F60FE98E01EE; small False 0 EEEE
+123456789012345678901234567890 unsigned=True bigEndian=True: True 13 018EE90FF6C373E0EE4E3F0AD2EE; small False 0 EEEE
+-123456789012345678901234567890 unsigned=False bigEndian=False: True 13 2EF5C0B1111F8C3C09F01671FEEE; small False 0 EEEE
+-123456789012345678901234567890 unsigned=False bigEndian=True: True 13 FE7116F0093C8C1F11B1C0F52EEE; small False 0 EEEE
+-123456789012345678901234567890 unsigned=True bigEndian=False: OverflowException: Negative values do not have an unsigned representation.
+-123456789012345678901234567890 unsigned=True bigEndian=True: OverflowException: Negative values do not have an unsigned representation.
+True 1 FE
+True 2 2C01
+False 0

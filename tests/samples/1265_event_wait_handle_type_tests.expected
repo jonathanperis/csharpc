@@ -1,0 +1,12 @@
+True False False True False False
+True False False False
+cast: True True
+null cast: True
+Unable to cast object of type 'System.Threading.AutoResetEvent' to type 'System.Threading.ManualResetEvent'.
+Unable to cast object of type 'System.Threading.ManualResetEvent' to type 'System.Threading.AutoResetEvent'.
+Unable to cast object of type 'System.String' to type 'System.Threading.ManualResetEvent'.
+token handle: True False
+task handle: True False
+semaphore handle: True False
+mixed: 1 1
+switch: manual True

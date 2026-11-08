@@ -367,6 +367,37 @@ namespace CsharpcCoreLib
         // never raised, and Load finds only what Assembly.Load does.
         public event ResolveEventHandler AssemblyResolve { add { } remove { } }
 
+        // .NET Core has one app domain that is never unloaded: DomainUnload can be subscribed to and is never raised.
+        public event EventHandler DomainUnload { add { } remove { } }
+
+        // ProcessExit is raised when Main has returned and the foreground threads are done, or from Environment.Exit, before
+        // the output is flushed (runtime/csrt.c); not after a crash. The first handler registers the raiser with the runtime.
+        private static readonly object s_processExitLock = new object();
+        private static EventHandler s_processExit;
+
+        public event EventHandler ProcessExit
+        {
+            add
+            {
+                lock (s_processExitLock) s_processExit = (EventHandler)Delegate.Combine(s_processExit, value);
+                CoreIntrinsics.csrt_process_exit_register();
+            }
+            remove
+            {
+                lock (s_processExitLock) s_processExit = (EventHandler)Delegate.Remove(s_processExit, value);
+            }
+        }
+
+        [RuntimeExport("csrt_process_exit_raise", "csrt_process_exit_register")]
+        internal static void RaiseProcessExit()
+        {
+            EventHandler handlers;
+            lock (s_processExitLock) handlers = s_processExit;
+            if (handlers == null) return;
+            try { handlers(CurrentDomain, EventArgs.Empty); }
+            catch (Exception e) { CoreIntrinsics.UnhandledException(e); }
+        }
+
         public Assembly Load(AssemblyName assemblyRef) => Assembly.Load(assemblyRef);
         public Assembly Load(string assemblyString) => Assembly.Load(assemblyString);
 

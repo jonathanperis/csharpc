@@ -1,8 +1,8 @@
 // SHA-1 and SHA-256 (FIPS 180-4) behind .NET's HashAlgorithm / SHA1 / SHA256 / IncrementalHash API.
 // .NET delegates to the OS's crypto library; the digests are defined bit for bit by the standard, so a
 // managed implementation gives the same bytes. Roslyn hashes source text, file identities and PE
-// content with them; HMAC over them is Crypto/Pbkdf2.cs. SHA-384/512 share one 64-bit engine; MD5 is RFC 1321. SHA-3 is not implemented and stays a
-// compile-time "no implementation" diagnostic or NotSupportedException where the name is a value.
+// content with them; HMAC over them is Crypto/Pbkdf2.cs. SHA-384/512 share one 64-bit engine; MD5 is RFC 1321.
+// SHA-3 is Crypto/Sha3.cs.
 #nullable disable
 using System;
 using System.IO;
@@ -14,6 +14,8 @@ namespace CsharpcCoreLib
     internal abstract class HashEngine
     {
         public abstract int HashSizeInBytes { get; }
+        /// <summary>The input block (what HMAC pads its key to): 64 bytes for SHA-1/256 and MD5, 128 for SHA-384/512, the rate for SHA-3.</summary>
+        public virtual int BlockSizeInBytes => 64;
         public abstract void Reset();
         public abstract void Append(ReadOnlySpan<byte> data);
         public abstract byte[] Finish(); // the digest; leaves the engine reset
@@ -27,8 +29,9 @@ namespace CsharpcCoreLib
             if (name.Name == "SHA384") return new Sha512Engine(is384: true);
             if (name.Name == "SHA512") return new Sha512Engine(is384: false);
             if (name.Name == "MD5") return new Md5Engine();
-            if (name.Name.StartsWith("SHA3-", StringComparison.Ordinal))
-                throw new NotSupportedException("The hash algorithm " + name.Name + " is not supported by csharpc yet.");
+            if (name.Name == "SHA3-256") return new Sha3Engine(32);
+            if (name.Name == "SHA3-384") return new Sha3Engine(48);
+            if (name.Name == "SHA3-512") return new Sha3Engine(64);
 #if CSHARPC_TARGET_WINDOWS
             // .NET on Windows asks CNG, whose NTE_BAD_ALGID surfaces as this message.
             throw new CryptographicException("Unknown error (0xc1000225)");
@@ -317,6 +320,7 @@ namespace CsharpcCoreLib
 
         public Sha512Engine(bool is384) { _is384 = is384; Reset(); }
         public override int HashSizeInBytes => _is384 ? 48 : 64;
+        public override int BlockSizeInBytes => 128;
 
         public override void Reset()
         {

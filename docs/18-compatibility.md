@@ -384,7 +384,7 @@ alignment, now opaque bodies of the CLR's size with fields at their byte offsets
 (`ImmutableArray<(A a, B b)>.Enumerator`); pointer-element arrays and pointer fields in generic equality
 (the `type test against 'byte*'` seen in every shard); `Guid` in P/Invoke; COM-object P/Invokes as stubs
 that end the program (the CSLLVM0008 boundary, as for DiaSymReader's Windows-PDB factory); SHA-384,
-SHA-512 and MD5; `CollectionsMarshal.GetValueRefOrAddDefault`; `MemoryStream.TryGetBuffer`;
+SHA-512, MD5 and SHA-3 (SHA3-256/384/512, behind `IncrementalHash` and HMAC too); `CollectionsMarshal.GetValueRefOrAddDefault`; `MemoryStream.TryGetBuffer`;
 `BinaryReader.Read`; `BigInteger.ToByteArray`/`TryParse` with styles; `Math.BigMul`; span
 `ReverseEndianness`; `StringBuilder.AppendFormat` with a provider and a span; `Encoding.RegisterProvider`
 and `EncodingProvider`; `TypeInfo.GenericTypeParameters`/`GetDeclaredMethods`/`DeclaredConstructors`;

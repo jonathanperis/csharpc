@@ -1,0 +1,12 @@
+exited=True code=3
+again: ok
+exited, cancelled token: completed
+cancelled while waiting: TaskCanceledException: A task was canceled.
+still running: True
+killed: exited=True code=137
+running, cancelled token: OperationCanceledException: The operation was canceled.
+no process: InvalidOperationException: No process is associated with this object.
+completed before the child exits: False
+status=RanToCompletion code=0
+hello|world|
+1,2,3

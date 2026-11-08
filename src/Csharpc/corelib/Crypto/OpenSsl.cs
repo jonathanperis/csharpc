@@ -66,6 +66,14 @@ namespace CsharpcCoreLib
         [DllImport(Crypto)] internal static extern IntPtr d2i_PKCS12(IntPtr* a, byte** pp, OsslLong length);
         [DllImport(Crypto)] internal static extern int PKCS12_parse(IntPtr p12, byte* pass, IntPtr* pkey, IntPtr* cert, IntPtr* ca);
         [DllImport(Crypto)] internal static extern void PKCS12_free(IntPtr p12);
+        // The bags of a PFX in file order (PKCS12_parse puts the certificate of the key first, then the others).
+        [DllImport(Crypto)] internal static extern IntPtr PKCS12_unpack_authsafes(IntPtr p12);
+        [DllImport(Crypto)] internal static extern IntPtr PKCS12_unpack_p7data(IntPtr p7);
+        [DllImport(Crypto)] internal static extern IntPtr PKCS12_unpack_p7encdata(IntPtr p7, byte* pass, int passLength);
+        [DllImport(Crypto)] internal static extern int PKCS12_SAFEBAG_get_nid(IntPtr bag);
+        [DllImport(Crypto)] internal static extern IntPtr PKCS12_SAFEBAG_get1_cert(IntPtr bag);
+        [DllImport(Crypto)] internal static extern void PKCS12_SAFEBAG_free(IntPtr bag);
+        [DllImport(Crypto)] internal static extern void PKCS7_free(IntPtr p7);
         [DllImport(Crypto)] internal static extern int EVP_PKEY_up_ref(IntPtr pkey);
         [DllImport(Crypto)] internal static extern void EVP_PKEY_free(IntPtr pkey);
         [DllImport(Crypto)] internal static extern int EVP_PKEY_get_base_id(IntPtr pkey);
