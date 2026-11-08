@@ -1,0 +1,17 @@
+True
+123 4 3
+1,22,333
+a#b#c#
+a|b|c|d
+2026/11/08 at 8
+08.11.2026
+True
+value
+a+b+c
+ab
+False
+(a)\1 -> NotSupportedException: RegexOptions.NonBacktracking is not supported in conjunction with expressions containing: 'backreference (\ number)'.
+(?<=a)b -> NotSupportedException: RegexOptions.NonBacktracking is not supported in conjunction with expressions containing: 'positive lookahead (?= pattern) or positive lookbehind (?<= pattern)'.
+a(?=b) -> NotSupportedException: RegexOptions.NonBacktracking is not supported in conjunction with expressions containing: 'positive lookahead (?= pattern) or positive lookbehind (?<= pattern)'.
+(?>a) -> NotSupportedException: RegexOptions.NonBacktracking is not supported in conjunction with expressions containing: 'atomic subexpressions (?> pattern)'.
+RightToLeft -> ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'options')

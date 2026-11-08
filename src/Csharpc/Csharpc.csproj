@@ -10,6 +10,9 @@
     <AssemblyName>csharpc</AssemblyName>
     <RootNamespace>Csharpc</RootNamespace>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- The SDK's regex generator looks a culture up by name ([GeneratedRegex(..., "tr-TR")]) to pick its case behaviour,
+         which only needs the name; without this, invariant mode throws ArgumentException("cultureName") for any name. -->
+    <PredefinedCulturesOnly>false</PredefinedCulturesOnly>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
 
     <!-- `dotnet pack` => a .NET tool: dotnet tool install -g csharpc -->
@@ -47,7 +50,7 @@
   </ItemGroup>
 
   <!--
-    The SDK's own source generators for [JsonSerializable] and [LibraryImport], linked into csharpc instead of loaded at
+    The SDK's own source generators for [JsonSerializable], [LibraryImport] and [GeneratedRegex], linked into csharpc instead of loaded at
     run time (SourceGenerators.cs): a csharpc compiled by csharpc cannot load assemblies. They come from the analyzers
     folder of the Microsoft.NETCore.App.Ref pack of the SDK that builds csharpc (version pinned by the SDK,
     global.json), so they are the generators `dotnet build` runs for the same .NET. Microsoft.Interop.SourceGeneration
@@ -58,6 +61,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="System.Text.Json.SourceGeneration" Aliases="JsonGenerator" HintPath="$(_CsharpcSdkGenerators)/System.Text.Json.SourceGeneration.dll" />
+    <Reference Include="System.Text.RegularExpressions.Generator" Aliases="RegexGenerator" HintPath="$(_CsharpcSdkGenerators)/System.Text.RegularExpressions.Generator.dll" />
     <Reference Include="Microsoft.Interop.LibraryImportGenerator" HintPath="$(_CsharpcSdkGenerators)/Microsoft.Interop.LibraryImportGenerator.dll" />
     <Reference Include="Microsoft.Interop.SourceGeneration" HintPath="$(_CsharpcSdkGenerators)/Microsoft.Interop.SourceGeneration.dll" />
   </ItemGroup>

@@ -5,11 +5,6 @@ those parts of csharpc.
 
 ## .NET Runtime (dotnet/runtime)
 
-- **What:** the regular-expression engine in `src/Csharpc/corelib/Regex/` is a port of
-  `src/libraries/System.Text.RegularExpressions/src` (parser, tree optimizer, find optimizations,
-  case-equivalence tables, writer, interpreter and the public `Regex` / `Match` / `Group` /
-  `Capture` API), adapted to the csharpc corelib. Each ported file keeps the upstream license
-  header.
 - **What:** globalization. `src/Csharpc/corelib/Globalization/` ports
   `src/libraries/System.Private.CoreLib/src/System/Globalization` (CultureInfo, CultureData and its ICU
   path, NumberFormatInfo, DateTimeFormatInfo and its scanner, DateTimeFormat, DateTimeParse, the
