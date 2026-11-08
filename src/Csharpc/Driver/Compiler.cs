@@ -32,7 +32,7 @@ public sealed class Compiler(CompilerOptions options)
         var triple = options.Target ?? TargetMachine.HostTriple;
         var darwin = TargetMachine.IsDarwinTriple(triple);
         var windows = TargetMachine.IsWindowsTriple(triple);
-        NativeTls.On = NativeTls.Enabled(windows);
+        NativeTls.On = NativeTls.Enabled(windows, darwin);
         var wasm = TargetMachine.IsWasmTriple(triple);
         if (wasm && WasmTargetError(triple) is { } wasmError) return Fail(wasmError);
         if (wasm) options.Target = triple = "wasm32-unknown-wasip1"; // clang's spelling (the runtime's bitcode)
@@ -51,10 +51,10 @@ public sealed class Compiler(CompilerOptions options)
         string[] coreLibDefines = [wasm ? "CSHARPC_TARGET_WASI" : windows ? "CSHARPC_TARGET_WINDOWS" : darwin ? "CSHARPC_TARGET_MACOS" : "CSHARPC_TARGET_LINUX",
             // The targets whose X.509/TLS/RSA corelib code runs on OpenSSL 3 (docs/adr/0022-tls.md): libssl.so.3 on Linux,
             // Homebrew's openssl@3 on macOS, libssl-3-x64.dll beside the executable (or on PATH) on Windows.
-            .. (!wasm && !NativeTls.Enabled(windows) ? new[] { "CSHARPC_OPENSSL" } : Array.Empty<string>()),
+            .. (!wasm && !NativeTls.On ? new[] { "CSHARPC_OPENSSL" } : Array.Empty<string>()),
             // Opt-in spike (docs/adr/0022-tls.md, "Windows without OpenSSL"): the TLS/X.509/RSA shadows are left out of the shadow
             // index and System.Net.Security / System.Security.Cryptography are compiled from the shared framework's IL.
-            .. (NativeTls.Enabled(windows) ? new[] { "CSHARPC_NATIVE_TLS" } : Array.Empty<string>()),
+            .. (NativeTls.On ? new[] { "CSHARPC_NATIVE_TLS" } : Array.Empty<string>()),
             // The architecture (RuntimeInformation.ProcessArchitecture, the runtime identifier).
             wasm ? "CSHARPC_TARGET_WASM32" : triple.StartsWith("aarch64", StringComparison.Ordinal) || triple.StartsWith("arm64", StringComparison.Ordinal) ? "CSHARPC_TARGET_ARM64" : "CSHARPC_TARGET_X64"];
         FrontendSettings settings;
