@@ -55,6 +55,10 @@ public sealed class Compiler(CompilerOptions options)
             wasm ? "CSHARPC_TARGET_WASM32" : triple.StartsWith("aarch64", StringComparison.Ordinal) || triple.StartsWith("arm64", StringComparison.Ordinal) ? "CSHARPC_TARGET_ARM64" : "CSHARPC_TARGET_X64"];
         FrontendSettings settings;
         IlProgram? mainProgram = null;
+        // NativeAOT's native-linking inputs (DirectPInvoke, DirectPInvokeList, NativeLibrary, NativeSystemLibrary, LinkerArg): the command
+        // line's and, for a project, those of every project in the compilation.
+        List<string> directPInvokeEntries = [.. options.DirectPInvokes], directPInvokeLists = [.. options.DirectPInvokeLists];
+        List<string> nativeLibraries = [.. options.NativeLibraries], nativeSystemLibraries = [.. options.NativeSystemLibraries], linkerArgs = [.. options.LinkerArgs];
         if (options.Project is { } project)
         {
             var (projectSettings, root, all) = ProjectLoader.Load(project, options.Configuration, options.Verbose ? Console.Error : null, options.Properties,
@@ -66,6 +70,14 @@ public sealed class Compiler(CompilerOptions options)
             foreach (var p in all.Where(p => p.UnresolvedReferences.Count > 0))
                 return Fail($"{Path.GetFileName(p.ProjectPath)}: <Reference> not found: {string.Join(", ", p.UnresolvedReferences)} (build the referenced assembly first, or give it a HintPath)");
             options.DefaultOutputName = root.AssemblyName;
+            foreach (var p in all)
+            {
+                directPInvokeEntries.AddRange(p.DirectPInvokes);
+                directPInvokeLists.AddRange(p.DirectPInvokeLists);
+                nativeLibraries.AddRange(p.NativeLibraries);
+                nativeSystemLibraries.AddRange(p.NativeSystemLibraries);
+                linkerArgs.AddRange(p.LinkerArgs);
+            }
             settings = projectSettings with
             {
                 Defines = [.. projectSettings.Defines, .. options.Defines],
@@ -257,8 +269,28 @@ public sealed class Compiler(CompilerOptions options)
             stackTraces = new StackTraceInfo(compilation, symbols);
             Phase($"stack-trace metadata (emit + PDB, {(stackTraces.HasPdb ? "ok" : "failed")})");
         }
+        // DirectPInvoke entries, and the files that satisfy them (NativeLibrary items, and static archives among the packages'
+        // native assets named like a DirectPInvoke library: lib<name>.a, <name>.a, <name>.lib).
+        HashSet<string> directPInvokes = new(StringComparer.Ordinal);
+        foreach (var entry in directPInvokeEntries) if (entry.Trim() is { Length: > 0 } trimmed) directPInvokes.Add(trimmed);
+        foreach (var list in directPInvokeLists)
+        {
+            if (!File.Exists(list)) return Fail($"DirectPInvokeList: file '{list}' not found");
+            foreach (var line in File.ReadLines(list))
+                if (line.Trim() is { Length: > 0 } entry && !entry.StartsWith('#')) directPInvokes.Add(entry);
+        }
+        var nativeAssetArchives = settings.NativeAssets.Where(IsStaticArchive).ToList();
+        foreach (var archive in nativeAssetArchives)
+            if (NativeArchiveNames(Path.GetFileName(archive)).Any(name => directPInvokes.Contains(name) || directPInvokes.Any(d => d.StartsWith(name + "!", StringComparison.Ordinal)))
+                && !nativeLibraries.Contains(archive))
+                nativeLibraries.Add(archive);
+        foreach (var library in nativeLibraries)
+            if ((IsNativeLibraryFile(library) || library.Contains(Path.DirectorySeparatorChar) || library.Contains('/')) && !File.Exists(library))
+                return Fail($"NativeLibrary: file '{library}' not found");
+        string[] nativeLinkArguments = [.. nativeLibraries, .. nativeSystemLibraries.Select(n => "-l" + n), .. linkerArgs];
         var codegen = new ModuleCodeGen(codegenCompilation, llvm, module, target)
         {
+            DirectPInvokes = directPInvokes,
             StackTraces = stackTraces,
             ProgramCompilation = mainIl is null ? compilation : null,
             SourceOptimized = settings.Symbols?.Optimize ?? options.Configuration.Equals("Release", StringComparison.OrdinalIgnoreCase),
@@ -411,7 +443,7 @@ public sealed class Compiler(CompilerOptions options)
                     if (prebuiltObjects is not null)
                     {
                         objects = prebuiltObjects;
-                        toolchain.Link(target.Triple, objects, output, runtimeLinkedIn: runtimeLto, prebuiltWeakImports!, ShimArchives(linkedShims, target.Triple));
+                        toolchain.Link(target.Triple, objects, output, runtimeLinkedIn: runtimeLto, prebuiltWeakImports!, ShimArchives(linkedShims, target.Triple), nativeLinkArguments);
                         Phase("link");
                         break;
                     }
@@ -428,7 +460,7 @@ public sealed class Compiler(CompilerOptions options)
                         target.Emit(module, obj, LLVMCodeGenFileType.Object);
                     }
                     Phase(objects.Count > 1 ? $"codegen (LLVM backend, {objects.Count} partitions)" : "codegen (LLVM backend)");
-                    toolchain.Link(target.Triple, objects, output, runtimeLinkedIn: runtimeLto, weakImports, ShimArchives(linkedShims, target.Triple));
+                    toolchain.Link(target.Triple, objects, output, runtimeLinkedIn: runtimeLto, weakImports, ShimArchives(linkedShims, target.Triple), nativeLinkArguments);
                     Phase("link");
                 }
                 finally
@@ -444,7 +476,7 @@ public sealed class Compiler(CompilerOptions options)
         // The packages' native libraries for the target (NuGet's runtimes/<rid>/native) go next to the executable, where
         // P/Invoke probing looks first (csrt_pinvoke_load_library), as `dotnet publish` places them for the host.
         if (options.Emit == EmitKind.Exe && settings.NativeAssets.Count > 0 && Path.GetDirectoryName(Path.GetFullPath(output)) is { } assetDirectory)
-            foreach (var asset in settings.NativeAssets)
+            foreach (var asset in settings.NativeAssets.Where(a => !IsStaticArchive(a)))
             {
                 var destination = Path.Combine(assetDirectory, Path.GetFileName(asset));
                 if (!string.Equals(Path.GetFullPath(asset), destination, StringComparison.Ordinal)) File.Copy(asset, destination, overwrite: true);
@@ -491,6 +523,22 @@ public sealed class Compiler(CompilerOptions options)
         File.WriteAllText(dump, module.PrintToString());
         Console.Error.WriteLine($"internal compiler error: csharpc produced invalid LLVM IR {stage} (written to {dump}):\n{error}");
         return 70;
+    }
+
+    /// <summary>A static archive the packages ship (lib&lt;name&gt;.a): linked when a DirectPInvoke names it, never loaded.</summary>
+    private static bool IsStaticArchive(string path) => path.EndsWith(".a", StringComparison.Ordinal);
+
+    private static bool IsNativeLibraryFile(string path) =>
+        path.EndsWith(".a", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".lib", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".o", StringComparison.OrdinalIgnoreCase)
+        || path.EndsWith(".obj", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".so", StringComparison.OrdinalIgnoreCase) || path.EndsWith(".dylib", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The DirectPInvoke library names an archive file satisfies: libfoo.a is "foo", "libfoo" and "libfoo.a".</summary>
+    private static IEnumerable<string> NativeArchiveNames(string file)
+    {
+        var stem = file.EndsWith(".a", StringComparison.Ordinal) ? file[..^2] : file;
+        yield return stem;
+        yield return file;
+        if (stem.StartsWith("lib", StringComparison.Ordinal)) yield return stem[3..];
     }
 
     /// <summary>The NativeAOT pack's static archives for the shims the framework IL calls, in link order.</summary>

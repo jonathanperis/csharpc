@@ -28,6 +28,19 @@ public sealed record CompilerOptions
     public (int Index, int Count) IlSurveyShard { get; set; } = (0, 1);
     /// <summary>Assemblies without sources (-r): bound against and compiled from IL (docs/adr/0010-il-frontend.md).</summary>
     public List<string> References { get; } = [];
+    /// <summary>
+    /// --directpinvoke (NativeAOT's ILC option, MSBuild item DirectPInvoke): library names ("foo") or single entry points
+    /// ("foo!entry") whose [DllImport]s are direct calls resolved by the linker, not dlopen at run time.
+    /// </summary>
+    public List<string> DirectPInvokes { get; } = [];
+    /// <summary>--directpinvokelist (MSBuild item DirectPInvokeList): text files with one DirectPInvoke entry per line.</summary>
+    public List<string> DirectPInvokeLists { get; } = [];
+    /// <summary>--native-library (MSBuild item NativeLibrary): static archives, objects or libraries added to the link line.</summary>
+    public List<string> NativeLibraries { get; } = [];
+    /// <summary>--native-system-library (MSBuild item NativeSystemLibrary): system libraries linked by name (-l&lt;name&gt;).</summary>
+    public List<string> NativeSystemLibraries { get; } = [];
+    /// <summary>--linker-arg (MSBuild item LinkerArg): extra arguments for the linker driver.</summary>
+    public List<string> LinkerArgs { get; } = [];
     /// <summary>--framework-il: shared-framework assemblies forced to compile from IL (docs/adr/0013-framework-il.md).</summary>
     public List<string> FrameworkIl { get; } = [];
     /// <summary>--framework-il none: no automatic choice of framework assemblies to compile from IL.</summary>
@@ -110,6 +123,12 @@ public sealed record CompilerOptions
           --features <list>      Extra LLVM target features, e.g. +avx512f
           -D <symbol>            Define a preprocessor symbol
           -r, --reference <dll>  Reference an assembly that ships only IL; reachable code is compiled from its IL
+          --directpinvoke <name> Bind [DllImport("name")] (or "name!entry") directly: the linker resolves it, as NativeAOT's
+                                 <DirectPInvoke Include="name" />; use with --native-library to link the library statically
+          --directpinvokelist <file>  A file with one --directpinvoke entry per line (<DirectPInvokeList>)
+          --native-library <file>  Add a static archive, object or library to the link (<NativeLibrary Include="file" />)
+          --native-system-library <name>  Link a system library by name, -l<name> (<NativeSystemLibrary Include="name" />)
+          --linker-arg <arg>     Pass an extra argument to the linker driver (<LinkerArg Include="arg" />)
           --framework-il <names> Compile these shared-framework assemblies from their IL (comma-separated);
                                  'none' turns off the automatic choice (assemblies the program uses that
                                  csharpc's corelib does not implement)
@@ -188,6 +207,14 @@ public sealed record CompilerOptions
                 case "--features": o.Features = Next(); break;
                 case "-D": o.Defines.Add(Next()); break;
                 case "-r" or "--reference": o.References.Add(Path.GetFullPath(Next())); break;
+                // NativeAOT's ILC spells these --directpinvoke:<name>; both forms work.
+                case "--directpinvoke": o.DirectPInvokes.Add(Next()); break;
+                case var _ when a.StartsWith("--directpinvoke:", StringComparison.Ordinal): o.DirectPInvokes.Add(a["--directpinvoke:".Length..]); break;
+                case "--directpinvokelist": o.DirectPInvokeLists.Add(Path.GetFullPath(Next())); break;
+                case var _ when a.StartsWith("--directpinvokelist:", StringComparison.Ordinal): o.DirectPInvokeLists.Add(Path.GetFullPath(a["--directpinvokelist:".Length..])); break;
+                case "--native-library": o.NativeLibraries.Add(Path.GetFullPath(Next())); break;
+                case "--native-system-library": o.NativeSystemLibraries.Add(Next()); break;
+                case "--linker-arg": o.LinkerArgs.Add(Next()); break;
                 case "--framework-il":
                     foreach (var name in Next().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
                         if (name.Equals("none", StringComparison.OrdinalIgnoreCase)) o.FrameworkIlAutomatic = false;

@@ -1,0 +1,31 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+  <!-- tests/projects.sh builds nativeadd.c twice. NativeShared is the shared library `dotnet run` loads next to the
+       program; NativeArchive is the static archive PublishAot-style linking takes: DirectPInvoke makes the
+       [DllImport("nativeadd")] calls direct, NativeLibrary adds the archive to the link line. A DirectPInvokeListFile
+       gives the same entries through a DirectPInvokeList instead (and NativeLibrary comes from the command line). -->
+  <ItemGroup Condition="'$(NativeArchive)' != ''">
+    <DirectPInvoke Include="nativeadd" />
+    <NativeLibrary Include="$(NativeArchive)" />
+  </ItemGroup>
+  <!-- NativePackage: the archive comes from a package (runtimes/<rid>/native/libnativeadd.a) and only the DirectPInvoke is the project's. -->
+  <ItemGroup Condition="'$(NativePackage)' == 'true'">
+    <PackageReference Include="NativeArchivePkg" Version="1.0.0" />
+    <DirectPInvoke Include="nativeadd" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(DirectPInvokeListFile)' != ''">
+    <DirectPInvokeList Include="$(DirectPInvokeListFile)" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(NativeShared)' != ''">
+    <None Include="$(NativeShared)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

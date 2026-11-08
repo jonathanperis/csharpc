@@ -378,8 +378,8 @@ Toward **arbitrary pure-IL NuGet packages** (ordered; size in focused days):
    and from the program as IL (deps.json `runtimeTargets`, with the RID fallbacks linux-x64 -> linux -> unix-x64 ->
    unix -> any). The native libraries are copied next to the executable, where a P/Invoke is probed first (as
    .NET probes the assembly directory); `NativeLibrary.Load` keeps the system loader's rules. Satellite resource
-   assemblies and `ref/` vs `lib/` binding are decided (above: NativeAOT does neither). Left: statically linking a
-   package's `.a` archives (#175). (2)
+   assemblies and `ref/` vs `lib/` binding are decided (above: NativeAOT does neither). Static archives and DirectPInvoke are done (docs/16).
+   (2)
 6. Compile-time scale: decoding once per definition and cached token resolution are done. Next, in
    order of measured payoff: ship csharpc ReadyToRun (halves Roslyn binding; NativeAOT once M6
    compiles csharpc), parallel LLVM code generation (full-LTO-style module partitioning, e.g.

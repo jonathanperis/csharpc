@@ -195,10 +195,11 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
     /// <param name="runtimeLinkedIn">The runtime was already linked into the program as bitcode (LTO).</param>
     /// <param name="weakImports">Undefined extern_weak symbols (P/Invoke targets that may be missing).</param>
     /// <param name="archives">Static libraries after the runtime: .NET's native shims (NativeAotPack).</param>
+    /// <param name="nativeInputs">The program's own link inputs after those (NativeAOT's NativeLibrary, NativeSystemLibrary and LinkerArg items).</param>
     public void Link(string triple, IReadOnlyList<string> programObjects, string output, bool runtimeLinkedIn = false, IReadOnlyList<string>? weakImports = null,
-        IReadOnlyList<string>? archives = null)
+        IReadOnlyList<string>? archives = null, IReadOnlyList<string>? nativeInputs = null)
     {
-        string[] runtime = [.. runtimeLinkedIn ? [] : RuntimeObjects(triple), .. archives ?? []];
+        string[] runtime = [.. runtimeLinkedIn ? [] : RuntimeObjects(triple), .. archives ?? [], .. nativeInputs ?? []];
         string[] sanitize = options.Sanitize is { } list ? [$"-fsanitize={list}"] : [];
         // MinGW's linker writes exactly the name it is given; gcc and .NET name executables *.exe.
         if (target.IsWindows && Path.GetExtension(output).Length == 0) output += ".exe";
