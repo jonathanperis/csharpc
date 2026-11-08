@@ -1,0 +1,44 @@
+0 signed=1 explicit=1 toByteArray=1 unsigned=1
+1 signed=1 explicit=1 toByteArray=1 unsigned=1
+127 signed=1 explicit=1 toByteArray=1 unsigned=1
+128 signed=2 explicit=2 toByteArray=2 unsigned=1
+255 signed=2 explicit=2 toByteArray=2 unsigned=1
+256 signed=2 explicit=2 toByteArray=2 unsigned=2
+-1 signed=1 explicit=1 toByteArray=1 unsigned=OverflowException: Negative values do not have an unsigned representation.
+-128 signed=1 explicit=1 toByteArray=1 unsigned=OverflowException: Negative values do not have an unsigned representation.
+-129 signed=2 explicit=2 toByteArray=2 unsigned=OverflowException: Negative values do not have an unsigned representation.
+-255 signed=2 explicit=2 toByteArray=2 unsigned=OverflowException: Negative values do not have an unsigned representation.
+-256 signed=2 explicit=2 toByteArray=2 unsigned=OverflowException: Negative values do not have an unsigned representation.
+32767 signed=2 explicit=2 toByteArray=2 unsigned=2
+32768 signed=3 explicit=3 toByteArray=3 unsigned=2
+65535 signed=3 explicit=3 toByteArray=3 unsigned=2
+65536 signed=3 explicit=3 toByteArray=3 unsigned=3
+-32768 signed=2 explicit=2 toByteArray=2 unsigned=OverflowException: Negative values do not have an unsigned representation.
+-32769 signed=3 explicit=3 toByteArray=3 unsigned=OverflowException: Negative values do not have an unsigned representation.
+8388607 signed=3 explicit=3 toByteArray=3 unsigned=3
+8388608 signed=4 explicit=4 toByteArray=4 unsigned=3
+16777215 signed=4 explicit=4 toByteArray=4 unsigned=3
+16777216 signed=4 explicit=4 toByteArray=4 unsigned=4
+-8388608 signed=3 explicit=3 toByteArray=3 unsigned=OverflowException: Negative values do not have an unsigned representation.
+-8388609 signed=4 explicit=4 toByteArray=4 unsigned=OverflowException: Negative values do not have an unsigned representation.
+2147483647 signed=4 explicit=4 toByteArray=4 unsigned=4
+2147483648 signed=5 explicit=5 toByteArray=5 unsigned=4
+4294967295 signed=5 explicit=5 toByteArray=5 unsigned=4
+4294967296 signed=5 explicit=5 toByteArray=5 unsigned=5
+-2147483648 signed=4 explicit=4 toByteArray=4 unsigned=OverflowException: Negative values do not have an unsigned representation.
+-2147483649 signed=5 explicit=5 toByteArray=5 unsigned=OverflowException: Negative values do not have an unsigned representation.
+9223372036854775807 signed=8 explicit=8 toByteArray=8 unsigned=8
+9223372036854775808 signed=9 explicit=9 toByteArray=9 unsigned=8
+18446744073709551615 signed=9 explicit=9 toByteArray=9 unsigned=8
+18446744073709551616 signed=9 explicit=9 toByteArray=9 unsigned=9
+-9223372036854775808 signed=8 explicit=8 toByteArray=8 unsigned=OverflowException: Negative values do not have an unsigned representation.
+-9223372036854775809 signed=9 explicit=9 toByteArray=9 unsigned=OverflowException: Negative values do not have an unsigned representation.
+79228162514264337593543950335 signed=13 explicit=13 toByteArray=13 unsigned=12
+340282366920938463463374607431768211455 signed=17 explicit=17 toByteArray=17 unsigned=16
+340282366920938463463374607431768211456 signed=17 explicit=17 toByteArray=17 unsigned=17
+-340282366920938463463374607431768211456 signed=17 explicit=17 toByteArray=17 unsigned=OverflowException: Negative values do not have an unsigned representation.
+-340282366920938463463374607431768211457 signed=17 explicit=17 toByteArray=17 unsigned=OverflowException: Negative values do not have an unsigned representation.
+100000..81 signed=34 explicit=34 toByteArray=34 unsigned=34
+-10000..82 signed=34 explicit=34 toByteArray=34 unsigned=OverflowException: Negative values do not have an unsigned representation.
+1 1 1
+8 9 9

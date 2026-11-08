@@ -78,6 +78,8 @@ namespace CsharpcCoreLib
         /// <summary>A span over a reference and a length, as given: unlike the pointer constructors, a negative length is not rejected.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern Span<T> SpanOf<T>(ref T reference, int length);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern ReadOnlySpan<T> ReadOnlySpanOf<T>(in T reference, int length);
+        /// <summary>A memory over a reference and a length (a Memory&lt;T&gt; is { pointer, length } like a span; MemoryManager&lt;T&gt;).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern Memory<T> MemoryOf<T>(ref T reference, int length);
         /// <summary>The address a reference points at.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint RefAddress<T>(in T value);
         /// <summary>
@@ -238,6 +240,8 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_event_wait_token(object e, int milliseconds, object source);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_event_kick(object e);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_task_try_fault_many(object task, Exception[] exceptions);
+        // AppDomain.ProcessExit's first subscription (runtime/csrt.c).
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_process_exit_register();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_event_new(int kind, int count, int max);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_event_set(object e, int n);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_event_reset(object e);

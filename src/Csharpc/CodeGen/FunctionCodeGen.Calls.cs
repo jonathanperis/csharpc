@@ -478,6 +478,9 @@ public sealed partial class FunctionCodeGen
         // `new object()`: LazyInitializer.EnsureInitialized(ref object) and its lock-object overloads.
         if (type.SpecialType == SpecialType.System_Object)
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
+        // LazyInitializer.EnsureInitialized(ref Lock) (System.Net.Security and System.Security.Cryptography on Windows keep their locks so).
+        if (type is INamedTypeSymbol { Name: "Lock", ContainingType: null, ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } })
+            return CallRuntime("csrt_lock_new", L.Ptr, []);
         if (type is INamedTypeSymbol { TypeKind: TypeKind.Class, IsAbstract: false } named && _m.IsUserType(named)
             && named.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty && c.DeclaredAccessibility == Accessibility.Public) is { } ctor)
         {
@@ -692,6 +695,11 @@ public sealed partial class FunctionCodeGen
             _m.ExternalGlobal("csrt_Type_MT"),
         INamedTypeSymbol { Name: "CancellationTokenSource", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } =>
             _m.ExternalGlobal("csrt_CancellationTokenSource_MT"), // a runtime object (runtime/async.c)
+        // ManualResetEvent and AutoResetEvent are runtime objects with a table each (runtime/threads.c; `new` makes
+        // them there): System.Transactions casts its lock's handle to ManualResetEvent. A test against their bases
+        // (WaitHandle, EventWaitHandle) stays an explicit diagnostic: the tables have no base chain to them.
+        INamedTypeSymbol { Name: "ManualResetEvent" or "AutoResetEvent", ContainingType: null, ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } named =>
+            _m.ExternalGlobal(named.Name == "ManualResetEvent" ? "csrt_ManualResetEvent_MT" : "csrt_AutoResetEvent_MT"),
         // Threads and locks are runtime objects of sealed types with one method table each (runtime/threads.c):
         // `x is Thread`, List<Thread>'s IList.Add(object) ...
         INamedTypeSymbol { Name: "Thread" or "Lock", ContainingType: null, ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } named =>

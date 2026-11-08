@@ -950,6 +950,17 @@ internal static partial class BclValueTypes
         t[$"{B}.TryParse(string, System.Globalization.NumberStyles, System.IFormatProvider, {B})"] = (g, _, _, a, _) =>
             g.CallCoreLib("BigIntegerCulture", "TryParse", a[0], a[1], a[2], a[3]);
         t[$"{B}.ToByteArray()"] = (g, _, self, _, _) => g.CallCoreLib("BigIntegerOps", "ToByteArray", self);
+        t[$"{B}.ToByteArray(bool, bool)"] = (g, _, self, a, _) => g.CallCoreLib("BigIntegerOps", "ToByteArray", self, a[0], a[1]);
+        t[$"{B}..ctor(byte[])"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerOps", "FromByteArray", a[0]);
+        t[$"{B}..ctor(System.ReadOnlySpan<byte>, bool, bool)"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerOps", "FromBytes", a[0], a[1], a[2]);
+        t[$"{B}.GetBitLength()"] = (g, _, self, _, _) => g.CallCoreLib("BigIntegerOps", "GetBitLength", self);
+        t[$"{B}.GetByteCount(bool)"] = (g, _, self, a, _) => g.CallCoreLib("BigIntegerOps", "GetByteCount", self, a[0]);
+        t[$"{B}.TryWriteBytes(System.Span<byte>, int, bool, bool)"] = (g, _, self, a, _) => g.CallCoreLib("BigIntegerOps", "TryWriteBytes", self, a[0], a[1], a[2], a[3]);
+        t[$"{B}.op_BitwiseAnd({B}, {B})"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerOps", "And", a[0], a[1]);
+        t[$"{B}.op_BitwiseOr({B}, {B})"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerOps", "Or", a[0], a[1]);
+        t[$"{B}.op_ExclusiveOr({B}, {B})"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerOps", "Xor", a[0], a[1]);
+        t[$"{B}.op_LeftShift({B}, int)"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerOps", "ShiftLeft", a[0], a[1]);
+        t[$"{B}.op_RightShift({B}, int)"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerOps", "ShiftRight", a[0], a[1]);
         t[$"{B}.ToString(string)"] = (g, _, self, a, _) => Rt(g, "csrt_bigint_format", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr));
         t[$"{B}.GetHashCode()"] = (g, _, self, _, _) => Rt(g, "csrt_bigint_get_hash_code", g.Llvm.I32, (self, g.Llvm.Ptr));
         t[$"{B}.get_IsZero()"] = (g, _, self, _, _) => g.Builder.ICmp(LLVMIntPredicate.EQ, self, LlvmContext.Null(g.Llvm.Ptr));

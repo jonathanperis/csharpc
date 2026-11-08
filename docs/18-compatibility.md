@@ -384,7 +384,7 @@ alignment, now opaque bodies of the CLR's size with fields at their byte offsets
 (`ImmutableArray<(A a, B b)>.Enumerator`); pointer-element arrays and pointer fields in generic equality
 (the `type test against 'byte*'` seen in every shard); `Guid` in P/Invoke; COM-object P/Invokes as stubs
 that end the program (the CSLLVM0008 boundary, as for DiaSymReader's Windows-PDB factory); SHA-384,
-SHA-512 and MD5; `CollectionsMarshal.GetValueRefOrAddDefault`; `MemoryStream.TryGetBuffer`;
+SHA-512, MD5 and SHA-3 (SHA3-256/384/512, behind `IncrementalHash` and HMAC too); `CollectionsMarshal.GetValueRefOrAddDefault`; `MemoryStream.TryGetBuffer`;
 `BinaryReader.Read`; `BigInteger.ToByteArray`/`TryParse` with styles; `Math.BigMul`; span
 `ReverseEndianness`; `StringBuilder.AppendFormat` with a provider and a span; `Encoding.RegisterProvider`
 and `EncodingProvider`; `TypeInfo.GenericTypeParameters`/`GetDeclaredMethods`/`DeclaredConstructors`;
@@ -602,10 +602,10 @@ variables first, then `MacProxy` over CFNetwork / `HttpWindowsProxy` over WinINe
   reloads the settings when the registry changes. A `"<local>"` bypass lists the machine's addresses
   (`NetworkInterface.GetAllNetworkInterfaces`: `GetAdaptersAddresses` on Windows, `getifaddrs` on Linux and macOS;
   only the unicast addresses are exposed, every other member of those types is CSLLVM0002).
-  `System.Security.Principal.Windows` (`WindowsIdentity`, reached by NTLM/Negotiate code) compiles; creating its
-  `AsyncLocal<SafeAccessTokenHandle>` with a value-changed handler is the `AsyncLocal` shadow's explicit
-  `NotSupportedException` (execution-context switches don't notify handlers yet), so only a program that uses
-  `WindowsIdentity` hits it, not `new HttpClient()`.
+  `System.Security.Principal.Windows` (`WindowsIdentity`, reached by NTLM/Negotiate code and by the native TLS route's
+  `SslStream`) compiles; its `AsyncLocal<SafeAccessTokenHandle>` value-changed handler is called when `Value` is
+  assigned, not when an execution-context switch changes the value (csharpc's flows do not track that), which only
+  matters to impersonation (`WindowsIdentity.RunImpersonated`).
 
 Explicit diagnostics, never a different behavior:
 
