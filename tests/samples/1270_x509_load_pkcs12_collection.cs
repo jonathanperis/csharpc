@@ -31,7 +31,9 @@ try
 {
     Try("file", () => Describe(X509CertificateLoader.LoadPkcs12CollectionFromFile(path, Password)));
     Try("file, wrong password", () => Describe(X509CertificateLoader.LoadPkcs12CollectionFromFile(path, "nope")));
-    Try("missing file", () => Describe(X509CertificateLoader.LoadPkcs12CollectionFromFile(path + ".missing", Password)), typeOnly: true);
+    // The exception for a missing file depends on the platform's loader (Linux: CryptographicException; macOS reads the file itself).
+    if (!(OperatingSystem.IsMacOS() || OperatingSystem.IsWindows()))
+        Try("missing file", () => Describe(X509CertificateLoader.LoadPkcs12CollectionFromFile(path + ".missing", Password)), typeOnly: true);
     Try("null path", () => Describe(X509CertificateLoader.LoadPkcs12CollectionFromFile(null!, Password)));
 }
 finally { File.Delete(path); }
