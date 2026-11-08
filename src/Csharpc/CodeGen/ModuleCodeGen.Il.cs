@@ -348,8 +348,20 @@ public sealed partial class ModuleCodeGen
         var edgesTimer = Stats.Time("IL failure reachability/edges");
         var edges = _references.GroupBy(r => (ISymbol?)r.From?.OriginalDefinition, SymbolEqualityComparer.Default)
             .ToDictionary(g => g.Key ?? Compilation.Assembly, g => g.ToList(), SymbolEqualityComparer.Default);
+        // The references each instantiation of a generic method or type made: following the definition's merged list would
+        // make every instantiation's targets reachable as soon as one instance is (an async corelib method reached through
+        // Task.Run made every async method of the program reachable via AsyncTaskMethodBuilder.Start<TStateMachine>, and with them
+        // the failures of library code the program never runs).
+        var exactEdges = _references.Where(r => r.From is { } f && !SymbolEqualityComparer.Default.Equals(f, f.OriginalDefinition))
+            .GroupBy(r => (ISymbol)r.From!, SymbolEqualityComparer.Default)
+            .ToDictionary(g => g.Key, g => g.ToList(), SymbolEqualityComparer.Default);
+        // References made while lowering the open definition itself (not one of its instances).
+        var definitionEdges = _references.Where(r => r.From is { } f && SymbolEqualityComparer.Default.Equals(f, f.OriginalDefinition))
+            .GroupBy(r => (ISymbol)r.From!, SymbolEqualityComparer.Default)
+            .ToDictionary(g => g.Key, g => g.ToList(), SymbolEqualityComparer.Default);
         edgesTimer.Dispose();
         var reached = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
+        var reachedInstances = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
         var followedVirtually = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
         // CSHARPC_WHY=1: how the program reaches each failing method (the first reference chain found).
         var why = Environment.GetEnvironmentVariable("CSHARPC_WHY") == "1"
@@ -357,9 +369,10 @@ public sealed partial class ModuleCodeGen
         var work = new Queue<IMethodSymbol>();
         void Reach(IMethodSymbol m, IMethodSymbol? from)
         {
-            if (!reached.Add(m.OriginalDefinition)) return;
+            if (!reachedInstances.Add(m)) return;
             work.Enqueue(m);
-            if (why != null) why[m.OriginalDefinition] = from?.OriginalDefinition;
+            reached.Add(m.OriginalDefinition);
+            if (why != null) why[m] = from;
         }
         void Follow(IMethodSymbol? from, IMethodSymbol to, bool isVirtual)
         {
@@ -378,12 +391,23 @@ public sealed partial class ModuleCodeGen
         {
             foreach (var root in RuntimeCalledMethods()) Reach(root, null);
             foreach (var (from, to, isVirtual) in _references)
-                if (from is null || IsNestedFunction(from) || (IsIlMethod(from) ? Il.IsCoreLib(from) : !IsProgramSourceMethod(from))) Follow(from, to, isVirtual);
+                if (from is null || (IsNestedFunction(from) ? !IsCoreLibInstanceOverProgramType(from) : IsIlMethod(from) ? Il.IsCoreLib(from) && !IsCoreLibInstanceOverProgramType(from) : !IsProgramSourceMethod(from))) Follow(from, to, isVirtual);
         }
         using (Stats.Time("IL failure reachability/propagate"))
             while (work.TryDequeue(out var method))
-                if (edges.TryGetValue(method.OriginalDefinition, out var outgoing))
-                    foreach (var (_, to, isVirtual) in outgoing) Follow(method, to, isVirtual);
+            {
+                if (SymbolEqualityComparer.Default.Equals(method, method.OriginalDefinition))
+                {
+                    if (edges.TryGetValue(method, out var all)) foreach (var (_, to, isVirtual) in all) Follow(method, to, isVirtual);
+                    continue;
+                }
+                bool known = false;
+                if (exactEdges.TryGetValue(method, out var own)) { known = true; foreach (var (_, to, isVirtual) in own) Follow(method, to, isVirtual); }
+                if (definitionEdges.TryGetValue(method.OriginalDefinition, out var open)) { known = true; foreach (var (_, to, isVirtual) in open) Follow(method, to, isVirtual); }
+                // An instantiation that was never lowered by itself (so its references are unknown): the definition's merged
+                // references, as before, never fewer.
+                if (!known && edges.TryGetValue(method.OriginalDefinition, out var merged)) foreach (var (_, to, isVirtual) in merged) Follow(method, to, isVirtual);
+            }
 
         foreach (var (method, message) in _ilBoundaries)
             if (reached.Contains(method.OriginalDefinition))
@@ -396,9 +420,9 @@ public sealed partial class ModuleCodeGen
         {
             if (why != null && reached.Contains(method.OriginalDefinition))
             {
-                Console.Error.WriteLine($"why {method.OriginalDefinition}:");
-                ISymbol? step = method.OriginalDefinition;
-                for (int depth = 0; step != null && depth < 40 && why.TryGetValue(step, out var parent); depth++, step = parent)
+                Console.Error.WriteLine($"why {method}:");
+                ISymbol? step = method;
+                for (int depth = 0; step != null && depth < 60 && why.TryGetValue(step, out var parent); depth++, step = parent)
                     Console.Error.WriteLine($"    <- {(parent == null ? "(program)" : parent.ToString())}");
             }
             if (reached.Contains(method.OriginalDefinition)) Errors.Add(error);
@@ -407,6 +431,33 @@ public sealed partial class ModuleCodeGen
                 error.Location));
         }
     }
+
+    /// <summary>
+    /// A corelib method instantiated over a type of the program or of a library (PooledStateMachine&lt;T, Npgsql's state machine&gt;.MoveNext):
+    /// it exists because some method of the program asked for it, so what it references is reachable when that method is,
+    /// not a root. (As a root, the instance a failed method asked for before it failed would keep that method reachable.)
+    /// </summary>
+    private bool IsCoreLibInstanceOverProgramType(IMethodSymbol method)
+    {
+        if (!Il.IsCoreLib(method)) return false;
+        // A lambda or local function is an instance of the method it is in (and of that method's type).
+        for (ISymbol? symbol = method; symbol is IMethodSymbol m; symbol = m.ContainingSymbol)
+        {
+            if (m.TypeArguments.Any(MentionsProgramType)) return true;
+            for (INamedTypeSymbol? type = m.ContainingType; type is not null; type = type.ContainingType)
+                if (type.TypeArguments.Any(MentionsProgramType)) return true;
+        }
+        return false;
+    }
+
+    private bool MentionsProgramType(ITypeSymbol type) => type switch
+    {
+        IArrayTypeSymbol array => MentionsProgramType(array.ElementType),
+        IPointerTypeSymbol pointer => MentionsProgramType(pointer.PointedAtType),
+        INamedTypeSymbol named => (Il.Contains(named.ContainingAssembly) && !Il.IsCoreLib(named))
+            || named.TypeArguments.Any(MentionsProgramType) || (named.ContainingType is { } outer && MentionsProgramType(outer)),
+        _ => false,
+    };
 
     /// <summary>
     /// Source methods the runtime or the library may call without a call site in the program: overrides of

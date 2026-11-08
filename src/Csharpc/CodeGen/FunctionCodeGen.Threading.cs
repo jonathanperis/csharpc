@@ -21,7 +21,13 @@ public sealed partial class FunctionCodeGen
         "System.Threading.Tasks.Parallel", "System.Threading.Thread", "System.Threading.Monitor", "System.Threading.Lock",
         "System.Threading.Interlocked", "System.Threading.Volatile", "System.Threading.ManualResetEvent", "System.Threading.AutoResetEvent",
         "System.Threading.CountdownEvent", "System.Threading.EventWaitHandle", "System.Threading.WaitHandle",
+        "System.Threading.Mutex", "System.Threading.Semaphore",
     ];
+
+    /// <summary>The wait handles the runtime implements as its one event object (src/runtime/threads.c).</summary>
+    private static bool IsRuntimeWaitHandle(ITypeSymbol owner) =>
+        owner is INamedTypeSymbol { ContainingNamespace: { } ns } && ns.ToDisplayString() == "System.Threading"
+        && owner.Name is "ManualResetEvent" or "AutoResetEvent" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle" or "Mutex" or "Semaphore";
 
     private LLVMValueRef TArg(IInvocationOperation inv, int ordinal)
     {
@@ -70,6 +76,12 @@ public sealed partial class FunctionCodeGen
                 return true;
             case "CountdownEvent" when IsThreading(type, "CountdownEvent"):
                 result = Event(3, CtorArg(0), I32(0));
+                return true;
+            case "Mutex" when IsThreading(type, "Mutex"):
+                result = EmitMutexCreation(creation);
+                return true;
+            case "Semaphore" when IsThreading(type, "Semaphore"):
+                result = EmitSemaphoreCreation(creation);
                 return true;
             // EventWaitHandle(initialState, mode): the runtime's one event object, auto- or manual-reset
             // (EventResetMode.AutoReset = 0, ManualReset = 1). Named and cross-process events aren't implemented.
@@ -134,8 +146,7 @@ public sealed partial class FunctionCodeGen
             result = Rt("csrt_lock_is_held", L.I1, [L.Ptr], Self());
             return true;
         }
-        if (owner is INamedTypeSymbol { ContainingNamespace: { } ns } && ns.ToDisplayString() == "System.Threading"
-            && owner.Name is "ManualResetEvent" or "AutoResetEvent" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle")
+        if (IsRuntimeWaitHandle(owner))
         {
             result = name switch
             {
@@ -253,14 +264,15 @@ public sealed partial class FunctionCodeGen
             return false;
         }
 
-        if (owner is INamedTypeSymbol { ContainingNamespace: { } ns } && ns.ToDisplayString() == "System.Threading"
-            && owner.Name is "ManualResetEvent" or "AutoResetEvent" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle")
+        if (IsRuntimeWaitHandle(owner))
         {
+            if (owner.Name is "Mutex" or "Semaphore" && m.IsStatic) return TryNamedHandleStatic(inv, out result);
             // Wait(TimeSpan): the timeout in milliseconds, checked like .NET (-1 to int.MaxValue).
             var timeSpanTimeout = m.Name is "Wait" or "WaitOne" && n == 1 && BclValueTypes.IsTimeSpan(m.Parameters[0].Type);
             if (!timeSpanTimeout && m.Parameters.Any(p => p.Type.SpecialType is not (SpecialType.System_Int32 or SpecialType.System_Boolean))) return false;
             var self = Self();
             var arg0 = timeSpanTimeout ? CallCoreLib("WaitTimeouts", "TimeoutMilliseconds", TArg(inv, 0)) : n > 0 ? TArg(inv, 0) : default;
+            if (m.Name is "Wait" or "WaitOne" && n > 0 && m.Parameters[0].Name == "millisecondsTimeout") arg0 = CallCoreLib("WaitTimeouts", "Milliseconds", arg0);
             switch (m.Name)
             {
                 case "Set": result = Rt("csrt_event_set", L.I32, [L.Ptr, L.I32], self, I32(1)); result = m.ReturnsVoid ? default : L.True; return true;
@@ -269,12 +281,18 @@ public sealed partial class FunctionCodeGen
                     result = Rt("csrt_event_wait", L.I1, [L.Ptr, L.I32], self, n > 0 ? arg0 : I32(-1));
                     if (m.ReturnsVoid) result = default;
                     return true;
+                // Semaphore.Release(releaseCount): the argument checks and the previous count (corelib/Threading/MutexHandles.cs).
+                case "Release" when owner.Name == "Semaphore":
+                    result = CallCoreLib("SemaphoreHandles", "Release", self, n > 0 ? arg0 : I32(1)); return true;
                 case "Release": result = Rt("csrt_event_set", L.I32, [L.Ptr, L.I32], self, n > 0 ? arg0 : I32(1)); return true;
+                case "ReleaseMutex": Rt("csrt_event_set", L.I32, [L.Ptr, L.I32], self, I32(1)); return true;
                 case "Signal":
                     result = _b.ICmp(LLVMIntPredicate.NE, Rt("csrt_event_set", L.I32, [L.Ptr, L.I32], self, n > 0 ? arg0 : I32(1)), I32(0));
                     return true;
                 case "AddCount": Rt("csrt_countdown_add", L.Void, [L.Ptr, L.I32], self, n > 0 ? arg0 : I32(1)); return true;
-                case "Dispose" or "Close": return true;
+                // Mutexes and semaphores are really disposable (ObjectDisposedException afterwards, a named mutex's name
+                // is dropped with its last handle); for the other handles it does nothing.
+                case "Dispose" or "Close" when n == 0: Rt("csrt_event_dispose", L.Void, [L.Ptr], self); return true;
             }
             return false;
         }

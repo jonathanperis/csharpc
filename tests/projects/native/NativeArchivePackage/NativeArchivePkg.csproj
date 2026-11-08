@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A package that ships nothing but a static archive under runtimes/<rid>/native (tests/projects.sh passes the archive
+       and the runtime identifier). Like a NativeAOT-ready package it needs a DirectPInvoke from the consuming project. -->
+  <PropertyGroup>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <PackageId>NativeArchivePkg</PackageId>
+    <Version>1.0.0</Version>
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <NoWarn>$(NoWarn);NU5128;NU5100</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Include="$(NativeArchive)" Pack="true" PackagePath="runtimes/$(PackRid)/native/" />
+  </ItemGroup>
+
+</Project>

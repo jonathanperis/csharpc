@@ -76,6 +76,35 @@ generic delegate types are a `NotSupportedException` / `ArgumentException`. A po
   `Aes.Create()` over CNG and `File.SetLastWriteTimeUtc`) therefore work on every platform with a NativeAOT runtime
   pack (samples 537, 540, 1005, 1211; not on WebAssembly).
 
+### Static archives and `DirectPInvoke` (NativeAOT's names)
+
+PublishAot can link a native library into the executable instead of loading it: `<DirectPInvoke Include="foo" />` makes
+every `[DllImport("foo")]` a direct call the linker resolves, and `<NativeLibrary Include="libfoo.a" />` puts the archive on
+the link line. csharpc takes the same items from the project (evaluated by MSBuild, so conditions, props files and package
+`build/*.targets` count) and the same names on the command line:
+
+| MSBuild item | csharpc option | Meaning |
+|---|---|---|
+| `DirectPInvoke` | `--directpinvoke <name>` (or `--directpinvoke:<name>`, ILC's spelling) | a library name (`foo`), or one entry point (`foo!entry`), compared with the `[DllImport]` module name as written, exactly |
+| `DirectPInvokeList` | `--directpinvokelist <file>` | a text file with one such entry per line (`#` comments) |
+| `NativeLibrary` | `--native-library <file>` | a static archive, object or library appended to the link line, after the program and the runtime |
+| `NativeSystemLibrary` | `--native-system-library <name>` | `-l<name>` |
+| `LinkerArg` | `--linker-arg <arg>` | an extra argument for the linker driver |
+
+A direct import is a strong reference: a symbol no linked file defines is a link error naming it (as with ILC), not the
+`EntryPointNotFoundException` of a dlopen'd library. It applies to every P/Invoke of the compilation, in sources and in
+libraries compiled from IL, and the program may equally be a csc-built assembly (`csharpc app.dll --directpinvoke foo
+--native-library libfoo.a`). The marshalling, `SetLastError` and callbacks are the P/Invoke stub's, unchanged. A
+`NativeLibrary` file that doesn't exist is a diagnostic. A package's `runtimes/<rid>/native/lib<name>.a` is a static archive:
+it is not copied next to the executable, and it is linked when a `DirectPInvoke` names `<name>` (or `lib<name>`) and no
+`NativeLibrary` item already provides it. NativeAOT links nothing from a package unless the package's targets add
+`NativeLibrary` items; csharpc does that too, and this one convenience on top.
+
+Verified by `tests/projects.sh` ("DirectPInvoke": a C library built as a shared library for `dotnet run` and as an archive for
+csharpc, same output, no shared copy needed, errno and a struct and a callback included) on Linux and macOS. Not covered yet:
+MSVC-style `.lib` archives and import libraries on Windows, `AdditionalNativeLibraryDirectories`, and
+`StaticOpenSslLinking`/`StaticICULinking`-style framework library switches.
+
 `NativeLibrary.Load/TryLoad/GetExport/TryGetExport/Free`, `Marshal.AllocHGlobal/FreeHGlobal`,
 `Marshal.StringToHGlobalAnsi/Uni`, `PtrToStringUTF8/Ansi/Uni`, `Read*/Write*`, `Copy` (every primitive array type, range-checked
 like the span constructors) and `NativeMemory.*` (including the aligned allocators, over a header kept below the aligned

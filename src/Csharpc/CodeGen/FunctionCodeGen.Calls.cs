@@ -696,6 +696,9 @@ public sealed partial class FunctionCodeGen
         // `x is Thread`, List<Thread>'s IList.Add(object) ...
         INamedTypeSymbol { Name: "Thread" or "Lock", ContainingType: null, ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } named =>
             _m.ExternalGlobal(named.Name == "Thread" ? "csrt_Thread_MT" : "csrt_Lock_MT"),
+        // Mutex and Semaphore are sealed runtime objects too (an event of its own kind, runtime/threads.c).
+        INamedTypeSymbol { Name: "Mutex" or "Semaphore", ContainingType: null, ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } named =>
+            _m.ExternalGlobal(named.Name == "Mutex" ? "csrt_Mutex_MT" : "csrt_Semaphore_MT"),
         _ when IsBoxablePrimitive(type) => _m.ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"),
         _ when BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) || BclValueTypes.IsBigInteger(type) || Int128Support.Is128(type) => _m.TypeMethodTable(type, at),
         INamedTypeSymbol { TypeKind: TypeKind.Enum } e => _m.EnumMethodTable(e),

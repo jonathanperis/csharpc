@@ -66,6 +66,11 @@ DEF_EXC(System_Threading_SynchronizationLockException, "System.Threading.Synchro
         &csrt_MT_System_SystemException.header)
 DEF_EXC(System_Threading_ThreadInterruptedException, "System.Threading.ThreadInterruptedException",
         &csrt_MT_System_SystemException.header)
+DEF_EXC(System_ApplicationException, "System.ApplicationException", &csrt_MT_System_Exception.header)
+DEF_EXC(System_Threading_AbandonedMutexException, "System.Threading.AbandonedMutexException", &csrt_MT_System_SystemException.header)
+DEF_EXC(System_Threading_SemaphoreFullException, "System.Threading.SemaphoreFullException", &csrt_MT_System_SystemException.header)
+DEF_EXC(System_Threading_WaitHandleCannotBeOpenedException, "System.Threading.WaitHandleCannotBeOpenedException",
+        &csrt_MT_System_ApplicationException.header)
 DEF_EXC(System_Collections_Generic_KeyNotFoundException, "System.Collections.Generic.KeyNotFoundException",
         &csrt_MT_System_SystemException.header)
 DEF_EXC(System_OperationCanceledException, "System.OperationCanceledException", &csrt_MT_System_SystemException.header)
@@ -152,6 +157,7 @@ int32_t csrt_exception_get_hresult(void* exception) {
         { "System.Threading.SemaphoreFullException", 0x8013152B }, { "System.Threading.SynchronizationLockException", 0x80131518 },
         { "System.Threading.ThreadInterruptedException", 0x80131519 }, { "System.Threading.ThreadStateException", 0x80131520 },
         { "System.InsufficientExecutionStackException", 0x80131578 }, { "System.ApplicationException", 0x80131600 },
+        { "System.Threading.AbandonedMutexException", 0x8013152D }, { "System.Threading.WaitHandleCannotBeOpenedException", 0x8013152C },
         { "System.SystemException", 0x80131501 }, { "System.Exception", 0x80131500 },
     };
     for (const csrt_MethodTable* mt = e->mt; mt; mt = mt->base)
@@ -177,6 +183,15 @@ void* csrt_task_cancellation_token(void* task);
 void csrt_exception_set_task(void* exception, void* task) {
     CSRT_STORE_REF(((csrt_Exception*)exception)->data, task);
     if (task) CSRT_STORE_REF(((csrt_Exception*)exception)->token, csrt_task_cancellation_token(task));
+}
+/// AbandonedMutexException(location, handle): MutexIndex (kept plus one in `token`, so the default is -1) and Mutex (`data`).
+void csrt_exception_set_mutex(void* exception, int32_t index, void* mutex) {
+    ((csrt_Exception*)exception)->token = (void*)(intptr_t)(index + 1);
+    CSRT_STORE_REF(((csrt_Exception*)exception)->data, mutex);
+}
+int32_t csrt_exception_get_mutex_index(void* exception) {
+    if (!exception) csrt_throw_null_reference();
+    return (int32_t)(intptr_t)((csrt_Exception*)exception)->token - 1;
 }
 void* csrt_exception_get_data(void* exception) {
     if (!exception) csrt_throw_null_reference();
@@ -1253,6 +1268,16 @@ static csrt_String* chars_slice(csrt_String* s, int32_t start, int32_t length) {
     csrt_String* r = csrt_string_alloc_zeroed((int64_t)length);
     memcpy(r->chars, s->chars + start, 2 * (size_t)length);
     return r;
+}
+
+/// Throws one of the exceptions threads.c raises for mutexes and semaphores (0 ApplicationException, 1 AbandonedMutexException,
+/// 2 SemaphoreFullException). Not in the by-name table above, so a program links their tables only when it uses those objects.
+void csrt_throw_sync(int32_t which, csrt_String* message) {
+    const csrt_ExceptionMethodTable* mt = which == 0 ? &csrt_MT_System_ApplicationException
+        : which == 1 ? &csrt_MT_System_Threading_AbandonedMutexException : &csrt_MT_System_Threading_SemaphoreFullException;
+    void* e = csrt_alloc(&mt->header, sizeof(csrt_Exception));
+    csrt_exception_init(e, message, NULL, NULL);
+    csrt_throw_object(e);
 }
 
 void csrt_throw(const csrt_MethodTable* type, csrt_String* message) {

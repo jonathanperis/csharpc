@@ -90,7 +90,14 @@ Roslyn `ControlFlowGraph` (its classes are sealed) but sharing `FunctionCodeGen`
    override/implementation a virtual or interface call site can reach) decides: failures in reachable
    methods are errors, exactly as in the source path; the others are `CSLLVM0007` warnings. Slots of
    methods whose *signature* csharpc cannot represent get the stub too — no call site can reach them
-   without failing to compile first. This is NativeAOT's model (warnings plus throwing stubs), with one
+   without failing to compile first. The analysis follows each instantiation of a generic method on its own
+   (`AsyncBuilderCore.Start<StateMachine1>` reaches `StateMachine1.MoveNext`, not every state machine's), does not
+   treat corelib code instantiated over a program or library type as a root (it exists because a method asked
+   for it; it is reached when that method is), and a struct's interface map does not reference its methods (a
+   call site does): otherwise one reachable async method, the pooled ValueTask box or `Assembly.GetTypes` made every
+   async method of every library reachable, and the failures of code the program never runs became errors
+   (#164; sample 1240, which must stay warnings only, `CSHARPC_WHY=1` prints the chain). A reached stub whose
+   chain starts at `(program)` through direct calls is a real gap, not imprecision. This is NativeAOT's model (warnings plus throwing stubs), with one
    difference that keeps the rule: the stub cannot be caught; it ends the program with the message.
 
 ### How the listed concerns map
@@ -378,8 +385,8 @@ Toward **arbitrary pure-IL NuGet packages** (ordered; size in focused days):
    and from the program as IL (deps.json `runtimeTargets`, with the RID fallbacks linux-x64 -> linux -> unix-x64 ->
    unix -> any). The native libraries are copied next to the executable, where a P/Invoke is probed first (as
    .NET probes the assembly directory); `NativeLibrary.Load` keeps the system loader's rules. Satellite resource
-   assemblies and `ref/` vs `lib/` binding are decided (above: NativeAOT does neither). Left: statically linking a
-   package's `.a` archives (#175). (2)
+   assemblies and `ref/` vs `lib/` binding are decided (above: NativeAOT does neither). Static archives and DirectPInvoke are done (docs/16).
+   (2)
 6. Compile-time scale: decoding once per definition and cached token resolution are done. Next, in
    order of measured payoff: ship csharpc ReadyToRun (halves Roslyn binding; NativeAOT once M6
    compiles csharpc), parallel LLVM code generation (full-LTO-style module partitioning, e.g.

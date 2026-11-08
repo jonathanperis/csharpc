@@ -20,8 +20,8 @@ of the milestone below says where it is tracked.
 | M2 Library in C# | 🟡 open | BCL surface ranked by the NuGet survey (#146: #152 `MathF` PR #156, #157 PR #158, #159, #162); TLS and X.509 on macOS and Windows run over OpenSSL, the native routes are the spikes #143 and #144; the gap lists #89, #95–#104 |
 | M3 Platforms | ✅ done | per-platform limits are documented, see M3 below |
 | M4 Real-world validation | 🟡 open | parity is 98.4 % (242 of 246) in the latest Compatibility run, down from 100 % (#163) |
-| M5 Binary packages and the program as IL | 🟡 open | linking a package's static archives (#175), the BCL surface packages use (#146) |
-| M6 Bootstrapping | 🟡 open | `Mutex` (#174, the last 3 methods of the Roslyn survey), quadratic lowering on very large programs (#93) |
+| M5 Binary packages and the program as IL | 🟡 open | the BCL surface packages use (#146) |
+| M6 Bootstrapping | 🟡 open | quadratic lowering on very large programs (#93) |
 | M7 TechEmpower with the `csharpc` CLI | ⏸ on hold (owner) | started 2026-10-31 before M2–M6 were done, against the owner's rule; on hold since 2026-11-05. Last good measurement 288 of 456 metrics ahead of NativeAOT; on `main` today csharpc does not build the entry (#164) |
 | M8 The dotnet fork | ⬜ not started | |
 | M9 TechEmpower through the fork | ⬜ not started | |
@@ -88,7 +88,7 @@ of the milestone below says where it is tracked.
 |---|---|---|
 | Garbage collection | ✅ | conservative, non-moving mark-sweep; thread-safe (stop-the-world); opt-in nursery and concurrent marker ([ADR 0004](adr/0004-memory-management.md), [ADR 0020](adr/0020-concurrent-marking.md)) |
 | Finalizers | ✅ | `~T()` and IL `Finalize` overrides of the program's classes, `GC.SuppressFinalize`/`ReRegisterForFinalize`/`WaitForPendingFinalizers`, resurrection, a finalizer thread ([ADR 0021](adr/0021-finalizers.md)); the corelib's own types declare none |
-| Multithreading (`Thread`, `Monitor`, `Interlocked`, `Parallel`, thread pool) | ✅ | `Task.Run` and continuations run on the runtime's thread pool |
+| Multithreading (`Thread`, `Monitor`, `Interlocked`, `Parallel`, thread pool, wait handles incl. `Mutex` and `Semaphore`) | ✅ | `Task.Run` and continuations run on the runtime's thread pool; named mutexes in one process ([14](14-threading.md)); shared between processes stays an explicit diagnostic (#174) |
 | Unhandled exceptions (message + exit 134) | ✅ | |
 | Static initialization | ✅ | lazy per type with CoreCLR's triggers, `TypeInitializationException`, separate statics per generic instantiation (sample 381) |
 | Reflection | 🟡 | `GetType()`, `typeof`, names; `System.Type` predicates, generics, assignability and `Type.Assembly` over compile-time metadata ([12-corelib.md](12-corelib.md#type-metadata-systemtype-reflection)); constructors, methods, properties, attributes (including the `[Nullable]`/`[NullableContext]` csc writes for `#nullable enable` source, [ADR 0018](adr/0018-reflection-metadata.md)), `Invoke`, `CreateDelegate`, closed-world `MakeGenericType`, fields (with `GetValue`/`SetValue`, including the compiler-generated backing field of field-like events, as `Type.GetFields` lists it), events and `GetInterfaces`, for the types `[DynamicallyAccessedMembers]` or a constant `typeof(C).GetX(...)` pattern reaches, also through a local assigned `typeof(C)`. Explicit `NotSupportedException` where csharpc can't answer as .NET does: a type no such flow reaches (also `typeof(C)` reached through a field, a parameter without the annotation or `obj.GetType()`, a lambda-captured local in IL), non-public fields of reference-assembly types, fixed buffers and ref fields, the `[Nullable]`/`[NullableContext]` attributes of the shapes csharpc doesn't model (records, delegates, indexers, primary constructors, constrained type parameters, type aliases...: the untyped attribute queries throw), a struct's event field, `FieldInfo.FieldHandle`, `MakeByRefType`, `Reflection.Emit` |
@@ -246,7 +246,7 @@ size (143 KiB vs 1,338 KiB median); compile time is the open comparison (see the
 Compatibility run is at 100 % again.
 
 ### M5 — Drop-in: binary packages and the program as IL
-**Status:** 🟡 open (#175, #146).
+**Status:** 🟡 open (#146).
 
 An IL front-end (IL → the same lowering) so NuGet packages that ship only assemblies can be linked
 into the closed-world program, and so the program itself can come as IL — the input csharpc gets inside
@@ -299,6 +299,11 @@ the host's by default; a RID the project or `-p:RuntimeIdentifier` sets wins), s
 RID-specific assembly replaces the portable `lib/` one. The program as IL reads deps.json's `runtimeTargets`
 with the runtime graph's fallbacks (linux-x64 -> linux -> unix-x64 -> unix -> any). The native libraries are copied
 next to the executable, where a P/Invoke probes first (`tests/il.sh`, RidApp, against a package built locally).
+Static archives follow NativeAOT's items: `DirectPInvoke` / `DirectPInvokeList` make a library's imports direct calls the
+linker resolves, `NativeLibrary` / `NativeSystemLibrary` / `LinkerArg` extend the link line (project items, or
+`--directpinvoke`, `--directpinvokelist`, `--native-library`, `--native-system-library`, `--linker-arg`), and a package's
+`runtimes/<rid>/native/lib<name>.a` is linked when a `DirectPInvoke` names it (#175; `tests/projects.sh`, "DirectPInvoke",
+Linux and macOS; docs/16-interop-io.md).
 
 **Decided (#168, 2026-11-07):** the opcodes `jmp`, `arglist`, `mkrefany`/`refanyval`/`refanytype` (TypedReference) and `ckfinite`,
 and `calli` with an instance or `vararg` signature stay explicit diagnostics: none of the 52 packages of the sharded survey,
@@ -311,13 +316,13 @@ file-local and other compiler-generated types stays a diagnostic: PublishAot dis
 (`InvalidOperationException`), and with it enabled serializes such types as `{}` (their members are trimmed), which csharpc refuses
 instead of printing. ([ADR 0010](adr/0010-il-frontend.md), "Out of scope".)
 
-**Open (#175, #146):** linking a package's static archives and `DirectPInvoke`/`NativeLibrary` items as PublishAot does; the BCL surface
+**Open (#146):** the BCL surface
 packages use — the sharded IL survey of all 52 packages (#146) ranked the small members and the `System.Numerics` vector
 structs (26 packages) first, both done; next are `MathF` and the reflection lookups (`Type.GetMember`,
 `TypeInfo.GetDeclaredProperty`).
 
 ### M6 — Bootstrapping
-**Status:** 🟡 open (#174, #93).
+**Status:** 🟡 open (#93).
 
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.
 
@@ -363,11 +368,11 @@ about 35 s (15 % / 6 %) for a second set of types, declarations and constants in
 
 **Roslyn-from-IL survey, re-measured 2026-11-07 (#169):** 32 methods of Roslyn, `csharpc.dll` and the framework IL failed to
 lower (the 38 of 2026-10-31 had shrunk with earlier work), 4 after the fixes of that issue, and every shard now compiles to
-the end ([18-compatibility.md](18-compatibility.md#roslyn-and-csharpc)); the 4 are `Mutex` (#174). **Threaded lowering is a
+the end ([18-compatibility.md](18-compatibility.md#roslyn-and-csharpc)); the remaining ones were `Mutex` (#174, now implemented). **Threaded lowering is a
 decision, not an open item** (owner, 2026-11-06; [ADR 0014](adr/0014-compile-time.md), "Next hot spots"): deferred, the
 measured saving is about 35 s of a 238 s (-O0) and 577 s (-O2) self-compile.
 
-**Open (#174, #93):** `Mutex`; lowering scales quadratically on a very large program (#93: a ~250-assembly application, the
+**Open (#93):** lowering scales quadratically on a very large program (#93: a ~250-assembly application, the
 builtin interface tables are the largest step left).
 
 ### Runtime tiers — C# for library code, C where it is the right tool
