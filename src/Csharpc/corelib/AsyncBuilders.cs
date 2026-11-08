@@ -305,7 +305,7 @@ namespace CsharpcCoreLib
             get
             {
                 if (ReferenceEquals(_box, PoolingBox<TResult>.SyncSuccess)) return new ValueTask<TResult>(_result);
-                PoolingBox<TResult> box = _box ??= new PooledStateMachine<TResult, IAsyncStateMachine>().Box; // weakly typed, as .NET's
+                PoolingBox<TResult> box = _box ??= new PoolingWeakOwner<TResult>().Box; // before any await: no state machine type yet, as .NET's
                 return new ValueTask<TResult>(box, box.Version);
             }
         }
@@ -327,7 +327,7 @@ namespace CsharpcCoreLib
         public void SetException(Exception exception)
         {
             if (exception == null) throw new ArgumentNullException("exception");
-            (_box ??= new PooledStateMachine<TResult, IAsyncStateMachine>().Box).SetException(exception);
+            (_box ??= new PoolingWeakOwner<TResult>().Box).SetException(exception);
         }
     }
 
@@ -378,13 +378,20 @@ namespace CsharpcCoreLib
                 strong.FlowSuppressed = suppressed;
                 return strong.MoveNextAction;
             }
-            if (owner is PooledStateMachine<TResult, IAsyncStateMachine> weak)
+            if (owner is PoolingWeakOwner<TResult> weak)
             {
-                // Task was read (or the method faulted) before its first await: a box of the interface type.
-                if (weak.StateMachine == null) weak.StateMachine = stateMachine;
-                weak.Flow = flow;
-                weak.FlowSuppressed = suppressed;
-                return weak.MoveNextAction;
+                // Task was read (or the method faulted) before its first await: the box exists without a state machine,
+                // which is copied into a detached box of its own type now (see PoolingWeakOwner).
+                var inner = weak.Inner as PooledStateMachine<TResult, TStateMachine>;
+                if (inner == null)
+                {
+                    inner = new PooledStateMachine<TResult, TStateMachine>();
+                    inner.StateMachine = stateMachine;
+                    weak.Inner = inner;
+                }
+                inner.Flow = flow;
+                inner.FlowSuppressed = suppressed;
+                return inner.MoveNextAction;
             }
             PooledStateMachine<TResult, TStateMachine> rented = PooledStateMachine<TResult, TStateMachine>.RentFromCache();
             boxField = rented.Box; // before the copy below
@@ -400,6 +407,27 @@ namespace CsharpcCoreLib
         internal readonly PoolingBox<TResult> Box;
         protected PoolingBoxOwner() { Box = new PoolingBox<TResult>(this); }
         internal abstract void ReturnOrDropBox();
+    }
+
+    /// <summary>
+    /// The owner of a box made before the state machine's type is known (the builder's Task read, or SetException,
+    /// before the first await; .NET boxes those as StateMachineBox&lt;IAsyncStateMachine&gt;). It must not be a
+    /// PooledStateMachine&lt;TResult, IAsyncStateMachine&gt;: that one's MoveNext is a call through the interface, which
+    /// makes the MoveNext of every state machine in the program reachable (ModuleCodeGen.ReportIlFailures: the
+    /// failures of async library code the program never runs became errors). The first await copies the state machine
+    /// into an `Inner` box of its own type, whose result goes to this box through the builder copy's _box field.
+    /// Never pooled: the rare path, and a dropped box only costs an allocation.
+    /// </summary>
+    internal sealed class PoolingWeakOwner<TResult> : PoolingBoxOwner<TResult>
+    {
+        internal object Inner;
+
+        // The version moves on, so a second await of the same ValueTask throws as it does for a pooled box.
+        internal override void ReturnOrDropBox()
+        {
+            Inner = null;
+            Box._valueTaskSource.Reset();
+        }
     }
 
     internal sealed class PooledStateMachine<TResult, TStateMachine> : PoolingBoxOwner<TResult> where TStateMachine : IAsyncStateMachine

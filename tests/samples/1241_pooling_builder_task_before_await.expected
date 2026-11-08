@@ -1,0 +1,5 @@
+started
+42
+InvalidOperationException
+300
+failed before the first await
