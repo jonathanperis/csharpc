@@ -304,8 +304,8 @@ namespace CsharpcCoreLib
             for (int digits = 1; digits <= 5; digits++)
             {
                 long lower = long.Parse(all.Substring(0, digits), CultureInfo.InvariantCulture);
-                double lowerValue = double.Parse(lower.ToString(CultureInfo.InvariantCulture) + "E" + (exp10 - (digits - 1)), CultureInfo.InvariantCulture);
-                double upperValue = double.Parse((lower + 1).ToString(CultureInfo.InvariantCulture) + "E" + (exp10 - (digits - 1)), CultureInfo.InvariantCulture);
+                double lowerValue = double.Parse(lower.ToString(CultureInfo.InvariantCulture) + "E" + (exp10 - (digits - 1)).ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
+                double upperValue = double.Parse((lower + 1).ToString(CultureInfo.InvariantCulture) + "E" + (exp10 - (digits - 1)).ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture);
                 ushort magnitude = (ushort)(_value & 0x7FFF);
                 bool lowOk = FromDouble(lowerValue) == magnitude, highOk = FromDouble(upperValue) == magnitude;
                 if (!lowOk && !highOk) continue;

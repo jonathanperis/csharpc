@@ -547,7 +547,7 @@ namespace CsharpcCoreLib
     {
         protected override bool TryGet(ref Utf8JsonReaderImpl reader, out int value) => reader.TryGetInt32(out value);
         protected override bool TryParse(ReadOnlySpan<byte> span, out int value) => JsonNumberParser.TryParse(span, out value);
-        protected override string Format(int value) => value.ToString();
+        protected override string Format(int value) => value.ToString(CultureInfo.InvariantCulture);
         protected override string TypeName => "Int32";
         protected override NumericType TypeNumeric => NumericType.Int32;
     }
@@ -556,7 +556,7 @@ namespace CsharpcCoreLib
     {
         protected override bool TryGet(ref Utf8JsonReaderImpl reader, out long value) => reader.TryGetInt64(out value);
         protected override bool TryParse(ReadOnlySpan<byte> span, out long value) => JsonNumberParser.TryParse(span, out value);
-        protected override string Format(long value) => value.ToString();
+        protected override string Format(long value) => value.ToString(CultureInfo.InvariantCulture);
         protected override string TypeName => "Int64";
         protected override NumericType TypeNumeric => NumericType.Int64;
     }
@@ -565,7 +565,7 @@ namespace CsharpcCoreLib
     {
         protected override bool TryGet(ref Utf8JsonReaderImpl reader, out short value) => reader.TryGetInt16(out value);
         protected override bool TryParse(ReadOnlySpan<byte> span, out short value) => JsonNumberParser.TryParse(span, out value);
-        protected override string Format(short value) => value.ToString();
+        protected override string Format(short value) => value.ToString(CultureInfo.InvariantCulture);
         protected override string TypeName => "Int16";
         protected override NumericType TypeNumeric => NumericType.Int16;
     }
@@ -574,7 +574,7 @@ namespace CsharpcCoreLib
     {
         protected override bool TryGet(ref Utf8JsonReaderImpl reader, out sbyte value) => reader.TryGetSByte(out value);
         protected override bool TryParse(ReadOnlySpan<byte> span, out sbyte value) => JsonNumberParser.TryParse(span, out value);
-        protected override string Format(sbyte value) => value.ToString();
+        protected override string Format(sbyte value) => value.ToString(CultureInfo.InvariantCulture);
         protected override string TypeName => "SByte";
         protected override NumericType TypeNumeric => NumericType.SByte;
     }
@@ -583,7 +583,7 @@ namespace CsharpcCoreLib
     {
         protected override bool TryGet(ref Utf8JsonReaderImpl reader, out byte value) => reader.TryGetByte(out value);
         protected override bool TryParse(ReadOnlySpan<byte> span, out byte value) => JsonNumberParser.TryParse(span, out value);
-        protected override string Format(byte value) => value.ToString();
+        protected override string Format(byte value) => value.ToString(CultureInfo.InvariantCulture);
         protected override string TypeName => "Byte";
         protected override NumericType TypeNumeric => NumericType.Byte;
     }
@@ -592,7 +592,7 @@ namespace CsharpcCoreLib
     {
         protected override bool TryGet(ref Utf8JsonReaderImpl reader, out ushort value) => reader.TryGetUInt16(out value);
         protected override bool TryParse(ReadOnlySpan<byte> span, out ushort value) => JsonNumberParser.TryParse(span, out value);
-        protected override string Format(ushort value) => value.ToString();
+        protected override string Format(ushort value) => value.ToString(CultureInfo.InvariantCulture);
         protected override string TypeName => "UInt16";
         protected override NumericType TypeNumeric => NumericType.UInt16;
     }
@@ -601,7 +601,7 @@ namespace CsharpcCoreLib
     {
         protected override bool TryGet(ref Utf8JsonReaderImpl reader, out uint value) => reader.TryGetUInt32(out value);
         protected override bool TryParse(ReadOnlySpan<byte> span, out uint value) => JsonNumberParser.TryParse(span, out value);
-        protected override string Format(uint value) => value.ToString();
+        protected override string Format(uint value) => value.ToString(CultureInfo.InvariantCulture);
         protected override string TypeName => "UInt32";
         protected override NumericType TypeNumeric => NumericType.UInt32;
     }
@@ -610,7 +610,7 @@ namespace CsharpcCoreLib
     {
         protected override bool TryGet(ref Utf8JsonReaderImpl reader, out ulong value) => reader.TryGetUInt64(out value);
         protected override bool TryParse(ReadOnlySpan<byte> span, out ulong value) => JsonNumberParser.TryParse(span, out value);
-        protected override string Format(ulong value) => value.ToString();
+        protected override string Format(ulong value) => value.ToString(CultureInfo.InvariantCulture);
         protected override string TypeName => "UInt64";
         protected override NumericType TypeNumeric => NumericType.UInt64;
     }
@@ -619,7 +619,7 @@ namespace CsharpcCoreLib
     {
         protected override bool TryGet(ref Utf8JsonReaderImpl reader, out decimal value) => reader.TryGetDecimal(out value);
         protected override bool TryParse(ReadOnlySpan<byte> span, out decimal value) => JsonNumberParser.TryParse(span, out value);
-        protected override string Format(decimal value) => value.ToString();
+        protected override string Format(decimal value) => value.ToString(CultureInfo.InvariantCulture);
         protected override string TypeName => "Decimal";
         protected override NumericType TypeNumeric => NumericType.Decimal;
     }
@@ -660,7 +660,7 @@ namespace CsharpcCoreLib
                 else
                 {
                     Utf8JsonWriterImpl.ValidateFinite(value);
-                    writer.WriteStringValue(value.ToString());
+                    writer.WriteNumberAsStringValue(value.ToString(CultureInfo.InvariantCulture));
                 }
             }
             else if ((handling & JsonNumberHandling.AllowNamedFloatingPointLiterals) != 0 && !double.IsFinite(value)) writer.WriteStringValue(NamedLiteral(value));
@@ -680,7 +680,7 @@ namespace CsharpcCoreLib
         }
 
         public override void WriteAsPropertyName(Utf8JsonWriterImpl writer, double value, JsonSerializerOptionsImpl options) =>
-            writer.WritePropertyName(double.IsFinite(value) ? value.ToString() : NamedLiteral(value));
+            writer.WriteNumberAsPropertyName(double.IsFinite(value) ? value.ToString(CultureInfo.InvariantCulture) : NamedLiteral(value));
     }
 
     internal sealed class SingleConverter : JsonPrimitiveConverter<float>
@@ -718,7 +718,7 @@ namespace CsharpcCoreLib
                 else
                 {
                     Utf8JsonWriterImpl.ValidateFinite(value);
-                    writer.WriteStringValue(value.ToString());
+                    writer.WriteNumberAsStringValue(value.ToString(CultureInfo.InvariantCulture));
                 }
             }
             else if ((handling & JsonNumberHandling.AllowNamedFloatingPointLiterals) != 0 && !float.IsFinite(value)) writer.WriteStringValue(DoubleConverter.NamedLiteral(value));
@@ -735,7 +735,7 @@ namespace CsharpcCoreLib
         }
 
         public override void WriteAsPropertyName(Utf8JsonWriterImpl writer, float value, JsonSerializerOptionsImpl options) =>
-            writer.WritePropertyName(float.IsFinite(value) ? value.ToString() : DoubleConverter.NamedLiteral(value));
+            writer.WriteNumberAsPropertyName(float.IsFinite(value) ? value.ToString(CultureInfo.InvariantCulture) : DoubleConverter.NamedLiteral(value));
     }
 
     internal sealed class StringConverter : JsonPrimitiveConverter<string>
@@ -867,12 +867,12 @@ namespace CsharpcCoreLib
             return result;
         }
 
-        public override void Write(Utf8JsonWriterImpl writer, TimeSpan value, JsonSerializerOptionsImpl options) => writer.WriteStringValue(value.ToString("c"));
+        public override void Write(Utf8JsonWriterImpl writer, TimeSpan value, JsonSerializerOptionsImpl options) => writer.WriteStringValue(value.ToString("c", CultureInfo.InvariantCulture));
 
         public override TimeSpan ReadAsPropertyName(ref Utf8JsonReaderImpl reader, Type typeToConvert, JsonSerializerOptionsImpl options) => ParseCore(ref reader);
 
         public override void WriteAsPropertyName(Utf8JsonWriterImpl writer, TimeSpan value, JsonSerializerOptionsImpl options) =>
-            writer.WritePropertyName(value.ToString("c"));
+            writer.WritePropertyName(value.ToString("c", CultureInfo.InvariantCulture));
     }
 
     internal sealed class ByteArrayConverter : JsonConverterImpl<byte[]>
@@ -1004,7 +1004,7 @@ namespace CsharpcCoreLib
                     else if (entry.Key is DateTime date) key = JsonWriterHelper.FormatDateTime(date);
                     else if (entry.Key is DateTimeOffset dateOffset) key = JsonWriterHelper.FormatDateTimeOffset(dateOffset);
                     else if (entry.Key is bool flag) key = flag ? "true" : "false";
-                    else key = entry.Key.ToString();
+                    else key = Convert.ToString(entry.Key, CultureInfo.InvariantCulture);
                     // Date keys are written unescaped, like their converters' WriteAsPropertyName.
                     if (entry.Key is DateTime || entry.Key is DateTimeOffset) writer.WritePropertyNameUtf8Escaped(Encoding.UTF8.GetBytes(key));
                     else writer.WritePropertyName(key);
@@ -1373,8 +1373,8 @@ namespace CsharpcCoreLib
                 writer.WritePropertyName(FormatEnumAsString(key, dictionaryKeyPolicy));
                 return;
             }
-            if (_isSigned) writer.WritePropertyName(((long)key).ToString());
-            else writer.WritePropertyName(key.ToString());
+            if (_isSigned) writer.WritePropertyName(((long)key).ToString(CultureInfo.InvariantCulture));
+            else writer.WritePropertyName(key.ToString(CultureInfo.InvariantCulture));
         }
 
         private bool TryParseEnumFromString(ref Utf8JsonReaderImpl reader, out T result)

@@ -10,6 +10,7 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -1006,7 +1007,7 @@ namespace CsharpcCoreLib
                 {
                     JsonConverterImpl<TKey> keyConverter = Key(options);
                     keyConverter.WriteAsPropertyName(writer, kv.Key, options);
-                    keyText = kv.Key.ToString();
+                    keyText = Convert.ToString(kv.Key, CultureInfo.InvariantCulture);
                 }
                 state.Push(keyText);
                 valueConverter.WriteWithState(writer, kv.Value, options, state);

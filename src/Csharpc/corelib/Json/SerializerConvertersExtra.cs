@@ -24,7 +24,7 @@ namespace CsharpcCoreLib
             return new string(chars);
         }
 
-        protected override string Format(Int128 value) => value.ToString();
+        protected override string Format(Int128 value) => value.ToString(CultureInfo.InvariantCulture);
         protected override string TypeName => "Int128";
         protected override NumericType TypeNumeric => NumericType.Int128;
     }
@@ -36,7 +36,7 @@ namespace CsharpcCoreLib
         protected override bool TryParse(ReadOnlySpan<byte> span, out UInt128 value) =>
             Int128Parser.ParseUnsigned(Int128Converter.Ascii(span), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out value) == Int128ParseStatus.Ok;
 
-        protected override string Format(UInt128 value) => value.ToString();
+        protected override string Format(UInt128 value) => value.ToString(CultureInfo.InvariantCulture);
         protected override string TypeName => "UInt128";
         protected override NumericType TypeNumeric => NumericType.UInt128;
     }
