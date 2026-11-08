@@ -208,7 +208,7 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
             // Apple's linker rejects undefined symbols even when weak; -U lets each bind to null at
             // run time (EntryPointNotFoundException at the call, as on Linux).
             var weak = (weakImports ?? []).SelectMany(name => new[] { "-Wl,-U,_" + name });
-            Run(CC, [$"--target={triple}", .. SysrootFlags, .. programObjects, .. runtime, .. DarwinLinkFlags(), .. weak, .. sanitize, "-o", output]);
+            Run(CC, [$"--target={triple}", .. SysrootFlags, .. programObjects, .. runtime, .. DarwinLinkFlags(), .. AppleShimLinkFlags(archives), .. weak, .. sanitize, "-o", output]);
             // DWARF stays in the object files on macOS (the executable only records where): collect it
             // into output.dSYM before the temporary program object is deleted.
             if (options.Debug) Run(Environment.GetEnvironmentVariable("CSHARPC_DSYMUTIL") ?? "dsymutil", [output]);
@@ -282,6 +282,37 @@ public sealed class Toolchain(CompilerOptions options, Csharpc.Llvm.TargetMachin
         if (Environment.GetEnvironmentVariable("CSHARPC_LD") == "lld") yield return "-fuse-ld=lld";
         yield return "-Wl,-dead_strip";
         if (options.Strip ?? !options.Debug) yield return "-Wl,-S,-x";
+    }
+
+    /// <summary>
+    /// What the NativeAOT pack's Apple crypto shim (libSystem.Security.Cryptography.Native.Apple.a, macOS native TLS mode) needs at
+    /// link time besides the archive: it holds Swift (CryptoKit) and Objective-C (Network.framework) objects, so the Swift runtime
+    /// the OS ships in /usr/lib/swift (the SDK has only its stubs, under usr/lib/swift) and the system frameworks it calls. The
+    /// objects carry autolink entries for most of them; the explicit flags keep the link working for lld and for a plain clang.
+    /// libSystem.Net.Security.Native.a (GSS-API: Negotiate) adds GSS.framework.
+    /// </summary>
+    private IEnumerable<string> AppleShimLinkFlags(IReadOnlyList<string>? archives)
+    {
+        if (archives is null) yield break;
+        if (archives.Any(a => Path.GetFileName(a).StartsWith("libSystem.Security.Cryptography.Native.Apple", StringComparison.Ordinal)))
+        {
+            if (MacSdk is { } sdk) yield return $"-L{sdk}/usr/lib/swift";
+            yield return "-L/usr/lib/swift";
+            yield return "-Wl,-rpath,/usr/lib/swift";
+            yield return "-lobjc";
+            yield return "-lswiftCore";
+            yield return "-lswiftFoundation";
+            foreach (var framework in new[] { "Security", "CoreFoundation", "Foundation", "CryptoKit", "Network" })
+            {
+                yield return "-framework";
+                yield return framework;
+            }
+        }
+        if (archives.Any(a => Path.GetFileName(a).StartsWith("libSystem.Net.Security.Native", StringComparison.Ordinal)))
+        {
+            yield return "-framework";
+            yield return "GSS";
+        }
     }
 
     /// <summary>
