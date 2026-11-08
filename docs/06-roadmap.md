@@ -21,7 +21,7 @@ of the milestone below says where it is tracked.
 | M3 Platforms | ✅ done | per-platform limits are documented, see M3 below |
 | M4 Real-world validation | 🟡 open | parity is 98.4 % (242 of 246) in the latest Compatibility run, down from 100 % (#163) |
 | M5 Binary packages and the program as IL | 🟡 open | linking a package's static archives (#175), the BCL surface packages use (#146) |
-| M6 Bootstrapping | 🟡 open | `Mutex` (#174, the last 3 methods of the Roslyn survey), quadratic lowering on very large programs (#93) |
+| M6 Bootstrapping | 🟡 open | quadratic lowering on very large programs (#93) |
 | M7 TechEmpower with the `csharpc` CLI | ⏸ on hold (owner) | started 2026-10-31 before M2–M6 were done, against the owner's rule; on hold since 2026-11-05. Last good measurement 288 of 456 metrics ahead of NativeAOT; on `main` today csharpc does not build the entry (#164) |
 | M8 The dotnet fork | ⬜ not started | |
 | M9 TechEmpower through the fork | ⬜ not started | |
@@ -317,7 +317,7 @@ structs (26 packages) first, both done; next are `MathF` and the reflection look
 `TypeInfo.GetDeclaredProperty`).
 
 ### M6 — Bootstrapping
-**Status:** 🟡 open (#174, #93).
+**Status:** 🟡 open (#93).
 
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.
 
@@ -363,11 +363,11 @@ about 35 s (15 % / 6 %) for a second set of types, declarations and constants in
 
 **Roslyn-from-IL survey, re-measured 2026-11-07 (#169):** 32 methods of Roslyn, `csharpc.dll` and the framework IL failed to
 lower (the 38 of 2026-10-31 had shrunk with earlier work), 4 after the fixes of that issue, and every shard now compiles to
-the end ([18-compatibility.md](18-compatibility.md#roslyn-and-csharpc)); the 4 are `Mutex` (#174). **Threaded lowering is a
+the end ([18-compatibility.md](18-compatibility.md#roslyn-and-csharpc)); the remaining ones were `Mutex` (#174, now implemented). **Threaded lowering is a
 decision, not an open item** (owner, 2026-11-06; [ADR 0014](adr/0014-compile-time.md), "Next hot spots"): deferred, the
 measured saving is about 35 s of a 238 s (-O0) and 577 s (-O2) self-compile.
 
-**Open (#174, #93):** `Mutex`; lowering scales quadratically on a very large program (#93: a ~250-assembly application, the
+**Open (#93):** lowering scales quadratically on a very large program (#93: a ~250-assembly application, the
 builtin interface tables are the largest step left).
 
 ### Runtime tiers — C# for library code, C where it is the right tool

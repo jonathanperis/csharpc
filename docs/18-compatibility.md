@@ -393,9 +393,9 @@ Also: `Environment.FailFast`, `Assembly.ManifestModule`, `Assembly.GetReferenced
 `Assembly.GetCustomAttributes(Type, bool)`, `RuntimeEnvironment.GetRuntimeDirectory`,
 `Process.GetCurrentProcess`, `GC.Collect` overloads, `FileNotFoundException.FusionLog`.
 
-The 2026-11-07 re-measure (#169) found 32 methods, not 38, and after the fixes of that issue 4 are left, all of them
-`Mutex`: `new Mutex(bool, string)` in two methods of the analyzer shadow-copy resolver, `Mutex.TryOpenExisting` in one, and
-`Assembly.LoadFrom` (an explicit stop now: nothing is loaded at run time) in one. What the run listed and how it was closed:
+The 2026-11-07 re-measure (#169) found 32 methods, not 38, and after the fixes of that issue 4 were left, all of them
+`Mutex` (`new Mutex(bool, string)` in two methods of the analyzer shadow-copy resolver, `Mutex.TryOpenExisting` in one, and
+`Assembly.LoadFrom`, an explicit stop now: nothing is loaded at run time, in one); `Mutex` is implemented since (#174). What the run listed and how it was closed:
 `System.IO.Compression.DeflateStream` (10 methods: embedded text and PDB compression) was never a missing type: the
 survey's compiles inherit an address-space cap and a GC heap limit, and the child `dotnet restore` that fetches the
 NativeAOT runtime pack (the zlib-ng shim) failed under them, so System.IO.Compression was not compiled from IL
