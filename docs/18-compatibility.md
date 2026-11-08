@@ -602,10 +602,10 @@ variables first, then `MacProxy` over CFNetwork / `HttpWindowsProxy` over WinINe
   reloads the settings when the registry changes. A `"<local>"` bypass lists the machine's addresses
   (`NetworkInterface.GetAllNetworkInterfaces`: `GetAdaptersAddresses` on Windows, `getifaddrs` on Linux and macOS;
   only the unicast addresses are exposed, every other member of those types is CSLLVM0002).
-  `System.Security.Principal.Windows` (`WindowsIdentity`, reached by NTLM/Negotiate code) compiles; creating its
-  `AsyncLocal<SafeAccessTokenHandle>` with a value-changed handler is the `AsyncLocal` shadow's explicit
-  `NotSupportedException` (execution-context switches don't notify handlers yet), so only a program that uses
-  `WindowsIdentity` hits it, not `new HttpClient()`.
+  `System.Security.Principal.Windows` (`WindowsIdentity`, reached by NTLM/Negotiate code and by the native TLS route's
+  `SslStream`) compiles; its `AsyncLocal<SafeAccessTokenHandle>` value-changed handler is called when `Value` is
+  assigned, not when an execution-context switch changes the value (csharpc's flows do not track that), which only
+  matters to impersonation (`WindowsIdentity.RunImpersonated`).
 
 Explicit diagnostics, never a different behavior:
 

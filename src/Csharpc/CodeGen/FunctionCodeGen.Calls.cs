@@ -478,6 +478,9 @@ public sealed partial class FunctionCodeGen
         // `new object()`: LazyInitializer.EnsureInitialized(ref object) and its lock-object overloads.
         if (type.SpecialType == SpecialType.System_Object)
             return Allocate(_m.ExternalGlobal("csrt_Object_MT"), L.ConstInt(L.I64, (long)T.PointerSize));
+        // LazyInitializer.EnsureInitialized(ref Lock) (System.Net.Security and System.Security.Cryptography on Windows keep their locks so).
+        if (type is INamedTypeSymbol { Name: "Lock", ContainingType: null, ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } })
+            return CallRuntime("csrt_lock_new", L.Ptr, []);
         if (type is INamedTypeSymbol { TypeKind: TypeKind.Class, IsAbstract: false } named && _m.IsUserType(named)
             && named.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty && c.DeclaredAccessibility == Accessibility.Public) is { } ctor)
         {
