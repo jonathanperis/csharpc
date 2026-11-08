@@ -1,0 +1,16 @@
+bool 'True' 0 -> True True 4
+bool 'False' 0 -> True False 5
+bool 'true' 0 -> True True 4
+bool 'false' 0 -> True False 5
+bool 'TRUE' 0 -> True True 4
+bool 'Truex' 0 -> True True 4
+bool 'Tru' 0 -> False False 0
+bool '' 71 -> False False 0
+bool 'true' 108 -> True True 4
+bool 'True' 108 -> True True 4
+True -170141183460469231731687303715884105728
+False 0
+True 340282366920938463463374607431768211455
+False 0
+True 1.2.3.4
+False True
