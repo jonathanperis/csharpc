@@ -274,7 +274,13 @@ public sealed partial class FunctionCodeGen
         if (!target.IsStatic || target.ContainingType.TypeKind != TypeKind.Interface || constrainedTo is null) return null;
         var concrete = S(constrainedTo);
         if (concrete is ITypeParameterSymbol || !_m.IsUserType(concrete)) return null; // primitives: generic-math paths
-        return concrete.FindImplementationForInterfaceMember(target) as IMethodSymbol
+        var implementation = concrete.FindImplementationForInterfaceMember(target) as IMethodSymbol;
+        // A generic static abstract member (`static abstract bool IsNullableAt<TState>(...)`) is implemented by the type's
+        // generic method definition: it takes the call's type arguments, or its body would be lowered open.
+        if (implementation is { IsGenericMethod: true } && target.IsGenericMethod && SymbolEqualityComparer.Default.Equals(implementation, implementation.ConstructedFrom)
+            && implementation.TypeParameters.Length == target.TypeArguments.Length)
+            implementation = implementation.Construct([.. target.TypeArguments.Select(a => S(a))]);
+        return implementation
             ?? (target.IsAbstract ? throw CompileError.Unsupported($"no implementation of '{target}' on '{concrete}'", target) : target);
     }
 
