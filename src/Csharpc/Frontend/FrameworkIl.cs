@@ -370,6 +370,8 @@ public static partial class FrameworkIl
         // System.Private.CoreLib is the runtime's own code (FCalls, intrinsics, the type system); the other
         // System.Private.* assemblies (Xml, Xml.Linq, DataContractSerialization, Uri) are ordinary libraries
         // behind facades and get the same checks as any other assembly.
+        // A mixed assembly of the native TLS mode still P/Invokes its shim (the Apple crypto shim on macOS): recorded, whatever else it calls.
+        if (NativeTls.On && IlFirst.IsPartial(a.Name)) _ = ModuleOfRuntime();
         a.Ineligible = a.Name.Equals("System.Private.CoreLib", StringComparison.OrdinalIgnoreCase) ? "it is part of the runtime itself"
             : IsMixedWithShadows(a.Name) ? null
             : ModuleOfRuntime() is { } native ? $"it calls native code of the .NET runtime ({native})"

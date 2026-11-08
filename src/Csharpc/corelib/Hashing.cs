@@ -512,6 +512,21 @@ namespace CsharpcCoreLib
             engine.Append(source);
             return engine.Finish();
         }
+
+        public static int HashData(ReadOnlySpan<byte> source, Span<byte> destination)
+        {
+            if (destination.Length < HashSizeInBytes) throw new ArgumentException("Destination is too short.", "destination");
+            HashData(source).AsSpan().CopyTo(destination);
+            return HashSizeInBytes;
+        }
+
+        public static bool TryHashData(ReadOnlySpan<byte> source, Span<byte> destination, out int bytesWritten)
+        {
+            if (destination.Length < HashSizeInBytes) { bytesWritten = 0; return false; }
+            HashData(source).AsSpan().CopyTo(destination);
+            bytesWritten = HashSizeInBytes;
+            return true;
+        }
     }
 
     [Shadows("System.Security.Cryptography.SHA256")]
@@ -575,6 +590,21 @@ namespace CsharpcCoreLib
             engine.Append(source);
             return engine.Finish();
         }
+
+        public static int HashData(ReadOnlySpan<byte> source, Span<byte> destination)
+        {
+            if (destination.Length < HashSizeInBytes) throw new ArgumentException("Destination is too short.", "destination");
+            HashData(source).AsSpan().CopyTo(destination);
+            return HashSizeInBytes;
+        }
+
+        public static bool TryHashData(ReadOnlySpan<byte> source, Span<byte> destination, out int bytesWritten)
+        {
+            if (destination.Length < HashSizeInBytes) { bytesWritten = 0; return false; }
+            HashData(source).AsSpan().CopyTo(destination);
+            bytesWritten = HashSizeInBytes;
+            return true;
+        }
     }
 
     [Shadows("System.Security.Cryptography.SHA512")]
@@ -598,6 +628,21 @@ namespace CsharpcCoreLib
             var engine = new Sha512Engine(is384: false);
             engine.Append(source);
             return engine.Finish();
+        }
+
+        public static int HashData(ReadOnlySpan<byte> source, Span<byte> destination)
+        {
+            if (destination.Length < HashSizeInBytes) throw new ArgumentException("Destination is too short.", "destination");
+            HashData(source).AsSpan().CopyTo(destination);
+            return HashSizeInBytes;
+        }
+
+        public static bool TryHashData(ReadOnlySpan<byte> source, Span<byte> destination, out int bytesWritten)
+        {
+            if (destination.Length < HashSizeInBytes) { bytesWritten = 0; return false; }
+            HashData(source).AsSpan().CopyTo(destination);
+            bytesWritten = HashSizeInBytes;
+            return true;
         }
     }
 
