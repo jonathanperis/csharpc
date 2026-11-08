@@ -113,6 +113,14 @@ Lock second = LazyInitializer.EnsureInitialized(ref sync);
 Console.WriteLine(ReferenceEquals(first, second));
 lock (first) { Console.WriteLine(first.IsHeldByCurrentThread); }
 
+// AsyncLocal<T> with a value-changed handler (WindowsIdentity's impersonation token): called on assignments that change the value.
+var tracked = new AsyncLocal<string?>(args => Console.WriteLine($"changed {args.PreviousValue ?? "null"} -> {args.CurrentValue ?? "null"} (context {args.ThreadContextChanged})"));
+tracked.Value = "a";
+tracked.Value = "a";
+tracked.Value = "b";
+tracked.Value = null;
+Console.WriteLine(tracked.Value ?? "null");
+
 sealed unsafe class NativeBuffer : MemoryManager<byte>
 {
     private byte* _pointer;

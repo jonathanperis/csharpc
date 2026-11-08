@@ -106,3 +106,7 @@ True
 False
 True
 True
+changed null -> a (context False)
+changed a -> b (context False)
+changed b -> null (context False)
+null

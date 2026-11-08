@@ -1,7 +1,7 @@
 // AsyncLocalValueChangedArgs<T>: the argument of an AsyncLocal<T>'s value-changed handler. The struct exists so that
 // code naming the handler type (System.Security.Principal.Windows' WindowsIdentity) compiles; csharpc's execution-
-// context flow doesn't notify handlers yet, so constructing an AsyncLocal<T> *with* a handler is an explicit
-// NotSupportedException (AsyncLocalImpl in Tasks/ExecutionFlow.cs).
+// context flow notifies a handler of assignments only (not of execution-context switches), see
+// AsyncLocalImpl in Tasks/ExecutionFlow.cs.
 #nullable disable
 namespace CsharpcCoreLib
 {
