@@ -104,7 +104,7 @@ of the milestone below says where it is tracked.
 | Parsing/formatting numbers | ✅ | standard + custom format strings |
 | `System.Collections.Generic` (`List`, `Dictionary`, `HashSet`, ...), concurrent collections, `BlockingCollection`, `Partitioner` | ✅ | shadow corelib in C# |
 | `System.Linq` | ✅ | shadow corelib in C# |
-| `System.Text.RegularExpressions` | ✅ | port of .NET's engine (interpreter; no `NonBacktracking`), [12-corelib.md](12-corelib.md#regular-expressions) |
+| `System.Text.RegularExpressions` | ✅ | the framework's IL (all engines, `[GeneratedRegex]` by the SDK's generator), [12-corelib.md](12-corelib.md#regular-expressions) |
 | `System.Text.Json` | ✅ | writer, reader, DOM, nodes, `JsonSchemaExporter`; serializer over source-generated metadata, reflection-style calls included ([12-corelib.md](12-corelib.md#systemtextjson)); gaps in #89, #100 |
 | `Task`, `TaskFactory`, `EventSource`/`EventListener` | ✅ | [10-async.md](10-async.md), [12-corelib.md](12-corelib.md) |
 | File I/O, sockets, `HttpClient` | ✅ | System.IO, sockets (TCP/UDP, `TcpListener`/`TcpClient`, `Dns`), `HttpClient` over HTTP/1.1 with system proxies and gzip/deflate/brotli ([16-interop-io.md](16-interop-io.md)); gaps in #102 |

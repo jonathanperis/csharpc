@@ -1,7 +1,7 @@
 # ADR 0023 — Framework IL first: hand-implement the runtime-coupled core, compile the rest of the framework from its IL
 
-- **Status:** Accepted as policy (2026-11-08, owner decision); the per-library decisions below are measured, and no default has
-  changed yet. Issues #187 (policy) and #189 (this ADR).
+- **Status:** Accepted as policy (2026-11-08, owner decision); the per-library decisions below are measured. System.Text.RegularExpressions
+  is flipped (#206, owner: "flip now, accept the size"); no other default has changed yet. Issues #187 (policy) and #189 (this ADR).
 
 ## Context
 
@@ -66,7 +66,7 @@ samples are tiny and start-up dominated.
 | Library (switch) | Correctness (samples from IL) | Binary size, IL / shadow | Compile cpu, IL / shadow | Speed, IL / shadow (time) | Lines removed on a flip | Decision |
 |---|---|---|---|---|---|---|
 | System.Text.Json + System.Text.Encodings.Web (`System.Text.Json,System.Text.Encodings.Web`) | 17 of 37: the whole writer, reader, document and encoder surface; the serializer family is blocked by explicit diagnostics (below) | 1.89x over 6 samples (236 to 794 KB for the smallest, 622 to 874 for a writer program); 3.0x for the throughput program (286 to 872 KB) | 1.60x | 0.43x on the throughput program (675 to 293 ms: 2.3x faster); 0.60x over the 6 samples | 16 584 (`corelib/Json` without `ArrayBufferWriter.cs`, which is CoreLib surface); 948 more in `Frontend/JsonReflectionContexts*` once the serializer is IL | **No-go today, go when the serializer blockers are closed.** IL wins speed and exactness; size is the price. |
-| System.Text.RegularExpressions (`System.Text.RegularExpressions`) | 20 of 22: every engine, option, group, lookaround, replace, split, timeout and span sample; the 2 failures are `[GeneratedRegex]` samples (csharpc's own generator emits a call into the shadow `Regex`) | 3.35x over 8 samples (13.9 against 4.1 MB): 1.4x (727 against 508 KB) for a program that only uses `new Regex(pattern)`, 3.6x (1.84 to 1.97 MB) once it uses a constructor or static method that takes `RegexOptions`, which reaches the NonBacktracking engine (`SymbolicRegexRunnerFactory`, found with `CSHARPC_WHY_LOWERED`) | 2.24x | 0.71x on the throughput program (992 to 700 ms: 1.4x faster); start-up dominated samples tie | 17 174 (`corelib/Regex` 16 830, `Frontend/GeneratedRegex*.cs` 344), after linking the SDK's regex generator | **Go**, pending the owner's size budget and the generator: correct and faster; the size cost is the NonBacktracking engine every options-taking `Regex` construction reaches. |
+| System.Text.RegularExpressions | 20 of 22 before the flip (the 2 failures were `[GeneratedRegex]`: csharpc's own generator called into the shadow `Regex`); after linking the SDK's generator every regex sample passes, `[GeneratedRegex]` ones included, plus a new NonBacktracking sample (1290) | 3.35x over 8 samples in the A/B (13.9 against 4.1 MB). Final, stripped -O2 x86-64: 1.43x (744 912 against 520 248 B) for `new Regex(pattern)` programs, 3.6x to 3.8x (1.90 to 2.01 MB against 0.53 MB) once a constructor or static method takes `RegexOptions`, which reaches the NonBacktracking engine (`SymbolicRegexRunnerFactory`, found with `CSHARPC_WHY_LOWERED`); a program using `[GeneratedRegex]` shrinks (415 504 against 548 792 B: the generated matcher replaces the interpreter) | 2.24x in the A/B; final: 0.85x to 2.1x per sample (153 against 75 CPU s for 290, 79 against 73 for 291, 68 against 80 for 305) | 0.71x on the throughput program (992 to 700 ms: 1.4x faster); start-up dominated samples tie | 17 174 (`corelib/Regex` 16 830, `Frontend/GeneratedRegex*.cs` 344); the flip PR's total against main is 17 406 deletions (135 insertions) with the ownership-map rows, the fuzzer's regex cases and docs | **Flipped (#206)**: correct and faster; the size cost is the NonBacktracking engine every options-taking `Regex` construction reaches (follow-up: a tighter closed world or constant propagation of `RegexOptions`). Budgets: `tests/size/regex.cs` 815 104 B and `regexoptions.cs` 1 929 216 B on linux-x86_64; programs that do not use Regex are byte-identical (hello 28 536, linq 164 552, collections 140 856, numbers 129 048, exceptions 36 920, typeinfo 43 792, async 156 096). |
 
 The size cost is real and is the part to decide: AGENTS.md allows a measured speed gain to cost size with the numbers in the commit
 and the budget raised for that reason, and this is such a case. The levers to measure are general ones (nothing library-specific is
@@ -101,10 +101,12 @@ each closes for every IL-compiled assembly at once.
 
 ## Consequences
 
-- No default changes with this ADR. The next steps per library are flips, each one PR that makes IL the default for that library, deletes
-  its shadow and the samples that covered only the shadow (the lines are reported with `git diff --shortstat`), and removes its use of the
-  switch: System.Text.RegularExpressions first (link the SDK's regex generator and delete csharpc's), System.Text.Json and
-  System.Text.Encodings.Web together after the reflection and numeric-struct items above.
+- This ADR changed no default; the first flip followed (#206): System.Text.RegularExpressions comes from the framework's IL, the SDK's regex
+  generator is linked into csharpc, and the shadow, csharpc's generator and its hooks are deleted (every regex sample is a behavioural one
+  and now tests the real engine, so none was removed). The next steps per library are flips of the same kind, each one PR that makes IL the
+  default for that library, deletes its shadow and the samples that covered only the shadow (the lines are reported with
+  `git diff --shortstat`), and removes its use of the switch: System.Text.Json and System.Text.Encodings.Web together after the
+  reflection and numeric-struct items above.
 - The order of #187 continues: System.Linq, System.Collections(.Concurrent), System.Net.Http and Sockets pieces, crypto/X.509/`SslStream`
   (Windows is the native-TLS mode of ADR 0022, one use of the same switch), System.Xml; SIMD (`Vector128/256` and the common hardware
   intrinsics to LLVM vectors) is the item real framework code needs to be competitive; the CoreLib-internals audit follows from the blocker
