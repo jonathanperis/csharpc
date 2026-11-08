@@ -24,7 +24,14 @@ public static class NativeAotPack
         ["System.IO.Compression.Native"] = ["System.IO.Compression.Native.Aot.lib", "brotlienc.lib", "brotlidec.lib", "brotlicommon.lib", "zlibstatic.lib", "zstd_static.lib"],
         // POSIX file metadata and the like (System.Formats.Tar, ZipFile's permissions), on NativeAOT's minipal.
         ["libSystem.Native"] = ["libSystem.Native.a", "libaotminipal.a"],
+        // macOS native TLS (Frontend/NativeTls.cs, docs/adr/0022-tls.md): Security.framework / Network.framework / CryptoKit behind
+        // the AppleCryptoNative_* entry points, and GSS.framework behind NetSecurityNative_*. Only in native TLS mode (see MayCall).
+        ["libSystem.Security.Cryptography.Native.Apple"] = ["libSystem.Security.Cryptography.Native.Apple.a"],
+        ["libSystem.Net.Security.Native"] = ["libSystem.Net.Security.Native.a"],
     };
+
+    /// <summary>The shims only the opt-in native TLS mode binds: on Linux the same module names belong to the OpenSSL-era IL, which csharpc shadows.</summary>
+    private static readonly string[] s_nativeTlsShims = ["libSystem.Security.Cryptography.Native.Apple", "libSystem.Net.Security.Native"];
 
     /// <summary>
     /// Assemblies allowed to bind a shim, where not every caller is known to work: libSystem.Native also
@@ -38,7 +45,8 @@ public static class NativeAotPack
 
     /// <summary>Whether <paramref name="assembly"/> may be compiled from IL with its calls into <paramref name="shim"/> linked.</summary>
     public static bool MayCall(string assembly, string shim) =>
-        Shims.ContainsKey(shim) && (!s_shimCallers.TryGetValue(shim, out var callers) || callers.Contains(assembly, StringComparer.Ordinal));
+        Shims.ContainsKey(shim) && (!s_nativeTlsShims.Contains(shim, StringComparer.Ordinal) || NativeTls.On)
+        && (!s_shimCallers.TryGetValue(shim, out var callers) || callers.Contains(assembly, StringComparer.Ordinal));
 
     /// <summary>Whether the pack's native directory has every archive of <paramref name="shim"/>.</summary>
     public static bool HasShim(string nativeDirectory, string shim) =>

@@ -337,8 +337,9 @@ Semantics that sources gave the lowering and IL has to restate:
   program's private and protected nested types are marked internal in the copy of its image that the binding
   compilation reads (the type-definition flags only; IL, `Type.IsNestedPrivate` and the like come from the
   original), which the internals access then makes visible to the generator, as a source context nested
-  beside them is. **`[GeneratedRegex]`** members (`ldsfld <Generated>::Instance; ret`, the SDK generator's
-  output built on RegexRunner internals) become cached corelib interpreters built from their attribute.
+  beside them is. **`[GeneratedRegex]`** members are the SDK generator's output (a `RegexRunner`-derived class);
+  it runs against the framework's own `Regex`, compiled from IL since ADR 0023 (until then these members became cached
+  corelib interpreters built from their attribute).
 - What IL can't reach yet is explicit: `dynamic` (ADR 0019 binds from source; see its "From IL" note),
   and turning an exception into text in IL that names no exception type (no traces were recorded).
 

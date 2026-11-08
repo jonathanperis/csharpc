@@ -112,7 +112,7 @@ corelib code are roots for the reachability analysis of package IL; diagnostics 
 
 Code generated into the program used corelib internals, which a referenced assembly doesn't expose:
 
-- `[GeneratedRegex]` code calls `Regex.CreateForGeneratedRegex`, now public.
+- `[GeneratedRegex]` code called `Regex.CreateForGeneratedRegex`, made public (obsolete: the Regex shadow is gone, ADR 0023, and the SDK's generator runs against the framework's `Regex`).
 - Reflection-style System.Text.Json generated `partial` method implementations *into* a corelib
   class. The generated code is now an ordinary program class, `CsharpcCoreLib.ProgramHooks`, using
   public corelib entry points; the corelib calls it through two core intrinsics (`JsonConfigureHook`,

@@ -1,6 +1,5 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- The generators of the targeting pack (LibraryImport, System.Text.Json, [GeneratedRegex], replaced by
-       csharpc's own) as a project brings them: taken from the csc command line the SDK computes. -->
+  <!-- The generators of the targeting pack (LibraryImport, System.Text.Json, [GeneratedRegex]) as a project brings them: taken from the csc command line the SDK computes. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net11.0</TargetFramework>
