@@ -274,8 +274,15 @@ public sealed partial class FunctionCodeGen
         if (!target.IsStatic || target.ContainingType.TypeKind != TypeKind.Interface || constrainedTo is null) return null;
         var concrete = S(constrainedTo);
         if (concrete is ITypeParameterSymbol || !_m.IsUserType(concrete)) return null; // primitives: generic-math paths
-        return concrete.FindImplementationForInterfaceMember(target) as IMethodSymbol
+        // A generic member (`static abstract ValueTask<T> WaitAsync<T>(ValueTask<T>)`, SslStream's IReadWriteAdapter): Roslyn finds the
+        // implementation of the interface member's definition, which is then instantiated with the call's own type arguments.
+        var generic = target.IsGenericMethod;
+        var implementation = concrete.FindImplementationForInterfaceMember(generic ? target.OriginalDefinition : target) as IMethodSymbol
             ?? (target.IsAbstract ? throw CompileError.Unsupported($"no implementation of '{target}' on '{concrete}'", target) : target);
+        if (generic && implementation is { IsGenericMethod: true } open && open.TypeArguments.Length == target.TypeArguments.Length
+            && open.TypeArguments.SequenceEqual<ITypeSymbol>(open.TypeParameters, SymbolEqualityComparer.Default))
+            implementation = open.Construct([.. target.TypeArguments.Select(a => S(a))]);
+        return implementation;
     }
 
     /// <summary>
