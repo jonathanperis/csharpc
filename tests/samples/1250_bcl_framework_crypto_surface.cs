@@ -75,19 +75,19 @@ using (var manager = new NativeBuffer(16))
 }
 
 // PinnedGCHandle<T>
-byte[] array = new byte[8];
-var pinned = new PinnedGCHandle<byte[]>(array);
+// The object data of a class starts at its first field, just past the method table (an array's would start at its length,
+// whose distance to the elements depends on the pointer size, so the sample pins a class).
+var pinned = new PinnedGCHandle<PinnedBox>(new PinnedBox { First = 0x01020304, Second = 7 });
 try
 {
     Console.WriteLine(pinned.IsAllocated);
     IntPtr data;
     unsafe { data = (IntPtr)pinned.GetAddressOfObjectData(); }
-    Console.WriteLine(Marshal.ReadInt32(data)); // an array's object data starts at its length; the elements follow 8 bytes later
-    Marshal.WriteByte(data, 8 + 3, 42);
-    Marshal.WriteInt32(data, 8 + 4, 0x01020304);
-    Console.WriteLine(Convert.ToHexString(pinned.Target));
-    pinned.Target = new byte[2];
-    Console.WriteLine(pinned.Target.Length);
+    Console.WriteLine(Marshal.ReadInt32(data).ToString("X") + " " + Marshal.ReadInt32(data, 4));
+    Marshal.WriteInt32(data, 4, 42);
+    Console.WriteLine(pinned.Target.Second);
+    pinned.Target = new PinnedBox { First = 1, Second = 2 };
+    Console.WriteLine(pinned.Target.First);
     Console.WriteLine(pinned.Equals(pinned));
 }
 finally { pinned.Dispose(); }
@@ -145,4 +145,10 @@ sealed unsafe class NativeBuffer : MemoryManager<byte>
         if (_pointer != null) NativeMemory.Free(_pointer);
         _pointer = null;
     }
+}
+
+class PinnedBox
+{
+    public int First;
+    public int Second;
 }
