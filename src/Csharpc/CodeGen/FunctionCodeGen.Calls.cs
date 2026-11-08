@@ -268,13 +268,38 @@ public sealed partial class FunctionCodeGen
         };
     }
 
+    /// <summary>
+    /// A corelib shadow of a BCL struct (BFloat16, Decimal32, ...) implements the interface members generic code constrains on as
+    /// plain public statics of the BCL type, without naming the interfaces (it can't declare the operators INumberBase asks of
+    /// the type it shadows): the static member of the same name and signature. A member the shadow lacks stays unimplemented.
+    /// </summary>
+    private IMethodSymbol? ShadowStaticMember(ITypeSymbol concrete, IMethodSymbol target)
+    {
+        if (concrete is not INamedTypeSymbol type || !CoreLib.IsCoreLib(type)) return null;
+        if (target.AssociatedSymbol is IPropertySymbol property)
+        {
+            var found = type.GetMembers(property.Name).OfType<IPropertySymbol>().FirstOrDefault(p => p.IsStatic && p.Parameters.Length == property.Parameters.Length);
+            return target.MethodKind == MethodKind.PropertyGet ? found?.GetMethod : found?.SetMethod;
+        }
+        foreach (var candidate in type.GetMembers(target.Name).OfType<IMethodSymbol>())
+        {
+            if (!candidate.IsStatic || candidate.Parameters.Length != target.Parameters.Length || candidate.TypeParameters.Length != target.TypeParameters.Length) continue;
+            var same = true;
+            for (var i = 0; i < candidate.Parameters.Length && same; i++)
+                same = candidate.Parameters[i].RefKind == target.Parameters[i].RefKind
+                    && SymbolEqualityComparer.Default.Equals(S(candidate.Parameters[i].Type), S(target.Parameters[i].Type));
+            if (same) return candidate;
+        }
+        return null;
+    }
+
     /// <summary>Static abstract/virtual interface member + constrained type → the concrete implementation.</summary>
     internal IMethodSymbol? ResolveStaticInterfaceMember(IMethodSymbol target, ITypeSymbol? constrainedTo)
     {
         if (!target.IsStatic || target.ContainingType.TypeKind != TypeKind.Interface || constrainedTo is null) return null;
         var concrete = S(constrainedTo);
         if (concrete is ITypeParameterSymbol || !_m.IsUserType(concrete)) return null; // primitives: generic-math paths
-        var implementation = concrete.FindImplementationForInterfaceMember(target) as IMethodSymbol;
+        var implementation = concrete.FindImplementationForInterfaceMember(target) as IMethodSymbol ?? ShadowStaticMember(concrete, target);
         // A generic static abstract member (`static abstract bool IsNullableAt<TState>(...)`) is implemented by the type's
         // generic method definition: it takes the call's type arguments, or its body would be lowered open.
         if (implementation is { IsGenericMethod: true } && target.IsGenericMethod && SymbolEqualityComparer.Default.Equals(implementation, implementation.ConstructedFrom)

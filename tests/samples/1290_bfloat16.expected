@@ -1,0 +1,109 @@
+constants
+Zero              0000 0
+NegativeZero      8000 -0
+One               3F80 1
+NegativeOne       BF80 -1
+Epsilon           0001 1E-40
+MaxValue          7F7F 3.39E+38
+MinValue          FF7F -3.39E+38
+NaN               FFC0 NaN
+PositiveInfinity  7F80 Infinity
+NegativeInfinity  FF80 -Infinity
+Pi                4049 3.14
+E                 402E 2.72
+Tau               40C9 6.28
+conversions from float
+0            -> 0000 0          0.000E+000 0.00 0
+-0           -> 8000 -0         -0.000E+000 -0.00 -0
+1            -> 3F80 1          1.000E+000 1.00 1
+1.5          -> 3FC0 1.5        1.500E+000 1.50 1.5
+0.1          -> 3DCD 0.1        1.001E-001 0.10 0.100097656
+3.14159      -> 4049 3.14       3.141E+000 3.14 3.140625
+1E+10        -> 5015 1E+10      9.999E+009 9999220736.00 9.999221E+09
+1E-10        -> 2EDC 1E-10      1.000E-010 0.00 1.0004442E-10
+65504        -> 4780 6.55E+04   6.554E+004 65536.00 65536
+3.4E+38      -> 7F80 Infinity   Infinity Infinity Infinity
+3.4028235E+38 -> 7F80 Infinity   Infinity Infinity Infinity
+NaN          -> FFC0 NaN        NaN NaN NaN
+Infinity     -> 7F80 Infinity   Infinity Infinity Infinity
+256          -> 4380 256        2.560E+002 256.00 256
+257          -> 4380 256        2.560E+002 256.00 256
+258          -> 4381 258        2.580E+002 258.00 258
+1.0039062    -> 3F80 1          1.000E+000 1.00 1
+100.4        -> 42C9 100.5      1.005E+002 100.50 100.5
+0.0001       -> 38D2 0.0001     1.001E-004 0.00 0.0001001358
+123456       -> 47F1 1.234E+05  1.234E+005 123392.00 123392
+1234         -> 449A 1230       1.232E+003 1232.00 1232
+1E-40        -> 0001 1E-40      9.184E-041 0.00 9.1835E-41
+rounding from double is direct, not through float
+16257 16256 16256 16258
+integers and other conversions
+3 -3 9999220736 255 -128 0 0 1.5 0.10009765625 5 1.23E+08 1.5 7 -7
+checked overflow
+classification
+0         nan=False inf=False finite=True neg=False pos=True normal=False sub=False int=True even=True odd=False pow2=False real=True
+-0        nan=False inf=False finite=True neg=True pos=False normal=False sub=False int=True even=True odd=False pow2=False real=True
+1         nan=False inf=False finite=True neg=False pos=True normal=True sub=False int=True even=False odd=True pow2=True real=True
+1E-40     nan=False inf=False finite=True neg=False pos=True normal=False sub=True int=False even=False odd=False pow2=True real=True
+3.39E+38  nan=False inf=False finite=True neg=False pos=True normal=True sub=False int=True even=True odd=False pow2=False real=True
+NaN       nan=True inf=False finite=False neg=True pos=False normal=False sub=False int=False even=False odd=False pow2=False real=False
+Infinity  nan=False inf=True finite=False neg=False pos=True normal=False sub=False int=False even=False odd=False pow2=False real=True
+-Infinity nan=False inf=True finite=False neg=True pos=False normal=False sub=False int=False even=False odd=False pow2=False real=True
+4         nan=False inf=False finite=True neg=False pos=True normal=True sub=False int=True even=True odd=False pow2=True real=True
+3         nan=False inf=False finite=True neg=False pos=True normal=True sub=False int=True even=False odd=True pow2=False real=True
+1.5       nan=False inf=False finite=True neg=False pos=True normal=True sub=False int=False even=False odd=False pow2=False real=True
+comparison
+True False True -1 1 True False True -1 True
+2139095040 0 1065353216 -1073741824
+arithmetic and math
+3.75 -0.75 3.38 0.668 0.75 -1.5 1.5 0.334
+2.5 0.5
+2 4 -3 3 -2 1.414 1024 2 2 1 -1 -3 5
+Function does not accept floating point Not-a-Number values.
+text of every value
+checksum 9E8D7640 nan 254 notRoundTripping 0
+0001 1E-40 1E-40 9.18E-41 9.18e-041 0.0
+007F 1.17E-38 1.17E-38 1.17E-38 1.17e-038 0.0
+0080 1.18E-38 1.18E-38 1.18E-38 1.18e-038 0.0
+3F80 1 1 1 1.00e+000 1.0
+3F81 1.01 1.01 1.01 1.01e+000 1.0
+4049 3.14 3.14 3.14 3.14e+000 3.1
+449A 1230 1230 1.23E+03 1.23e+003 1,232.0
+4700 3.28E+04 3.28E+04 3.28E+04 3.28e+004 32,768.0
+4780 6.55E+04 6.55E+04 6.55E+04 6.55e+004 65,536.0
+7F7F 3.39E+38 3.39E+38 3.39E+38 3.39e+038 338,953,138,925,153,547,590,470,800,371,487,866,880.0
+5A0E 1E+16 1E+16 9.99E+15 9.99e+015 9,992,361,673,228,288.0
+2F80 2.33E-10 2.33E-10 2.33E-10 2.33e-010 0.0
+3A83 0.001 0.001 0.000999 9.99e-004 0.0
+1230 -0,500
+parsing
+[1] True 3F80 1
+[-1.5] True BFC0 -1.5
+[3.14159] True 4049 3.14
+[1e38] True 7E96 1E+38
+[1e39] True 7F80 Infinity
+[3.4e38] True 7F80 Infinity
+[3.39e38] True 7F7F 3.39E+38
+[1.00390625] True 3F80 1
+[1.0039062501] True 3F81 1.01
+[0.1] True 3DCD 0.1
+[NaN] True FFC0 NaN
+[Infinity] True 7F80 Infinity
+[-Infinity] True FF80 -Infinity
+[  2 ] True 4000 2
+[abc] False  
+[] False  
+[1e-45] True 0000 0
+[1e-41] True 0000 0
+[9.18e-41] True 0001 1E-40
+[4.59e-41] True 0000 0
+[4.5918e-41] True 0001 1E-40
+[1,000] True 447A 1000
+True 1.5 False 2.5 7
+The input string 'abc' was not in a correct format.
+s
+formatting into spans
+True 3.14
+False 0
+True 3.14E+000
+1.5 1.50     2.75|
