@@ -128,6 +128,10 @@ namespace CsharpcCoreLib
             return s != null && Int128Parser.ParseSigned(s.AsSpan(), style, provider, out result) == Int128ParseStatus.Ok;
         }
 
+        // IUtf8SpanParsable: the text of the bytes, parsed as the chars would be.
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider, out Int128 result) =>
+            TryParse(System.Text.Encoding.UTF8.GetString(utf8Text).AsSpan(), NumberStyles.Integer, provider, out result);
+
         public static bool TryParse(ReadOnlySpan<char> s, out Int128 result) => TryParse(s, NumberStyles.Integer, null, out result);
         public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, out Int128 result) => TryParse(s, NumberStyles.Integer, provider, out result);
         public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out Int128 result) =>
@@ -172,6 +176,9 @@ namespace CsharpcCoreLib
             result = 0;
             return s != null && Int128Parser.ParseUnsigned(s.AsSpan(), style, provider, out result) == Int128ParseStatus.Ok;
         }
+
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider, out UInt128 result) =>
+            TryParse(System.Text.Encoding.UTF8.GetString(utf8Text).AsSpan(), NumberStyles.Integer, provider, out result);
 
         public static bool TryParse(ReadOnlySpan<char> s, out UInt128 result) => TryParse(s, NumberStyles.Integer, null, out result);
         public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, out UInt128 result) => TryParse(s, NumberStyles.Integer, provider, out result);

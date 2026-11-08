@@ -452,6 +452,9 @@ namespace CsharpcCoreLib
             return result is not null;
         }
 
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, out Version result) =>
+            TryParse(System.Text.Encoding.UTF8.GetString(utf8Text).AsSpan(), out result);
+
         public static bool TryParse(ReadOnlySpan<char> input, out Version result)
         {
             result = ParseVersion(input, throwOnFailure: false);

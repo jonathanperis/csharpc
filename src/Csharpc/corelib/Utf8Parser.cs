@@ -189,6 +189,23 @@ namespace CsharpcCoreLib
             return i;
         }
 
+        // Utf8Parser.Boolean.cs: "true" or "false" in any case (both the default 'G' and 'l' read either spelling), the prefix consumed.
+        public static bool TryParse(ReadOnlySpan<byte> source, out bool value, out int bytesConsumed, char standardFormat = default)
+        {
+            value = false; bytesConsumed = 0;
+            if (standardFormat is not ('\0' or 'G' or 'l')) throw new FormatException("Format specifier was invalid.");
+            static bool StartsWith(ReadOnlySpan<byte> source, string word)
+            {
+                if (source.Length < word.Length) return false;
+                for (int i = 0; i < word.Length; i++)
+                    if ((source[i] | 0x20) != word[i]) return false;
+                return true;
+            }
+            if (StartsWith(source, "true")) { value = true; bytesConsumed = 4; return true; }
+            if (StartsWith(source, "false")) { bytesConsumed = 5; return true; }
+            return false;
+        }
+
         private static string Ascii(ReadOnlySpan<byte> bytes) => System.Text.Encoding.ASCII.GetString(bytes);
 
         public static bool TryParse(ReadOnlySpan<byte> source, out double value, out int bytesConsumed, char standardFormat = default)
