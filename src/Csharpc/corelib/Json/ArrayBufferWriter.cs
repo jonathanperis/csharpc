@@ -78,7 +78,9 @@ namespace CsharpcCoreLib
                 if (currentLength == 0) growBy = Math.Max(growBy, DefaultInitialBufferSize);
                 int newSize = currentLength + growBy;
                 T[] grown = new T[newSize];
-                Array.Copy(_buffer, grown, _index);
+                // The whole array, as Array.Resize does: bytes written past the committed index survive the growth
+                // (Utf8JsonWriter compiled from IL asks for more space before it advances over what it has pending).
+                Array.Copy(_buffer, grown, currentLength);
                 _buffer = grown;
             }
         }
