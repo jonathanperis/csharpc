@@ -11,6 +11,8 @@
 # both programs are run, and their stdout and exit code are compared with the recorded .expected / .exitcode (real
 # .NET is the oracle). Per sample and route the table reports: pass/fail, stripped binary size, csharpc compile
 # time (wall and CPU, children included), and the program's run time (median wall of --runs runs).
+# A sample argument may also be the path of a .cs program outside tests/samples (tools/il-first/bench/*.cs, throughput
+# programs that print a checksum): real .NET (`dotnet run`) records its stdout once as the oracle.
 # Output: a Markdown table, a summary over the samples both routes pass, and the blockers of the IL route (the
 # distinct compiler diagnostics with the number of samples that hit each).
 #
@@ -51,7 +53,11 @@ ASSEMBLY="$1"; shift
 source "$ROOT/tests/platform.sh"
 
 selected=()
+declare -A PATHS   # name -> path, for programs outside tests/samples (tools/il-first/bench/*.cs)
 for pattern in "$@"; do
+  if [[ "$pattern" == *.cs && -f "$pattern" && ! -f "$SAMPLES/$pattern" ]]; then
+    name="$(basename "$pattern" .cs)"; PATHS[$name]="$(cd "$(dirname "$pattern")" && pwd)/$(basename "$pattern")"; selected+=("$name"); continue
+  fi
   if [[ -f "$SAMPLES/$pattern.cs" ]]; then selected+=("$pattern"); continue; fi
   found=0
   for f in "$SAMPLES"/*"$pattern"*.cs; do
@@ -100,14 +106,21 @@ fi
 
 for name in "${selected[@]}"; do
   src="$SAMPLES/$name.cs"
-  if [[ -f "$SAMPLES/$name.diagnostics" ]]; then R[skip:$name]="rejected-program sample"; continue; fi
-  [[ -f "$SAMPLES/$name.expected" ]] || { R[skip:$name]="no .expected"; continue; }
-  reason="$(platform_skip "$name")"
-  if [[ -n "$reason" ]] && ! platform_is_live "$reason"; then R[skip:$name]="platform skip: $reason"; continue; fi
-  stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
-  read -ra test_env <<< "$(platform_env "$SAMPLES" "$name")"
-  want_code=0; [[ -f "$SAMPLES/$name.exitcode" ]] && want_code="$(cat "$SAMPLES/$name.exitcode")"
-  platform_expected < "$SAMPLES/$name.expected" > "$WORK/$name.want"
+  stdin_file=/dev/null; test_env=(); want_code=0
+  if [[ -n "${PATHS[$name]:-}" ]]; then
+    # A program outside tests/samples: real .NET's stdout is the oracle, recorded here once.
+    src="${PATHS[$name]}"
+    (cd "$(dirname "$src")" && "$DOTNET" run "$(basename "$src")" -p:WarningLevel=0 -p:NuGetAudit=false 2> /dev/null) > "$WORK/$name.want"
+  else
+    if [[ -f "$SAMPLES/$name.diagnostics" ]]; then R[skip:$name]="rejected-program sample"; continue; fi
+    [[ -f "$SAMPLES/$name.expected" ]] || { R[skip:$name]="no .expected"; continue; }
+    reason="$(platform_skip "$name")"
+    if [[ -n "$reason" ]] && ! platform_is_live "$reason"; then R[skip:$name]="platform skip: $reason"; continue; fi
+    [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
+    read -ra test_env <<< "$(platform_env "$SAMPLES" "$name")"
+    [[ -f "$SAMPLES/$name.exitcode" ]] && want_code="$(cat "$SAMPLES/$name.exitcode")"
+    platform_expected < "$SAMPLES/$name.expected" > "$WORK/$name.want"
+  fi
   for route in shadow il; do
     exe="$WORK/$route.$name"
     if ! compile $route "$name" "$src" "$exe"; then
