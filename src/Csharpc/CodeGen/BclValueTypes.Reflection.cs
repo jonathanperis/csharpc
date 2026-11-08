@@ -197,6 +197,8 @@ internal static partial class BclValueTypes
         t["System.Type.GetTypeCode(System.Type)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "GetTypeCode", a[0]);
         t["System.Activator.CreateInstance(System.Type)"] = (g, _, _, a, _) =>
             g.CallCoreLib("ReflectionRuntime", "ActivatorCreateInstance", a[0]);
+        t["System.Activator.CreateInstance(System.Type, bool)"] = (g, _, _, a, _) =>
+            g.CallCoreLib("ReflectionRuntime", "ActivatorCreateInstance", a[0], a[1]);
         t["System.Activator.CreateInstance(System.Type, System.Reflection.BindingFlags, System.Reflection.Binder, object[], System.Globalization.CultureInfo)"] = (g, _, _, a, _) =>
             g.CallCoreLib("ReflectionRuntime", "ActivatorCreateInstanceWith", a[0], a[1], a[2], a[3], a[4]);
         // Activator.CreateInstance(type, params args): .NET's CreateInstance(type, Instance | Public | CreateInstance, null, args, null).
