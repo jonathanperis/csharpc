@@ -380,12 +380,16 @@ public sealed partial class ModuleCodeGen
         var global = Module.AddGlobal(Mangler.TypeSymbol(layout.Type, "MT"), mtType, constant: true, linkage: LLVMLinkage.Internal);
         layout.MethodTable = global;
 
-        // ToString, Equals, GetHashCode: the struct's overrides (through unboxing thunks), else the defaults.
+        // ToString, Equals, GetHashCode: the struct's overrides (through unboxing thunks), else the defaults. A ref struct is never
+        // boxed (typeof and reflection only name it), and the field-wise defaults can't compare its span fields: the object's.
+        var refLike = layout.Type.IsRefLikeType;
         LLVMValueRef[] entries =
         [
             StructOverride(layout.Type, "ToString") is { } toString ? UnboxingThunk(toString) : Runtime("csrt_object_to_string_default", Llvm.Ptr, Llvm.Ptr).Fn,
-            StructOverride(layout.Type, "Equals") is { } equals ? UnboxingThunk(equals) : BoxedDefaultEquals(layout),
-            StructOverride(layout.Type, "GetHashCode") is { } hash ? UnboxingThunk(hash) : BoxedDefaultHash(layout),
+            StructOverride(layout.Type, "Equals") is { } equals ? UnboxingThunk(equals)
+                : refLike ? Runtime("csrt_object_equals_default", Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn : BoxedDefaultEquals(layout),
+            StructOverride(layout.Type, "GetHashCode") is { } hash ? UnboxingThunk(hash)
+                : refLike ? Runtime("csrt_object_get_hash_code_default", Llvm.I32, Llvm.Ptr).Fn : BoxedDefaultHash(layout),
         ];
 
         var (interfaceMap, interfaceCount) = EmitStructInterfaceMap(layout.Type);

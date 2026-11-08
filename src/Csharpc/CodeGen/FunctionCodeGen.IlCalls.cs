@@ -301,7 +301,17 @@ public sealed partial class FunctionCodeGen
         var values = method.Parameters.Select((p, i) => IlTyped(args[i], p.Type)).ToArray();
         var name = method.Name;
         if (s_ilBinaryOperators.TryGetValue(name, out var binary) && values.Length == 2)
+        {
+            // IntPtr/UIntPtr + int (IntPtr.op_Addition(IntPtr, int), what `ptr + offset` compiled against netstandard calls): the offset is
+            // sign-extended to the native width, as IL's own add of an int32 and a native int does.
+            if (binary.Kind is BinaryOperatorKind.Add or BinaryOperatorKind.Subtract && types[0].SpecialType is SpecialType.System_IntPtr or SpecialType.System_UIntPtr
+                && types[1].SpecialType != types[0].SpecialType && types[1].IsValueType && T.Value(types[1]).IsInteger)
+            {
+                values[1] = ConvertNumeric(values[1], types[1], types[0], IlAt(), isChecked: false);
+                types[1] = types[0];
+            }
             return IlPush(Arithmetic(binary.Kind, values[0], values[1], types[0], types[1], IlAt(), binary.Checked), method.ReturnType);
+        }
         if (values.Length != 1) return null;
         var (v, t) = (values[0], types[0]);
         LLVMValueRef One() => t.SpecialType == SpecialType.System_Decimal ? Constant(1m, t) : Constant(1, t);

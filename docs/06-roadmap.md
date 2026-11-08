@@ -20,8 +20,8 @@ of the milestone below says where it is tracked.
 | M2 Library in C# | 🟡 open | BCL surface ranked by the NuGet survey (#146: #152 `MathF` PR #156, #157 PR #158, #159, #162); TLS and X.509 on macOS and Windows run over OpenSSL, the native routes are the spikes #143 and #144; the gap lists #89, #95–#104 |
 | M3 Platforms | ✅ done | per-platform limits are documented, see M3 below |
 | M4 Real-world validation | 🟡 open | parity is 98.4 % (242 of 246) in the latest Compatibility run, down from 100 % (#163) |
-| M5 Binary packages and the program as IL | 🟡 open | the IL front-end leftovers (#168), the BCL surface packages use (#146) |
-| M6 Bootstrapping | 🟡 open | re-measure the Roslyn-from-IL survey and decide on threaded lowering (#169), quadratic lowering on very large programs (#93) |
+| M5 Binary packages and the program as IL | 🟡 open | linking a package's static archives (#175), the BCL surface packages use (#146) |
+| M6 Bootstrapping | 🟡 open | `Mutex` (#174, the last 3 methods of the Roslyn survey), quadratic lowering on very large programs (#93) |
 | M7 TechEmpower with the `csharpc` CLI | ⏸ on hold (owner) | started 2026-10-31 before M2–M6 were done, against the owner's rule; on hold since 2026-11-05. Last good measurement 288 of 456 metrics ahead of NativeAOT; on `main` today csharpc does not build the entry (#164) |
 | M8 The dotnet fork | ⬜ not started | |
 | M9 TechEmpower through the fork | ⬜ not started | |
@@ -38,7 +38,7 @@ of the milestone below says where it is tracked.
 | Multi-file programs, `.csproj` input, `ProjectReference` | ✅ | whole-program, see [08-drop-in.md](08-drop-in.md); each referenced project's source generators run on that project's own compilation, with its options and additional files |
 | `dotnet build -p:UseCsharpc=true`, `dotnet publish -p:PublishCsharpc=true` | ✅ | `Csharpc.Sdk` package |
 | File-based apps (`#:property` directives) | ✅ | |
-| Assemblies without sources: `-r X.dll`, `<Reference>`, NuGet `PackageReference` | 🟡 | IL front-end (M5): the IL side is complete except TypedReference, `jmp` and `ckfinite`; RID-specific assemblies and native assets are selected for the target; packages can still hit BCL gaps (#146) |
+| Assemblies without sources: `-r X.dll`, `<Reference>`, NuGet `PackageReference` | 🟡 | IL front-end (M5): the IL side is complete except TypedReference, `jmp` and `ckfinite` (explicit diagnostics, no package needs them); RID-specific assemblies and native assets are selected for the target; packages can still hit BCL gaps (#146) |
 | The program as IL: `csharpc app.dll` (csc's output, the dotnet pipeline's input) | ✅ | every sample passes through `tests/run.sh --via-il` (`tests/il-main-known-failures.txt` is empty); gaps between the two front-ends are bugs |
 
 ### Types
@@ -246,7 +246,7 @@ size (143 KiB vs 1,338 KiB median); compile time is the open comparison (see the
 Compatibility run is at 100 % again.
 
 ### M5 — Drop-in: binary packages and the program as IL
-**Status:** 🟡 open (#168, #146).
+**Status:** 🟡 open (#175, #146).
 
 An IL front-end (IL → the same lowering) so NuGet packages that ship only assemblies can be linked
 into the closed-world program, and so the program itself can come as IL — the input csharpc gets inside
@@ -300,14 +300,24 @@ RID-specific assembly replaces the portable `lib/` one. The program as IL reads 
 with the runtime graph's fallbacks (linux-x64 -> linux -> unix-x64 -> unix -> any). The native libraries are copied
 next to the executable, where a P/Invoke probes first (`tests/il.sh`, RidApp, against a package built locally).
 
-**Open (#168, #146):** TypedReference opcodes, `jmp` and `ckfinite`; `calli` with an instance or `vararg` signature;
-satellite resource assemblies, `ref/` against `lib/` binding and linking a package's static archives; the BCL surface
+**Decided (#168, 2026-11-07):** the opcodes `jmp`, `arglist`, `mkrefany`/`refanyval`/`refanytype` (TypedReference) and `ckfinite`,
+and `calli` with an instance or `vararg` signature stay explicit diagnostics: none of the 52 packages of the sharded survey,
+Roslyn, `csharpc.dll` or the framework IL needs one (no item of the survey names them), so they are built when a package does.
+Satellite resource assemblies are not used, and that is NativeAOT's behaviour too: a PublishAot app that copies `fr/Lib.resources.dll`
+next to itself still prints the neutral string for `CultureInfo("fr")` (run to check, `dotnet run` prints the French one); csharpc
+answers the neutral string. `ref/` against `lib/`: PublishAot compiles the `lib/` (runtime) assets, as csharpc does, so nothing is
+missing; a source compiled against a `ref/` surface that `lib/` lacks is csc's concern. Reflection-based JSON of anonymous,
+file-local and other compiler-generated types stays a diagnostic: PublishAot disables reflection-based serialization by default
+(`InvalidOperationException`), and with it enabled serializes such types as `{}` (their members are trimmed), which csharpc refuses
+instead of printing. ([ADR 0010](adr/0010-il-frontend.md), "Out of scope".)
+
+**Open (#175, #146):** linking a package's static archives and `DirectPInvoke`/`NativeLibrary` items as PublishAot does; the BCL surface
 packages use — the sharded IL survey of all 52 packages (#146) ranked the small members and the `System.Numerics` vector
 structs (26 packages) first, both done; next are `MathF` and the reflection lookups (`Type.GetMember`,
 `TypeInfo.GetDeclaredProperty`).
 
 ### M6 — Bootstrapping
-**Status:** 🟡 open (#169, #93).
+**Status:** 🟡 open (#174, #93).
 
 csharpc compiles csharpc (and Roslyn) — the strongest possible proof of maturity.
 
@@ -351,10 +361,14 @@ the types that implement their interface, array interface maps compute their fac
 the single-threaded lowering is 75 s of the 238 s -O0 self-compile and 69 s of 577 s at -O2, so two threads would save
 about 35 s (15 % / 6 %) for a second set of types, declarations and constants in memory.
 
-**Open (#169, #93):** the Roslyn-from-IL survey was last measured on 2026-10-31 (38 methods failed to lower: Roslyn 32,
-`csharpc.dll` 2, framework IL 2, corelib 2) and has to be re-run and closed out; threaded lowering is a decision still to be
-recorded; lowering scales quadratically on a very large program (#93: a ~250-assembly application, the builtin interface
-tables are the largest step left).
+**Roslyn-from-IL survey, re-measured 2026-11-07 (#169):** 32 methods of Roslyn, `csharpc.dll` and the framework IL failed to
+lower (the 38 of 2026-10-31 had shrunk with earlier work), 4 after the fixes of that issue, and every shard now compiles to
+the end ([18-compatibility.md](18-compatibility.md#roslyn-and-csharpc)); the 4 are `Mutex` (#174). **Threaded lowering is a
+decision, not an open item** (owner, 2026-11-06; [ADR 0014](adr/0014-compile-time.md), "Next hot spots"): deferred, the
+measured saving is about 35 s of a 238 s (-O0) and 577 s (-O2) self-compile.
+
+**Open (#174, #93):** `Mutex`; lowering scales quadratically on a very large program (#93: a ~250-assembly application, the
+builtin interface tables are the largest step left).
 
 ### Runtime tiers — C# for library code, C where it is the right tool
 [ADR 0017](adr/0017-runtime-tiers.md); a C-free runtime is not a goal (owner, 2026-10-30). **Tier 1 (alongside

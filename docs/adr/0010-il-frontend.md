@@ -143,7 +143,12 @@ Roslyn `ControlFlowGraph` (its classes are sealed) but sharing `FunctionCodeGen`
 
 `Reflection.Emit`, `System.Linq.Expressions` compilation, mixed-mode/C++/CLI assemblies (native
 code inside the PE), `calli` with an instance or `vararg` signature, `arglist`/`mkrefany`/
-`refanyval`/`refanytype` (TypedReference), `jmp`, multi-module assemblies. `tail.` is compiled as an
+`refanyval`/`refanytype` (TypedReference), `jmp`, multi-module assemblies.
+Decided on 2026-11-07 (#168), from the survey of 52 packages, Roslyn, csharpc and the framework IL (none needs `jmp`,
+`ckfinite`, TypedReference or an instance/`vararg` `calli`): these stay explicit diagnostics until a package does. Satellite resource
+assemblies are not loaded, as under NativeAOT (a published app that has `fr/Lib.resources.dll` beside it still answers the neutral
+string); csharpc, like PublishAot, compiles a package's `lib/` implementation assets, not `ref/`; reflection-based JSON of
+compiler-generated types is a diagnostic where NativeAOT either refuses (reflection serialization is off by default) or writes `{}`. `tail.` is compiled as an
 ordinary call (warning `CSLLVM0006`: deep tail recursion can overflow where CoreCLR would not).
 
 ### Project input
@@ -365,16 +370,16 @@ Toward **arbitrary pure-IL NuGet packages** (ordered; size in focused days):
    overloads, `string.GetHashCode` overloads, `InlineArray`. A survey harness (`tools/compat`-style)
    turns this into a ranked list. (ongoing, M2)
 4. `calli` and function pointers from IL (done: managed and unmanaged signatures, the C ABI for unmanaged ones, library
-   methods as targets; instance and `vararg` signatures stay diagnostics); `ckfinite`; TypedReference only if a package needs it. (1)
+   methods as targets; instance and `vararg` signatures stay diagnostics); `ckfinite`; TypedReference only if a package needs it (decided 2026-11-07: none does, they stay diagnostics). (1)
 5. Package assets beyond `lib/`. Done (2026-11-06): RID-specific runtime assets (`runtimes/<rid>/lib`) and
    native assets (`runtimes/<rid>/native`) for the target's runtime identifier, from a project (a project with
    packages is restored for the target's RID, as `dotnet build -r`/PublishAot do, so NuGet's own selection
    applies: the RID-specific assembly replaces the portable one, `RuntimeCopyLocalItems`/`NativeCopyLocalItems`)
    and from the program as IL (deps.json `runtimeTargets`, with the RID fallbacks linux-x64 -> linux -> unix-x64 ->
    unix -> any). The native libraries are copied next to the executable, where a P/Invoke is probed first (as
-   .NET probes the assembly directory); `NativeLibrary.Load` keeps the system loader's rules. Left: satellite
-   resource assemblies; `ref/` vs `lib/` binding (bind against `ref/` symbols, map to `lib/` bodies by name)
-   for packages whose surfaces differ; statically linking a package's `.a` archives. (2)
+   .NET probes the assembly directory); `NativeLibrary.Load` keeps the system loader's rules. Satellite resource
+   assemblies and `ref/` vs `lib/` binding are decided (above: NativeAOT does neither). Left: statically linking a
+   package's `.a` archives (#175). (2)
 6. Compile-time scale: decoding once per definition and cached token resolution are done. Next, in
    order of measured payoff: ship csharpc ReadyToRun (halves Roslyn binding; NativeAOT once M6
    compiles csharpc), parallel LLVM code generation (full-LTO-style module partitioning, e.g.

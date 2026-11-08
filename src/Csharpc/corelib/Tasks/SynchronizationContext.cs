@@ -51,6 +51,19 @@ namespace CsharpcCoreLib
             ThreadPool.QueueUserWorkItem(static s => s.d(s.state), (d, state), preferLocal: false);
 
         public virtual SynchronizationContext CreateCopy() => new SynchronizationContext();
+
+        // A subclass may override Wait (it is what a blocking wait on a thread with this context calls once
+        // SetWaitNotificationRequired was called); the raw OS handles it takes are not what csharpc's wait handles are.
+        [CLSCompliant(false)]
+        public virtual int Wait(IntPtr[] waitHandles, bool waitAll, int millisecondsTimeout)
+        {
+            ArgumentNullException.ThrowIfNull(waitHandles);
+            return WaitHelper(waitHandles, waitAll, millisecondsTimeout);
+        }
+
+        [CLSCompliant(false)]
+        protected static int WaitHelper(IntPtr[] waitHandles, bool waitAll, int millisecondsTimeout) =>
+            throw new NotSupportedException("Waiting on operating-system handles (SynchronizationContext.WaitHelper) is not supported by csharpc yet.");
         public virtual void OperationStarted() { }
         public virtual void OperationCompleted() { }
 
