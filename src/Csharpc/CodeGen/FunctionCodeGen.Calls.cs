@@ -274,10 +274,13 @@ public sealed partial class FunctionCodeGen
         if (!target.IsStatic || target.ContainingType.TypeKind != TypeKind.Interface || constrainedTo is null) return null;
         var concrete = S(constrainedTo);
         if (concrete is ITypeParameterSymbol || !_m.IsUserType(concrete)) return null; // primitives: generic-math paths
-        // A generic static abstract member (`static abstract ValueTask<T> WaitAsync<T>(ValueTask<T>)`, SslStream's IReadWriteAdapter) is
-        // looked up through the interface member's definition and implemented by the type's generic method definition: it takes the
-        // call's type arguments, or its body would be lowered open.
-        var implementation = concrete.FindImplementationForInterfaceMember(target.IsGenericMethod ? target.OriginalDefinition : target) as IMethodSymbol;
+        var implementation = concrete.FindImplementationForInterfaceMember(target) as IMethodSymbol;
+        // A member whose own type arguments are set (`IAdapter.WaitAsync<int>`) is not found by Roslyn from the constructed symbol on every
+        // path (sample 1272): ask for the generic definition within the same containing type (keeping a nested type's arguments).
+        if (implementation is null && target.IsGenericMethod)
+            implementation = concrete.FindImplementationForInterfaceMember(target.ConstructedFrom) as IMethodSymbol;
+        // A generic static abstract member (`static abstract bool IsNullableAt<TState>(...)`) is implemented by the type's
+        // generic method definition: it takes the call's type arguments, or its body would be lowered open.
         if (implementation is { IsGenericMethod: true } && target.IsGenericMethod && SymbolEqualityComparer.Default.Equals(implementation, implementation.ConstructedFrom)
             && implementation.TypeParameters.Length == target.TypeArguments.Length)
             implementation = implementation.Construct([.. target.TypeArguments.Select(a => S(a))]);
