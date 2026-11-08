@@ -50,6 +50,9 @@ public sealed partial class FunctionCodeGen
         if (t.IsValueType && Coroutines.IsTaskHandleType(t))
             return hash || t.Name is "CancellationToken" or "TaskAwaiter" or "YieldAwaitable" or "YieldAwaiter"; // TaskHandleEquals
         if (TypeMapper.IsNullable(t)) return RunsNoUserCode(((INamedTypeSymbol)t).TypeArguments[0], hash, depth + 1);
+        // The BCL's InlineArray2..16<T> (a field of a struct such as X509 chain processing's ErrorCollection): N consecutive Ts.
+        if (t is INamedTypeSymbol inlineArray && TypeMapper.LibraryInlineArrayLength(inlineArray) is not null)
+            return RunsNoUserCode(inlineArray.TypeArguments[0], hash, depth + 1);
         if (UserStruct(t) is { } s)
             return ModuleCodeGen.StructOverride(s, "Equals") is null && ModuleCodeGen.StructOverride(s, "GetHashCode") is null
                 && (hash || GenericInterfaceImpl(s, "System.IEquatable`1", "Equals") is null)
@@ -165,6 +168,14 @@ public sealed partial class FunctionCodeGen
             ]);
         }
         if (t.IsValueType && Coroutines.IsTaskHandleType(t)) return TaskHandleEquals(t, a, b);
+        if (t is INamedTypeSymbol inlineArray && TypeMapper.LibraryInlineArrayLength(inlineArray) is { } length)
+        {
+            // ValueType.Equals walks the fields of the array struct: every element.
+            var equal = L.True;
+            for (uint i = 0; i < length; i++)
+                equal = _b.BinOp(LLVMOpcode.And, equal, ObjectEquals(inlineArray.TypeArguments[0], _b.ExtractValue(a, i), _b.ExtractValue(b, i)));
+            return equal;
+        }
         if (UserStruct(t) is { } s)
         {
             if (ModuleCodeGen.StructOverride(s, "Equals") is { } overrider) return CallMethod(overrider, [Spill(a), Box(b, s, null!)]);
@@ -243,6 +254,12 @@ public sealed partial class FunctionCodeGen
             var fieldAddress = FieldAddressOn(address, f);
             if (UserStruct(ft) is { } nested && depth < 16)
                 h = MixPureFields(nested, fieldAddress, h, depth + 1);
+            else if (ft is INamedTypeSymbol inlineArray && TypeMapper.LibraryInlineArrayLength(inlineArray) is { } length)
+            {
+                var elements = LoadValue(fieldAddress, f.Type);
+                for (uint i = 0; i < length; i++)
+                    h = HashMix(h, HashOf(inlineArray.TypeArguments[0], _b.ExtractValue(elements, i), null!));
+            }
             else
                 h = HashMix(h, HashOf(ft, LoadValue(fieldAddress, f.Type), null!));
         }

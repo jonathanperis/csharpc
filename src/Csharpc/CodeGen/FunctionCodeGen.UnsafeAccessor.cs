@@ -29,6 +29,16 @@ public sealed partial class FunctionCodeGen
         var kind = attribute.ConstructorArguments.Length > 0 && attribute.ConstructorArguments[0].Value is int k ? k : -1;
         var name = attribute.NamedArguments.FirstOrDefault(a => a.Key == "Name").Value.Value as string ?? target.Name;
         var args = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).ToArray();
+        // An accessor whose type is given by name ([UnsafeAccessorType("System.Net.Http.HttpClient, System.Net.Http")] on an `object`):
+        // the framework's way to reach an assembly it must not reference (X509ResourceClient's certificate downloads over HttpClient,
+        // inside a try/catch that gives up when the type can't be loaded). The target is resolved at run time there, and csharpc binds
+        // accessors at compile time, so the call throws what .NET throws for a missing member and the caller's own fallback applies.
+        if (kind is 0 or 1 or 2 && (HasAccessorTypeName(target.GetReturnTypeAttributes()) || target.Parameters.Any(p => HasAccessorTypeName(p.GetAttributes())))
+            && !(kind == 2 && name == "CreateObjectArrayDelegate"))
+        {
+            ThrowAndContinue("System.MissingMethodException", $"[UnsafeAccessor] '{name}' names its type as a string, which csharpc does not bind yet.");
+            return target.ReturnsVoid ? default : LlvmContext.Null(T.Value(S(target.ReturnType)));
+        }
         switch (kind)
         {
             case 3: // instance field: the first parameter is the object (or `ref` struct)
@@ -74,6 +84,9 @@ public sealed partial class FunctionCodeGen
                 throw CompileError.Unsupported($"[UnsafeAccessor] of kind {kind}", inv);
         }
     }
+
+    private static bool HasAccessorTypeName(IEnumerable<AttributeData> attributes) =>
+        attributes.Any(a => a.AttributeClass?.Name == "UnsafeAccessorTypeAttribute");
 
     private static T? FindMember<T>(ITypeSymbol owner, string name, Func<T, bool> predicate) where T : class, ISymbol
     {

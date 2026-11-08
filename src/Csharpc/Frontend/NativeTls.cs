@@ -15,9 +15,10 @@ public static class NativeTls
     /// Whether the mode is on for a target: CSHARPC_WINDOWS_NATIVE_TLS=1 on Windows (SSPI, CNG, crypt32), CSHARPC_MACOS_NATIVE_TLS=1 on
     /// macOS (the runtime pack's Apple crypto shim over Security.framework; docs/adr/0022-tls.md, "macOS without OpenSSL").
     /// </summary>
-    public static bool Enabled(bool windows, bool darwin = false) =>
+    public static bool Enabled(bool windows, bool darwin = false, bool linux = false) =>
         windows && Environment.GetEnvironmentVariable("CSHARPC_WINDOWS_NATIVE_TLS") is "1"
-        || darwin && Environment.GetEnvironmentVariable("CSHARPC_MACOS_NATIVE_TLS") is "1";
+        || darwin && Environment.GetEnvironmentVariable("CSHARPC_MACOS_NATIVE_TLS") is "1"
+        || linux && Environment.GetEnvironmentVariable("CSHARPC_LINUX_NATIVE_TLS") is "1";
 
     /// <summary>
     /// Real types whose shadows the mode drops: the OpenSSL-backed X.509 / RSA / SslStream family. Whole namespaces by
@@ -46,5 +47,8 @@ public static class NativeTls
     public static bool On { get; set; }
 
     /// <summary>Registers the family with the IL-first mechanism; the driver calls it for a Windows or macOS target with the mode on.</summary>
-    public static void Apply() => IlFirst.UsePartial("native-tls", s_prefixes, ["System.Security.Cryptography", "System.Net.Security"]);
+    public static void Apply() => IlFirst.UsePartial("native-tls", s_prefixes, Family);
+
+    /// <summary>The two mixed assemblies of the mode.</summary>
+    public static readonly string[] Family = ["System.Security.Cryptography", "System.Net.Security"];
 }
