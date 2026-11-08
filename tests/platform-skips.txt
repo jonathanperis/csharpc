@@ -275,3 +275,7 @@ windows 1100_x509_certificates  live: X.509 over OpenSSL 3 on Windows (ADR 0022 
 windows 553_rsa  live: RSA over OpenSSL 3 on Windows (ADR 0022 addendum); legal key sizes and some messages come from CNG in real .NET, recorded there
 wasi 1230_file_set_last_write_time  known gap: File/Directory.SetLastWriteTime[Utc] have no WASI implementation yet (wasi-libc utimensat / path_filestat_set_times is not bound)
 windows 1229_math_double_members       live: the sign of the NaN Log/Log2 return for a negative number is the C runtime's on Windows (the sample prints those lines elsewhere only)
+wasi 1240_mutex_unnamed         needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 1241_mutex_named           needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 1242_semaphore             needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+windows 1241_mutex_named        known gap: named mutexes are not implemented on Windows yet (csharpc stops with NotSupportedException; real .NET uses kernel mutexes, whose release error and multi-handle waits differ from the Unix ones recorded here)

@@ -1099,7 +1099,8 @@ public sealed partial class ModuleCodeGen
         "System.Collections.Generic.KeyNotFoundException", "System.OperationCanceledException",
         "System.Threading.Tasks.TaskCanceledException", "System.AggregateException",
         "System.Threading.ThreadStateException", "System.Threading.SynchronizationLockException",
-        "System.Threading.ThreadInterruptedException", "System.TypeLoadException", "System.DllNotFoundException", "System.EntryPointNotFoundException",
+        "System.Threading.ThreadInterruptedException", "System.ApplicationException", "System.Threading.AbandonedMutexException",
+        "System.Threading.SemaphoreFullException", "System.Threading.WaitHandleCannotBeOpenedException", "System.TypeLoadException", "System.DllNotFoundException", "System.EntryPointNotFoundException",
     ];
 
     public const int ExceptionMessageSlot = 3;

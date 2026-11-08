@@ -14,6 +14,12 @@
 #ifndef _WIN32
 #include <sched.h>
 #endif
+#if !defined(_WIN32) && !defined(__wasi__)
+#include <fcntl.h>
+#include <sys/file.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#endif
 #include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,6 +28,7 @@
 #include <unistd.h>
 
 csrt_String* csrt_string_from_utf8(const char* text);
+CSRT_THROWS void csrt_throw_sync(int32_t which, csrt_String* message);  // eh.c: ApplicationException, AbandonedMutexException, SemaphoreFullException
 
 static const csrt_MethodTable mt_thread_state = { NULL, "System.Threading.ThreadStateException", 0, 0, NULL, 0, 0 };
 static const csrt_MethodTable mt_sync_lock = { NULL, "System.Threading.SynchronizationLockException", 0, 0, NULL, 0, 0 };
@@ -119,6 +126,14 @@ bool csrt_thread_yield(void) {
 #else
 bool csrt_thread_yield(void) { sched_yield(); return true; }
 #endif
+
+// The mutex operations (see "Mutex" below), reached through one pointer that only the mutex constructors set:
+// the generic wait and set paths and the end of a thread stay free of the mutex code (and of its size) in
+// programs that never create a mutex.
+struct csrt_Event;
+enum { MUTEX_READY, MUTEX_TAKE, MUTEX_THROW_ABANDONED, MUTEX_RELEASE, MUTEX_CLOSE, MUTEX_ABANDON_ALL, SEMAPHORE_THROW_FULL };
+static intptr_t (*s_mutex_op)(int op, struct csrt_Event* e);
+static _Thread_local void* tl_owned_mutexes;  // the mutexes this thread owns (a GC root: the TLS block is scanned)
 
 // ---------------------------------------------------------------------------------------------
 // System.Threading.Thread
@@ -319,6 +334,7 @@ static void* thread_main(void* arg) {
     // An exception escaping the delegate is unhandled: eh.c reports it and aborts the process,
     // exactly like an unhandled exception on a .NET thread.
     invoke_void(t->start, t->parameterized, t->parameter);
+    if (tl_owned_mutexes) s_mutex_op(MUTEX_ABANDON_ALL, NULL);  // a mutex its thread ends without releasing is abandoned
     thread_finished(t);
     tl_current = NULL;
     csrt_tl_flow = NULL;
@@ -831,16 +847,29 @@ bool csrt_lock_is_held(void* lock) {
 // Wait handles: ManualResetEventSlim / ManualResetEvent / AutoResetEvent / SemaphoreSlim /
 // CountdownEvent. One runtime object kind with a count and a mode.
 // ---------------------------------------------------------------------------------------------
-enum { EVENT_MANUAL, EVENT_AUTO, EVENT_SEMAPHORE, EVENT_COUNTDOWN };
+enum { EVENT_MANUAL, EVENT_AUTO, EVENT_SEMAPHORE, EVENT_COUNTDOWN, EVENT_MUTEX };
+enum { EVENT_THIN = 1 /* a handle onto a named mutex's shared state */, EVENT_DISPOSED = 2 };
 
-typedef struct {
+typedef struct csrt_Event {
     const csrt_MethodTable* mt;
     pthread_mutex_t* mutex;    // malloc'd: pthread objects must not move (they don't) or be scanned
     pthread_cond_t* cond;
-    int32_t count;             // set (1/0), semaphore count, or countdown remaining
+    int32_t count;             // set (1/0), semaphore count, countdown remaining, or mutex free (1/0)
     int32_t max;
     int32_t initial;
     int32_t kind;
+    // Mutex (EVENT_MUTEX), and the dispose state of mutexes and semaphores; see "Mutex" below.
+    int32_t flags;             // EVENT_THIN, EVENT_DISPOSED
+    int32_t recursion;         // times the owner has acquired it
+    int32_t abandoned;         // its owner exited without releasing it
+    int32_t refs;              // named state: handles open on it
+    int32_t scope;             // named state: current-user / current-session bits
+    int32_t lock_fd;           // named state: the lock file that marks the name as taken by this process (-1: none)
+    void* owner;               // the owning thread's tl_owner_tag (not a heap pointer)
+    struct csrt_Event* next_owned;  // the owner's list of owned mutexes (tl_owned)
+    struct csrt_Event* target; // a thin handle: the shared state it stands for
+    struct csrt_Event* next_named;  // the registry of named mutexes
+    csrt_String* name;
 } csrt_Event;
 
 #define EVENT_MT(sym, name) \
@@ -849,12 +878,46 @@ typedef struct {
 EVENT_MT(csrt_ManualResetEventSlim_MT, "System.Threading.ManualResetEventSlim")
 EVENT_MT(csrt_ManualResetEvent_MT, "System.Threading.ManualResetEvent")
 EVENT_MT(csrt_AutoResetEvent_MT, "System.Threading.AutoResetEvent")
-EVENT_MT(csrt_SemaphoreSlim_MT, "System.Threading.SemaphoreSlim")
 EVENT_MT(csrt_CountdownEvent_MT, "System.Threading.CountdownEvent")
+
+// Mutex and Semaphore are disposable for real: a disposed handle throws ObjectDisposedException, and a named
+// mutex's state lives until its last handle is disposed (csrt_event_dispose is slot 3, IDisposable.Dispose).
+void csrt_event_dispose(csrt_Event* e);
+#define EVENT_MT_DISPOSE(sym, name) \
+    const struct { csrt_MethodTable header; void* vtable[4]; } sym = { \
+        { &csrt_Object_MT.header, name, sizeof(csrt_Event), CSRT_MT_DISPOSABLE | CSRT_MT_DISPOSE_SLOT, NULL, 0, 0 }, \
+        { (void*)csrt_object_to_string_default, (void*)csrt_object_equals_default, (void*)csrt_object_get_hash_code_default, \
+          (void*)csrt_event_dispose } };
+EVENT_MT_DISPOSE(csrt_Semaphore_MT, "System.Threading.Semaphore")
+EVENT_MT_DISPOSE(csrt_Mutex_MT, "System.Threading.Mutex")
+
+static CSRT_THROWS void throw_object_disposed(void) {
+    static const csrt_MethodTable mt = { NULL, "System.ObjectDisposedException", 0, 0, NULL, 0, 0 };
+    csrt_throw(&mt, csrt_object_disposed_message(NULL, csrt_string_from_utf8("Microsoft.Win32.SafeHandles.SafeWaitHandle")));
+}
+
+static csrt_Event* event_resolve_slow(csrt_Event* e) {
+    if (e->flags & EVENT_DISPOSED) throw_object_disposed();
+    return e->target ? e->target : e;
+}
+/// The state an operation applies to: a handle onto a named mutex stands for the shared state; a disposed handle throws.
+static inline csrt_Event* event_resolve(csrt_Event* e) { return __builtin_expect(e->flags != 0, 0) ? event_resolve_slow(e) : e; }
+
+/// Is the event signaled for the calling thread? (`mutex` locked.) A mutex also admits the thread that owns it.
+static inline bool event_ready(csrt_Event* e) {
+    if (e->kind == EVENT_COUNTDOWN) return e->count == 0;
+    return e->count > 0 || (e->kind == EVENT_MUTEX && s_mutex_op(MUTEX_READY, e));
+}
+/// Takes what a satisfied wait consumes; 2 when it acquired an abandoned mutex (the caller throws once unlocked).
+static inline int event_consume(csrt_Event* e) {
+    if (e->kind == EVENT_AUTO) e->count = 0;
+    else if (e->kind == EVENT_SEMAPHORE) e->count--;
+    else if (e->kind == EVENT_MUTEX) return (int)s_mutex_op(MUTEX_TAKE, e);
+    return 1;
+}
 
 csrt_Event* csrt_event_new(int32_t kind, int32_t count, int32_t max) {
     const csrt_MethodTable* mt = kind == EVENT_AUTO ? &csrt_AutoResetEvent_MT.header
-        : kind == EVENT_SEMAPHORE ? &csrt_SemaphoreSlim_MT.header
         : kind == EVENT_COUNTDOWN ? &csrt_CountdownEvent_MT.header
         : max == 1 ? &csrt_ManualResetEvent_MT.header : &csrt_ManualResetEventSlim_MT.header;
     if (kind == EVENT_SEMAPHORE && (count < 0 || (max > 0 && count > max)))
@@ -877,13 +940,15 @@ csrt_Event* csrt_event_new(int32_t kind, int32_t count, int32_t max) {
 /// Set (events) / Release (semaphore, returns the previous count).
 int32_t csrt_event_set(csrt_Event* e, int32_t n) {
     if (!e) csrt_throw_null_reference();
+    e = event_resolve(e);
+    if (e->kind == EVENT_MUTEX) return (int32_t)s_mutex_op(MUTEX_RELEASE, e);  // ReleaseMutex
     pthread_mutex_lock(e->mutex);
     int32_t previous = e->count;
     if (e->kind == EVENT_SEMAPHORE) {
         if (n < 1) { pthread_mutex_unlock(e->mutex); throw_msg(&mt_argument_out_of_range, "Non-negative number required. (Parameter 'releaseCount')"); }
         if (e->max > 0 && e->count + n > e->max) {
             pthread_mutex_unlock(e->mutex);
-            throw_msg(&mt_invalid_operation, "Adding the specified count to the semaphore would cause it to exceed its maximum count.");
+            s_mutex_op(SEMAPHORE_THROW_FULL, NULL);
         }
         e->count += n;
     } else if (e->kind == EVENT_COUNTDOWN) {
@@ -944,12 +1009,10 @@ static int32_t wasi_event_wait(csrt_Event* e, int32_t ms, const int32_t* source)
     int64_t deadline = ms > 0 ? csrt_scheduler_now_ms() + ms : -1;
     for (;;) {
         pthread_mutex_lock(e->mutex);
-        bool ready = e->kind == EVENT_COUNTDOWN ? e->count == 0 : e->count > 0;
-        if (ready) {
-            if (e->kind == EVENT_AUTO) e->count = 0;
-            else if (e->kind == EVENT_SEMAPHORE) e->count--;
-        }
+        bool ready = event_ready(e);
+        int taken = ready ? event_consume(e) : 0;
         pthread_mutex_unlock(e->mutex);
+        if (taken == 2) s_mutex_op(MUTEX_THROW_ABANDONED, NULL);
         if (ready) return 1;
         if (source && __atomic_load_n((const int32_t*)((const char*)source + sizeof(void*)), __ATOMIC_ACQUIRE)) return 2;
         if (ms == 0 || (deadline >= 0 && csrt_scheduler_now_ms() >= deadline)) return 0;
@@ -972,6 +1035,7 @@ void csrt_pool_leave_blocking_wait(void);
 /// Wait(timeout ms, -1 = infinite) / WaitOne: true when signalled.
 bool csrt_event_wait(csrt_Event* e, int32_t ms) {
     if (!e) csrt_throw_null_reference();
+    e = event_resolve(e);
 #ifdef __wasi__
     return wasi_event_wait(e, ms, NULL) == 1;
 #endif
@@ -980,12 +1044,11 @@ bool csrt_event_wait(csrt_Event* e, int32_t ms) {
     pthread_mutex_lock(e->mutex);
     bool entered = false;
     for (;;) {
-        bool ready = e->kind == EVENT_COUNTDOWN ? e->count == 0 : e->count > 0;
-        if (ready) {
-            if (e->kind == EVENT_AUTO) e->count = 0;
-            else if (e->kind == EVENT_SEMAPHORE) e->count--;
+        if (event_ready(e)) {
+            int taken = event_consume(e);
             pthread_mutex_unlock(e->mutex);
             if (entered) csrt_pool_leave_blocking_wait();
+            if (taken == 2) s_mutex_op(MUTEX_THROW_ABANDONED, NULL);
             return true;
         }
         if (ms == 0) {
@@ -1004,8 +1067,7 @@ bool csrt_event_wait(csrt_Event* e, int32_t ms) {
             throw_interrupted();
         }
         if (rc == ETIMEDOUT) {
-            bool now = e->kind == EVENT_COUNTDOWN ? e->count == 0 : e->count > 0;
-            if (!now) {
+            if (!event_ready(e)) {
                 pthread_mutex_unlock(e->mutex);
                 if (entered) csrt_pool_leave_blocking_wait();
                 return false;
@@ -1019,6 +1081,7 @@ bool csrt_event_wait(csrt_Event* e, int32_t ms) {
 /// event (csrt_event_kick), so a waiter sees the cancellation as soon as Cancel runs it.
 int32_t csrt_event_wait_token(csrt_Event* e, int32_t ms, const int32_t* source) {
     if (!e) csrt_throw_null_reference();
+    e = event_resolve(e);
 #ifdef __wasi__
     return wasi_event_wait(e, ms, source);
 #endif
@@ -1027,12 +1090,11 @@ int32_t csrt_event_wait_token(csrt_Event* e, int32_t ms, const int32_t* source) 
     pthread_mutex_lock(e->mutex);
     bool entered = false;
     for (;;) {
-        bool ready = e->kind == EVENT_COUNTDOWN ? e->count == 0 : e->count > 0;
-        if (ready) {
-            if (e->kind == EVENT_AUTO) e->count = 0;
-            else if (e->kind == EVENT_SEMAPHORE) e->count--;
+        if (event_ready(e)) {
+            int taken = event_consume(e);
             pthread_mutex_unlock(e->mutex);
             if (entered) csrt_pool_leave_blocking_wait();
+            if (taken == 2) s_mutex_op(MUTEX_THROW_ABANDONED, NULL);
             return 1;
         }
         // The source's `canceled` word follows its method-table pointer (async.c, CancellationSource).
@@ -1056,8 +1118,7 @@ int32_t csrt_event_wait_token(csrt_Event* e, int32_t ms, const int32_t* source) 
             throw_interrupted();
         }
         if (rc == ETIMEDOUT) {
-            bool now = e->kind == EVENT_COUNTDOWN ? e->count == 0 : e->count > 0;
-            if (!now) {
+            if (!event_ready(e)) {
                 pthread_mutex_unlock(e->mutex);
                 if (entered) csrt_pool_leave_blocking_wait();
                 return 0;
@@ -1071,6 +1132,239 @@ void csrt_event_kick(csrt_Event* e) {
     pthread_mutex_lock(e->mutex);
     pthread_cond_broadcast(e->cond);
     pthread_mutex_unlock(e->mutex);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Mutex (System.Threading.Mutex): an event of kind EVENT_MUTEX whose `count` is 1 while nobody owns it. The owner is
+// identified by the address of a thread-local byte (not by a Thread object: pool threads and the main thread
+// have none until asked), re-acquiring is counted in `recursion`, and the owner's list of owned mutexes
+// (tl_owned_mutexes) is walked when its thread ends so that mutexes it still owns become abandoned: the next
+// wait acquires them and throws AbandonedMutexException. WaitAny/WaitAll compose it with the other wait
+// handles in the corelib (corelib/Threading/WaitHandles.cs).
+//
+// A named mutex is shared by every handle with the same name and scope in the process: a "state" event in the
+// registry (s_named_head) and one thin handle per `new Mutex(..., name)`/`OpenExisting` (flags EVENT_THIN,
+// `target` the state). The state is dropped when its last handle is disposed. Between processes, .NET shares
+// them through lock files; csharpc does not: it only notices another csharpc process holding the same name
+// (flock on a per-name file) and stops with NotSupportedException instead of silently not excluding it.
+// ---------------------------------------------------------------------------------------------
+static _Thread_local char tl_owner_tag;
+#define MUTEX_SELF ((void*)&tl_owner_tag)
+
+static pthread_mutex_t s_named_lock = PTHREAD_MUTEX_INITIALIZER;
+static csrt_Event* s_named_head;           // rooted: the executable's writable segments are scanned
+static _Thread_local int32_t tl_created_new;
+
+static void mutex_unlink_owned(csrt_Event* e) {
+    csrt_Event* head = tl_owned_mutexes;
+    if (head == e) tl_owned_mutexes = e->next_owned;
+    else
+        for (csrt_Event* p = head; p; p = p->next_owned)
+            if (p->next_owned == e) { CSRT_STORE_REF(p->next_owned, e->next_owned); break; }
+    e->next_owned = NULL;
+}
+
+static void mutex_abandon_all(void) {
+    csrt_Event* e = tl_owned_mutexes;
+    tl_owned_mutexes = NULL;
+    while (e) {
+        csrt_Event* next = e->next_owned;
+        pthread_mutex_lock(e->mutex);
+        e->next_owned = NULL;
+        e->owner = NULL;
+        e->recursion = 0;
+        e->count = 1;
+        e->abandoned = 1;
+        pthread_cond_broadcast(e->cond);
+        pthread_mutex_unlock(e->mutex);
+        e = next;
+    }
+}
+
+#if !defined(_WIN32) && !defined(__wasi__)
+/// Marks the name as taken by this process: an exclusive flock on a file named after (scope, name). Another
+/// process holding it means a mutex shared between processes, which isn't implemented. Best effort: when
+/// the file can't be made the name is simply not marked.
+static bool named_path(csrt_Event* s, char* path, size_t size, bool make_directory) {
+    uint64_t hash = 14695981039346656037ull;
+    hash = (hash ^ (uint64_t)s->scope) * 1099511628211ull;
+    for (int32_t i = 0; i < s->name->length; i++) hash = (hash ^ s->name->chars[i]) * 1099511628211ull;
+    const char* tmp = getenv("TMPDIR");
+    int n = snprintf(path, size, "%s/.csharpc-sync-%u", tmp && *tmp ? tmp : "/tmp", (unsigned)getuid());
+    if (n <= 0 || (size_t)n + 20 > size) return false;
+    if (make_directory && mkdir(path, 0700) != 0 && errno != EEXIST) return false;
+    snprintf(path + n, size - (size_t)n, "/%016llx", (unsigned long long)hash);
+    return true;
+}
+
+static bool named_claim(csrt_Event* s) {
+    char path[512];
+    if (!named_path(s, path, sizeof path, true)) return true;
+    int fd = open(path, O_RDWR | O_CREAT | O_CLOEXEC, 0600);
+    if (fd < 0) return true;
+    if (flock(fd, LOCK_EX | LOCK_NB) != 0) {
+        bool taken = errno == EWOULDBLOCK;
+        close(fd);
+        return !taken;
+    }
+    s->lock_fd = fd;
+    return true;
+}
+
+static void named_unclaim(csrt_Event* s) {
+    if (s->lock_fd < 0) return;
+    // Removed while still locked, so a process that races us for the name fails its own claim rather than
+    // sharing an unlinked file.
+    char path[512];
+    if (named_path(s, path, sizeof path, false)) unlink(path);
+    close(s->lock_fd);
+    s->lock_fd = -1;
+}
+#else
+static bool named_claim(csrt_Event* s) { (void)s; return true; }
+static void named_unclaim(csrt_Event* s) { (void)s; }
+#endif
+
+static intptr_t mutex_op(int op, csrt_Event* e) {
+    switch (op) {
+    case MUTEX_READY:
+        return e->owner == MUTEX_SELF;
+    case MUTEX_TAKE: {  // `mutex` locked, the mutex free or owned by this thread
+        if (e->owner == MUTEX_SELF) { e->recursion++; return 1; }
+        e->owner = MUTEX_SELF;
+        e->recursion = 1;
+        e->count = 0;
+        CSRT_STORE_REF(e->next_owned, tl_owned_mutexes);
+        tl_owned_mutexes = e;
+        int abandoned = e->abandoned;
+        e->abandoned = 0;
+        return abandoned ? 2 : 1;
+    }
+    case MUTEX_THROW_ABANDONED:
+        csrt_throw_sync(1, csrt_string_from_utf8("The wait completed due to an abandoned mutex."));
+        return 0;
+    case SEMAPHORE_THROW_FULL:
+        csrt_throw_sync(2, csrt_string_from_utf8("Adding the specified count to the semaphore would cause it to exceed its maximum count."));
+        return 0;
+    case MUTEX_RELEASE: {  // ReleaseMutex
+        pthread_mutex_lock(e->mutex);
+        if (e->owner != MUTEX_SELF) {
+            bool named = e->name != NULL;
+            pthread_mutex_unlock(e->mutex);
+            // Unix .NET releases named and unnamed mutexes differently: an unnamed one is the managed wait
+            // subsystem's (ApplicationException), a named one the shared-memory implementation's.
+            if (named) throw_msg(&mt_invalid_operation, "Cannot release a lock that is not owned by the current thread.");
+            csrt_throw_sync(0, csrt_string_from_utf8(k_unsynchronized));
+            return 0;
+        }
+        if (--e->recursion == 0) {
+            e->owner = NULL;
+            e->count = 1;
+            mutex_unlink_owned(e);
+            pthread_cond_broadcast(e->cond);
+        }
+        pthread_mutex_unlock(e->mutex);
+        return 0;
+    }
+    case MUTEX_CLOSE: {  // a thin handle is disposed: the last one of a name drops the name
+        csrt_Event* s = e->target;
+        pthread_mutex_lock(&s_named_lock);
+        if (--s->refs == 0) {
+            if (s_named_head == s) s_named_head = s->next_named;
+            else
+                for (csrt_Event* p = s_named_head; p; p = p->next_named)
+                    if (p->next_named == s) { CSRT_STORE_REF(p->next_named, s->next_named); break; }
+            named_unclaim(s);
+        }
+        pthread_mutex_unlock(&s_named_lock);
+        return 0;
+    }
+    case MUTEX_ABANDON_ALL:
+        mutex_abandon_all();
+        return 0;
+    }
+    return 0;
+}
+
+static csrt_Event* mutex_alloc(void) {
+    csrt_Event* e = csrt_alloc(&csrt_Mutex_MT.header, sizeof(csrt_Event));
+    e->kind = EVENT_MUTEX;
+    e->count = 1;
+    e->max = 1;
+    e->initial = 1;
+    e->lock_fd = -1;
+    return e;
+}
+
+/// A semaphore (System.Threading.Semaphore): the counting kind of csrt_event_new with its own method table. The argument checks
+/// are the corelib's (corelib/Threading/MutexHandles.cs).
+csrt_Event* csrt_semaphore_new(int32_t initial, int32_t max) {
+    s_mutex_op = mutex_op;
+    csrt_Event* e = csrt_event_new(EVENT_SEMAPHORE, initial, max);
+    e->mt = &csrt_Semaphore_MT.header;
+    return e;
+}
+
+/// An unnamed mutex, free.
+csrt_Event* csrt_mutex_new(void) {
+    s_mutex_op = mutex_op;
+    csrt_Event* e = mutex_alloc();
+    e->mutex = malloc(sizeof(pthread_mutex_t));
+    e->cond = malloc(sizeof(pthread_cond_t));
+    if (!e->mutex || !e->cond) abort();
+    pthread_mutex_init(e->mutex, NULL);
+    pthread_cond_init(e->cond, NULL);
+    tl_created_new = 1;
+    return e;
+}
+
+/// A handle onto the named mutex `name` in `scope` (current-user and current-session bits), creating it when `create`;
+/// NULL when it doesn't exist and `create` is off. csrt_mutex_created_new() tells whether this call created it.
+csrt_Event* csrt_mutex_open(csrt_String* name, int32_t scope, bool create) {
+    s_mutex_op = mutex_op;
+    csrt_Event* handle = mutex_alloc();  // allocated before the lock: an allocation may collect
+    csrt_Event* fresh = create ? csrt_mutex_new() : NULL;
+    pthread_mutex_lock(&s_named_lock);
+    csrt_Event* s = s_named_head;
+    while (s && !(s->scope == scope && csrt_string_equals(s->name, name))) s = s->next_named;
+    int32_t created = 0;
+    if (!s) {
+        if (!fresh) { pthread_mutex_unlock(&s_named_lock); return NULL; }
+        s = fresh;
+        s->scope = scope;
+        CSRT_STORE_REF(s->name, name);
+        if (!named_claim(s)) {
+            pthread_mutex_unlock(&s_named_lock);
+            static const csrt_MethodTable mt_not_supported = { NULL, "System.NotSupportedException", 0, 0, NULL, 0, 0 };
+            throw_msg(&mt_not_supported, "csharpc: a named mutex shared between processes is not supported yet; the name is in use by another process.");
+        }
+        CSRT_STORE_REF(s->next_named, s_named_head);
+        s_named_head = s;
+        created = 1;
+    }
+    s->refs++;
+    pthread_mutex_unlock(&s_named_lock);
+    handle->flags = EVENT_THIN;
+    CSRT_STORE_REF(handle->target, s);
+    tl_created_new = created;
+    return handle;
+}
+
+int32_t csrt_mutex_created_new(void) { return tl_created_new; }
+
+/// Is the wait handle a handle onto a named mutex? (WaitAny/WaitAll refuse those together with other handles.)
+bool csrt_event_named(csrt_Event* e) {
+    if (!e) csrt_throw_null_reference();
+    return (e->flags & EVENT_THIN) != 0;
+}
+
+/// IDisposable.Dispose of a mutex or semaphore: later use throws ObjectDisposedException.
+void csrt_event_dispose(csrt_Event* e) {
+    if (!e) csrt_throw_null_reference();
+    if (e->kind != EVENT_MUTEX && e->kind != EVENT_SEMAPHORE) return;
+    if (e->flags & EVENT_DISPOSED) return;
+    e->flags |= EVENT_DISPOSED;
+    if (e->target) s_mutex_op(MUTEX_CLOSE, e);
 }
 
 // ---------------------------------------------------------------------------------------------
