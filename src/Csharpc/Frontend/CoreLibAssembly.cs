@@ -244,6 +244,7 @@ public static partial class CoreLibAssembly
                         var name = attribute.Name.ToString();
                         if (attribute.ArgumentList?.Arguments.FirstOrDefault()?.Expression is not LiteralExpressionSyntax { Token.Value: string real })
                             continue;
+                        if (NativeTls.Excluded(real)) continue;
                         if (name is "Shadows" or "ShadowsAttribute") into.Add(new ShadowDeclaration(false, real, metadataName));
                         else if (name is "ShadowMembers" or "ShadowMembersAttribute") into.Add(new ShadowDeclaration(true, real, metadataName));
                     }
