@@ -17,6 +17,9 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
+#if CSHARPC_NATIVE_TLS
+// Marker: the symbol is part of the corelib cache key (the shadow index differs, Frontend/NativeTls.cs).
+#endif
 namespace CsharpcCoreLib
 {
     internal static class Tls
