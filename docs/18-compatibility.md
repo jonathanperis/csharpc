@@ -373,6 +373,8 @@ slice: `python3 -I tools/il-survey/survey.py --no-packages --local "roslyn+cshar
 | 2026-10-31, Roslyn 5.12 | 73 | 17 | 3 (+8 corelib) | 101 |
 | 2026-10-31, after the struct-layout, `Parallel` and crypto fixes | 41 | 10 | 2 (+7 corelib) | 60 |
 | 2026-10-31, last measurement (the shards' compile time 4 532 s → 1 556 s) | 32 | 2 | 2 (+2 corelib) | 38 |
+| 2026-11-07, `main` at `25edc99` (run 42408659401; before the fixes below) | 27 | 3 | 2 | 32 |
+| 2026-11-07, `fix/m5-il-leftovers` (run 42423203020; all 16 shards compile to the end) | 4 | 0 | 0 | 4 |
 
 Fixed after the 2026-10-31 survey, by methods stopped: struct
 layouts LLVM's struct types can't express — overlapping explicit fields and `Pack` below a field's
@@ -391,9 +393,21 @@ Also: `Environment.FailFast`, `Assembly.ManifestModule`, `Assembly.GetReferenced
 `Assembly.GetCustomAttributes(Type, bool)`, `RuntimeEnvironment.GetRuntimeDirectory`,
 `Process.GetCurrentProcess`, `GC.Collect` overloads, `FileNotFoundException.FusionLog`.
 
-The ranked list of the methods that still fail has to be re-measured (#169): the last run, of 2026-10-31, left 38 methods,
-and the items fixed since include `DeflateStream` derivation, `Mutex`, `AppDomain` events, `Environment.ExpandEnvironmentVariables`,
-`NativeLibrary.SetDllImportResolver` (how csharpc finds libLLVM) and `System.Resources.ResourceReader` (csharpc reads `.resources` files).
+The 2026-11-07 re-measure (#169) found 32 methods, not 38, and after the fixes of that issue 4 are left, all of them
+`Mutex`: `new Mutex(bool, string)` in two methods of the analyzer shadow-copy resolver, `Mutex.TryOpenExisting` in one, and
+`Assembly.LoadFrom` (an explicit stop now: nothing is loaded at run time) in one. What the run listed and how it was closed:
+`System.IO.Compression.DeflateStream` (10 methods: embedded text and PDB compression) was never a missing type: the
+survey's compiles inherit an address-space cap and a GC heap limit, and the child `dotnet restore` that fetches the
+NativeAOT runtime pack (the zlib-ng shim) failed under them, so System.IO.Compression was not compiled from IL
+(the diagnostic now says why, and the restore sets its own heap limit); `Debugger.Break` (a no-op without a debugger),
+`BinaryWriter.Write(char[])`, `AppDomain.AssemblyResolve`/`Load` with `ResolveEventArgs`, `Assembly.GlobalAssemblyCache`,
+`RuntimeReflectionExtensions.GetRuntimeMethods` and its siblings, `Delegate.CreateDelegate(Type, object, MethodInfo)`,
+`File.SetAttributes` (and `FileInfo.IsReadOnly`, which always answered false), `SynchronizationContext.Wait`, the
+`ComTypes.FILETIME`/`STATSTG` structs and `AssemblyName.GetAssemblyName` (a missing file only) are corelib members now
+(samples 1236, 1237); the survey passes the SDK's source generators that `csharpc.dll` references (they were reported as
+missing `-r` assemblies). With the compiles running to the end, the survey verified the whole module for the first time and
+found two latent miscompiles (sample 1238): a ref struct's method table asked for field-wise `Equals` over its span fields
+(invalid IR), and `IntPtr.op_Addition(IntPtr, int)` added an `i32` to an `i64`.
 
 The survey only counts methods that fail to *lower*. A program that hosts Roslyn is the other
 measure: `tests/projects/il/IlRoslynHostApp` references `Microsoft.CodeAnalysis.CSharp` as a package,

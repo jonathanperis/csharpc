@@ -24,6 +24,17 @@ namespace CsharpcCoreLib
             return attributes == 0xFFFFFFFF ? (FileAttributes)(-1) : (FileAttributes)attributes;
         }
 
+        [DllImport("kernel32", CharSet = CharSet.Unicode, SetLastError = true)] private static extern bool SetFileAttributesW(string name, uint attributes);
+
+        public static void SetAttributes(string fullPath, FileAttributes attributes, bool asDirectory)
+        {
+            if (SetFileAttributesW(fullPath, (uint)attributes)) return;
+            int error = Marshal.GetLastPInvokeError();
+            // Win32Marshal's mapping: file not found and path not found are .NET's two not-found exceptions, access denied is
+            // UnauthorizedAccessException; the rest keep their Win32 code.
+            throw Posix.IOError(error switch { 2 => Posix.ENOENT, 3 => Posix.ENOTDIR, 5 => Posix.EACCES, _ => 0x10000 + error }, fullPath, asDirectory);
+        }
+
         public static string ReadLink(string path) =>
             throw new NotSupportedException("Symbolic link targets on Windows are not supported by csharpc yet.");
 
@@ -126,6 +137,8 @@ namespace CsharpcCoreLib
 #if CSHARPC_TARGET_WASI
         // WASI has no permission bits to change.
         public static void SetUnixFileMode(string path, UnixFileMode mode) => throw new PlatformNotSupportedException("Unix file modes are not supported on this platform.");
+        public static void SetAttributes(string fullPath, FileAttributes attributes, bool asDirectory) =>
+            throw new PlatformNotSupportedException("Setting file attributes is not supported on this platform.");
 #else
         [DllImport("libc", SetLastError = true)] private static extern int chmod(byte* path, int mode);
 
@@ -137,6 +150,33 @@ namespace CsharpcCoreLib
             int errno = Posix.Errno;
             Libc.free(p);
             if (rv < 0) throw Posix.IOError(errno, path, false);
+        }
+
+        /// <summary>
+        /// FileStatus.SetAttributes (dotnet/runtime release/11.0): the flags are validated, then the one thing Unix can change is
+        /// the write permission: ReadOnly takes the write bits of owner, group and others away; otherwise the owner gets write
+        /// permission back if it can read (so nobody is granted write access to what they can't read). Hidden is a macOS flag
+        /// (chflags) that csharpc does not set.
+        /// </summary>
+        public static void SetAttributes(string fullPath, FileAttributes attributes, bool asDirectory)
+        {
+            const FileAttributes allValidFlags = FileAttributes.ReadOnly | FileAttributes.Hidden | FileAttributes.System | FileAttributes.Directory
+                | FileAttributes.Archive | FileAttributes.Device | FileAttributes.Normal | FileAttributes.Temporary | FileAttributes.SparseFile
+                | FileAttributes.ReparsePoint | FileAttributes.Compressed | FileAttributes.Offline | FileAttributes.NotContentIndexed
+                | FileAttributes.Encrypted | FileAttributes.IntegrityStream | FileAttributes.NoScrubData;
+            if ((attributes & ~allValidFlags) != 0) throw new ArgumentException("Invalid File or Directory attributes value.", "Attributes");
+            byte* st = stackalloc byte[Posix.StatSize];
+            byte* p = Utf8.ToNative(PathImpl.TrimEndingDirectorySeparator(fullPath));
+            try
+            {
+                if (Posix.lstat(p, st) < 0) throw Posix.IOError(Posix.Errno, fullPath, asDirectory);
+                if ((Posix.Mode(st) & Posix.S_IFMT) == Posix.S_IFLNK && Posix.stat(p, st) < 0) throw Posix.IOError(Posix.Errno, fullPath, asDirectory);
+                int mode = Posix.Mode(st) & 0xFFF, newMode = mode;
+                if ((attributes & FileAttributes.ReadOnly) != 0) newMode &= ~(UserWrite | GroupWrite | OtherWrite);
+                else if ((newMode & UserRead) != 0) newMode |= UserWrite;
+                if (newMode != mode && chmod(p, newMode) < 0) throw Posix.IOError(Posix.Errno, fullPath, asDirectory);
+            }
+            finally { Libc.free(p); }
         }
 #endif
 
