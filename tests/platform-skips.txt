@@ -279,3 +279,4 @@ wasi 1237_file_attributes      known gap: WASI has no permission bits to change 
 windows 1229_math_double_members       live: the sign of the NaN Log/Log2 return for a negative number is the C runtime's on Windows (the sample prints those lines elsewhere only)
 windows 1261_process_wait_for_exit_async  runs a POSIX sh; csharpc's Process.Start on Windows is an explicit NotSupportedException (not implemented yet)
 wasi 1261_process_wait_for_exit_async     WASI has no processes to start
+wasi 1268_appdomain_process_exit    needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly (1269 covers ProcessExit there)
