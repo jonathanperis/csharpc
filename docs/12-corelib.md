@@ -1,5 +1,9 @@
 # 12 — The shadow corelib (BCL in C#)
 
+> Policy ([ADR 0023](adr/0023-framework-il-first.md)): the shadows are for the runtime-coupled `System.Private.CoreLib` surface; a
+> library of the rest of the framework is compiled from its IL (ADR 0013) where a per-library measurement
+> (`CSHARPC_IL_FIRST`, `tools/il-first/ab.sh`) says so, and its shadow is deleted in the same change.
+
 csharpc's route to drop-in BCL coverage: library types re-implemented **in C#**, compiled by csharpc
 together with the user's program (closed world: monomorphized, inlined and optimized by LLVM along with
 user code). User code keeps binding against the **real** .NET reference assemblies, so Roslyn's overload
