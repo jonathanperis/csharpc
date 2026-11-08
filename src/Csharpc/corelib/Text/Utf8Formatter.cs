@@ -46,6 +46,27 @@ namespace CsharpcCoreLib
         public static bool TryFormat(decimal value, Span<byte> destination, out int bytesWritten, StandardFormat format = default) =>
             CopyAscii(value.ToString(FloatFormat(format), System.Globalization.CultureInfo.InvariantCulture), destination, out bytesWritten);
 
+        // Utf8Formatter.Guid.cs: 'D' (the default), 'N', 'B' and 'P', lower-case hex.
+        public static bool TryFormat(Guid value, Span<byte> destination, out int bytesWritten, StandardFormat format = default)
+        {
+            char symbol = format.IsDefault ? 'D' : format.Symbol;
+            if (symbol is not ('D' or 'N' or 'B' or 'P')) throw new FormatException("Format specifier was invalid.");
+            return CopyAscii(value.ToString(symbol.ToString()), destination, out bytesWritten);
+        }
+
+        // Utf8Formatter.TimeSpan.cs: 'c' (the default; also 't' and 'T'), 'G' and 'g', the invariant culture's text.
+        public static bool TryFormat(TimeSpan value, Span<byte> destination, out int bytesWritten, StandardFormat format = default)
+        {
+            char symbol = format.IsDefault ? 'c' : format.Symbol;
+            string text = symbol switch
+            {
+                'c' or 't' or 'T' => value.ToString("c", System.Globalization.CultureInfo.InvariantCulture),
+                'G' or 'g' => value.ToString(symbol.ToString(), System.Globalization.CultureInfo.InvariantCulture),
+                _ => throw new FormatException("Format specifier was invalid."),
+            };
+            return CopyAscii(text, destination, out bytesWritten);
+        }
+
         private static string FloatFormat(StandardFormat format)
         {
             char symbol = format.IsDefault ? 'G' : format.Symbol;

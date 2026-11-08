@@ -153,6 +153,107 @@ namespace CsharpcCoreLib
             return true;
         }
 
+        // Utf8Parser.Float.cs / Decimal.cs: [sign] digits [. digits] [e|E [sign] digits], no leading white space, parsed up to the first byte
+        // that cannot continue the number ("12abc" is 12, "5." is 5, "-.5" is -0.5). An exponent marker must be followed by digits
+        // ("1.5e" fails whole), 'F'/'f' takes no exponent and 'E'/'e' requires one, as recorded from .NET; 'G', 'g' and the default
+        // take an optional one. The value is the invariant-culture parse of that run (correctly rounded); 0 is "not a number".
+        private static int NumberRun(ReadOnlySpan<byte> source, char standardFormat)
+        {
+            switch (standardFormat)
+            {
+                case '\0': case 'G': case 'g': case 'E': case 'e': case 'F': case 'f': break;
+                default: throw new FormatException("Format specifier was invalid.");
+            }
+            int i = 0;
+            if (i < source.Length && (source[i] == '-' || source[i] == '+')) i++;
+            int digits = 0;
+            while (i < source.Length && source[i] >= '0' && source[i] <= '9') { i++; digits++; }
+            if (i < source.Length && source[i] == '.')
+            {
+                i++;
+                while (i < source.Length && source[i] >= '0' && source[i] <= '9') { i++; digits++; }
+            }
+            if (digits == 0) return 0;
+            bool hasExponent = i < source.Length && (source[i] == 'e' || source[i] == 'E');
+            if (hasExponent)
+            {
+                if (standardFormat is 'F' or 'f') return 0;
+                int j = i + 1;
+                if (j < source.Length && (source[j] == '-' || source[j] == '+')) j++;
+                int exponentStart = j;
+                while (j < source.Length && source[j] >= '0' && source[j] <= '9') j++;
+                if (j == exponentStart) return 0;
+                i = j;
+            }
+            else if (standardFormat is 'E' or 'e') return 0;
+            return i;
+        }
+
+        private static string Ascii(ReadOnlySpan<byte> bytes) => System.Text.Encoding.ASCII.GetString(bytes);
+
+        public static bool TryParse(ReadOnlySpan<byte> source, out double value, out int bytesConsumed, char standardFormat = default)
+        {
+            value = 0; bytesConsumed = 0;
+            int length = NumberRun(source, standardFormat);
+            if (length == 0 || !double.TryParse(Ascii(source.Slice(0, length)), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value)) return false;
+            bytesConsumed = length;
+            return true;
+        }
+
+        public static bool TryParse(ReadOnlySpan<byte> source, out float value, out int bytesConsumed, char standardFormat = default)
+        {
+            value = 0; bytesConsumed = 0;
+            int length = NumberRun(source, standardFormat);
+            if (length == 0 || !float.TryParse(Ascii(source.Slice(0, length)), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value)) return false;
+            bytesConsumed = length;
+            return true;
+        }
+
+        public static bool TryParse(ReadOnlySpan<byte> source, out decimal value, out int bytesConsumed, char standardFormat = default)
+        {
+            value = 0; bytesConsumed = 0;
+            int length = NumberRun(source, standardFormat);
+            if (length == 0 || !decimal.TryParse(Ascii(source.Slice(0, length)), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out value)) return false;
+            bytesConsumed = length;
+            return true;
+        }
+
+        // Utf8Parser.Guid.cs: exactly one Guid in the format ('D' by default, 'N', 'B', 'P'), no trailing bytes consumed.
+        public static bool TryParse(ReadOnlySpan<byte> source, out Guid value, out int bytesConsumed, char standardFormat = default)
+        {
+            value = default; bytesConsumed = 0;
+            int length;
+            switch (standardFormat)
+            {
+                case '\0': case 'D': standardFormat = 'D'; length = 36; break;
+                case 'N': length = 32; break;
+                case 'B': case 'P': length = 38; break;
+                default: throw new FormatException("Format specifier was invalid.");
+            }
+            if (source.Length < length) return false;
+            if (!Guid.TryParseExact(Ascii(source.Slice(0, length)), standardFormat.ToString(), out value)) return false;
+            bytesConsumed = length;
+            return true;
+        }
+
+        // Utf8Parser.TimeSpan.cs for 'c' (the default; also 't' and 'T'): [-][d.]hh:mm:ss[.fffffff], the longest such run.
+        public static bool TryParse(ReadOnlySpan<byte> source, out TimeSpan value, out int bytesConsumed, char standardFormat = default)
+        {
+            value = default; bytesConsumed = 0;
+            if (standardFormat is not ('\0' or 'c' or 't' or 'T')) throw new NotSupportedException("Utf8Parser.TryParse(TimeSpan) with the '" + standardFormat + "' format is not supported by csharpc yet.");
+            int length = 0;
+            while (length < source.Length && (source[length] is (>= (byte)'0' and <= (byte)'9') or (byte)'.' or (byte)':' or (byte)'-')) length++;
+            for (; length > 0; length--)
+            {
+                if (TimeSpan.TryParseExact(Ascii(source.Slice(0, length)), "c", System.Globalization.CultureInfo.InvariantCulture, out value))
+                {
+                    bytesConsumed = length;
+                    return true;
+                }
+            }
+            return false;
+        }
+
         public static bool TryParse(ReadOnlySpan<byte> source, out ulong value, out int bytesConsumed, char standardFormat = default)
         {
             value = 0; bytesConsumed = 0;

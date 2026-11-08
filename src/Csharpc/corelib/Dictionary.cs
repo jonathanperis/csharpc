@@ -333,6 +333,127 @@ namespace CsharpcCoreLib
             _entries = entries;
         }
 
+        // ---- Alternate lookups (dotnet/runtime's Dictionary<TKey,TValue>.AlternateLookup<TAlternateKey>) ----------------
+
+        public AlternateLookup<TAlternateKey> GetAlternateLookup<TAlternateKey>() where TAlternateKey : notnull, allows ref struct
+        {
+            if (AlternateComparerOf<TAlternateKey>() is null)
+                throw new InvalidOperationException("The collection's comparer does not support the requested operation.");
+            return new AlternateLookup<TAlternateKey>(this);
+        }
+
+        public bool TryGetAlternateLookup<TAlternateKey>(out AlternateLookup<TAlternateKey> lookup) where TAlternateKey : notnull, allows ref struct
+        {
+            if (AlternateComparerOf<TAlternateKey>() is not null)
+            {
+                lookup = new AlternateLookup<TAlternateKey>(this);
+                return true;
+            }
+            lookup = default;
+            return false;
+        }
+
+        /// <summary>
+        /// The comparer as an IAlternateEqualityComparer, or null. csharpc's default string comparer is the ordinal one
+        /// (.NET's NonRandomizedStringEqualityComparer, which supports spans): StringComparer.Ordinal compares and hashes the same.
+        /// </summary>
+        private IAlternateEqualityComparer<TAlternateKey, TKey> AlternateComparerOf<TAlternateKey>() where TAlternateKey : allows ref struct
+        {
+            if (_comparer is IAlternateEqualityComparer<TAlternateKey, TKey> alternate) return alternate;
+            if (typeof(TKey) == typeof(string) && _comparer == null)
+                return StringComparer.Ordinal as IAlternateEqualityComparer<TAlternateKey, TKey>;
+            return null;
+        }
+
+        [Shadows("System.Collections.Generic.Dictionary`2+AlternateLookup`1")]
+        public readonly struct AlternateLookup<TAlternateKey> where TAlternateKey : notnull, allows ref struct
+        {
+            internal AlternateLookup(DictionaryImpl<TKey, TValue> dictionary) { Dictionary = (Dictionary<TKey, TValue>)(object)dictionary; }
+
+            public Dictionary<TKey, TValue> Dictionary { get; }
+
+            private DictionaryImpl<TKey, TValue> Impl => (DictionaryImpl<TKey, TValue>)(object)Dictionary;
+
+            public TValue this[TAlternateKey key]
+            {
+                get
+                {
+                    if (!TryGetValue(key, out TValue value)) throw ThrowHelper.KeyNotFoundException(Impl.AlternateComparerOf<TAlternateKey>().Create(key).ToString());
+                    return value;
+                }
+                set
+                {
+                    DictionaryImpl<TKey, TValue> dictionary = Impl;
+                    var comparer = dictionary.AlternateComparerOf<TAlternateKey>();
+                    if (key is null) throw new ArgumentNullException("key");
+                    int i = dictionary.FindEntryAlternate(comparer, key);
+                    if (i >= 0) dictionary._entries[i].value = value;
+                    else dictionary[comparer.Create(key)] = value;
+                }
+            }
+
+            public bool ContainsKey(TAlternateKey key) => TryGetValue(key, out _);
+
+            public bool TryAdd(TAlternateKey key, TValue value)
+            {
+                DictionaryImpl<TKey, TValue> dictionary = Impl;
+                var comparer = dictionary.AlternateComparerOf<TAlternateKey>();
+                if (key is null) throw new ArgumentNullException("key");
+                if (dictionary.FindEntryAlternate(comparer, key) >= 0) return false;
+                dictionary.Add(comparer.Create(key), value);
+                return true;
+            }
+
+            public bool TryGetValue(TAlternateKey key, out TValue value) => TryGetValue(key, out _, out value);
+
+            public bool TryGetValue(TAlternateKey key, out TKey actualKey, out TValue value)
+            {
+                DictionaryImpl<TKey, TValue> dictionary = Impl;
+                if (key is null) throw new ArgumentNullException("key");
+                int i = dictionary.FindEntryAlternate(dictionary.AlternateComparerOf<TAlternateKey>(), key);
+                if (i >= 0)
+                {
+                    actualKey = dictionary._entries[i].key;
+                    value = dictionary._entries[i].value;
+                    return true;
+                }
+                actualKey = default;
+                value = default;
+                return false;
+            }
+
+            public bool Remove(TAlternateKey key) => Remove(key, out _, out _);
+
+            public bool Remove(TAlternateKey key, out TKey actualKey, out TValue value)
+            {
+                DictionaryImpl<TKey, TValue> dictionary = Impl;
+                if (key is null) throw new ArgumentNullException("key");
+                int i = dictionary.FindEntryAlternate(dictionary.AlternateComparerOf<TAlternateKey>(), key);
+                if (i < 0)
+                {
+                    actualKey = default;
+                    value = default;
+                    return false;
+                }
+                actualKey = dictionary._entries[i].key;
+                return dictionary.Remove(actualKey, out value);
+            }
+        }
+
+        private int FindEntryAlternate<TAlternateKey>(IAlternateEqualityComparer<TAlternateKey, TKey> comparer, TAlternateKey key) where TAlternateKey : allows ref struct
+        {
+            if (_buckets == null) return -1;
+            uint hashCode = (uint)comparer.GetHashCode(key);
+            int i = _buckets[(int)HashHelpers.FastMod(hashCode, (uint)_buckets.Length, _fastModMultiplier)] - 1;
+            Entry[] entries = _entries;
+            while ((uint)i < (uint)entries.Length)
+            {
+                if (entries[i].hashCode == hashCode && comparer.Equals(key, entries[i].key)) return i;
+                i = entries[i].next;
+            }
+            return -1;
+        }
+
         public void Add(TKey key, TValue value) => TryInsert(key, value, true);
 
         public bool TryAdd(TKey key, TValue value) => TryInsert(key, value, true, false);
@@ -940,6 +1061,12 @@ namespace CsharpcCoreLib
 
         public static TValue GetValueOrDefault<TKey, TValue>(IReadOnlyDictionary<TKey, TValue> dictionary, TKey key, TValue defaultValue) =>
             dictionary.TryGetValue(key, out TValue value) ? value : defaultValue;
+
+        public static void AddRange<T>(List<T> list, ReadOnlySpan<T> source)
+        {
+            if (list == null) throw new ArgumentNullException("list");
+            for (int i = 0; i < source.Length; i++) list.Add(source[i]);
+        }
 
         public static bool TryAdd<TKey, TValue>(IDictionary<TKey, TValue> dictionary, TKey key, TValue value)
         {

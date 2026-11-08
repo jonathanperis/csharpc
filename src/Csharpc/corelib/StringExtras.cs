@@ -538,6 +538,13 @@ namespace CsharpcCoreLib
             return difference ? span.Length - other.Length : span.Length.CompareTo(other.Length);
         }
 
+        public static int LastIndexOfAnyExcept<T>(ReadOnlySpan<T> span, T value) where T : IEquatable<T>
+        {
+            for (int i = span.Length - 1; i >= 0; i--)
+                if (!CoreIntrinsics.AreEqual(span[i], value)) return i;
+            return -1;
+        }
+
         public static bool ContainsAnyExcept<T>(ReadOnlySpan<T> span, T value) where T : IEquatable<T>
         {
             for (int i = 0; i < span.Length; i++)
@@ -1076,7 +1083,8 @@ namespace CsharpcCoreLib
         private sealed class Standard(StringComparison comparison) : StringComparerImpl, IAlternateEqualityComparer<ReadOnlySpan<char>, string>
         {
             public bool Equals(ReadOnlySpan<char> alternate, string other) => other != null && alternate.Equals(other.AsSpan(), comparison);
-            public int GetHashCode(ReadOnlySpan<char> alternate) => GetHashCode(new string(alternate));
+            // (through the base type: in Standard itself this overload would win over GetHashCode(string), as string converts to a span)
+            public int GetHashCode(ReadOnlySpan<char> alternate) => ((StringComparerImpl)this).GetHashCode(new string(alternate));
             public string Create(ReadOnlySpan<char> alternate) => new string(alternate);
 
             private bool IgnoreCase => comparison is StringComparison.OrdinalIgnoreCase or StringComparison.InvariantCultureIgnoreCase

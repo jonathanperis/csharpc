@@ -1428,6 +1428,15 @@ public sealed partial class ModuleCodeGen
             _variantInterfaces.Add(itf);
     }
 
+    /// <summary>Does the method's IL assign the argument (`starg`)? A by-ref argument then needs a slot holding its address.</summary>
+    internal bool IlStoresArgument(IMethodSymbol method, IParameterSymbol parameter)
+    {
+        if (Il.OwnerOf(method) is not { } owner || owner.Body(method) is not { } block) return false;
+        var index = parameter.Ordinal + (method.IsStatic ? 0 : 1);
+        return Frontend.Il.IlDecoder.Decode(block.GetILReader()).Any(i =>
+            i.OpCode is System.Reflection.Metadata.ILOpCode.Starg_s or System.Reflection.Metadata.ILOpCode.Starg && i.Int == index);
+    }
+
     /// <summary>Does any syntax in the method (incl. lambdas/local functions inside it) bind to the parameter?</summary>
     private bool ParameterIsReferenced(IMethodSymbol method, IParameterSymbol parameter)
     {

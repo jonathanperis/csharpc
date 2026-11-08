@@ -63,6 +63,74 @@ namespace CsharpcCoreLib
             return status;
         }
 
+        private static int Sextet(int c) =>
+            c >= 'A' && c <= 'Z' ? c - 'A' : c >= 'a' && c <= 'z' ? c - 'a' + 26 : c >= '0' && c <= '9' ? c - '0' + 52 : c == '+' ? 62 : c == '/' ? 63 : -1;
+
+        private static bool IsBase64Space(byte c) => c == ' ' || c == '\t' || c == '\r' || c == '\n';
+
+        // Base64.DecodeFromUtf8 (dotnet/runtime's Base64Decoder, .NET 8+): white space is skipped, '=' pads the last quartet,
+        // an invalid quartet stops before it (InvalidData), an incomplete one at the end of a non-final block asks for more.
+        public static OperationStatus DecodeFromUtf8(ReadOnlySpan<byte> utf8, Span<byte> bytes, out int bytesConsumed, out int bytesWritten, bool isFinalBlock = true)
+        {
+            int start = 0, written = 0;
+            int[] sextets = new int[4];
+            while (true)
+            {
+                int j = start, count = 0, padding = 0;
+                bool invalid = false;
+                while (j < utf8.Length && count + padding < 4)
+                {
+                    byte c = utf8[j];
+                    if (IsBase64Space(c)) { j++; continue; }
+                    if (c == '=')
+                    {
+                        if (count < 2) { invalid = true; break; }
+                        padding++; j++;
+                        continue;
+                    }
+                    int sextet = padding == 0 ? Sextet(c) : -1;
+                    if (sextet < 0) { invalid = true; break; }
+                    sextets[count++] = sextet; j++;
+                }
+                if (!invalid && padding > 0 && count + padding != 4) invalid = true;
+                if (invalid) { bytesConsumed = start; bytesWritten = written; return OperationStatus.InvalidData; }
+                if (count == 0)
+                {
+                    bytesConsumed = j; bytesWritten = written;
+                    return OperationStatus.Done;
+                }
+                if (count + padding < 4)
+                {
+                    bytesConsumed = start; bytesWritten = written;
+                    return isFinalBlock ? OperationStatus.InvalidData : OperationStatus.NeedMoreData;
+                }
+                int produced = count == 4 ? 3 : count == 3 ? 2 : 1;
+                if (bytes.Length - written < produced) { bytesConsumed = start; bytesWritten = written; return OperationStatus.DestinationTooSmall; }
+                int group = (sextets[0] << 18) | (sextets[1] << 12) | (count > 2 ? sextets[2] << 6 : 0) | (count > 3 ? sextets[3] : 0);
+                bytes[written] = (byte)(group >> 16);
+                if (produced > 1) bytes[written + 1] = (byte)(group >> 8);
+                if (produced > 2) bytes[written + 2] = (byte)group;
+                written += produced;
+                start = j;
+                if (padding > 0)
+                {
+                    // Only white space may follow the padding.
+                    for (int k = j; k < utf8.Length; k++)
+                        if (!IsBase64Space(utf8[k])) { bytesConsumed = j; bytesWritten = written; return OperationStatus.InvalidData; }
+                    bytesConsumed = utf8.Length; bytesWritten = written;
+                    return OperationStatus.Done;
+                }
+            }
+        }
+
+        public static OperationStatus DecodeFromUtf8InPlace(Span<byte> buffer, out int bytesWritten)
+        {
+            byte[] copy = buffer.ToArray();
+            OperationStatus status = DecodeFromUtf8(copy, buffer, out _, out int written, true);
+            bytesWritten = status == OperationStatus.Done ? written : 0;
+            return status;
+        }
+
         public static bool IsValid(ReadOnlySpan<char> base64Text) => IsValid(base64Text, out _);
         public static bool IsValid(ReadOnlySpan<byte> utf8Base64Text) => IsValid(utf8Base64Text, out _);
 

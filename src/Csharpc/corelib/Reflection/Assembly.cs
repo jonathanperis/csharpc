@@ -566,6 +566,9 @@ namespace CsharpcCoreLib
 
         public override string ToString() => ToString(DefaultFormatFieldCount);
 
+        public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten) =>
+            NumberTryFormat.CopyUtf8(ToString(), utf8Destination, out bytesWritten);
+
         public string ToString(int fieldCount)
         {
             switch (fieldCount)

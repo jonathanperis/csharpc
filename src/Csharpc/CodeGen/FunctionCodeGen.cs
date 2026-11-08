@@ -31,6 +31,8 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef _incomingEnv; // a filter function (FunctionCodeGen.Filters.cs) loads its parent's
     private readonly Dictionary<ISymbol, LLVMValueRef> _slots = new(SymbolEqualityComparer.Default);
     private readonly HashSet<IParameterSymbol> _byRefParams = new(SymbolEqualityComparer.Default);
+    /// <summary>By-ref arguments an IL method reassigns: their slot holds the address (IlStoreArg).</summary>
+    private readonly HashSet<IParameterSymbol> _byRefArgumentSlots = new(SymbolEqualityComparer.Default);
     private readonly HashSet<ILocalSymbol> _ownLocals = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<string, LLVMBasicBlockRef> _throwBlocks = [];
     private CfgState? _cfg;
@@ -137,8 +139,17 @@ public sealed partial class FunctionCodeGen
             // CFG operations reference the *definition's* parameter symbols, so key by those.
             if (p.RefKind != RefKind.None)
             {
-                _slots[p.OriginalDefinition] = value; // already an address
                 _byRefParams.Add(p);
+                if (method is not null && _m.IlStoresArgument(method, p))
+                {
+                    // IL may reassign a by-ref argument (`starg`: `data = ref Unsafe.Add(ref data, 4)`): a slot holds the address.
+                    var addressSlot = _allocas.Alloca(L.Ptr, p.Name + ".addr");
+                    _allocas.Store(value, addressSlot);
+                    _slots[p.OriginalDefinition] = addressSlot;
+                    _byRefArgumentSlots.Add(p.OriginalDefinition);
+                    continue;
+                }
+                _slots[p.OriginalDefinition] = value; // already an address
                 continue;
             }
             var pType = S(p.Type);
