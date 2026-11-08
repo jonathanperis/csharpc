@@ -50,6 +50,8 @@ public static partial class CoreLibAssembly
                 .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "?",
         };
         environment.AddRange(references.Select(r => r.Display ?? ""));
+        // The shadow index written next to the assembly lacks the dropped shadows (IlFirst): another assembly per switch value.
+        if (IlFirst.On) environment.Add(IlFirst.Key);
         var allSymbols = symbols.Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToArray();
 
         // Fast path: a stamp of the sources' sizes and modification times (and every symbol) names the
@@ -244,6 +246,7 @@ public static partial class CoreLibAssembly
                         var name = attribute.Name.ToString();
                         if (attribute.ArgumentList?.Arguments.FirstOrDefault()?.Expression is not LiteralExpressionSyntax { Token.Value: string real })
                             continue;
+                        if (IlFirst.Excluded(real)) continue; // --il-first: that assembly comes from the framework's IL
                         if (name is "Shadows" or "ShadowsAttribute") into.Add(new ShadowDeclaration(false, real, metadataName));
                         else if (name is "ShadowMembers" or "ShadowMembersAttribute") into.Add(new ShadowDeclaration(true, real, metadataName));
                     }

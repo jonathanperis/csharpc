@@ -33,6 +33,9 @@ public sealed class Compiler(CompilerOptions options)
         var darwin = TargetMachine.IsDarwinTriple(triple);
         var windows = TargetMachine.IsWindowsTriple(triple);
         var wasm = TargetMachine.IsWasmTriple(triple);
+        // Before the corelib index or the framework index is read: they depend on which shadows are mapped.
+        try { IlFirst.Configure(options.IlFirst); }
+        catch (InvalidOperationException e) { return Fail(e.Message); }
         if (wasm && WasmTargetError(triple) is { } wasmError) return Fail(wasmError);
         if (wasm) options.Target = triple = "wasm32-unknown-wasip1"; // clang's spelling (the runtime's bitcode)
         if (wasm && options.Sanitize is not null)

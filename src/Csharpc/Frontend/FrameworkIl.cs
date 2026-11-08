@@ -272,7 +272,7 @@ public static partial class FrameworkIl
         var cacheRoot = Environment.GetEnvironmentVariable("XDG_CACHE_HOME")
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache");
         var build = typeof(FrameworkIl).Assembly.ManifestModule.ModuleVersionId;
-        var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{dir}|{build}|5")))[..16];
+        var key = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"{dir}|{build}|5{(IlFirst.On ? "|" + IlFirst.Key : "")}")))[..16];
         // Named by build, then by framework directory: an index per framework (Microsoft.NETCore.App's and ASP.NET Core's).
         var buildTag = build.ToString("N")[..8];
         var cache = Path.Combine(cacheRoot, "csharpc", $"framework-il-{buildTag}-{key}.txt");
@@ -474,6 +474,7 @@ public static partial class FrameworkIl
             foreach (var file in Directory.EnumerateFiles(corelib, "*.cs", SearchOption.AllDirectories))
                 foreach (Match m in ShadowAttribute().Matches(File.ReadAllText(file)))
                 {
+                    if (IlFirst.Excluded(m.Groups[1].Value)) continue;
                     var top = m.Groups[1].Value.Split('+')[0];
                     known.Add(top.IndexOf('`') is var tick and >= 0 ? top[..tick] : top);
                 }
@@ -486,6 +487,8 @@ public static partial class FrameworkIl
             while (head.Contains('<')) head = GenericArguments().Replace(head, "");
             for (var i = head.IndexOf('.'); i >= 0; i = head.IndexOf('.', i + 1)) known.Add(head[..i]);
         }
+        // --il-first: an assembly named there is eligible whatever the hand-written intrinsics say about its types.
+        if (IlFirst.On) known.RemoveWhere(IlFirst.Excluded);
         return s_known = known;
     }
 
