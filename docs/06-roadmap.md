@@ -299,6 +299,11 @@ the host's by default; a RID the project or `-p:RuntimeIdentifier` sets wins), s
 RID-specific assembly replaces the portable `lib/` one. The program as IL reads deps.json's `runtimeTargets`
 with the runtime graph's fallbacks (linux-x64 -> linux -> unix-x64 -> unix -> any). The native libraries are copied
 next to the executable, where a P/Invoke probes first (`tests/il.sh`, RidApp, against a package built locally).
+Static archives follow NativeAOT's items: `DirectPInvoke` / `DirectPInvokeList` make a library's imports direct calls the
+linker resolves, `NativeLibrary` / `NativeSystemLibrary` / `LinkerArg` extend the link line (project items, or
+`--directpinvoke`, `--directpinvokelist`, `--native-library`, `--native-system-library`, `--linker-arg`), and a package's
+`runtimes/<rid>/native/lib<name>.a` is linked when a `DirectPInvoke` names it (#175; `tests/projects.sh`, "DirectPInvoke",
+Linux and macOS; docs/16-interop-io.md).
 
 **Decided (#168, 2026-11-07):** the opcodes `jmp`, `arglist`, `mkrefany`/`refanyval`/`refanytype` (TypedReference) and `ckfinite`,
 and `calli` with an instance or `vararg` signature stay explicit diagnostics: none of the 52 packages of the sharded survey,
@@ -311,7 +316,7 @@ file-local and other compiler-generated types stays a diagnostic: PublishAot dis
 (`InvalidOperationException`), and with it enabled serializes such types as `{}` (their members are trimmed), which csharpc refuses
 instead of printing. ([ADR 0010](adr/0010-il-frontend.md), "Out of scope".)
 
-**Open (#175, #146):** linking a package's static archives and `DirectPInvoke`/`NativeLibrary` items as PublishAot does; the BCL surface
+**Open (#146):** the BCL surface
 packages use — the sharded IL survey of all 52 packages (#146) ranked the small members and the `System.Numerics` vector
 structs (26 packages) first, both done; next are `MathF` and the reflection lookups (`Type.GetMember`,
 `TypeInfo.GetDeclaredProperty`).
