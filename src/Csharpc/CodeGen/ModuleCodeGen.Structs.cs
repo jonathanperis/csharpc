@@ -414,7 +414,7 @@ public sealed partial class ModuleCodeGen
         {
             var slots = InterfaceSlots(itf).Select(member =>
                 type.FindImplementationForInterfaceMember(member) is IMethodSymbol impl && IsUserMethod(impl) && !impl.IsAbstract
-                    ? UnboxingThunk(impl)
+                    ? UnboxingThunk(impl, slot: true)
                     : LlvmContext.Null(Llvm.Ptr)).ToArray();
             var slotsInit = LlvmContext.ConstArray(Llvm.Ptr, slots);
             var slotTable = Module.AddGlobal(Mangler.TypeSymbol(type, "ITBL" + entries.Count), Native.LLVMTypeOf(slotsInit), slotsInit,
@@ -430,9 +430,20 @@ public sealed partial class ModuleCodeGen
     private readonly Dictionary<nint, LLVMValueRef> _unboxingThunks = [];
 
     /// <summary>thunk(box, args...) => method(box + 8, args...); one per method (vtable and interface slots, delegates share it).</summary>
-    internal LLVMValueRef UnboxingThunk(IMethodSymbol method)
+    /// <param name="method">The struct's method the thunk calls on the boxed value.</param>
+    /// <param name="slot">
+    /// The thunk fills a slot of the boxed struct's method table or interface map: that doesn't make the method reachable by itself
+    /// (a virtual call site does, ModuleCodeGen.SlotFunction). Used for the interface maps: the table of a struct built while lowering a corelib method
+    /// (Assembly.GetTypes' list of every type of an IL assembly) would root every method of every struct of the library, and with them
+    /// the failures of library code the program never runs.
+    /// </param>
+    internal LLVMValueRef UnboxingThunk(IMethodSymbol method, bool slot = false)
     {
-        var target = GetFunction(method);
+        var outerSlot = _slotReference;
+        if (slot) _slotReference = true;
+        LoweredFunction target;
+        try { target = GetFunction(method); }
+        finally { _slotReference = outerSlot; }
         if (_unboxingThunks.TryGetValue(target.Fn.Handle, out var existing)) return existing;
         var fn = Module.AddFunction(Mangler.Method(method) + "$unbox", target.Type);
         _unboxingThunks[target.Fn.Handle] = fn;
