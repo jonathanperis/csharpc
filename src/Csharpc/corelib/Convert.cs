@@ -24,6 +24,7 @@ namespace CsharpcCoreLib
         {
             if (value is IConvertible convertible && !IsBuiltinConvertible(value) && value is not Enum) return convertible.ToString(provider);
             if (value is IFormattable formattable) return formattable.ToString(null, provider);
+            if (value is System.Numerics.BigInteger bigInteger) return bigInteger.ToString(null, provider);
             return value != null ? value.ToString() : string.Empty;
         }
 
