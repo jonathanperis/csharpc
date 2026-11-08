@@ -1,4 +1,5 @@
 extern alias JsonGenerator;
+extern alias RegexGenerator;
 
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
@@ -40,20 +41,18 @@ public static class SourceGenerators
 {
     /// <summary>
     /// Single files: generators worth running, keyed by the attribute that triggers them. The SDK's JSON and
-    /// LibraryImport generators are linked into csharpc (<see cref="Linked"/>); the entry with a null assembly is a
-    /// generator built into csharpc: [GeneratedRegex] (GeneratedRegex.cs) replaces the SDK's, whose output is built
-    /// on RegexRunner internals.
+    /// LibraryImport and Regex generators are linked into csharpc (<see cref="LinkedGenerator"/>). The Regex one writes
+    /// RegexRunner-derived classes, which run against the framework's own System.Text.RegularExpressions (compiled from IL).
     /// </summary>
-    private static readonly (string Trigger, string? Assembly)[] s_generators =
+    private static readonly (string Trigger, string Assembly)[] s_generators =
     [
         ("LibraryImport", LibraryImportGeneratorAssembly),
-        ("GeneratedRegex", null),
+        ("GeneratedRegex", RegexGeneratorAssembly),
         ("JsonSerializable", JsonGeneratorAssembly),
     ];
 
     private const string LibraryImportGeneratorAssembly = "Microsoft.Interop.LibraryImportGenerator.dll";
     private const string JsonGeneratorAssembly = "System.Text.Json.SourceGeneration.dll";
-    /// <summary>The SDK's (and the System.Text.RegularExpressions package's) [GeneratedRegex] generator, which csharpc replaces.</summary>
     private const string RegexGeneratorAssembly = "System.Text.RegularExpressions.Generator.dll";
 
     public static CSharpCompilation Run(CSharpCompilation compilation, IEnumerable<SyntaxTree> userTrees, GeneratorInputs? inputs, out IReadOnlyList<Diagnostic> diagnostics)
@@ -123,7 +122,7 @@ public static class SourceGenerators
         foreach (var (trigger, assembly) in s_generators)
         {
             if (!text.Contains(trigger, StringComparison.Ordinal)) continue;
-            generators.Add(assembly is null ? new GeneratedRegexGenerator().AsSourceGenerator() : LinkedGenerator(assembly)!);
+            generators.Add(LinkedGenerator(assembly)!);
         }
         return generators;
     }
@@ -136,6 +135,7 @@ public static class SourceGenerators
     {
         "system.text.json.sourcegeneration.dll" => new JsonGenerator::System.Text.Json.SourceGeneration.JsonSourceGenerator().AsSourceGenerator(),
         "microsoft.interop.libraryimportgenerator.dll" => new Microsoft.Interop.LibraryImportGenerator().AsSourceGenerator(),
+        "system.text.regularexpressions.generator.dll" => new RegexGenerator::System.Text.RegularExpressions.Generator.RegexGenerator().AsSourceGenerator(),
         _ => null,
     };
 
@@ -151,6 +151,7 @@ public static class SourceGenerators
         {
             "system.text.json.sourcegeneration.dll" => typeof(JsonGenerator::System.Text.Json.SourceGeneration.JsonSourceGenerator),
             "microsoft.interop.libraryimportgenerator.dll" => typeof(Microsoft.Interop.LibraryImportGenerator),
+            "system.text.regularexpressions.generator.dll" => typeof(RegexGenerator::System.Text.RegularExpressions.Generator.RegexGenerator),
             _ => null,
         };
         if (marker is null) return null;
@@ -164,8 +165,7 @@ public static class SourceGenerators
 
     /// <summary>
     /// The generators of a project's /analyzer assemblies (assemblies with only analyzers contribute
-    /// nothing; csharpc doesn't run analyzers, whose findings never change the program). The SDK's
-    /// [GeneratedRegex] generator is replaced by csharpc's.
+    /// nothing; csharpc doesn't run analyzers, whose findings never change the program).
     /// </summary>
     private static List<ISourceGenerator> ProjectGenerators(CSharpCompilation compilation, GeneratorInputs inputs, List<Diagnostic> diagnostics)
     {
@@ -178,11 +178,6 @@ public static class SourceGenerators
             generators.Add(LinkedGenerator(JsonGeneratorAssembly)!);
         foreach (var path in analyzers)
         {
-            if (Path.GetFileName(path).Equals(RegexGeneratorAssembly, StringComparison.OrdinalIgnoreCase))
-            {
-                generators.Add(new GeneratedRegexGenerator().AsSourceGenerator());
-                continue;
-            }
             if (!File.Exists(path))
             {
                 // csc: error CS0006 for an /analyzer file that doesn't exist.
