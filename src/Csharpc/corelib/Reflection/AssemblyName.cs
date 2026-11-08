@@ -214,7 +214,14 @@ namespace CsharpcCoreLib
         {
             ArgumentNullException.ThrowIfNull(assemblyFile);
             string full = Path.GetFullPath(assemblyFile);
-            if (!File.Exists(full)) throw CsharpcCoreLib.Posix.IOError(CsharpcCoreLib.Posix.ENOENT, full, false);
+            if (!File.Exists(full))
+            {
+                // .NET opens the file: a missing directory is a DirectoryNotFoundException, a missing file a FileNotFoundException
+                // (the same on every OS; the OS error helpers differ per platform).
+                string dir = Path.GetDirectoryName(full);
+                if (dir != null && !Directory.Exists(dir)) throw new DirectoryNotFoundException("Could not find a part of the path '" + full + "'.");
+                throw new FileNotFoundException("Could not find file '" + full + "'.", full);
+            }
             throw new NotSupportedException("AssemblyName.GetAssemblyName of an existing file ('" + full + "') is not supported by csharpc yet.");
         }
 
