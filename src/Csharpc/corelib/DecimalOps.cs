@@ -357,6 +357,21 @@ namespace CsharpcCoreLib
 
         internal static decimal FromUInt64(ulong v) => CoreIntrinsics.MakeDecimal(0, 0, v);
 
+        /// <summary>(decimal)Int128 / (decimal)UInt128: exact up to 96 bits of magnitude, an OverflowException beyond.</summary>
+        internal static decimal FromInt128(Int128 v)
+        {
+            bool negative = v < 0;
+            return FromMagnitude128(negative ? (UInt128)0 - (UInt128)v : (UInt128)v, negative);
+        }
+
+        internal static decimal FromUInt128(UInt128 v) => FromMagnitude128(v, false);
+
+        private static decimal FromMagnitude128(UInt128 magnitude, bool negative)
+        {
+            if ((magnitude >> 96) != 0) Overflow();
+            return new decimal((int)(uint)magnitude, (int)(uint)(magnitude >> 32), (int)(uint)(magnitude >> 64), negative, 0);
+        }
+
         /// <summary>.NET 11 converts doubles exactly: the binary value's decimal expansion, rounded
         /// (half even) to what fits. (decimal)0.1 == 0.1000000000000000055511151231.</summary>
         internal static decimal FromDouble(double v)

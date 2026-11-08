@@ -413,14 +413,22 @@ namespace CsharpcCoreLib
         }
 
         [RuntimeExport("csrt_bigint_to_string", "csrt_Boxed_BigInteger_MT")]
-        internal static string ToDecimalString(uint[] a) =>
-            SignOf(a) < 0 ? CsharpcCoreLib.Globalization.NumberFormatInfo.CurrentInfo.NegativeSign + MagnitudeDigits(a) : MagnitudeDigits(a);
+        internal static string ToDecimalString(uint[] a) => ToDecimalString(a, CsharpcCoreLib.Globalization.NumberFormatInfo.CurrentInfo);
+
+        private static string ToDecimalString(uint[] a, CsharpcCoreLib.Globalization.NumberFormatInfo nfi) =>
+            SignOf(a) < 0 ? nfi.NegativeSign + MagnitudeDigits(a) : MagnitudeDigits(a);
 
         /// <summary>ToString(format): "D[n]", "N[n]" (n decimals of zeros), "G", "R", "X" (two's complement, minimal).</summary>
-        internal static string Format(uint[] a, string format)
+        internal static string Format(uint[] a, string format) => FormatCore(a, format, CsharpcCoreLib.Globalization.NumberFormatInfo.CurrentInfo);
+
+        /// <summary>ToString(format, provider): the provider's number symbols, not the current culture's (null provider: the current one).</summary>
+        internal static string FormatWithProvider(uint[] a, string format, System.IFormatProvider provider) =>
+            FormatCore(a, format, CsharpcCoreLib.Globalization.NumberFormatInfo.GetInstance(provider));
+
+        private static string FormatCore(uint[] a, string format, CsharpcCoreLib.Globalization.NumberFormatInfo nfi)
         {
             char f = format == null || format.Length == 0 ? 'G' : format[0];
-            if (f == 'G' || f == 'g' || f == 'R' || f == 'r') return ToDecimalString(a);
+            if (f == 'G' || f == 'g' || f == 'R' || f == 'r') return ToDecimalString(a, nfi);
             int precision = -1;
             if (format.Length > 1)
             {
@@ -437,14 +445,14 @@ namespace CsharpcCoreLib
             if (f == 'D' || f == 'd')
             {
                 string digits = MagnitudeDigits(a);
-                if (negative) sb.Append(CsharpcCoreLib.Globalization.NumberFormatInfo.CurrentInfo.NegativeSign);
+                if (negative) sb.Append(nfi.NegativeSign);
                 sb.Append('0', precision - digits.Length);
                 sb.Append(digits);
             }
             else if (f == 'N' || f == 'n' || f == 'C' || f == 'c' || f == 'P' || f == 'p' || f == 'F' || f == 'f' || f == 'E' || f == 'e')
             {
                 // The culture's number/currency/percent layouts over the exact digits (Number.Formatting.cs).
-                return Number.FormatIntegerDigits(MagnitudeDigits(a), negative, f, precision, CsharpcCoreLib.Globalization.NumberFormatInfo.CurrentInfo);
+                return Number.FormatIntegerDigits(MagnitudeDigits(a), negative, f, precision, nfi);
             }
             else if (f == 'X' || f == 'x')
             {
@@ -640,11 +648,5 @@ namespace CsharpcCoreLib
         }
 
         private static bool IsWhite(char c) => c == ' ' || (c >= '\t' && c <= '\r');
-
-        public static string Format(System.Numerics.BigInteger value, string format, System.IFormatProvider provider)
-        {
-            CheckInvariantSymbols(provider);
-            return value.ToString(format);
-        }
     }
 }

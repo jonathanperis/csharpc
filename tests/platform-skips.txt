@@ -280,8 +280,12 @@ windows 1229_math_double_members       live: the sign of the NaN Log/Log2 return
 windows 1261_process_wait_for_exit_async  runs a POSIX sh; csharpc's Process.Start on Windows is an explicit NotSupportedException (not implemented yet)
 wasi 1261_process_wait_for_exit_async     WASI has no processes to start
 wasi 1268_appdomain_process_exit    needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly (1269 covers ProcessExit there)
+wasi 1250_json_culture_real            no ICU on WASI (invariant globalization mode): the sample uses specific cultures (1251 covers the same scenario with cultures built from the invariant one)
+macos 1250_json_culture_real           live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
+windows 1250_json_culture_real         live: culture data comes from the OS's ICU (libicucore / icu.dll), not Linux's ICU 74
 wasi 1240_mutex_unnamed         needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 1241_mutex_named           needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 1242_semaphore             needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 windows 1241_mutex_named        known gap: named mutexes are not implemented on Windows yet (csharpc stops with NotSupportedException; real .NET uses kernel mutexes, whose release error and multi-handle waits differ from the Unix ones recorded here)
 windows 1242_semaphore  live: named semaphores exist on Windows and throw PlatformNotSupportedException on Unix in .NET; the sample leaves them out on Windows, so its expectation there is recorded from real .NET on the Windows runner
+windows 1251_json_culture_synthetic  live: the indented JSON writer ends its lines with Environment.NewLine, which is "\r\n" on Windows and "\n" elsewhere, so the Linux recording cannot be derived for it there; recorded from real .NET on the Windows runner

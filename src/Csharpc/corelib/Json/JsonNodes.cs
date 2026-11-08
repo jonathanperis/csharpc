@@ -280,6 +280,8 @@ namespace CsharpcCoreLib
         public static implicit operator JsonNodeImpl(long? value) => JsonValueImpl.Create(value, null);
         public static implicit operator JsonNodeImpl(sbyte value) => JsonValueImpl.Create(value, null);
         public static implicit operator JsonNodeImpl(sbyte? value) => JsonValueImpl.Create(value, null);
+        public static implicit operator JsonNodeImpl(Guid value) => JsonValueImpl.Create(value, null);
+        public static implicit operator JsonNodeImpl(Guid? value) => JsonValueImpl.Create(value, null);
         public static implicit operator JsonNodeImpl(float value) => JsonValueImpl.Create(value, null);
         public static implicit operator JsonNodeImpl(float? value) => JsonValueImpl.Create(value, null);
         public static implicit operator JsonNodeImpl(string value) => JsonValueImpl.Create(value, null);
@@ -312,6 +314,8 @@ namespace CsharpcCoreLib
         public static explicit operator long?(JsonNodeImpl value) => value?.GetValue<long>();
         public static explicit operator sbyte(JsonNodeImpl value) => value.GetValue<sbyte>();
         public static explicit operator sbyte?(JsonNodeImpl value) => value?.GetValue<sbyte>();
+        public static explicit operator Guid(JsonNodeImpl value) => value.GetValue<Guid>();
+        public static explicit operator Guid?(JsonNodeImpl value) => value?.GetValue<Guid>();
         public static explicit operator float(JsonNodeImpl value) => value.GetValue<float>();
         public static explicit operator float?(JsonNodeImpl value) => value?.GetValue<float>();
         public static explicit operator string(JsonNodeImpl value) => value?.GetValue<string>();
@@ -1013,6 +1017,8 @@ namespace CsharpcCoreLib
         public static JsonValueImpl Create(DateTime? value, JsonNodeOptions? options = null) => value.HasValue ? Create(value.Value, options) : null;
         public static JsonValueImpl Create(DateTimeOffset value, JsonNodeOptions? options = null) => new JsonValuePrimitive<DateTimeOffset>(value, JsonMetadataServicesImpl.DateTimeOffsetConverter, options);
         public static JsonValueImpl Create(DateTimeOffset? value, JsonNodeOptions? options = null) => value.HasValue ? Create(value.Value, options) : null;
+        public static JsonValueImpl Create(Guid value, JsonNodeOptions? options = null) => new JsonValuePrimitive<Guid>(value, JsonMetadataServicesImpl.GuidConverter, options);
+        public static JsonValueImpl Create(Guid? value, JsonNodeOptions? options = null) => value.HasValue ? Create(value.Value, options) : null;
         public static JsonValueImpl Create(decimal value, JsonNodeOptions? options = null) => new JsonValuePrimitive<decimal>(value, JsonMetadataServicesImpl.DecimalConverter, options);
         public static JsonValueImpl Create(decimal? value, JsonNodeOptions? options = null) => value.HasValue ? Create(value.Value, options) : null;
         public static JsonValueImpl Create(double value, JsonNodeOptions? options = null) => new JsonValuePrimitive<double>(value, JsonMetadataServicesImpl.DoubleConverter, options);
@@ -1066,7 +1072,7 @@ namespace CsharpcCoreLib
         {
             object boxed = Value;
             if (boxed is bool b) return b ? JsonValueKind.True : JsonValueKind.False;
-            if (boxed is string || boxed is char || boxed is DateTime || boxed is DateTimeOffset || boxed is TimeSpan) return JsonValueKind.String;
+            if (boxed is string || boxed is char || boxed is DateTime || boxed is DateTimeOffset || boxed is TimeSpan || boxed is Guid) return JsonValueKind.String;
             return JsonValueKind.Number;
         }
 
@@ -1181,6 +1187,7 @@ namespace CsharpcCoreLib
                     }
                     if (typeof(T) == typeof(DateTime) || typeof(T) == typeof(DateTime?)) { success = Value.TryGetDateTime(out DateTime r); value = (T)(object)r; return success; }
                     if (typeof(T) == typeof(DateTimeOffset) || typeof(T) == typeof(DateTimeOffset?)) { success = Value.TryGetDateTimeOffset(out DateTimeOffset r); value = (T)(object)r; return success; }
+                    if (typeof(T) == typeof(Guid) || typeof(T) == typeof(Guid?)) { success = Value.TryGetGuid(out Guid r); value = (T)(object)r; return success; }
                     if (typeof(T) == typeof(char) || typeof(T) == typeof(char?))
                     {
                         string s = Value.GetString();

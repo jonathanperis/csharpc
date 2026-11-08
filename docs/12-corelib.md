@@ -354,6 +354,11 @@ all option combinations) checks.
   compilation imports private members, so internal types, internal and private `[JsonInclude]` members
   look as they do from source. Private nested types, which a source context reaches by being nested
   beside them, are a `CSLLVM0001` where the call is lowered.
+* **Culture-invariant text.** Numbers, dates and GUIDs are written and parsed with the invariant culture whatever
+  the current culture is (a decimal comma, a Unicode minus, other digits or calendars): the writer, the converters
+  (including `JsonNumberHandling` strings and numeric dictionary keys, which are written unescaped like .NET's) and
+  the DOM. `1250_json_culture_real` (ICU cultures) and `1251_json_culture_synthetic` (cultures built from the invariant
+  one, every platform) compare the output of 12 and 5 cultures with the invariant run.
 * **JSON schema export.** `JsonSchemaExporter.GetJsonSchemaAsNode` (over `JsonSerializerOptions` or a
   `JsonTypeInfo`) with `JsonSchemaExporterOptions` (`TreatNullObliviousAsNonNullable`,
   `TransformSchemaNode`) and `JsonSchemaExporterContext`, ported from `release/11.0`

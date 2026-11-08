@@ -9,6 +9,7 @@
 #nullable disable
 using System;
 using System.Buffers;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Text.Encodings.Web;
@@ -245,9 +246,9 @@ namespace CsharpcCoreLib
         }
 
         /// <summary>DateTime "O" with the fraction trimmed (JsonWriterHelper.Date.TrimDateTimeOffset).</summary>
-        public static string FormatDateTime(DateTime value) => TrimRoundTrip(value.ToString("O"));
+        public static string FormatDateTime(DateTime value) => TrimRoundTrip(value.ToString("O", CultureInfo.InvariantCulture));
 
-        public static string FormatDateTimeOffset(DateTimeOffset value) => TrimRoundTrip(value.ToString("O"));
+        public static string FormatDateTimeOffset(DateTimeOffset value) => TrimRoundTrip(value.ToString("O", CultureInfo.InvariantCulture));
 
         public static string TrimRoundTrip(string o)
         {
@@ -1189,18 +1190,18 @@ namespace CsharpcCoreLib
         public void WriteNumberValue(long value) => WriteIntegerValue(value < 0, value < 0 ? (ulong)-(value + 1) + 1 : (ulong)value);
         public void WriteNumberValue(uint value) => WriteIntegerValue(false, value);
         public void WriteNumberValue(ulong value) => WriteIntegerValue(false, value);
-        public void WriteNumberValue(decimal value) => WriteAsciiValue(value.ToString(), JsonTokenType.Number);
+        public void WriteNumberValue(decimal value) => WriteAsciiValue(value.ToString(CultureInfo.InvariantCulture), JsonTokenType.Number);
 
         public void WriteNumberValue(double value)
         {
             ValidateFinite(value);
-            WriteAsciiValue(value.ToString(), JsonTokenType.Number);
+            WriteAsciiValue(value.ToString(CultureInfo.InvariantCulture), JsonTokenType.Number);
         }
 
         public void WriteNumberValue(float value)
         {
             ValidateFinite(value);
-            WriteAsciiValue(value.ToString(), JsonTokenType.Number);
+            WriteAsciiValue(value.ToString(CultureInfo.InvariantCulture), JsonTokenType.Number);
         }
 
         internal static void ValidateFinite(double value)
@@ -1215,6 +1216,12 @@ namespace CsharpcCoreLib
 
         /// <summary>A number already formatted by the caller (serializer number handling, JsonElement.WriteTo).</summary>
         internal void WriteNumberValueRaw(string ascii) => WriteAsciiValue(ascii, JsonTokenType.Number);
+
+        /// <summary>A number written as a JSON string (JsonNumberHandling.WriteAsString) or as a dictionary key: the digits, signs
+        /// and exponent need no escaping, so "1E+21" stays "1E+21" (WriteStringValue would write "1E\u002B21").</summary>
+        internal void WriteNumberAsStringValue(string ascii) => WriteEscapedStringValue(Ascii(ascii));
+
+        internal void WriteNumberAsPropertyName(string ascii) => WritePropertyNameEscaped(Ascii(ascii));
 
         internal void WriteNumberValueRaw(byte[] utf8, int start, int length)
         {
@@ -1380,20 +1387,20 @@ namespace CsharpcCoreLib
         public void WriteNumber(ReadOnlySpan<char> propertyName, ulong value) => WriteNumber(new string(propertyName), value);
         public void WriteNumber(ReadOnlySpan<byte> utf8PropertyName, ulong value) => WritePropertyAndInteger(EscapedName(utf8PropertyName), false, value);
 
-        public void WriteNumber(JsonEncodedTextImpl propertyName, decimal value) => WritePropertyAndAscii(propertyName.Utf8, value.ToString(), JsonTokenType.Number);
-        public void WriteNumber(string propertyName, decimal value) => WritePropertyAndAscii(EscapedName(propertyName), value.ToString(), JsonTokenType.Number);
+        public void WriteNumber(JsonEncodedTextImpl propertyName, decimal value) => WritePropertyAndAscii(propertyName.Utf8, value.ToString(CultureInfo.InvariantCulture), JsonTokenType.Number);
+        public void WriteNumber(string propertyName, decimal value) => WritePropertyAndAscii(EscapedName(propertyName), value.ToString(CultureInfo.InvariantCulture), JsonTokenType.Number);
         public void WriteNumber(ReadOnlySpan<char> propertyName, decimal value) => WriteNumber(new string(propertyName), value);
-        public void WriteNumber(ReadOnlySpan<byte> utf8PropertyName, decimal value) => WritePropertyAndAscii(EscapedName(utf8PropertyName), value.ToString(), JsonTokenType.Number);
+        public void WriteNumber(ReadOnlySpan<byte> utf8PropertyName, decimal value) => WritePropertyAndAscii(EscapedName(utf8PropertyName), value.ToString(CultureInfo.InvariantCulture), JsonTokenType.Number);
 
-        public void WriteNumber(JsonEncodedTextImpl propertyName, double value) { ValidateFinite(value); WritePropertyAndAscii(propertyName.Utf8, value.ToString(), JsonTokenType.Number); }
-        public void WriteNumber(string propertyName, double value) { byte[] n = EscapedName(propertyName); ValidateFinite(value); WritePropertyAndAscii(n, value.ToString(), JsonTokenType.Number); }
+        public void WriteNumber(JsonEncodedTextImpl propertyName, double value) { ValidateFinite(value); WritePropertyAndAscii(propertyName.Utf8, value.ToString(CultureInfo.InvariantCulture), JsonTokenType.Number); }
+        public void WriteNumber(string propertyName, double value) { byte[] n = EscapedName(propertyName); ValidateFinite(value); WritePropertyAndAscii(n, value.ToString(CultureInfo.InvariantCulture), JsonTokenType.Number); }
         public void WriteNumber(ReadOnlySpan<char> propertyName, double value) => WriteNumber(new string(propertyName), value);
-        public void WriteNumber(ReadOnlySpan<byte> utf8PropertyName, double value) { byte[] n = EscapedName(utf8PropertyName); ValidateFinite(value); WritePropertyAndAscii(n, value.ToString(), JsonTokenType.Number); }
+        public void WriteNumber(ReadOnlySpan<byte> utf8PropertyName, double value) { byte[] n = EscapedName(utf8PropertyName); ValidateFinite(value); WritePropertyAndAscii(n, value.ToString(CultureInfo.InvariantCulture), JsonTokenType.Number); }
 
-        public void WriteNumber(JsonEncodedTextImpl propertyName, float value) { ValidateFinite(value); WritePropertyAndAscii(propertyName.Utf8, value.ToString(), JsonTokenType.Number); }
-        public void WriteNumber(string propertyName, float value) { byte[] n = EscapedName(propertyName); ValidateFinite(value); WritePropertyAndAscii(n, value.ToString(), JsonTokenType.Number); }
+        public void WriteNumber(JsonEncodedTextImpl propertyName, float value) { ValidateFinite(value); WritePropertyAndAscii(propertyName.Utf8, value.ToString(CultureInfo.InvariantCulture), JsonTokenType.Number); }
+        public void WriteNumber(string propertyName, float value) { byte[] n = EscapedName(propertyName); ValidateFinite(value); WritePropertyAndAscii(n, value.ToString(CultureInfo.InvariantCulture), JsonTokenType.Number); }
         public void WriteNumber(ReadOnlySpan<char> propertyName, float value) => WriteNumber(new string(propertyName), value);
-        public void WriteNumber(ReadOnlySpan<byte> utf8PropertyName, float value) { byte[] n = EscapedName(utf8PropertyName); ValidateFinite(value); WritePropertyAndAscii(n, value.ToString(), JsonTokenType.Number); }
+        public void WriteNumber(ReadOnlySpan<byte> utf8PropertyName, float value) { byte[] n = EscapedName(utf8PropertyName); ValidateFinite(value); WritePropertyAndAscii(n, value.ToString(CultureInfo.InvariantCulture), JsonTokenType.Number); }
 
         public void WriteString(JsonEncodedTextImpl propertyName, JsonEncodedTextImpl value) => WritePropertyAndString(propertyName.Utf8, value.Utf8);
         public void WriteString(string propertyName, JsonEncodedTextImpl value) => WritePropertyAndString(EscapedName(propertyName), value.Utf8);

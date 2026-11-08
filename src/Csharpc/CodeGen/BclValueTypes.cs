@@ -945,7 +945,8 @@ internal static partial class BclValueTypes
         t[$"{B}.TryParse(string, {B})"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_try_parse", g.Llvm.I1, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr));
         t[$"{B}.ToString()"] = (g, _, self, _, _) => Rt(g, "csrt_bigint_to_string", g.Llvm.Ptr, (self, g.Llvm.Ptr));
         t[$"{B}.Parse(string, System.IFormatProvider)"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerCulture", "Parse", a[0], a[1]);
-        t[$"{B}.ToString(string, System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("BigIntegerCulture", "Format", self, a[0], a[1]);
+        t[$"{B}.ToString(string, System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("BigIntegerOps", "FormatWithProvider", self, a[0], a[1]);
+        t[$"{B}.ToString(System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("BigIntegerOps", "FormatWithProvider", self, LlvmContext.Null(g.Llvm.Ptr), a[0]);
         t[$"{B}.TryParse(string, System.Globalization.NumberStyles, System.IFormatProvider, {B})"] = (g, _, _, a, _) =>
             g.CallCoreLib("BigIntegerCulture", "TryParse", a[0], a[1], a[2], a[3]);
         t[$"{B}.ToByteArray()"] = (g, _, self, _, _) => g.CallCoreLib("BigIntegerOps", "ToByteArray", self);
