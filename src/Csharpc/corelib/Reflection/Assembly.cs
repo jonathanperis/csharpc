@@ -452,6 +452,9 @@ namespace CsharpcCoreLib
             return result is not null;
         }
 
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, out Version result) =>
+            TryParse(System.Text.Encoding.UTF8.GetString(utf8Text).AsSpan(), out result);
+
         public static bool TryParse(ReadOnlySpan<char> input, out Version result)
         {
             result = ParseVersion(input, throwOnFailure: false);
@@ -565,6 +568,9 @@ namespace CsharpcCoreLib
         private int DefaultFormatFieldCount => _Build == -1 ? 2 : _Revision == -1 ? 3 : 4;
 
         public override string ToString() => ToString(DefaultFormatFieldCount);
+
+        public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten) =>
+            NumberTryFormat.CopyUtf8(ToString(), utf8Destination, out bytesWritten);
 
         public string ToString(int fieldCount)
         {

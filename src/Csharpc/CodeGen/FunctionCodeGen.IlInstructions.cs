@@ -945,7 +945,8 @@ public sealed partial class FunctionCodeGen
         }
         var parameter = IlParameter(index);
         var slot = IlArgSlot(parameter);
-        if (parameter.RefKind != RefKind.None) return new IlEntry(IlKind.ByRef, slot, parameter.Type);
+        if (parameter.RefKind != RefKind.None)
+            return new IlEntry(IlKind.ByRef, _byRefArgumentSlots.Contains(parameter.OriginalDefinition) ? _b.Load(L.Ptr, slot) : slot, parameter.Type);
         return IlPush(LoadValue(slot, S(parameter.Type)), parameter.Type);
     }
 
@@ -970,7 +971,12 @@ public sealed partial class FunctionCodeGen
     {
         if (IlHasThis && index == 0) throw new IlException("assignment to 'this'");
         var parameter = IlParameter(index);
-        if (parameter.RefKind != RefKind.None) throw new IlException("starg on a by-ref argument");
+        if (parameter.RefKind != RefKind.None)
+        {
+            if (!_byRefArgumentSlots.Contains(parameter.OriginalDefinition)) throw new IlException("starg on a by-ref argument");
+            _b.Store(IlAddress(value), IlArgSlot(parameter));
+            return;
+        }
         StoreValue(ToStorage(IlTyped(value, parameter.Type), S(parameter.Type)), IlArgSlot(parameter));
     }
 

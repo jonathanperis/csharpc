@@ -92,6 +92,12 @@ namespace CsharpcCoreLib
             return value < 0 ? NumberFormatInfo.GetInstance(provider).NegativeSign + text.Substring(1) : text;
         }
 
+        // IUtf8SpanFormattable (System.Text.Json writes Int128 properties through it): the digits, as ToString(provider); other formats
+        // are not available for Int128 yet (ToString(format, provider) has no implementation either).
+        [ShadowInstance] public static bool TryFormat(Int128 value, Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null) =>
+            format.Length == 0 ? NumberTryFormat.CopyUtf8(FormatWith(value, provider), utf8Destination, out bytesWritten)
+                : throw new NotSupportedException("Int128.TryFormat with a format string is not supported by csharpc yet.");
+
         public static Int128 Parse(string s) => Parse(s, NumberStyles.Integer, null);
         public static Int128 Parse(string s, IFormatProvider provider) => Parse(s, NumberStyles.Integer, provider);
         public static Int128 Parse(string s, NumberStyles style) => Parse(s, style, null);
@@ -122,6 +128,10 @@ namespace CsharpcCoreLib
             return s != null && Int128Parser.ParseSigned(s.AsSpan(), style, provider, out result) == Int128ParseStatus.Ok;
         }
 
+        // IUtf8SpanParsable: the text of the bytes, parsed as the chars would be.
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider, out Int128 result) =>
+            TryParse(System.Text.Encoding.UTF8.GetString(utf8Text).AsSpan(), NumberStyles.Integer, provider, out result);
+
         public static bool TryParse(ReadOnlySpan<char> s, out Int128 result) => TryParse(s, NumberStyles.Integer, null, out result);
         public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, out Int128 result) => TryParse(s, NumberStyles.Integer, provider, out result);
         public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out Int128 result) =>
@@ -132,6 +142,10 @@ namespace CsharpcCoreLib
     internal static class UInt128Members
     {
         public static string FormatWith(UInt128 value, IFormatProvider provider) => value.ToString();
+
+        [ShadowInstance] public static bool TryFormat(UInt128 value, Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null) =>
+            format.Length == 0 ? NumberTryFormat.CopyUtf8(value.ToString(), utf8Destination, out bytesWritten)
+                : throw new NotSupportedException("UInt128.TryFormat with a format string is not supported by csharpc yet.");
 
         public static UInt128 Parse(string s) => Parse(s, NumberStyles.Integer, null);
         public static UInt128 Parse(string s, IFormatProvider provider) => Parse(s, NumberStyles.Integer, provider);
@@ -162,6 +176,9 @@ namespace CsharpcCoreLib
             result = 0;
             return s != null && Int128Parser.ParseUnsigned(s.AsSpan(), style, provider, out result) == Int128ParseStatus.Ok;
         }
+
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider, out UInt128 result) =>
+            TryParse(System.Text.Encoding.UTF8.GetString(utf8Text).AsSpan(), NumberStyles.Integer, provider, out result);
 
         public static bool TryParse(ReadOnlySpan<char> s, out UInt128 result) => TryParse(s, NumberStyles.Integer, null, out result);
         public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, out UInt128 result) => TryParse(s, NumberStyles.Integer, provider, out result);
