@@ -390,6 +390,7 @@ public sealed partial class FunctionCodeGen
         var owner = method.ContainingType;
         var ownerName = owner.ToDisplayString();
         var handled = new IlEntry(IlKind.Token, default, null);
+        if (IlCreateInstanceForAnotherGenericParameter(method, args) is { } created) return created;
         if (ownerName == "System.Runtime.CompilerServices.Unsafe" && IlUnsafeCall(method, args) is { } unsafeResult) return unsafeResult;
         if (ownerName == "System.Runtime.CompilerServices.AsyncHelpers" && IlRuntimeAsyncCall(method, args) is { } awaited) return awaited;
         if (args.Length == 0 && receiver is null && FeatureSwitchValue(method) is { } feature)

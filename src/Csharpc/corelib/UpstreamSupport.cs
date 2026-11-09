@@ -7,28 +7,6 @@ using System.Resources;
 namespace CsharpcCoreLib
 {
     /// <summary>
-    /// ArraySortHelper&lt;T&gt;, the internal type List&lt;T&gt;.Sort calls in CoreLib. Upstream's creates its default helper with
-    /// RuntimeTypeHandle.CreateInstanceForAnotherGenericParameter (run-time generic instantiation); csharpc serves the entry
-    /// points with its own introsort (SortHelper&lt;T&gt;, Core.cs). Spike shortcut: the span is sorted through a copy.
-    /// </summary>
-    public static class UpstreamArraySortHelper<T>
-    {
-        public static void Sort(Span<T> keys, Comparison<T> comparer)
-        {
-            var copy = keys.ToArray();
-            SortHelper<T>.Sort(copy, 0, copy.Length, comparer);
-            copy.CopyTo(keys);
-        }
-
-        public static void Sort(Span<T> keys, System.Collections.Generic.IComparer<T> comparer)
-        {
-            var copy = keys.ToArray();
-            SortHelper<T>.Sort(copy, 0, copy.Length, comparer);
-            copy.CopyTo(keys);
-        }
-    }
-
-    /// <summary>
     /// IInternalStringEqualityComparer / NonRandomizedStringEqualityComparer, the internal comparer family Dictionary and HashSet
     /// consult for string keys (randomized hashing after many collisions; Marvin, OrdinalIgnoreCase casing over ICU). csharpc's
     /// string keys use the default comparer, which hashes the same characters every run, so the contract is "no special comparer".
