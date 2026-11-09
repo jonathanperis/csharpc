@@ -197,6 +197,7 @@ internal static class Intrinsics
                 ? g.AssemblyCustomAttributes(named, assembly, inv)
                 : throw CompileError.Unsupported("CustomAttributeExtensions.GetCustomAttributes<T>(Assembly) with T a type parameter", inv);
         };
+        t["System.Reflection.Assembly.GetCustomAttributesData()"] = (g, inv) => g.AssemblyCustomAttributesData(g.EmitValue(inv.Instance!), inv);
         t["System.Reflection.Assembly.GetCustomAttributes(System.Type, bool)"] = (g, inv) =>
         {
             var self = g.EmitValue(inv.Instance!);
