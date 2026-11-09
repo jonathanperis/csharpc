@@ -6,16 +6,22 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Reflection;
 
-const DynamicallyAccessedMemberTypes Ctors = DynamicallyAccessedMemberTypes.PublicConstructors | DynamicallyAccessedMemberTypes.NonPublicConstructors;
-
-static object Make([DynamicallyAccessedMembers(Ctors)] Type type, bool nonPublic) => Activator.CreateInstance(type, nonPublic)!;
-
-foreach (var (type, nonPublic) in new (Type, bool)[] { (typeof(Hidden), true), (typeof(Hidden), false), (typeof(Open), false), (typeof(Open), true), (typeof(Point), false), (typeof(Point), true),
-    (typeof(NeedsArgs), true), (typeof(NeedsArgs), false), (typeof(WithCtor), false), (typeof(Throws), true) })
+static void Show(string label, Func<object> create)
 {
-    try { Console.WriteLine($"{type.Name} {nonPublic}: {Make(type, nonPublic)}"); }
-    catch (Exception e) { Console.WriteLine($"{type.Name} {nonPublic}: {e.GetType().Name}: {(e is TargetInvocationException t ? t.InnerException!.Message : e.Message)}"); }
+    try { Console.WriteLine($"{label}: {create()}"); }
+    catch (Exception e) { Console.WriteLine($"{label}: {e.GetType().Name}: {(e is TargetInvocationException t ? t.InnerException!.Message : e.Message)}"); }
 }
+
+Show("Hidden True", () => Activator.CreateInstance(typeof(Hidden), true)!);
+Show("Hidden False", () => Activator.CreateInstance(typeof(Hidden), false)!);
+Show("Open False", () => Activator.CreateInstance(typeof(Open), false)!);
+Show("Open True", () => Activator.CreateInstance(typeof(Open), true)!);
+Show("Point False", () => Activator.CreateInstance(typeof(Point), false)!);
+Show("Point True", () => Activator.CreateInstance(typeof(Point), true)!);
+Show("NeedsArgs True", () => Activator.CreateInstance(typeof(NeedsArgs), true)!);
+Show("NeedsArgs False", () => Activator.CreateInstance(typeof(NeedsArgs), false)!);
+Show("WithCtor False", () => Activator.CreateInstance(typeof(WithCtor), false)!);
+Show("Throws True", () => Activator.CreateInstance(typeof(Throws), true)!);
 
 Console.WriteLine("attributes of CoreLib types");
 foreach (var type in new[] { typeof(int), typeof(string), typeof(object), typeof(DateTime), typeof(Half) })

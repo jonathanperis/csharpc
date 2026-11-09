@@ -1308,6 +1308,8 @@ namespace CsharpcCoreLib
             }
             // .NET returns a boxed default for a struct without a parameterless constructor.
             if (type.IsValueType) return GetUninitializedObject(type);
+            if (!nonPublic && GetConstructor(type, BindingFlags.NonPublic | BindingFlags.Instance, null, Type.EmptyTypes, null) != null)
+                throw new MissingMethodException("No parameterless constructor defined for type '" + type + "'.");
             throw new MissingMethodException("Cannot dynamically create an instance of type '" + type + "'. Reason: No parameterless constructor defined.");
         }
 
