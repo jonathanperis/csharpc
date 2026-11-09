@@ -1,0 +1,6 @@
+{"Smalls":[{"Name":"a","Age":1},{"Name":"b","Age":2}],"ByName":{"x":[0,1]},"Array":[{"Name":"c","Age":3}],"Any":[1,"two",{"Name":"d","Age":4}]}
+{"A":1,"B":"b","C":2.5,"D":true,"E":5,"F":1}
+1 b 2.5 True 5 High
+ Low 
+{"Id":null,"Level":0,"Count":null}
+Small { Name = z, Age = 9 } High,Low 0 True
