@@ -67,6 +67,7 @@ public sealed partial class ModuleCodeGen
         public HashSet<ISymbol> ListedBackingFields = new(SymbolEqualityComparer.Default); // field-like events whose backing field is listed
         public List<MethodRecordData> Constructors = [], Methods = [];
         public List<AttributeRecordData> Attributes = [];
+        public List<AttributeRecordData>? InheritedAttributes; // Type.GetCustomAttributes(inherit: true): own plus the base types' inheritable ones; null: not known
         public List<PropertyRecordData> Properties = [];
         public List<FieldRecordData> Fields = [];
         public List<EventRecordData> Events = [];
@@ -517,7 +518,33 @@ public sealed partial class ModuleCodeGen
             // makes the untyped queries and those for System attributes throw while a program's own attributes stay exact.
             entry.Attributes = synthesizedUnknown ? Attributes(new AttributeSet(attributes, 0, true)) : Attributes(attributes);
             entry.Described |= RiAttributes;
+            entry.InheritedAttributes = !synthesizedUnknown && entry.Type is INamedTypeSymbol { TypeKind: TypeKind.Class } named ? InheritedTypeAttributes(named, attributes) : null;
         }
+    }
+
+    /// <summary>
+    /// What Type.GetCustomAttributes(inherit: true) lists for a class: its own attributes, then those of its base classes whose
+    /// attribute class is [AttributeUsage(Inherited = true)] (not repeated when it does not AllowMultiple). Null when a base's list is
+    /// not known exactly (the run-time query then reports it).
+    /// </summary>
+    private List<AttributeRecordData>? InheritedTypeAttributes(INamedTypeSymbol type, List<AttributeInstance> own)
+    {
+        var list = new List<AttributeInstance>(own);
+        for (var b = type.BaseType; b is not null && b.SpecialType != SpecialType.System_Object; b = b.BaseType)
+        {
+            if (!IsProgramType(b)) break; // a library base: csharpc keeps no attributes for it (the run-time query treats it as having none)
+            var unknown = false;
+            var baseList = Decoded(() => { var l = TypeAttributeInstances(b.OriginalDefinition, out var u); unknown = u; return l; });
+            if (baseList is null || unknown) return null;
+            foreach (var a in baseList)
+            {
+                var attributeClass = a.Constructor.ContainingType;
+                if (!IsInheritedAttribute(attributeClass)) continue;
+                if (!IsAllowMultipleAttribute(attributeClass) && list.Any(x => SymbolEqualityComparer.Default.Equals(x.Constructor.ContainingType, attributeClass))) continue;
+                list.Add(a);
+            }
+        }
+        return Attributes(list);
     }
 
     /// <summary>An attribute csharpc can't decode yet (a typeof argument it can't represent...) makes the list unknown.</summary>
@@ -1129,6 +1156,15 @@ public sealed partial class ModuleCodeGen
         return true;
     }
 
+    /// <summary>[AttributeUsage(AllowMultiple = ...)] of an attribute class (false when not stated, as in .NET).</summary>
+    private static bool IsAllowMultipleAttribute(INamedTypeSymbol attribute)
+    {
+        for (var t = attribute; t is not null; t = t.BaseType)
+            if (t.GetAttributes().FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == "System.AttributeUsageAttribute") is { } usage)
+                return usage.NamedArguments.FirstOrDefault(n => n.Key == "AllowMultiple").Value.Value as bool? ?? false;
+        return false;
+    }
+
     /// <summary>The method's MethodAttributes: from metadata for IL methods, as Roslyn emits them for source.</summary>
     private uint MethodAttributesOf(IMethodSymbol method)
     {
@@ -1535,7 +1571,7 @@ public sealed partial class ModuleCodeGen
     private LLVMTypeRef ParameterRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef MethodRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef DelegateSignatureType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
-    private LLVMTypeRef ReflectionInfoType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.I32);
+    private LLVMTypeRef ReflectionInfoType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef EventRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32);
     private LLVMTypeRef FieldRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef PropertyRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
@@ -1616,7 +1652,8 @@ public sealed partial class ModuleCodeGen
                 entries.Add(Llvm.ConstStruct(Checked(e.Mt, "method table of " + e.Type), ctors, methods, AttributeArray(e.Attributes), properties,
                     Llvm.ConstInt(Llvm.I32, e.Constructors.Count), Llvm.ConstInt(Llvm.I32, e.Methods.Count), Llvm.ConstInt(Llvm.I32, e.Attributes.Count),
                     Llvm.ConstUInt(Llvm.I32, e.Described), Llvm.ConstInt(Llvm.I32, e.Properties.Count), Llvm.ConstInt(Llvm.I32, e.Fields.Count), fields,
-                    events, Llvm.ConstInt(Llvm.I32, e.Events.Count)));
+                    events, Llvm.ConstInt(Llvm.I32, e.Events.Count),
+                    AttributeArray(e.InheritedAttributes ?? []), Llvm.ConstInt(Llvm.I32, e.InheritedAttributes?.Count ?? 0), Llvm.ConstInt(Llvm.I32, e.InheritedAttributes is null ? 0 : 1)));
             }
             Native.LLVMSetInitializer(_reflectionTable, Header(ConstTable("csharpc.reflection.entries", ReflectionInfoType, entries), entries.Count));
         }

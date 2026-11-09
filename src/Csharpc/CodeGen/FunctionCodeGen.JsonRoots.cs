@@ -96,7 +96,9 @@ public sealed partial class FunctionCodeGen
 
     private void KeepJsonType(ITypeSymbol type, HashSet<ITypeSymbol> seen)
     {
-        if (type is ITypeParameterSymbol || type.SpecialType == SpecialType.System_Object || !seen.Add(type)) return;
+        if (type is ITypeParameterSymbol || !seen.Add(type)) return;
+        // object: the resolver asks for its (public, parameterless) constructor too, to create the instances of an object-typed value.
+        if (type.SpecialType == SpecialType.System_Object) { _m.MarkDynamicallyAccessed(type, ModuleCodeGen.DamPublicConstructors); return; }
         if (type is IArrayTypeSymbol array) { KeepJsonType(array.ElementType, seen); return; }
         if (type is not INamedTypeSymbol named) return;
         foreach (var argument in named.TypeArguments) KeepJsonType(argument, seen);
