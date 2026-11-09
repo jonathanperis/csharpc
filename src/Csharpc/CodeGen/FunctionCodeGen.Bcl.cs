@@ -51,6 +51,11 @@ public sealed partial class FunctionCodeGen
             method = concrete.GetMembers(method.Name).OfType<IMethodSymbol>().FirstOrDefault(m => m.IsStatic
                 && m.Parameters.Select(p => p.Type).SequenceEqual(parameterTypes, SymbolEqualityComparer.Default)) ?? method;
         }
+        if (IsVector128Struct(method.ContainingType))
+        {
+            var vectorArguments = operands.Select((o, i) => Coerce(EmitValue(o), TypeOf(o), S(method.Parameters[i].Type))).ToArray();
+            return EmitSimd(method, method.ContainingType.TypeArguments[0], default, vectorArguments, at);
+        }
         if (!BclValueTypes.TryGet(method, out var handler))
             throw CompileError.Unsupported($"operator '{method}'", at);
         if (at is IBinaryOperation { IsLifted: true } lifted) return LiftedLibraryOperator(handler, method, lifted);
@@ -215,7 +220,9 @@ public sealed partial class FunctionCodeGen
         // typeof(SomeAttribute) may reach GetCustomAttributes(typeof(A)), which returns an A[]: keep that array type.
         if (type is INamedTypeSymbol { TypeKind: TypeKind.Class, IsAbstract: false } named && DerivesFromAttribute(named)) _m.ArrayMethodTable(named);
         if (type is INamedTypeSymbol { TypeKind: TypeKind.Delegate } delegateType) _m.NoteDelegateType(delegateType);
-        return CallRuntime("csrt_type_from_mt", L.Ptr, [L.Ptr], _m.TypeMethodTable(type, at));
+        var typeObject = CallRuntime("csrt_type_from_mt", L.Ptr, [L.Ptr], _m.TypeMethodTable(type, at));
+        _eraseIfUnused.Add(typeObject);
+        return typeObject;
     }
 
     /// <summary>
@@ -231,7 +238,7 @@ public sealed partial class FunctionCodeGen
         {
             var result = _b.ICmp(predicate, ma, mb);
             foreach (var lookup in new[] { a, b })
-                if (Native.LLVMGetFirstUse(lookup) == 0) Native.LLVMInstructionEraseFromParent(lookup);
+                if (Native.LLVMGetFirstUse(lookup) == 0) { _eraseIfUnused.Remove(lookup); Native.LLVMInstructionEraseFromParent(lookup); }
             return result;
         }
         return _b.ICmp(predicate, a, b);

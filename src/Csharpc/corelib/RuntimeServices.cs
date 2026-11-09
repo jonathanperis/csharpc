@@ -465,6 +465,9 @@ namespace CsharpcCoreLib
 
         public static bool TryEnsureSufficientExecutionStack() => csrt_stack_remaining() >= MinimumStack;
 
+        /// <summary>CoreLib-internal: whether T's equality is its bits (the framework's span helpers pick their vector path on it).</summary>
+        public static bool IsBitwiseEquatable<T>() => CoreIntrinsics.IsBitwiseEquatable<T>();
+
         /// <summary>array[range] (the compiler's RuntimeHelpers.GetSubArray): a copy of the slice.</summary>
         public static T[] GetSubArray<T>(T[] array, Range range)
         {

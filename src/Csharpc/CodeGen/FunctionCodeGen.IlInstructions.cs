@@ -414,6 +414,13 @@ public sealed partial class FunctionCodeGen
                     Push(value with { Type = type, Symbol = null });
                     return false;
                 }
+                // (RuntimeType)typeof(X): csharpc's Type objects are all one class, so the cast is the identity and the entry stays a known type
+                // (RuntimeTypeHandle.CreateInstanceForAnotherGenericParameter reads its arguments off it).
+                if (value.Symbol is ITypeSymbol && value.Kind == IlKind.Ref && S(type) is { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } })
+                {
+                    Push(value with { Type = type });
+                    return false;
+                }
                 Push(new IlEntry(IlKind.Ref, IlCastClass(IlRef(value), type, value.Type), type));
                 return false;
             }

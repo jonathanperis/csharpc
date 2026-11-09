@@ -296,6 +296,15 @@ hashing helpers), most of it for Dictionary and HashSet.
 3. **Default comparers decide Dictionary and HashSet.** Upstream calls `EqualityComparer<TKey>.Default` per probe, which the
    shadows replace by inline `CoreIntrinsics.AreEqual/HashOf`: +40 to 50 % run time and the larger code. Until the IL front-end
    lowers the default-comparer calls like the shadows do (#223), a Dictionary or HashSet flip fails the speed rule.
+   #223 lowers them so (`FunctionCodeGen.DefaultComparers.cs`): `EqualityComparer<T>.Default.Equals/GetHashCode` and
+   `Comparer<T>.Default.Compare` on a closed T are the same inline code as `CoreIntrinsics.AreEqual/HashOf/Compare`, in the IL and
+   the source front-end, and the getter call that made the comparer is erased when nothing else uses it. Two other costs the
+   framework's collections showed came out with it: `typeof(T).IsValueType` kept a dead `csrt_type_from_mt` call (the Type
+   object is now erased when unused, which is most of Dictionary's remaining gap), and `x.GetHashCode()` on a value-type `T`
+   (HashSet) boxed and dispatched virtually (now `HashOf`). Callgrind instruction counts, same program, -O2, shadow / slice before
+   / slice after: Dictionary<int,int> insert 146.4 M / 211.3 M / 151.3 M, lookup 97.4 M / 138.1 M / 93.3 M, remove 167.6 M / 275.8 M
+   / 171.0 M (within 5 %); HashSet<int> add and contains 73.2 M / n/a / 74.6 M; Dictionary<string,int> +21 % and HashSet<string> +31 %
+   remain (the string-comparer family, out of scope of #223). The slice's binary stays about 50 % larger.
 4. **`SR` is a size decision.** The CoreLib resource strings behind the exception messages (1 459 entries) cost 22 KB of
    strings plus the ResourceManager and culture code if embedded: List went from +132 KB to +12 KB by letting each reached
    `SR` getter carry its text as a literal (the slicer does what ILLink's resource substitution does). A real flip needs that
@@ -304,6 +313,15 @@ hashing helpers), most of it for Dictionary and HashSet.
    `ArraySortHelper<T>.CreateArraySortHelper`, which creates its helper with
    `RuntimeTypeHandle.CreateInstanceForAnotherGenericParameter`; the spike redirects the helper to a corelib type (a copy of the
    span) and #224 asks for the compile-time intrinsic NativeAOT has.
+   #224 adds it (`FunctionCodeGen.IlGenericInstantiation.cs`): a call with `typeof` constants becomes `newobj G<T>::.ctor()`,
+   anything else is an explicit diagnostic, and `System.RuntimeType` in framework IL means `System.Type`. Measured first: the
+   `ArraySortHelper<T>` call sits behind `RuntimeFeature.IsDynamicCodeCompiled`, which csharpc folds to false as NativeAOT does, so
+   `List<T>.Sort` and `Array.Sort` compile from the framework's own helper without the redirect (removed from the slicer, sample 1299)
+   and never reach the intrinsic. The unguarded callers are `ComparerHelpers.CreateDefaultComparer` / `CreateDefaultEqualityComparer`
+   (the real `EqualityComparer<T>.Default` and `Comparer<T>.Default`); they stop one step earlier, at
+   `typeof(IEquatable<>).MakeGenericType(type)` ("csharpc compiles only the generic instantiations the program creates"), which is
+   what a flip of the default comparers needs next. The intrinsic itself is tested with an IL library written with Cecil
+   (`tests/slicer.sh`, `tools/il-first/slicer/Synth.cs`) because no C# program can call the internal member.
 6. **Deleting a shadow can mean deleting compiler hooks.** StringBuilder's interpolation handler and
    `DefaultInterpolatedStringHandler` are represented by the shadow `StringBuilder` in `TypeMapper` and
    `FunctionCodeGen.Tuples.cs`/`Calls.cs` (about 120 lines); with the real struct those paths must go, and they produced
@@ -313,6 +331,17 @@ hashing helpers), most of it for Dictionary and HashSet.
    `CoreIntrinsics.IsExactClass<ListImpl<T>>`) and `CollectionsMarshal` (in `List.cs`) name `ListImpl`; the Linq fast path
    silently falls back to the slow path once List is the real class, and `CollectionsMarshal.AsSpan(list)` must come from
    the IL too (root it with List) when a program uses it.
+8. **SIMD (#252).** `Vector128<T>` is now a `<16 x i8>` LLVM vector in both front-ends (`FunctionCodeGen.Simd.cs`): construction, loads and
+   stores, comparisons and masks, bitwise and arithmetic operators, shifts, `ConditionalSelect`, `ExtractMostSignificantBits`, element access, the
+   `As*` views, and the `ISimdVector<TSelf,T>` members the framework's generic span code calls on it (`TVector.Equals`, `IndexOfWhereAllBitsSet`...).
+   `Vector128.IsHardwareAccelerated` is true on x86-64 and arm64 (wasm32 keeps the scalar paths); Vector64/256/512, `Vector<T>` and the ISA classes stay
+   false, so the framework's portable Vector128 branch runs. With `MemoryExtensions` taken from the framework IL (`tests/slicer.sh`), 130 518
+   searches of sample 1301 give the recorded answers. Instructions for 5 searches over 200 000 elements, shadow (the runtime's C search) / framework
+   IL on Vector128: `IndexOf` int 2.3 M / 3.8 M, byte 0.24 M / 1.0 M, short 1.0 M / 1.2 M, `IndexOfAny` 0.66 M / 0.72 M, `SequenceEqual` 0.03 M
+   (libc `memcmp`) / 0.44 M, and `LastIndexOf` 15.0 M / 2.2 M (the shadow's is scalar). The runtime's search still wins `IndexOf` and
+   `SequenceEqual` on x86-64 (libc uses 32-byte AVX2; the baseline here is 16 bytes), so those keep their runtime mapping until `MemoryExtensions`
+   is flipped. **`List<T>.IndexOf/Contains` do not reach any of this:** the real `List<T>` calls `Array.IndexOf`, which is the corelib's scalar
+   `ArrayExtras.IndexOf` (the shadow's `List` used its own bitwise search); the 5x regression measured for the List flip is that, not a missing Vector128.
 
 ### Proposed boundary, and the order
 

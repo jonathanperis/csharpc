@@ -19,6 +19,11 @@ if (args.Length > 1 && args[0] == "types")
     foreach (var t in ModuleDefinition.ReadModule(args[1]).GetTypes()) Console.WriteLine($"0x{t.MetadataToken.ToInt32():X8} {t.FullName} ({t.Attributes})");
     return;
 }
+if (args.Length > 1 && args[0] == "synth-create-instance")
+{
+    Synth.CreateInstance(args[1]);
+    return;
+}
 if (args.Length > 0 && args[0] == "internal-interfaces")
 {
     // internal-interfaces: the CoreLib interfaces the reference pack does not declare that have static abstract/virtual members, with their
@@ -34,6 +39,17 @@ if (args.Length > 0 && args[0] == "internal-interfaces")
         var impls = core.GetTypes().Where(t => publicNames.Contains(t.FullName) && t.Interfaces.Any(i => i.InterfaceType.GetElementType().FullName == itf.FullName)).Select(t => t.Name).ToList();
         Console.WriteLine($"{itf.FullName}: {itf.Methods.Count(m => m.IsStatic && m.IsAbstract)} static abstract; implemented by {impls.Count}: {string.Join(", ", impls)}");
     }
+    return;
+}
+if (args.Length > 2 && args[0] == "callers")
+{
+    // callers <Type full name, ! for backtick> <method name>: the CoreLib methods that call it, and whether the call sits behind a
+    // RuntimeFeature.IsDynamicCodeCompiled / IsDynamicCodeSupported test (which csharpc folds to false, like NativeAOT).
+    var core = ModuleDefinition.ReadModule(Cli.Parse(["--roots", "x"]).CoreLib);
+    var typeName = args[1].Replace('!', '`');
+    foreach (var m in core.GetTypes().SelectMany(t => t.Methods).Where(m => m.HasBody))
+        if (m.Body.Instructions.Any(i => i.Operand is MethodReference r && r.Name == args[2] && r.DeclaringType.FullName == typeName))
+            Console.WriteLine($"{m.FullName}  [{(m.Body.Instructions.Any(i => i.Operand is MethodReference f && f.DeclaringType.Name == "RuntimeFeature" && f.Name.StartsWith("get_IsDynamicCode")) ? "behind IsDynamicCode*" : "unguarded")}]");
     return;
 }
 if (args.Length > 1 && args[0] == "implementers")
@@ -127,6 +143,13 @@ sealed class Slice
     public readonly HashSet<FieldDefinition> UsedFields = [];
     public readonly Dictionary<TypeDefinition, SortedSet<string>> Needs = new();                 // stop type -> internal members used
     public readonly Dictionary<TypeDefinition, int> StopUses = new();
+    /// <summary>Every member of a stop type the slice calls (public or not), by type: what the compiler has to serve for it.</summary>
+    public readonly Dictionary<TypeDefinition, SortedSet<string>> UsedMembers = new();
+    void NoteUsed(MethodDefinition m)
+    {
+        if (!UsedMembers.TryGetValue(m.DeclaringType, out var set)) UsedMembers[m.DeclaringType] = set = [];
+        set.Add(Describe(m));
+    }
     public readonly SortedDictionary<string, SortedSet<string>> Externs = new(StringComparer.Ordinal);
     public readonly SortedDictionary<string, int> Opcodes = new(StringComparer.Ordinal);
     readonly Queue<MethodDefinition> _queue = new();
@@ -171,7 +194,7 @@ sealed class Slice
     [
         "System.RuntimeType", "System.Reflection.", "System.Runtime.Loader.", "System.StubHelpers.", "Internal.Runtime.", "System.Diagnostics.Tracing.",
         "System.Runtime.CompilerServices.CastHelpers", "System.Runtime.CompilerServices.StaticsHelpers", "System.Runtime.EH", "System.Runtime.InteropServices.Marshal",
-        "System.IRuntime", "System.Signature", "System.MdUtf8String", "System.DefaultBinder", "System.ModuleHandle", "System.Threading.ThreadPool", "System.Resources.", "System.Collections.Generic.ArraySortHelper", "System.Collections.Generic.GenericArraySortHelper", "System.Collections.Generic.IArraySortHelper",
+        "System.IRuntime", "System.Signature", "System.MdUtf8String", "System.DefaultBinder", "System.ModuleHandle", "System.Threading.ThreadPool", "System.Resources.",
     ];
 
     public bool IsStop(TypeDefinition t)
@@ -319,7 +342,7 @@ sealed class Slice
         if (element.DeclaringType is ArrayType) return;
         var def = element as MethodDefinition ?? SafeResolve(element);
         if (def is null || def.Module != Core) return;
-        if (IsStop(def.DeclaringType)) { NoteMember(def); return; }
+        if (IsStop(def.DeclaringType)) { NoteMember(def); NoteUsed(def); return; }
         Enqueue(def);
     }
 
@@ -393,6 +416,13 @@ sealed class Slice
         foreach (var (t, set) in Needs.OrderByDescending(kv => kv.Value.Count).ThenBy(kv => kv.Key.FullName, StringComparer.Ordinal))
         {
             sb.AppendLine($"{t.FullName}\t{set.Count}\t{(ShadowedOrMembers(t) ? "shadowed" : "NOT shadowed")}");
+            foreach (var m in set) sb.AppendLine("    " + m);
+        }
+        sb.AppendLine();
+        sb.AppendLine("## members of stop types the slice calls, by type (every one the compiler must serve)");
+        foreach (var (t, set) in UsedMembers.OrderBy(kv => kv.Key.FullName, StringComparer.Ordinal))
+        {
+            sb.AppendLine($"{t.FullName}\t{set.Count}");
             foreach (var m in set) sb.AppendLine("    " + m);
         }
         sb.AppendLine();

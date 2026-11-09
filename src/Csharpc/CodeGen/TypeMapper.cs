@@ -73,7 +73,8 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         INamedTypeSymbol { TypeKind: TypeKind.Struct } s when StructType?.Invoke(s) is { } user => user,
         // Vector64/128/256<T>: opaque bytes. csharpc has no SIMD operations yet (their IsHardwareAccelerated
         // and the ISA classes' IsSupported fold to false); locals and fields of these types still need a size.
-        INamedTypeSymbol n when SimdVectorBytes(n) is { } bytes => LlvmContext.Array(Llvm.I8, bytes),
+        // Vector128<T> is <16 x i8> whatever T (FunctionCodeGen.Simd.cs); the others stay bytes.
+        INamedTypeSymbol n when SimdVectorBytes(n) is { } bytes => n.Name == "Vector128" ? Native.LLVMVectorType(Llvm.I8, 16) : LlvmContext.Array(Llvm.I8, bytes),
         { TypeKind: TypeKind.Struct } => throw CompileError.Unsupported($"struct '{type}'", type),
         { TypeKind: TypeKind.TypeParameter } => throw CompileError.Unsupported($"generic type parameter '{type}'", type),
         _ => throw CompileError.Unsupported($"type '{type}'", type),

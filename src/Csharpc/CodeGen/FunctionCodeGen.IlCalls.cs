@@ -164,6 +164,7 @@ public sealed partial class FunctionCodeGen
     {
         var il = _il!;
         var mapped = S(method);
+        if (IlDefaultComparerCall(method, receiver, args) is { } inlined) return inlined;
         // A non-virtual call to a virtual method on `this` is C#'s `base.M()`.
         var baseCall = !isVirtual && receiver is { IsThis: true } && (method.IsVirtual || method.IsOverride || method.IsAbstract);
         var instance = receiver is null ? null : IlReceiver(method, receiver, constrained, baseCall);
@@ -208,7 +209,10 @@ public sealed partial class FunctionCodeGen
             {
                 var reference = new IlPropertyReferenceOperation(il.Syntax, property, instance, IlArguments(property.Parameters, args), constrained);
                 if (property.RefKind != RefKind.None) return new IlEntry(IlKind.ByRef, RefPropertyAddress(reference), property.Type);
-                return IlPush(EmitValue(reference), property.Type);
+                var read = EmitValue(reference);
+                if (!IsDefaultComparerGetter(method)) return IlPush(read, property.Type);
+                _eraseIfUnused.Add(read);
+                return IlPush(read, property.Type) with { IsDefaultComparer = true };
             }
             if (method.MethodKind == MethodKind.PropertySet)
             {
@@ -231,6 +235,7 @@ public sealed partial class FunctionCodeGen
             throw new IlException($"using the result of '{method}' is not supported by csharpc yet");
         }
         var pushed = IlPush(result, method.ReturnType);
+        if (IsDefaultComparerGetter(method)) { _eraseIfUnused.Add(result); return pushed with { IsDefaultComparer = true }; }
         // Remember Delegate.Combine/Remove results: the cast that follows them cannot fail (see castclass).
         return method is { Name: "Combine" or "Remove", ContainingType.Name: "Delegate", IsStatic: true } ? pushed with { Symbol = method } : pushed;
     }
@@ -390,6 +395,7 @@ public sealed partial class FunctionCodeGen
         var owner = method.ContainingType;
         var ownerName = owner.ToDisplayString();
         var handled = new IlEntry(IlKind.Token, default, null);
+        if (IlCreateInstanceForAnotherGenericParameter(method, args) is { } created) return created;
         if (ownerName == "System.Runtime.CompilerServices.Unsafe" && IlUnsafeCall(method, args) is { } unsafeResult) return unsafeResult;
         if (ownerName == "System.Runtime.CompilerServices.AsyncHelpers" && IlRuntimeAsyncCall(method, args) is { } awaited) return awaited;
         if (args.Length == 0 && receiver is null && FeatureSwitchValue(method) is { } feature)

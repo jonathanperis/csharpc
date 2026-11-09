@@ -30,8 +30,10 @@ public sealed partial class FunctionCodeGen
         // `var t = typeof(X); t.GetFields()`: a local assigned typeof(X) stands for it (FunctionCodeGen.TypeofLocals.cs).
         else if (inv.Instance is ILocalReferenceOperation && target.ContainingType is { Name: "Type" or "TypeInfo" })
             foreach (var known in KnownTypeofValues(inv.Instance)) NoteReflectedType(target, S(known), reflectedName);
+        if (TryDefaultComparerCall(inv, target) is { } defaultComparerResult) return defaultComparerResult;
         if (inv.Instance is { } shadowReceiver && _m.CoreLib.MapForReceiver(target, TypeOf(shadowReceiver)) is { } shadowMember) target = shadowMember;
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
+        if (TrySimdCall(inv, target) is { } simd) return simd;
         if (target is { Name: "RunClassConstructor", IsStatic: true, ContainingType: { Name: "RuntimeHelpers", ContainingNamespace.Name: "CompilerServices" } } && inv.Arguments.Length == 1)
         {
             // Static initialization is lazy per type with compile-time triggers (ModuleCodeGen.StaticInit.cs), so only a handle
@@ -93,7 +95,9 @@ public sealed partial class FunctionCodeGen
                 if (target.Name == "ToString" && target.Parameters.IsEmpty) return FormatValue(EmitValue(receiver), receiverType, inv);
                 // IL's `constrained. T? callvirt object::Equals/GetHashCode`: Nullable<T>'s overrides, which an
                 // empty T? answers without a box (boxing it gives null).
-                if (TypeMapper.IsNullable(receiverType) && target.Name == "GetHashCode" && target.Parameters.IsEmpty)
+                // object.GetHashCode() of a value type is what EqualityComparer<T>.Default.GetHashCode is for it (HashOf), without the box and
+                // the virtual call: the framework's collections hash a `T item` this way (HashSet<T>).
+                if (target.Name == "GetHashCode" && target.Parameters.IsEmpty)
                     return HashOf(receiverType, EmitValue(receiver), inv);
                 if (TypeMapper.IsNullable(receiverType) && target.Name == "Equals" && target.Parameters is [{ Type.SpecialType: SpecialType.System_Object }])
                     return NullableEqualsObject(EmitValue(receiver), TypeMapper.NullableUnderlying(receiverType), EmitArgument(inv.Arguments[0]), inv);
@@ -941,6 +945,7 @@ public sealed partial class FunctionCodeGen
         var property = S(p.Property);
         if (TypeMapper.IsNullable(property.ContainingType)) return EmitNullableMember(p);
         if (property.ContainingType.IsAnonymousType) return AnonymousPropertyGet(p);
+        if (TrySimdProperty(p, property) is { } simdProperty) return simdProperty;
         // `T.Zero` on a static abstract interface property implemented by a user type.
         if (property is { IsStatic: true, GetMethod: { } staticAbstractGetter } && ResolveStaticInterfaceMember(staticAbstractGetter, p.ConstrainedToType) is { } staticGetter)
             return EmitUserCall(staticGetter, default, true, p.Arguments, isVirtual: false);

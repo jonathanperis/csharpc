@@ -37,7 +37,9 @@ namespace CsharpcCoreLib
             ulong lo = m.Len > 0 ? m.W[0] : 0U;
             if (m.Len > 1) lo |= (ulong)m.W[1] << 32;
             uint hi = m.Len > 2 ? m.W[2] : 0U;
-            int flags = (scale << 16) | (negative && m.Len != 0 ? int.MinValue : 0);
+            // The sign survives a zero magnitude: .NET has negative zeros (-0.00m, -z, 0m * -1m), which print alike
+            // but differ in GetBits, in the constants a front-end folds and in what a sign-aware algorithm sees.
+            int flags = (scale << 16) | (negative ? int.MinValue : 0);
             return CoreIntrinsics.MakeDecimal(flags, hi, lo);
         }
 
@@ -157,7 +159,18 @@ namespace CsharpcCoreLib
                 AddMagnitudes(ref ma, ref mb);
                 return Fit(ref ma, scale, na);
             }
-            if (BigNum.Compare(in ma, in mb) >= 0)
+            int cmp = BigNum.Compare(in ma, in mb);
+            if (cmp == 0)
+            {
+                // Exact cancellation: the sign DecCalc.DecAddSub leaves a zero. The first operand's when the scales are
+                // equal, otherwise the smaller-scale operand's (1.0m - 1.00m is 0.00, 1.00m - 1.0m is -0.00), except
+                // that a zero sum of two zeros takes the larger scale's sign (0m - 0.00m is -0.00, 0.00m - 0m is 0.00).
+                int sca = Scale(a), scb = Scale(b);
+                bool zero = ma.IsZero;
+                ma.Subtract(in mb);
+                return Fit(ref ma, scale, sca == scb ? na : (sca < scb) != zero ? na : nb);
+            }
+            if (cmp > 0)
             {
                 ma.Subtract(in mb);
                 return Fit(ref ma, scale, na);
@@ -201,7 +214,7 @@ namespace CsharpcCoreLib
             bool negative = IsNegative(a) != IsNegative(b);
             int scale = Scale(a) - Scale(b);
             if (scale < 0) { ma.MulPow10(-scale); scale = 0; }
-            if (ma.IsZero) return Pack(ref ma, scale, false);
+            if (ma.IsZero) return Pack(ref ma, scale, negative);
 
             var q = new BigNum(sq);
             var rem = new BigNum(sr);
@@ -279,8 +292,9 @@ namespace CsharpcCoreLib
         private static decimal Abs(decimal a) =>
             CoreIntrinsics.MakeDecimal(CoreIntrinsics.DecimalFlags(a) & int.MaxValue, CoreIntrinsics.DecimalHi(a), CoreIntrinsics.DecimalLo(a));
 
+        // Always flips the sign bit, zero included: -0.00m is a negative zero in .NET (and in Roslyn's constant folding).
         internal static decimal Negate(decimal a) =>
-            IsZero(a) ? a : CoreIntrinsics.MakeDecimal(CoreIntrinsics.DecimalFlags(a) ^ int.MinValue, CoreIntrinsics.DecimalHi(a), CoreIntrinsics.DecimalLo(a));
+            CoreIntrinsics.MakeDecimal(CoreIntrinsics.DecimalFlags(a) ^ int.MinValue, CoreIntrinsics.DecimalHi(a), CoreIntrinsics.DecimalLo(a));
 
         internal static int Hash(decimal d)
         {
