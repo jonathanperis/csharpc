@@ -133,9 +133,13 @@ public sealed partial class FunctionCodeGen
         // `new S()` without an explicit parameterless constructor is just default(S).
         if (creation.Constructor is null or { IsImplicitlyDeclared: true, Parameters.IsEmpty: true })
             return LlvmContext.Null(llvmType);
+        // A shadowed library struct whose shadow lacks this constructor overload (DateOnly(y, m, d, calendar)): report it, as for
+        // classes, instead of calling the library's bodiless constructor (invalid IR).
+        var structConstructor = S(creation.Constructor);
+        if (!_m.IsUserMethod(structConstructor)) throw CompileError.MissingIntrinsic(creation.Constructor, creation);
         var temp = NewTemp(llvmType, "new." + type.Name);
         _b.Store(LlvmContext.Null(llvmType), temp); // fields the constructor doesn't assign are zero
-        EmitUserCall(S(creation.Constructor), temp, selfIsNonNull: true, creation.Arguments, isVirtual: false);
+        EmitUserCall(structConstructor, temp, selfIsNonNull: true, creation.Arguments, isVirtual: false);
         return _b.Load(llvmType, temp);
     }
 
