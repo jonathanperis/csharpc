@@ -287,7 +287,23 @@ run_pass() { # opt rep
       next=$((next + 1))
     done
   }
-  reap() { wait -n 2>/dev/null; running=$((running - 1)); flush; }
+  # wait -n (bash 4.3+) returns when any job ends; macOS's /bin/bash 3.2 has no -n (it fails at once, which ran
+  # every sample at the same time), so there the jobs' pids are polled.
+  local pids=()
+  reap() {
+    if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 3) )); then
+      wait -n 2>/dev/null
+    else
+      local k
+      while :; do
+        for k in ${pids[@]+"${!pids[@]}"}; do
+          if ! kill -0 "${pids[k]}" 2>/dev/null; then wait "${pids[k]}" 2>/dev/null; unset "pids[k]"; break 2; fi
+        done
+        sleep 0.05
+      done
+    fi
+    running=$((running - 1)); flush
+  }
   for ((i = 0; i < n; i++)); do
     name="${selected[i]}"
     if (( i == 0 )) || [[ "$SERIAL" == *" $name "* ]]; then
@@ -301,6 +317,7 @@ run_pass() { # opt rep
       echo $? > "$res/$i.rc.tmp"
       mv "$res/$i.out.tmp" "$res/$i.out"; mv "$res/$i.rc.tmp" "$res/$i.rc"
     ) &
+    pids+=($!)
     running=$((running + 1))
     if (( i == 0 )) || [[ "$SERIAL" == *" $name "* ]]; then while (( running > 0 )); do reap; done; fi
     flush
