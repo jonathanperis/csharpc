@@ -128,6 +128,12 @@ namespace CsharpcCoreLib
         {
             if (array == null) ThrowHelper.ArgumentNull("array");
             ArrayChecks.StartIndexCount(array.Length, startIndex, count);
+            if (CoreIntrinsics.IsBitwiseEquatable<T>())
+            {
+                // Integers, chars, enums: the runtime's vectorized search for the bits (what EqualityComparer<T>.Default would answer).
+                int found = LinqSpans.IndexOfBitwise(new ReadOnlySpan<T>(array, startIndex, count), value);
+                return found < 0 ? -1 : startIndex + found;
+            }
             for (int i = startIndex; i < startIndex + count; i++)
                 if (CoreIntrinsics.AreEqual(array[i], value)) return i;
             return -1;
