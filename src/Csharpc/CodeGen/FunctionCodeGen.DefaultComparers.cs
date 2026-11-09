@@ -79,6 +79,50 @@ public sealed partial class FunctionCodeGen
         return IlPush(DefaultComparerOperation(method, element, arguments, IlAt()), method.ReturnType);
     }
 
+    /// <summary>
+    /// <c>IEqualityComparer&lt;T&gt;.Equals / GetHashCode</c> through an interface-typed comparer that is, at run time, the default one: the framework's
+    /// Dictionary and HashSet keep the comparer in a field and call it so (a string-keyed Dictionary holds <c>EqualityComparer&lt;string&gt;.Default</c>
+    /// as its comparer). CoreCLR and NativeAOT devirtualize that call under a type guard; here it is a guard on the default comparer's identity, then
+    /// the inline code of <see cref="DefaultComparerOperation"/>, else the interface dispatch. Both paths evaluate the receiver and the arguments once.
+    /// </summary>
+    private LLVMValueRef? TryGuardedDefaultComparer(IMethodSymbol target, IOperation receiver, ImmutableArray<IArgumentOperation> arguments, LLVMValueRef[] extra, IInvocationOperation? invocation)
+    {
+        var itf = target.ContainingType;
+        if (invocation is null || extra.Length != 0 || itf is not { Name: "IEqualityComparer", Arity: 1, TypeKind: TypeKind.Interface }
+            || itf.ContainingNamespace.ToDisplayString() != "System.Collections.Generic") return null;
+        if (TypeOf(receiver) is not { TypeKind: TypeKind.Interface }) return null; // a receiver of a known class is devirtualized by the ordinary path
+        if (!(target is { Name: "Equals", Parameters.Length: 2 } or { Name: "GetHashCode", Parameters.Length: 1 })) return null;
+        var element = S(itf.TypeArguments[0]);
+        if (element is ITypeParameterSymbol) return null;
+        var comparerType = _m.Compilation.GetTypeByMetadataName("System.Collections.Generic.EqualityComparer`1")?.Construct(element);
+        if (comparerType is null || _m.CoreLib.Map(comparerType) is not INamedTypeSymbol mapped
+            || mapped.GetMembers("get_Default").OfType<IMethodSymbol>().FirstOrDefault(m => m.IsStatic && m.Parameters.IsEmpty) is not { } getter) return null;
+
+        var self = EmitValue(receiver);
+        var args = new LLVMValueRef[1 + target.Parameters.Length];
+        args[0] = self;
+        foreach (var argument in arguments) args[1 + argument.Parameter!.Ordinal] = EmitArgument(argument, target);
+
+        var returnType = target.Name == "Equals" ? L.I1 : L.I32;
+        var result = NewTemp(returnType, "defcmp");
+        var fast = NewBlock("defcmp.fast");
+        var slow = NewBlock("defcmp.slow");
+        var done = NewBlock("defcmp.done");
+        _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, self, CallMethod(getter, [])), fast, slow);
+
+        _b.PositionAtEnd(fast);
+        _b.Store(target.Name == "Equals" ? EqualsOf(element, args[1], args[2], invocation) : HashOf(element, args[1], invocation), result);
+        _b.Br(done);
+
+        _b.PositionAtEnd(slow);
+        NullCheck(self);
+        _b.Store(InterfaceDispatch(target, self, args), result);
+        _b.Br(done);
+
+        _b.PositionAtEnd(done);
+        return _b.Load(returnType, result);
+    }
+
     private void EraseUnusedCalls()
     {
         foreach (var call in _eraseIfUnused)
