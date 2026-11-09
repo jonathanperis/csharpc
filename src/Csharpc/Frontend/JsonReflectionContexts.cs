@@ -41,6 +41,8 @@ public static partial class JsonReflectionContexts
     {
         newUserTrees = userTrees;
         IlCoveredRoots = null;
+        // System.Text.Json from the framework's IL reads real reflection: the program's calls root their types instead (FunctionCodeGen.ReflectionRoots.cs).
+        if (IlFirst.Assemblies.Contains("System.Text.Json", StringComparer.OrdinalIgnoreCase)) return compilation;
         var texts = userTrees.Select(t => t.GetText().ToString()).ToList();
         // A program given as IL has no sources: runtimeconfig.json's switch alone decides, and the roots
         // come from its method bodies (JsonReflectionContexts.Il.cs).

@@ -164,6 +164,7 @@ public sealed partial class FunctionCodeGen
                 ?? (Path.GetFileName(Frontend.SharedFramework.Directory?.TrimEnd('/', '\\') ?? "") is { Length: > 0 } version ? version : "11.0.0")),
             "TypeInfoTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.TypeInfoTable(), T.NativeInt),
             "TypeAttributesQueried" => NoteTypeAttributesQueried(),
+            "AssemblyReferencesAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.AssemblyReferencesTable(), T.NativeInt),
             "NullabilityQueried" => NoteNullabilityQueried(),
             "EnumParseTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.EnumParseTable(), T.NativeInt),
             "ReflectionTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.ReflectionTable(), T.NativeInt),

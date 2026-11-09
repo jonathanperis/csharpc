@@ -412,9 +412,11 @@ public sealed partial class ModuleCodeGen
                 for (int depth = 0; step != null && depth < 60 && why.TryGetValue(step, out var parent); depth++, step = parent)
                     Console.Error.WriteLine($"    <- {(parent == null ? "(program)" : parent.ToString())}");
             }
-            if (reached.Contains(method.OriginalDefinition)) Errors.Add(error);
+            if (reached.Contains(method.OriginalDefinition) && !IsSpeculativeInstance(method)) Errors.Add(error);
             else if (!reported.Contains((error.Message, error.Location?.ToString()))) Warnings.Add(new CompileError("CSLLVM0007",
-                $"{error.Message} — the program does not reach this method (class-hierarchy analysis), so it was compiled as a stub that ends the program if it is ever called",
+                IsSpeculativeInstance(method)
+                    ? $"{error.Message} — the type is an instantiation made for reflection (MakeGenericType), so the method was compiled as a stub that ends the program if it is ever called"
+                    : $"{error.Message} — the program does not reach this method (class-hierarchy analysis), so it was compiled as a stub that ends the program if it is ever called",
                 error.Location));
         }
     }
