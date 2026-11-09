@@ -108,7 +108,12 @@ public sealed partial class FunctionCodeGen
         var fast = NewBlock("defcmp.fast");
         var slow = NewBlock("defcmp.slow");
         var done = NewBlock("defcmp.done");
-        _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, self, CallMethod(getter, [])), fast, slow);
+        var isDefault = _b.ICmp(LLVMIntPredicate.EQ, self, CallMethod(getter, []));
+        // The string collections of the framework's IL hold a wrapper around the default comparer (UpstreamWrappedDefaultStringComparer: the
+        // alternate-key side of AlternateLookup); it compares and hashes as the default does.
+        if (element.SpecialType == SpecialType.System_String)
+            isDefault = _b.BinOp(LLVMOpcode.Or, isDefault, _b.ICmp(LLVMIntPredicate.EQ, self, CallCoreLib("UpstreamWrappedDefaultStringComparer", "Wrapped")));
+        _b.CondBr(isDefault, fast, slow);
 
         _b.PositionAtEnd(fast);
         _b.Store(target.Name == "Equals" ? EqualsOf(element, args[1], args[2], invocation) : HashOf(element, args[1], invocation), result);

@@ -348,6 +348,20 @@ hashing helpers), most of it for Dictionary and HashSet.
 (`corelib/CollectionsMarshal.cs`), and the build ships `CsharpcUpstream.dll`. The measured costs the owner accepted are in the ADR row (`Add` +33 %,
 `RemoveAll` +14 %, about +5 % size; `Insert`/`RemoveAt` 20x faster); #259 tracks closing the `Add` gap in the compiler.
 
+**Status (2026-11-09): Dictionary<TKey,TValue>, HashSet<T> and CollectionsMarshal are served from the framework's IL too** (#274): `corelib/HashSet.cs`,
+`corelib/CollectionsMarshal.cs` and the `DictionaryImpl` half of `corelib/Dictionary.cs` are gone (about 1 250 lines). What the flip needed in the
+compiler, beyond #221/#223/#269: boxed `Index`/`Range` method tables (the framework's `Dictionary<Range, V>` boxes keys for its exception messages);
+`Int128` (and structs holding one) accessed 8-aligned, since a box keeps its payload at offset 8 (a `Dictionary<Int128, V>` enumerator boxed through
+`IEnumerable` stored its `KeyValuePair` with a 16-byte-aligned move at an address that was only 8-aligned); `Comparer<Int128>.Default` (the corelib threw
+`InvalidOperationException`); and the IL front-end folding `typeof(A) == typeof(B)` branches in generic methods (the `if (typeof(T) == typeof(string)) ...
+else general-path` shape is all over the framework; without it the general path was lowered for every instantiation). Contract members: the string
+comparer family (`UpstreamWrappedDefaultStringComparer` is what a `Dictionary<string, V>` with the default comparer holds, so alternate lookups work,
+`Comparer` hands the default back, and the default-comparer type guard recognizes it), and the throw helpers whose message is `string.Format(text, key)`:
+for `string`, `int`, `long`, `uint`, `ulong` and `char` keys the text is built directly, so a program that reads a Dictionary does not carry composite
+formatting, culture data and every number formatter for an exception message (that was +17 KB; the generic replacement is a slicer feature: a forwarded
+method may be generic). Not done: the randomized string comparer upstream switches to after many collisions (hash-flooding mitigation; the shadows never
+had it either, so it is not a regression, but it is the first thing to add when the string comparers are flipped).
+
 ### Proposed boundary, and the order
 
 The numbers support boundary A for collections and text, with the contract growing by the internals listed above (12 members so

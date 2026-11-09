@@ -26,7 +26,7 @@ namespace CsharpcCoreLib
             }
             if (CoreIntrinsics.IsExactClass<System.Collections.Generic.List<TSource>>(source))
             {
-                span = CollectionsMarshalImpl.AsSpan(CoreIntrinsics.ReinterpretAs<System.Collections.Generic.List<TSource>>(source));
+                span = System.Runtime.InteropServices.CollectionsMarshal.AsSpan(CoreIntrinsics.ReinterpretAs<System.Collections.Generic.List<TSource>>(source));
                 return true;
             }
             span = default;

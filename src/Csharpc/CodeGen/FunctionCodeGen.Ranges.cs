@@ -233,6 +233,10 @@ public sealed partial class FunctionCodeGen
             case IInvocationOperation { TargetMethod.ContainingType: var owner, TargetMethod.Name: "GetOffset", Instance: { } instance } inv when IsIndexType(owner):
                 result = ResolveIndex(EmitValue(instance), ArgValue(inv, 0));
                 return true;
+            case IInvocationOperation { TargetMethod: { Name: "GetHashCode" or "ToString", ContainingType: var owner, Parameters: [] } method, Instance: { } instance } inv
+                when IsIndexType(owner) || IsRangeType(owner):
+                result = method.Name == "ToString" ? FormatValue(EmitValue(instance), owner, inv) : HashOf(owner, EmitValue(instance), inv);
+                return true;
             // Index.Equals(Index) / Range.Equals(Range): the encoded values are equal.
             case IInvocationOperation { TargetMethod: { Name: "Equals", ContainingType: var owner, Parameters: [var other] }, Instance: { } instance } inv
                 when (IsIndexType(owner) || IsRangeType(owner)) && SymbolEqualityComparer.Default.Equals(other.Type, owner):
