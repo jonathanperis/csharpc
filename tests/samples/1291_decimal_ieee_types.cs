@@ -94,6 +94,7 @@ Span<char> buf = stackalloc char[4];
 Console.WriteLine(Decimal32.Parse("123.45", ci).TryFormat(buf, out int w, default, ci) + " " + w);
 Span<byte> ub = stackalloc byte[16];
 Console.WriteLine(Decimal32.Parse("123.45", ci).TryFormat(ub, out int w2, "F1", ci) + " " + w2 + " " + System.Text.Encoding.UTF8.GetString(ub[..w2]));
-Console.WriteLine(Decimal32.TryParse("1,5"u8, new CultureInfo("de-DE"), out var de) + " " + de + " " + de.ToString(new CultureInfo("de-DE")));
+var comma = new NumberFormatInfo { NumberDecimalSeparator = ",", NumberGroupSeparator = "." };
+Console.WriteLine(Decimal32.TryParse("1,5"u8, comma, out var de) + " " + de + " " + de.ToString(comma));
 Console.WriteLine(Decimal32.TryParse("1.5"u8, ci, out var u8) + " " + u8 + " " + Decimal32.TryParse(""u8, ci, out _) + " " + Decimal32.TryParse(new byte[] { 0xFF }, ci, out _) + " " + Decimal64.Parse("2.50"u8, ci) + " " + Decimal128.Parse("7"u8, NumberStyles.Integer, ci));
 Console.WriteLine($"{Decimal32.Parse("1.50", ci)} {Decimal32.Parse("1.5", ci):F3} {string.Format(ci, "{0,10:G}|", Decimal64.Parse("2.75", ci))}");

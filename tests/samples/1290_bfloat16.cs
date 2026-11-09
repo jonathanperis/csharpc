@@ -66,7 +66,7 @@ for (int i = 0; i < 65536; i++)
 Console.WriteLine($"checksum {hash:X8} nan {nanCount} notRoundTripping {notRoundTripping}");
 foreach (ushort bits in new ushort[] { 0x0001, 0x007F, 0x0080, 0x3F80, 0x3F81, 0x4049, 0x449A, 0x4700, 0x4780, 0x7F7F, 0x5A0E, 0x2F80, 0x3A83 })
     Console.WriteLine($"{bits:X4} {FromBits(bits).ToString(ci)} {FromBits(bits).ToString("R", ci)} {FromBits(bits).ToString("G3", ci)} {FromBits(bits).ToString("e2", ci)} {FromBits(bits).ToString("N1", ci)}");
-Console.WriteLine(((BFloat16)1234.5f).ToString(new CultureInfo("de-DE")) + " " + ((BFloat16)(-0.5f)).ToString("F3", new CultureInfo("fr-FR")));
+Console.WriteLine(((BFloat16)1234.5f).ToString(new NumberFormatInfo { NumberDecimalSeparator = ",", NegativeSign = "~" }) + " " + ((BFloat16)(-0.5f)).ToString("F3", new NumberFormatInfo { NumberDecimalSeparator = ";", NegativeSign = "~" }));
 
 Console.WriteLine("parsing");
 foreach (var s in new[] { "1", "-1.5", "3.14159", "1e38", "1e39", "3.4e38", "3.39e38", "1.00390625", "1.0039062501", "0.1", "NaN", "Infinity", "-Infinity", "  2 ", "abc", "", "1e-45", "1e-41", "9.18e-41", "4.59e-41", "4.5918e-41", "1,000" })
