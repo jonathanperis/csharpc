@@ -280,6 +280,24 @@ public sealed partial class FunctionCodeGen
             case "WithElement":
                 CheckLane(a[1], e);
                 return Raw(_b.InsertElement(View(a[0], e), a[2], a[1]));
+            case "Shuffle" or "ShuffleNative":
+            {
+                // lane i = vector[indices[i]], or zero when the index is outside 0..Count-1 (negative included), for constant and run-time indices:
+                // LLVM's shufflevector needs a constant mask, so each lane is an extractelement by the index; with constant indices that folds to a shuffle.
+                var source = View(a[0], e);
+                var indices = IntView(a[1], e);
+                var lane = e.IsFloat ? LlvmContext.Null(e.Llvm) : L.ConstInt(e.Llvm, 0);
+                var result = LlvmContext.Null(VectorOf(e));
+                for (var i = 0; i < e.Count; i++)
+                {
+                    var index = _b.ExtractElement(indices, L.ConstInt(L.I32, i));
+                    var inRange = _b.ICmp(LLVMIntPredicate.ULT, index, L.ConstInt(index.Type, e.Count));
+                    var safe = _b.Select(inRange, index, L.ConstInt(index.Type, 0));
+                    var picked = _b.ExtractElement(source, safe);
+                    result = _b.InsertElement(result, _b.Select(inRange, picked, lane), L.ConstInt(L.I32, i));
+                }
+                return Raw(result);
+            }
             case "ToScalar": return _b.ExtractElement(View(a[0], e), L.ConstInt(L.I32, 0));
             case "GetElementUnsafe": return _b.ExtractElement(View(_b.Load(RawVector, a[0]), e), a[1]);
             default:
