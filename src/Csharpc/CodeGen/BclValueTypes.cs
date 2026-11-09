@@ -399,12 +399,12 @@ internal static partial class BclValueTypes
         // Round(decimal, MidpointRounding): digits fixed at 0, mode from args[1]
         t[$"{D}.Round({D}, System.MidpointRounding)"] = t[$"System.Math.Round({D}, System.MidpointRounding)"] = (g, _, _, a, _) =>
             g.DecimalCall("csrt_decimal_round", [g.Llvm.I32, g.Llvm.I32], a[0], I32(g, 0), ToI32(g, a[1]));
-        t[$"System.Math.Abs({D})"] = t[$"{D}.Abs({D})"] = (g, _, _, a, at) =>
+        t[$"System.Math.Abs({D})"] = t[$"{D}.Abs({D})"] = (g, _, _, a, _) =>
         {
+            // Clears the sign bit, so a negative zero (-0.00m) becomes +0.00 as in .NET; a compare against 0 would miss it.
             var b = g.Builder;
-            var negative = g.DecimalArithmetic(BinaryOperatorKind.LessThan, a[0], g.DecimalConstant(0m), at);
-            var negated = g.DecimalNegate(a[0]);
-            return b.Select(negative, negated, a[0]);
+            var flags = b.BinOp(LLVMOpcode.And, b.ExtractValue(a[0], 0), I32(g, int.MaxValue));
+            return b.InsertValue(a[0], flags, 0);
         };
         t[$"System.Math.Max({D}, {D})"] = t[$"{D}.Max({D}, {D})"] = (g, _, _, a, at) =>
             g.Builder.Select(g.DecimalArithmetic(BinaryOperatorKind.GreaterThanOrEqual, a[0], a[1], at), a[0], a[1]);
