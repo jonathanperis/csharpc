@@ -1,0 +1,31 @@
+int: 1 -1 5 -1 ArgumentOutOfRangeException ArgumentOutOfRangeException -1 ArgumentOutOfRangeException 1 5 1
+  list: 1 -1 3 5 False True
+byte: 1 -1 17 -1 ArgumentOutOfRangeException ArgumentOutOfRangeException -1 ArgumentOutOfRangeException 1 17 1
+  list: 1 -1 3 17 False True
+char: 4 -1 7 -1 ArgumentOutOfRangeException ArgumentOutOfRangeException -1 ArgumentOutOfRangeException 4 7 -1
+  list: 4 -1 4 7 False True
+long: 1 -1 3 -1 ArgumentOutOfRangeException ArgumentOutOfRangeException -1 ArgumentOutOfRangeException 1 3 1
+  list: 1 -1 3 3 False True
+short: 2 -1 2 -1 ArgumentOutOfRangeException ArgumentOutOfRangeException -1 ArgumentOutOfRangeException 2 2 2
+  list: 2 -1 2 2 False True
+bool: 2 0 2 -1 ArgumentOutOfRangeException ArgumentOutOfRangeException -1 ArgumentOutOfRangeException 2 2 2
+  list: 2 0 2 2 True True
+enum: 1 -1 3 -1 ArgumentOutOfRangeException ArgumentOutOfRangeException -1 ArgumentOutOfRangeException 1 3 1
+  list: 1 -1 3 3 False True
+string: 1 -1 3 -1 ArgumentOutOfRangeException ArgumentOutOfRangeException -1 ArgumentOutOfRangeException 1 3 1
+  list: 1 -1 3 3 False True
+string null: 2 -1 2 -1 ArgumentOutOfRangeException ArgumentOutOfRangeException -1 ArgumentOutOfRangeException 2 2 2
+  list: 2 -1 2 2 False True
+double: 1 -1 3 -1 ArgumentOutOfRangeException ArgumentOutOfRangeException -1 ArgumentOutOfRangeException 1 3 1
+  list: 1 -1 3 3 False True
+double zero: 4 -1 4 -1 ArgumentOutOfRangeException ArgumentOutOfRangeException -1 ArgumentOutOfRangeException 4 4 -1
+  list: 4 -1 4 4 False True
+float: 0 -1 2 -1 ArgumentOutOfRangeException ArgumentOutOfRangeException -1 ArgumentOutOfRangeException 2 2 2
+  list: 0 -1 2 2 False True
+empty int: -1 -1 -1 -1 ArgumentOutOfRangeException ArgumentOutOfRangeException -1 ArgumentOutOfRangeException ArgumentOutOfRangeException -1 ArgumentOutOfRangeException
+  list: -1 -1 ArgumentOutOfRangeException -1 False False
+one int: 0 -1 0 -1 ArgumentOutOfRangeException ArgumentOutOfRangeException -1 ArgumentOutOfRangeException -1 0 ArgumentOutOfRangeException
+  list: 0 -1 ArgumentOutOfRangeException 0 False True
+ArgumentNullException
+1 2
+total=1278 mismatches=0
