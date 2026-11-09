@@ -45,7 +45,7 @@ public sealed partial class FunctionCodeGen
         }
         if (target.IsStatic) CheckJsonSerializerRoots(target, inv);
         if (TypeObjectMember(inv.TargetMethod, inv.Instance) is { } typeMember) return CallBcl(typeMember, inv.TargetMethod, inv.Instance, inv.Arguments, inv);
-        if (!_memberInfoDispatch && inv is IlOperation && inv.Instance is { } memberInfoReceiver && inv.TargetMethod is { IsStatic: false, IsVirtual: true } or { IsStatic: false, IsAbstract: true }
+        if (!_memberInfoDispatch && (inv is IlOperation || IsSimpleAttributeProviderReceiver(inv.Instance)) && inv.Instance is { } memberInfoReceiver && inv.TargetMethod is { IsStatic: false, IsVirtual: true } or { IsStatic: false, IsAbstract: true }
             && IsMemberInfoReference(memberInfoReceiver) && BclValueTypes.TryGetForType(inv.TargetMethod, out var typeOrMemberInfo))
             return EmitTypeOrMemberInfo(inv.TargetMethod, memberInfoReceiver, inv.Arguments, typeOrMemberInfo, inv, () => EmitInvocation(inv));
         if (UnsafeAccessorOf(target) is { } unsafeAccessor) return EmitUnsafeAccessor(target, unsafeAccessor, inv);
@@ -842,9 +842,21 @@ public sealed partial class FunctionCodeGen
 
     private bool _memberInfoDispatch;
 
+    /// <summary>
+    /// Source code calling an ICustomAttributeProvider member on a parameter or local: it may hold a Type (which converts to the
+    /// interface), whose members the Type handlers answer. Other receivers would be evaluated twice by that dispatch, so they are
+    /// left to the interface call.
+    /// </summary>
+    private bool IsSimpleAttributeProviderReceiver(IOperation? instance)
+    {
+        while (instance is IConversionOperation { IsImplicit: true } conversion) instance = conversion.Operand;
+        return instance is IParameterReferenceOperation or ILocalReferenceOperation && IsMemberInfoReference(instance)
+            && TypeOf(instance) is INamedTypeSymbol { Name: "ICustomAttributeProvider" };
+    }
+
     /// <summary>A receiver typed MemberInfo (not Type): at run time it may be one of csharpc's Type objects, which have no MemberInfo vtable.</summary>
     private bool IsMemberInfoReference(IOperation instance) =>
-        TypeOf(instance) is INamedTypeSymbol named && _m.CoreLib.Unmap(named) is INamedTypeSymbol { Name: "MemberInfo", ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } };
+        TypeOf(instance) is INamedTypeSymbol named && _m.CoreLib.Unmap(named) is INamedTypeSymbol { Name: "MemberInfo" or "ICustomAttributeProvider", ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } };
 
     /// <summary>
     /// A MemberInfo member called through a MemberInfo-typed reference (System.Text.Json reads attributes of a Type or a PropertyInfo

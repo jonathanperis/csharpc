@@ -93,6 +93,7 @@ namespace CsharpcCoreLib
 
         public NullabilityInfo Create(ParameterInfo parameterInfo)
         {
+            CoreIntrinsics.NullabilityQueried();
             ArgumentNullException.ThrowIfNull(parameterInfo);
             // NullabilityInfo.Type of a ref/in/out parameter is its by-ref type, which csharpc has no Type object for.
             if (parameterInfo is RuntimeParameterInfoImpl { IsByRefParameter: true })
@@ -212,6 +213,7 @@ namespace CsharpcCoreLib
 
         public NullabilityInfo Create(PropertyInfo propertyInfo)
         {
+            CoreIntrinsics.NullabilityQueried();
             ArgumentNullException.ThrowIfNull(propertyInfo);
 
             MethodInfo getter = propertyInfo.GetGetMethod(true);
@@ -257,6 +259,7 @@ namespace CsharpcCoreLib
 
         public NullabilityInfo Create(EventInfo eventInfo)
         {
+            CoreIntrinsics.NullabilityQueried();
             ArgumentNullException.ThrowIfNull(eventInfo);
 
             return GetNullabilityInfo(eventInfo, eventInfo.EventHandlerType, CreateParser(CustomAttributeData.GetCustomAttributes(eventInfo)));
@@ -264,6 +267,7 @@ namespace CsharpcCoreLib
 
         public NullabilityInfo Create(FieldInfo fieldInfo)
         {
+            CoreIntrinsics.NullabilityQueried();
             ArgumentNullException.ThrowIfNull(fieldInfo);
 
             IList<CustomAttributeData> attributes = CustomAttributeData.GetCustomAttributes(fieldInfo);
