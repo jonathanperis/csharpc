@@ -22,6 +22,13 @@ public sealed partial class ModuleCodeGen
     private readonly HashSet<ITypeSymbol> _reflectionRoots = new(SymbolEqualityComparer.Default);
     private readonly List<ITypeSymbol> _reflectionRootOrder = [];
     private readonly HashSet<string> _rootedInstantiations = [];
+    private readonly HashSet<INamedTypeSymbol> _speculativeInstances = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// A method of a type made for reflection from the roots: the shapes are guesses (a converter for a ReadOnlyMemory&lt;float&gt; the F#
+    /// converter factory would never be asked for), so what cannot be compiled there is a stub that reports itself if it ever runs, not an error.
+    /// </summary>
+    internal bool IsSpeculativeInstance(IMethodSymbol method) => method.ContainingType is { } type && _speculativeInstances.Contains(type);
     private readonly HashSet<ITypeSymbol> _reflectionKept = new(SymbolEqualityComparer.Default);
     private readonly List<ITypeSymbol> _programInstantiated = [];
     private int _rootedRootsScanned, _rootedDefinitionsScanned, _programInstantiatedScanned;
@@ -136,6 +143,7 @@ public sealed partial class ModuleCodeGen
         try
         {
             var closed = definition.Construct([.. arguments]);
+            _speculativeInstances.Add(closed);
             TypeMethodTable(closed, null!);
             MarkDynamicallyAccessed(closed, DamConstructors);
             return true;
@@ -158,6 +166,9 @@ public sealed partial class ModuleCodeGen
             else if (root is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable)
                 yield return [nullable.TypeArguments[0]];
             else if (root is IArrayTypeSymbol) yield return [root];
+            // The element of a one-argument generic or an array (Memory<float> -> a converter for float elements).
+            if (root is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 1 } wrapper && wrapper.OriginalDefinition.SpecialType != SpecialType.System_Nullable_T) yield return [wrapper.TypeArguments[0]];
+            if (root is IArrayTypeSymbol { IsSZArray: true } elements) yield return [elements.ElementType];
         }
         if (root is INamedTypeSymbol { IsGenericType: true } constructed && arity == 1 + constructed.TypeArguments.Length && arity > 1)
             yield return [root, .. constructed.TypeArguments];
