@@ -34,7 +34,7 @@ and no CoreCLR at run time: the output is an ordinary native executable.
 
 Use it **standalone**, the way rustc is used (`csharpc app.cs -o app`, or on a `.csproj`), or as **.NET's
 AOT layer** in NativeAOT's place, behind `dotnet publish -p:PublishAot=true` (the end state,
-[ADR 0016](docs/adr/0016-nativeaot-parity-and-end-state.md)). Priorities, in order: **speed, security,
+[ADR 0016](docs/adr/0016-nativeaot-parity-and-end-state.md)). Priorities, in order: **security, speed,
 size** — each measured in CI against NativeAOT.
 
 ```console

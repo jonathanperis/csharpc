@@ -21,10 +21,11 @@ Against it: size and compile cost (the Windows https client: +1.7 MB, +35 % comp
    (types, GC and exception interface, threads, the `System.Buffers.Text`/`System.Text.Unicode`/`System.Numerics` members
    CoreLib defines, OS boundaries). **Compile everything else in the shared framework from its IL** (ADR 0013), library
    by library.
-2. **Per library, by measurement** (priorities: speed, then security, then size): the shadow route and the IL route are
-   built from the same samples; correctness against the recordings made on real .NET comes first, then run-time speed,
-   then size and compile time. A library flips to IL where IL wins or ties; a shadow stays only where it is measurably
-   smaller or faster, with the numbers in the table below.
+2. **Per library, by measurement** (priorities: security, then speed, then size): the shadow route and the IL route are
+   built from the same samples; correctness against the recordings made on real .NET comes first, then security (every
+   guard the shadow had, such as bounds, limits and hardening, must survive the move to upstream IL; the row says how
+   that was checked), then run-time speed, then size and compile time. A library flips to IL where IL wins or ties; a
+   shadow stays only where it is measurably safer, faster or smaller, with the numbers in the table below.
 3. **Only the code that is necessary, no bloat** (owner rule):
    - A flip is one PR that makes IL the default for that library and *deletes* its shadow code (`corelib/<Area>`) and the
      samples that covered only the shadow, and reports the lines removed (`git diff --shortstat`). No dead fallback is kept
