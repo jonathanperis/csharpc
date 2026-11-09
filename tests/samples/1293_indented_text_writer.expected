@@ -1,0 +1,30 @@
+default tab string: [    ]
+indent after negative: 0
+namespace.N
+{
+....class.C
+....{
+........int.x.=.42;
+........
+........cTrue1.52.57obja-2xyzbc
+........00FF
+........3
+........False
+........q
+........9.25
+no.tabs.here
+........after.no-tabs
+}
+}
+<TAB><TAB>first|<TAB><TAB>secondthird|
+newline forwarded: yes
+inner is same: True
+encoding: UnicodeEncoding
+..span.line
+..sb
+
+----one 2
+----three
+----four
+five
+----absb

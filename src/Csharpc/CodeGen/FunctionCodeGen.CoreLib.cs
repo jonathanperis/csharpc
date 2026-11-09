@@ -164,6 +164,7 @@ public sealed partial class FunctionCodeGen
                 ?? (Path.GetFileName(Frontend.SharedFramework.Directory?.TrimEnd('/', '\\') ?? "") is { Length: > 0 } version ? version : "11.0.0")),
             "TypeInfoTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.TypeInfoTable(), T.NativeInt),
             "TypeAttributesQueried" => NoteTypeAttributesQueried(),
+            "NullabilityQueried" => NoteNullabilityQueried(),
             "EnumParseTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.EnumParseTable(), T.NativeInt),
             "ReflectionTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.ReflectionTable(), T.NativeInt),
             "DelegateMethodTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.DelegateMethodTable(), T.NativeInt),
@@ -394,6 +395,12 @@ public sealed partial class FunctionCodeGen
             ?? throw CompileError.Unsupported($"corelib type '{type}' not found", (ISymbol?)null!);
         var target = owner.GetMembers(method).OfType<IMethodSymbol>().Single(m => m.IsStatic && m.Parameters.Length == args.Length && m.IsGenericMethod);
         return DirectCall(target.Construct(S(typeArgument)), args);
+    }
+
+    private LLVMValueRef NoteNullabilityQueried()
+    {
+        _m.NoteNullabilityQueried();
+        return default;
     }
 
     private LLVMValueRef NoteTypeAttributesQueried()

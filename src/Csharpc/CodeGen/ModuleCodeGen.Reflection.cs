@@ -67,6 +67,7 @@ public sealed partial class ModuleCodeGen
         public HashSet<ISymbol> ListedBackingFields = new(SymbolEqualityComparer.Default); // field-like events whose backing field is listed
         public List<MethodRecordData> Constructors = [], Methods = [];
         public List<AttributeRecordData> Attributes = [];
+        public List<AttributeRecordData>? InheritedAttributes; // Type.GetCustomAttributes(inherit: true): own plus the base types' inheritable ones; null: not known
         public List<PropertyRecordData> Properties = [];
         public List<FieldRecordData> Fields = [];
         public List<EventRecordData> Events = [];
@@ -311,6 +312,11 @@ public sealed partial class ModuleCodeGen
             if (_typeMts[_closedServicesScanned].Type is not INamedTypeSymbol { IsGenericType: true } closedType
                 || closedType.IsDefinition || TypeSubstitution.IsOpen(closedType))
                 continue;
+            if (_nullabilityQueried && _damMarks.TryGetValue(closedType, out var describedKinds))
+            {
+                MarkDynamicallyAccessed(closedType.OriginalDefinition, describedKinds);
+                any = true;
+            }
             if (_damMarks.TryGetValue(closedType.OriginalDefinition, out var definitionKinds))
             {
                 MarkDynamicallyAccessed(closedType, definitionKinds);
@@ -400,6 +406,24 @@ public sealed partial class ModuleCodeGen
             catch (CompileError error) { Errors.Add(error); }
         }
         return any;
+    }
+
+    private bool _nullabilityQueried;
+
+    /// <summary>
+    /// The program uses NullabilityInfoContext, which reads the open generic definition's members (the declared types in terms of its
+    /// type parameters) of every constructed generic type it is asked about: those definitions are described like their instantiations.
+    /// </summary>
+    internal void NoteNullabilityQueried()
+    {
+        if (_nullabilityQueried) return;
+        if (s_traceDam) Console.Error.WriteLine("[csharpc] NullabilityInfoContext is used: open generic definitions are described");
+        _nullabilityQueried = true;
+        _closedServicesScanned = 0;
+        // Open definitions marked before this (typeof(G<>) passed to an annotated Type) were skipped: describe them now.
+        foreach (var marked in _damMarks.Keys)
+            if (marked is INamedTypeSymbol { IsGenericType: true, IsDefinition: true }) _damQueue.Enqueue(marked);
+        ReflectionTable();
     }
 
     private bool _eventsQueried, _replayEvents;
@@ -517,7 +541,33 @@ public sealed partial class ModuleCodeGen
             // makes the untyped queries and those for System attributes throw while a program's own attributes stay exact.
             entry.Attributes = synthesizedUnknown ? Attributes(new AttributeSet(attributes, 0, true)) : Attributes(attributes);
             entry.Described |= RiAttributes;
+            entry.InheritedAttributes = !synthesizedUnknown && entry.Type is INamedTypeSymbol { TypeKind: TypeKind.Class } named ? InheritedTypeAttributes(named, attributes) : null;
         }
+    }
+
+    /// <summary>
+    /// What Type.GetCustomAttributes(inherit: true) lists for a class: its own attributes, then those of its base classes whose
+    /// attribute class is [AttributeUsage(Inherited = true)] (not repeated when it does not AllowMultiple). Null when a base's list is
+    /// not known exactly (the run-time query then reports it).
+    /// </summary>
+    private List<AttributeRecordData>? InheritedTypeAttributes(INamedTypeSymbol type, List<AttributeInstance> own)
+    {
+        var list = new List<AttributeInstance>(own);
+        for (var b = type.BaseType; b is not null && b.SpecialType != SpecialType.System_Object; b = b.BaseType)
+        {
+            if (!IsProgramType(b)) break; // a library base: csharpc keeps no attributes for it (the run-time query treats it as having none)
+            var unknown = false;
+            var baseList = Decoded(() => { var l = TypeAttributeInstances(b.OriginalDefinition, out var u); unknown = u; return l; });
+            if (baseList is null || unknown) return null;
+            foreach (var a in baseList)
+            {
+                var attributeClass = a.Constructor.ContainingType;
+                if (!IsInheritedAttribute(attributeClass)) continue;
+                if (!IsAllowMultipleAttribute(attributeClass) && list.Any(x => SymbolEqualityComparer.Default.Equals(x.Constructor.ContainingType, attributeClass))) continue;
+                list.Add(a);
+            }
+        }
+        return Attributes(list);
     }
 
     /// <summary>An attribute csharpc can't decode yet (a typeof argument it can't represent...) makes the list unknown.</summary>
@@ -596,7 +646,7 @@ public sealed partial class ModuleCodeGen
             _reflectionOrder.Add(entry);
         }
         // Open definitions (typeof(Impl<>)) list no members: their instantiations do.
-        if (named.IsDefinition && named.IsGenericType) return;
+        if (named.IsDefinition && named.IsGenericType && !_nullabilityQueried) return;
         uint wanted = ((kinds & DamPublicConstructors) != 0 ? RiPublicConstructors : 0) | ((kinds & DamNonPublicConstructors) != 0 ? RiNonPublicConstructors : 0)
             | ((kinds & DamPublicMethods) != 0 ? RiPublicMethods : 0) | ((kinds & DamNonPublicMethods) != 0 ? RiNonPublicMethods : 0)
             | ((kinds & DamPublicProperties) != 0 ? RiPublicProperties : 0) | ((kinds & DamNonPublicProperties) != 0 ? RiNonPublicProperties : 0)
@@ -1017,6 +1067,12 @@ public sealed partial class ModuleCodeGen
     {
         var name = Mangler.TypeSymbol(field.ContainingType, field.Name + (set ? "$reflectset" : "$reflectget"));
         var type = set ? Llvm.FunctionType(Llvm.Void, Llvm.Ptr, Llvm.Ptr) : Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr);
+        // A field of an open generic type (described for NullabilityInfoContext): there is no code for it to read or write.
+        if (TypeSubstitution.IsOpen(field.ContainingType))
+        {
+            var openMessage = $"{(set ? "Setting" : "Reading")} the field '{field.ToDisplayString()}' of an open generic type through reflection is not possible.";
+            return SyntheticFunction(name, type, (g, _) => g.EmitThrowingFactory(openMessage));
+        }
         try { return SyntheticFunction(name, type, (g, syntax) => g.EmitFieldAccessor(field, set, syntax)); }
         catch (CompileError)
         {
@@ -1127,6 +1183,15 @@ public sealed partial class ModuleCodeGen
             if (t.GetAttributes().FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == "System.AttributeUsageAttribute") is { } usage)
                 return usage.NamedArguments.FirstOrDefault(n => n.Key == "Inherited").Value.Value as bool? ?? true;
         return true;
+    }
+
+    /// <summary>[AttributeUsage(AllowMultiple = ...)] of an attribute class (false when not stated, as in .NET).</summary>
+    private static bool IsAllowMultipleAttribute(INamedTypeSymbol attribute)
+    {
+        for (var t = attribute; t is not null; t = t.BaseType)
+            if (t.GetAttributes().FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == "System.AttributeUsageAttribute") is { } usage)
+                return usage.NamedArguments.FirstOrDefault(n => n.Key == "AllowMultiple").Value.Value as bool? ?? false;
+        return false;
     }
 
     /// <summary>The method's MethodAttributes: from metadata for IL methods, as Roslyn emits them for source.</summary>
@@ -1535,7 +1600,7 @@ public sealed partial class ModuleCodeGen
     private LLVMTypeRef ParameterRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef MethodRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef DelegateSignatureType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
-    private LLVMTypeRef ReflectionInfoType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.I32);
+    private LLVMTypeRef ReflectionInfoType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef EventRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32);
     private LLVMTypeRef FieldRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef PropertyRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
@@ -1616,7 +1681,8 @@ public sealed partial class ModuleCodeGen
                 entries.Add(Llvm.ConstStruct(Checked(e.Mt, "method table of " + e.Type), ctors, methods, AttributeArray(e.Attributes), properties,
                     Llvm.ConstInt(Llvm.I32, e.Constructors.Count), Llvm.ConstInt(Llvm.I32, e.Methods.Count), Llvm.ConstInt(Llvm.I32, e.Attributes.Count),
                     Llvm.ConstUInt(Llvm.I32, e.Described), Llvm.ConstInt(Llvm.I32, e.Properties.Count), Llvm.ConstInt(Llvm.I32, e.Fields.Count), fields,
-                    events, Llvm.ConstInt(Llvm.I32, e.Events.Count)));
+                    events, Llvm.ConstInt(Llvm.I32, e.Events.Count),
+                    AttributeArray(e.InheritedAttributes ?? []), Llvm.ConstInt(Llvm.I32, e.InheritedAttributes?.Count ?? 0), Llvm.ConstInt(Llvm.I32, e.InheritedAttributes is null ? 0 : 1)));
             }
             Native.LLVMSetInitializer(_reflectionTable, Header(ConstTable("csharpc.reflection.entries", ReflectionInfoType, entries), entries.Count));
         }

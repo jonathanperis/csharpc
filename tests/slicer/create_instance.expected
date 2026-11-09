@@ -1,0 +1,9 @@
+Holder<Int32>
+Holder<String>
+Holder<DateTime>
+Holder<List`1>
+Pair<Int32,Int64>
+Pair<String,Guid>
+Holder`1
+True
+False
