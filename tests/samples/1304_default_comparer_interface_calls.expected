@@ -1,0 +1,10 @@
+default: True False False True same-hash=True null-hash=True
+ignore-case: True True False True same-hash=True null-hash=ArgumentNullException
+counting: True False False True same-hash=True null-hash=True
+counting: equals=4 hashes=3
+True False 7 True True True
+True False 2 True False
+True False True 5 True False 0
+True receiver,left,right
+NullReferenceException after receiver,argument
+3 1 2 True True False
