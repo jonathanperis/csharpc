@@ -325,6 +325,7 @@ public sealed partial class FunctionCodeGen
 
     private void Finish()
     {
+        EraseUnusedCalls();
         // The entry block holds only allocas and parameter spills; jump to the real code.
         _allocas.PositionAtEnd(_entry);
         _allocas.Br(_start);
