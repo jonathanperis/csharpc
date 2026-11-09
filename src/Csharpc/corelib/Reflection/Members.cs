@@ -493,6 +493,9 @@ namespace CsharpcCoreLib
         internal static byte* InfoFields(byte* i) => (byte*)*(nint*)(i + 5 * P + 24);
         internal static byte* InfoEvents(byte* i) => (byte*)*(nint*)(i + 6 * P + 24);
         internal static int InfoEventCount(byte* i) => *(int*)(i + 7 * P + 24);
+        internal static byte* InfoInheritedAttributes(byte* i) => (byte*)*(nint*)(i + 8 * P + 24);
+        internal static int InfoInheritedAttributeCount(byte* i) => *(int*)(i + 9 * P + 24);
+        internal static bool InfoInheritedKnown(byte* i) => *(int*)(i + 9 * P + 28) != 0;
         // csrt_EventRecord
         internal static int EventSize => 7 * P + 16;
         internal static byte* EventName(byte* e) => (byte*)*(nint*)e;
@@ -1201,7 +1204,8 @@ namespace CsharpcCoreLib
         /// </summary>
         private static bool CannotCarry(Type type, Type attributeType)
         {
-            try { return IsCoreLib(type.Assembly) && !IsCoreLib(attributeType.Assembly); }
+            // An array type's attributes are System.Array's, whatever its element type.
+            try { return (type.IsArray || IsCoreLib(type.Assembly)) && !IsCoreLib(attributeType.Assembly); }
             catch (NotSupportedException) { return false; }
         }
 
@@ -1212,6 +1216,9 @@ namespace CsharpcCoreLib
             ArgumentNullException.ThrowIfNull(attributeType);
             if (CannotCarry(type, attributeType)) return CreateAttributes(null, 0, attributeType);
             byte* info = TypeAttributeInfo(type);
+            // inherit: true lists the base classes' inheritable attributes too, which the compiler worked out for the class.
+            if (inherit && info != null && ReflectionRecords.InfoInheritedKnown(info))
+                return CreateAttributes(ReflectionRecords.InfoInheritedAttributes(info), ReflectionRecords.InfoInheritedAttributeCount(info), attributeType);
             CheckInherited(type, inherit);
             return info == null ? CreateAttributes(null, 0, attributeType)
                 : CreateAttributes(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
@@ -1250,6 +1257,7 @@ namespace CsharpcCoreLib
 
         private static bool IsCoreLibType(Type type)
         {
+            if (type.IsArray) return true; // the attributes of an array type are System.Array's
             try { return IsCoreLib(type.Assembly); }
             catch (NotSupportedException) { return false; }
         }
@@ -1262,6 +1270,8 @@ namespace CsharpcCoreLib
             ArgumentNullException.ThrowIfNull(attributeType);
             if (CannotCarry(type, attributeType)) return false;
             byte* info = TypeAttributeInfo(type);
+            if (inherit && info != null && ReflectionRecords.InfoInheritedKnown(info))
+                return IsDefined(ReflectionRecords.InfoInheritedAttributes(info), ReflectionRecords.InfoInheritedAttributeCount(info), attributeType);
             CheckInherited(type, inherit);
             return info != null && IsDefined(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
         }

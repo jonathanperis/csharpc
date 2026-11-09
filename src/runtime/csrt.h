@@ -428,6 +428,9 @@ typedef struct csrt_ReflectionInfo {
     const csrt_FieldRecord* fields;
     const csrt_EventRecord* events;
     uint32_t event_count;
+    const csrt_AttributeRecord* inherited_attributes;  // Type.GetCustomAttributes(inherit: true): own + inherited from the base classes
+    uint32_t inherited_attribute_count;
+    uint32_t inherited_known;                  // 1: the list above is exact (otherwise the query reports the base types' attributes as unknown)
 } csrt_ReflectionInfo;
 typedef struct { int64_t count; const csrt_ReflectionInfo* entries; } csrt_ReflectionTable;
 
