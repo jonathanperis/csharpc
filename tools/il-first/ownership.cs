@@ -288,7 +288,7 @@ static class Rules
         ["System.Runtime.Numerics"] = Above("numerics", "System.Runtime.Numerics (BigInteger): managed upstream", "GENMATH"),
         ["System.Collections"] = Above("collections-asm", "System.Collections (Stack, LinkedList, SortedSet, PriorityQueue, OrderedDictionary...): managed upstream", "EQCMP"),
         ["System.Collections.Concurrent"] = Above("concurrent", "System.Collections.Concurrent: managed upstream over Interlocked/Monitor", "THREAD,EQCMP"),
-        ["System.Collections.NonGeneric"] = Above("collections-asm", "System.Collections.NonGeneric: mixed assembly already (CollectionBase shadow, the rest IL; ADR 0013)", "EQCMP"),
+        ["System.Collections.NonGeneric"] = Above("collections-asm", "System.Collections.NonGeneric: from IL (ADR 0023, #271)", "EQCMP"),
         ["System.ObjectModel"] = Above("collections-asm", "System.ObjectModel (ObservableCollection): managed upstream", "NONE"),
         ["System.ComponentModel"] = Above("componentmodel", "System.ComponentModel: managed upstream", "REFLECT"),
         ["System.ComponentModel.TypeConverter"] = Above("componentmodel", "System.ComponentModel.TypeConverter: managed upstream, reflection-heavy", "REFLECT,APPCTX"),

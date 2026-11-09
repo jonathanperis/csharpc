@@ -55,13 +55,11 @@ public static partial class FrameworkIl
     /// is never lowered, so the native calls in them are not either), and the other types are compiled
     /// from IL. System.Net.Primitives: IPAddress, IPEndPoint and EndPoint are shadows (their IL calls
     /// libSystem.Native's socket-address shims); Cookie, CookieContainer, CredentialCache,
-    /// NetworkCredential, DnsEndPoint and HttpVersion are plain C#. System.Collections.NonGeneric:
-    /// CollectionBase is a shadow (X509CertificateCollection derives from it); SortedList, Queue and
-    /// Stack, which CookieContainer and others use, come from IL. System.Net.NetworkInformation: NetworkInterface and its
+    /// NetworkCredential, DnsEndPoint and HttpVersion are plain C#. System.Net.NetworkInformation: NetworkInterface and its
     /// property types are shadows (getifaddrs / GetAdaptersAddresses in the corelib); PhysicalAddress, NetworkInformationException
     /// and the rest the program may name (a List&lt;PhysicalAddress&gt; in ASP.NET Core) come from IL.
     /// </summary>
-    private static readonly string[] MixedWithShadows = ["System.Net.Primitives", "System.Collections.NonGeneric", "System.ComponentModel.TypeConverter", "System.Net.NetworkInformation"];
+    private static readonly string[] MixedWithShadows = ["System.Net.Primitives", "System.ComponentModel.TypeConverter", "System.Net.NetworkInformation"];
 
     /// <summary>
     /// Mixed assemblies that are taken for the types csharpc doesn't implement only: naming a shadowed type (System.ComponentModel's
@@ -184,6 +182,11 @@ public static partial class FrameworkIl
         // TypeDescriptor.GetConverter(typeof(X)) in the sources: the converters it gives (ResourceConverters) are that assembly's.
         if (identifiers.Contains("GetConverter") && Named("System.ComponentModel") && index.TryGetValue("System.ComponentModel.TypeConverter", out var described) && Unusable(described) is null)
             Add(described, "the program calls TypeDescriptor.GetConverter");
+
+        // The corelib's X509 certificate collections (shadows) derive from the real CollectionBase, as in .NET; whichever TLS or HTTP
+        // code reaches them, the program does not name the base class.
+        if (index.TryGetValue("System.Collections.NonGeneric", out var nonGeneric) && nonGeneric.Ineligible is null && Unusable(nonGeneric) is null)
+            Add(nonGeneric, "the corelib's certificate collections derive from its CollectionBase");
 
         // The corelib's sockets (shadows) take and test types of System.Net.Primitives that are plain IL there
         // (DnsEndPoint, for Socket.Connect(EndPoint)): a program that names System.Net.Sockets needs them, even

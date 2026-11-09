@@ -1,6 +1,6 @@
 // Small library base classes that user code derives from: EventArgs (the event pattern), Attribute
 // (custom attributes; csharpc has no reflection, so they only need to be constructible), and the
-// INotifyPropertyChanged argument types.
+// System.ComponentModel event argument types.
 #nullable disable
 using System;
 using System.ComponentModel;
@@ -30,22 +30,6 @@ namespace CsharpcCoreLib
         public virtual bool IsDefaultAttribute() => false;
 
         public virtual bool Match(object obj) => Equals(obj);
-    }
-
-    [Shadows("System.ComponentModel.PropertyChangedEventArgs")]
-    public class PropertyChangedEventArgsImpl : EventArgs
-    {
-        private readonly string _propertyName;
-        public PropertyChangedEventArgsImpl(string propertyName) { _propertyName = propertyName; }
-        public virtual string PropertyName => _propertyName;
-    }
-
-    [Shadows("System.ComponentModel.PropertyChangingEventArgs")]
-    public class PropertyChangingEventArgsImpl : EventArgs
-    {
-        private readonly string _propertyName;
-        public PropertyChangingEventArgsImpl(string propertyName) { _propertyName = propertyName; }
-        public virtual string PropertyName => _propertyName;
     }
 
     [Shadows("System.ComponentModel.CancelEventArgs")]
