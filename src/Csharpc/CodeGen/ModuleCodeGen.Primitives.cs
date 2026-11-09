@@ -74,6 +74,9 @@ public sealed partial class ModuleCodeGen
         {
             ("IComparable", "CompareTo") when !itf.IsGenericType => true,
             ("IFormattable", "ToString") => true,
+            // ISpanFormattable / IUtf8SpanFormattable (the framework's IL formats a boxed T through them): corelib's BoxedSpanFormattable.
+            ("ISpanFormattable" or "IUtf8SpanFormattable", "TryFormat") => itf.ContainingNamespace?.ToDisplayString() == "System"
+                && primitive.SpecialType != SpecialType.System_Boolean,
             ("IComparable", "CompareTo") or ("IEquatable", "Equals") => itf.IsGenericType && SymbolEqualityComparer.Default.Equals(itf.TypeArguments[0], primitive),
             // IConvertible (System.Data's connection string builders convert boxed values with it): corelib's
             // BoxedConvertible, member for member.
@@ -89,6 +92,12 @@ public sealed partial class ModuleCodeGen
     internal static bool IsBoxedBuiltinValue(ITypeSymbol type) =>
         type.SpecialType is >= SpecialType.System_Boolean and <= SpecialType.System_Double || BclValueTypes.IsTicks(type) || Int128Support.Is128(type);
 
+    /// <summary>corelib's BoxedSpanFormattable.TryFormat for the Span&lt;char&gt; or Span&lt;byte&gt; overload of the interface's member: (object self, args...).</summary>
+    private IMethodSymbol? BoxedSpanFormattableMember(IMethodSymbol member) =>
+        Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".BoxedSpanFormattable")?.GetMembers("TryFormat").OfType<IMethodSymbol>()
+            .SingleOrDefault(m => m.Parameters.Length == member.Parameters.Length + 1 && SymbolEqualityComparer.Default.Equals(
+                ((INamedTypeSymbol)m.Parameters[1].Type).TypeArguments[0], ((INamedTypeSymbol)member.Parameters[0].Type).TypeArguments[0]));
+
     private LLVMValueRef PrimitiveSlot(ITypeSymbol primitive, INamedTypeSymbol itf, IMethodSymbol member)
     {
         switch (itf.Name, member.Name)
@@ -97,6 +106,13 @@ public sealed partial class ModuleCodeGen
             {
                 // BoxedConvertible.M(object self, args...): the box is the slot's receiver, its first argument.
                 var target = BoxedConvertibleMember(member)!;
+                NoteReference(target, virtualCall: false);
+                return GetFunction(target).Fn;
+            }
+            case ("ISpanFormattable" or "IUtf8SpanFormattable", "TryFormat") when PrimitiveSlotSupported(primitive, itf, member):
+            {
+                // BoxedSpanFormattable.TryFormat(object self, args...): the box is the slot's receiver, its first argument.
+                var target = BoxedSpanFormattableMember(member)!;
                 NoteReference(target, virtualCall: false);
                 return GetFunction(target).Fn;
             }

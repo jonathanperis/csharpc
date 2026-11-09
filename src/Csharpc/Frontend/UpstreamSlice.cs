@@ -11,14 +11,31 @@ public static class UpstreamSlice
 {
     private static IReadOnlyList<(string Real, string Slice)>? s_entries;
 
+    private static IReadOnlyDictionary<string, List<string>>? s_members;
+
     /// <summary>The (real type, slice type) pairs, empty unless CSHARPC_UPSTREAM_MAP is set.</summary>
     public static IReadOnlyList<(string Real, string Slice)> Entries => s_entries ??= Read();
+
+    /// <summary>
+    /// Built-in types (System.Char, System.Int32...) -> the slice classes that carry their implementations of interfaces the reference pack does not
+    /// declare (<c>members:System.Char=CsharpcCoreLib.Upstream.System.CharInterfaceMembers</c>, issue #221). CoreLib implements its internal
+    /// static abstract interfaces (IUtfChar&lt;T&gt;, IBinaryIntegerParseAndFormatInfo&lt;T&gt;...) on the primitives; a slice generic over them calls
+    /// these through constrained calls. A class's static method "System.IUtfChar`1.CastFrom" implements <c>IUtfChar&lt;T&gt;.CastFrom</c> for that built-in type.
+    /// </summary>
+    public static IReadOnlyDictionary<string, List<string>> MemberClasses
+    {
+        get
+        {
+            _ = Entries;
+            return s_members!;
+        }
+    }
 
     /// <summary>Whether the slice serves this CoreLib type (a hook that special-cases the shadow's representation must stand down).</summary>
     public static bool Serves(string real) => Entries.Any(e => e.Real == real);
 
     /// <summary>Part of the cache keys that depend on which shadows are mapped.</summary>
-    public static string Key => Entries.Count == 0 ? "" : "upstream:" + string.Join(",", Entries.Select(e => e.Real));
+    public static string Key => Entries.Count == 0 && MemberClasses.Count == 0 ? "" : "upstream:" + string.Join(",", Entries.Select(e => e.Real)) + ";" + string.Join(",", MemberClasses.Keys);
 
     /// <summary>The namespace slice types live under (tools/il-first/slicer --prefix): "CsharpcCoreLib.Upstream.System.Text" is System.Text.</summary>
     public const string Prefix = "CsharpcCoreLib.Upstream";
@@ -29,10 +46,22 @@ public static class UpstreamSlice
     private static List<(string, string)> Read()
     {
         var entries = new List<(string, string)>();
+        var members = new Dictionary<string, List<string>>();
         foreach (var path in (Environment.GetEnvironmentVariable("CSHARPC_UPSTREAM_MAP") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
             foreach (var line in File.ReadAllLines(path))
-                if (line.IndexOf('=') is var eq and > 0)
-                    entries.Add((line[..eq], line[(eq + 1)..]));
+            {
+                if (line.IndexOf('=') is not (var eq and > 0)) continue;
+                if (line.StartsWith(MembersPrefix, StringComparison.Ordinal))
+                {
+                    var real = line[MembersPrefix.Length..eq];
+                    if (!members.TryGetValue(real, out var classes)) members[real] = classes = [];
+                    classes.Add(line[(eq + 1)..]);
+                }
+                else entries.Add((line[..eq], line[(eq + 1)..]));
+            }
+        s_members = members;
         return entries;
     }
+
+    private const string MembersPrefix = "members:";
 }

@@ -19,6 +19,36 @@ if (args.Length > 1 && args[0] == "types")
     foreach (var t in ModuleDefinition.ReadModule(args[1]).GetTypes()) Console.WriteLine($"0x{t.MetadataToken.ToInt32():X8} {t.FullName} ({t.Attributes})");
     return;
 }
+if (args.Length > 0 && args[0] == "internal-interfaces")
+{
+    // internal-interfaces: the CoreLib interfaces the reference pack does not declare that have static abstract/virtual members, with their
+    // implementers among the stop types (primitives): what the compiler must supply for the built-in types (issue #221).
+    var o = Cli.Parse(["--roots", "x"]);
+    var core = ModuleDefinition.ReadModule(o.CoreLib);
+    var publicNames = Directory.GetFiles(o.RefDir, "*.dll").Where(f => !Path.GetFileName(f).StartsWith("Microsoft.")).SelectMany(f =>
+    {
+        try { return ModuleDefinition.ReadModule(f).GetTypes().Where(t => t.IsPublic || t.IsNestedPublic).Select(t => t.FullName).ToList(); } catch { return []; }
+    }).ToHashSet();
+    foreach (var itf in core.GetTypes().Where(t => t.IsInterface && !publicNames.Contains(t.FullName) && t.Methods.Any(m => m.IsStatic && m.IsAbstract)))
+    {
+        var impls = core.GetTypes().Where(t => publicNames.Contains(t.FullName) && t.Interfaces.Any(i => i.InterfaceType.GetElementType().FullName == itf.FullName)).Select(t => t.Name).ToList();
+        Console.WriteLine($"{itf.FullName}: {itf.Methods.Count(m => m.IsStatic && m.IsAbstract)} static abstract; implemented by {impls.Count}: {string.Join(", ", impls)}");
+    }
+    return;
+}
+if (args.Length > 1 && args[0] == "implementers")
+{
+    // implementers <interface name, ! for backtick>: the CoreLib types that implement it, with the methods that implement its members.
+    var core = ModuleDefinition.ReadModule(Cli.Parse(["--roots", "x"]).CoreLib);
+    var itf = args[1].Replace('!', '`');
+    foreach (var t in core.GetTypes().Where(t => t.Interfaces.Any(i => i.InterfaceType.GetElementType().FullName == itf)))
+    {
+        Console.WriteLine($"{t.FullName}: {string.Join(", ", t.Interfaces.Where(i => i.InterfaceType.GetElementType().FullName == itf).Select(i => i.InterfaceType.FullName))}");
+        foreach (var m in t.Methods.Where(m => m.HasOverrides && m.Overrides.Any(o => o.DeclaringType.GetElementType().FullName == itf)))
+            Console.WriteLine($"    {m.Name}  [{string.Join(", ", m.Overrides.Where(o => o.DeclaringType.GetElementType().FullName == itf).Select(o => o.Name))}]");
+    }
+    return;
+}
 if (args.Length > 0 && args[0] == "dump")
 {
     // dump <Type full name, ! for backtick> <method name>: the IL of CoreLib's methods of that name.
@@ -168,7 +198,41 @@ sealed class Slice
         }
         foreach (var t in RootTypes)
             foreach (var m in t.Methods) Enqueue(m);
-        while (_queue.Count > 0) Walk(_queue.Dequeue());
+        do
+        {
+            while (_queue.Count > 0) Walk(_queue.Dequeue());
+        } while (ReachInterfaceImplementations());
+    }
+
+    /// <summary>
+    /// The primitives' implementations of the static abstract members of the slice's interfaces (issue #221): stop type -> its methods.
+    /// IUtfChar&lt;TChar&gt;, IBinaryIntegerParseAndFormatInfo&lt;T&gt; and the like are internal to CoreLib, so the reference pack's char/int/double do
+    /// not implement them, yet the IL is generic over them (`constrained. TChar call IUtfChar&lt;TChar&gt;::CastFrom`). The emitter hosts these
+    /// methods in one static class per stop type, which the compiler consults for a constrained call on that built-in type.
+    /// </summary>
+    public readonly Dictionary<TypeDefinition, List<MethodDefinition>> Hosted = new();
+    Dictionary<string, List<TypeDefinition>> _implementers;
+
+    bool ReachInterfaceImplementations()
+    {
+        _implementers ??= Core.GetTypes().Where(t => !t.IsInterface && !t.HasGenericParameters && t.DeclaringType is null && IsStop(t) && RefTypes.ContainsKey(t.FullName))
+            .SelectMany(t => t.Interfaces.Select(i => (Name: i.InterfaceType.GetElementType().FullName, Type: t)))
+            .GroupBy(x => x.Name).ToDictionary(g => g.Key, g => g.Select(x => x.Type).ToList());
+        var changed = false;
+        foreach (var member in Methods.Where(m => m.IsStatic && m.IsVirtual && m.DeclaringType.IsInterface && Types.Contains(m.DeclaringType)).ToList())
+        {
+            if (!_implementers.TryGetValue(member.DeclaringType.FullName, out var types)) continue;
+            foreach (var stop in types)
+                foreach (var impl in stop.Methods.Where(x => x.IsStatic && x.HasOverrides && x.Overrides.Any(o => SafeResolve(o) == member)))
+                {
+                    if (!Hosted.TryGetValue(stop, out var list)) Hosted[stop] = list = [];
+                    if (list.Contains(impl)) continue;
+                    list.Add(impl);
+                    Enqueue(impl);
+                    changed = true;
+                }
+        }
+        return changed;
     }
 
     void Enqueue(MethodDefinition m)
