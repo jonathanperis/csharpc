@@ -231,6 +231,10 @@ public static partial class FrameworkIl
         return [.. md.AssemblyReferences.Select(h => md.GetString(md.GetAssemblyReference(h).Name))];
     }
 
+    /// <summary>What a query expression calls: it ends with `select` or `group`, and the other clauses are these methods (`from int x in xs` is Cast).</summary>
+    private static readonly string[] QueryMethods =
+        ["Select", "SelectMany", "Where", "OrderBy", "OrderByDescending", "ThenBy", "ThenByDescending", "GroupBy", "Join", "GroupJoin", "Cast"];
+
     /// <summary>Identifiers of the program's sources (and global usings), comments and strings included: a superset of the names it binds to.</summary>
     private static HashSet<string> SourceIdentifiers(FrontendSettings settings)
     {
@@ -253,6 +257,9 @@ public static partial class FrameworkIl
         if (settings.GlobalUsings is { } usings) Scan(usings);
         foreach (var project in settings.Projects)
             if (project.GlobalUsings is { } projectUsings) Scan(projectUsings);
+        // Query expressions name no method: `from x in xs where x > 1 select x` is Where and Select (System.Linq) to the compiler.
+        if (identifiers.Contains("select") || identifiers.Contains("group"))
+            foreach (var method in QueryMethods) identifiers.Add(method);
         return identifiers;
     }
 
