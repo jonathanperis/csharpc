@@ -100,6 +100,16 @@ namespace CsharpcCoreLib
 
         public static string ToBase64String(ReadOnlySpan<byte> bytes, Base64FormattingOptions options) => Base64(bytes, options);
 
+        // Convert.TryToBase64Chars: false (nothing written) when the text does not fit.
+        public static bool TryToBase64Chars(ReadOnlySpan<byte> bytes, Span<char> chars, out int charsWritten, Base64FormattingOptions options = Base64FormattingOptions.None)
+        {
+            string text = Base64(bytes, options);
+            if (text.Length > chars.Length) { charsWritten = 0; return false; }
+            text.AsSpan().CopyTo(chars);
+            charsWritten = text.Length;
+            return true;
+        }
+
         public static int ToBase64CharArray(byte[] inArray, int offsetIn, int length, char[] outArray, int offsetOut) =>
             ToBase64CharArray(inArray, offsetIn, length, outArray, offsetOut, Base64FormattingOptions.None);
 

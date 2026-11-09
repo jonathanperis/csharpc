@@ -28,10 +28,13 @@ public static class NativeAotPack
         // the AppleCryptoNative_* entry points, and GSS.framework behind NetSecurityNative_*. Only in native TLS mode (see MayCall).
         ["libSystem.Security.Cryptography.Native.Apple"] = ["libSystem.Security.Cryptography.Native.Apple.a"],
         ["libSystem.Net.Security.Native"] = ["libSystem.Net.Security.Native.a"],
+        // Linux native TLS (Frontend/NativeTls.cs): .NET's OpenSSL shim, which loads libssl/libcrypto itself on first use (every OpenSSL
+        // entry point is a function pointer it resolves with dlsym), so the executable has no link-time dependency on OpenSSL.
+        ["libSystem.Security.Cryptography.Native.OpenSsl"] = ["libSystem.Security.Cryptography.Native.OpenSsl.a"],
     };
 
     /// <summary>The shims only the opt-in native TLS mode binds: on Linux the same module names belong to the OpenSSL-era IL, which csharpc shadows.</summary>
-    private static readonly string[] s_nativeTlsShims = ["libSystem.Security.Cryptography.Native.Apple", "libSystem.Net.Security.Native"];
+    private static readonly string[] s_nativeTlsShims = ["libSystem.Security.Cryptography.Native.Apple", "libSystem.Net.Security.Native", "libSystem.Security.Cryptography.Native.OpenSsl"];
 
     /// <summary>
     /// Assemblies allowed to bind a shim, where not every caller is known to work: libSystem.Native also
@@ -46,7 +49,9 @@ public static class NativeAotPack
     /// <summary>Whether <paramref name="assembly"/> may be compiled from IL with its calls into <paramref name="shim"/> linked.</summary>
     public static bool MayCall(string assembly, string shim) =>
         Shims.ContainsKey(shim) && (!s_nativeTlsShims.Contains(shim, StringComparer.Ordinal) || NativeTls.On)
-        && (!s_shimCallers.TryGetValue(shim, out var callers) || callers.Contains(assembly, StringComparer.Ordinal));
+        && (!s_shimCallers.TryGetValue(shim, out var callers) || callers.Contains(assembly, StringComparer.Ordinal)
+            // The IL of the native TLS family reads certificate files, the environment and the like through libSystem.Native.
+            || NativeTls.On && NativeTls.Family.Contains(assembly, StringComparer.Ordinal));
 
     /// <summary>Whether the pack's native directory has every archive of <paramref name="shim"/>.</summary>
     public static bool HasShim(string nativeDirectory, string shim) =>

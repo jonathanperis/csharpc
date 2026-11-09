@@ -461,6 +461,13 @@ namespace CsharpcCoreLib
         public static TimeSpan GetTotalPauseDuration() => new TimeSpan(TotalPauseTicks());
         public static int MaxGeneration => 2;
 
+        /// <summary>csharpc's collector has one generation (see JitInfoMembers).</summary>
+        public static int GetGeneration(object obj)
+        {
+            ArgumentNullException.ThrowIfNull(obj);
+            return 0;
+        }
+
         [DllImport("__Internal", EntryPoint = "csrt_gc_collect")] private static extern void FullCollection();
 
         // csharpc's collector has one kind of collection: every overload runs it, after .NET's argument checks.
