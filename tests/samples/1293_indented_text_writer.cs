@@ -9,9 +9,12 @@ using System.Threading.Tasks;
 
 class Program
 {
+    // The writers use "\n" so their text is the same on every OS; the console gets the platform newline, as in every other sample.
+    static void Show(string text) => Console.Write(text.Replace("\n", Environment.NewLine));
+
     static async Task Main()
     {
-        var inner = new StringWriter();
+        var inner = new StringWriter { NewLine = "\n" };
         var w = new IndentedTextWriter(inner);
         Console.WriteLine("default tab string: [" + IndentedTextWriter.DefaultTabString + "]");
         w.WriteLine("namespace N");
@@ -48,31 +51,31 @@ class Program
         Console.WriteLine("indent after negative: " + w.Indent);
         w.WriteLine("}");
         w.Flush();
-        Console.Write(inner.ToString().Replace("\r\n", "\n").Replace(' ', '.'));
+        Show(inner.ToString().Replace(' ', '.'));
 
-        var custom = new StringWriter();
+        var custom = new StringWriter { NewLine = "\n" };
         var t = new IndentedTextWriter(custom, "\t") { Indent = 2 };
         t.NewLine = "|";
         t.WriteLine("first");
         t.Write("second");
         t.Write("third");
         t.WriteLine();
-        Console.WriteLine(custom.ToString().Replace("\t", "<TAB>"));
+        Console.WriteLine(custom.ToString().Replace("\t", "<TAB>"));  // (no "\n" in it: its NewLine is "|")
         Console.WriteLine("newline forwarded: " + (custom.NewLine == "|" ? "yes" : "no"));
         Console.WriteLine("inner is same: " + ReferenceEquals(t.InnerWriter, custom));
         Console.WriteLine("encoding: " + t.Encoding.GetType().Name);
         t.Close();
 
-        var span = new StringWriter();
+        var span = new StringWriter { NewLine = "\n" };
         var s = new IndentedTextWriter(span, "  ");
         s.Indent = 1;
         s.Write("span".AsSpan());
         s.WriteLine(" line".AsSpan());
         s.Write(new StringBuilder("sb"));
         s.WriteLine();
-        Console.WriteLine(span.ToString().Replace("\r\n", "\n").Replace(' ', '.'));
+        Show(span.ToString().Replace(' ', '.') + "\n");
 
-        var asyncOut = new StringWriter();
+        var asyncOut = new StringWriter { NewLine = "\n" };
         var a = new IndentedTextWriter(asyncOut, "--") { Indent = 2 };
         await a.WriteAsync("one ");
         await a.WriteAsync('2');
@@ -83,6 +86,6 @@ class Program
         await a.WriteAsync(new[] { 'a', 'b', 'c' }, 0, 2);
         await a.WriteLineAsync(new StringBuilder("sb"));
         await a.FlushAsync();
-        Console.Write(asyncOut.ToString().Replace("\r\n", "\n"));
+        Show(asyncOut.ToString());
     }
 }
