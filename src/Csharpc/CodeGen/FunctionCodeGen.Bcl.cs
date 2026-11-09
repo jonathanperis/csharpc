@@ -51,6 +51,11 @@ public sealed partial class FunctionCodeGen
             method = concrete.GetMembers(method.Name).OfType<IMethodSymbol>().FirstOrDefault(m => m.IsStatic
                 && m.Parameters.Select(p => p.Type).SequenceEqual(parameterTypes, SymbolEqualityComparer.Default)) ?? method;
         }
+        if (IsVector128Struct(method.ContainingType))
+        {
+            var vectorArguments = operands.Select((o, i) => Coerce(EmitValue(o), TypeOf(o), S(method.Parameters[i].Type))).ToArray();
+            return EmitSimd(method, method.ContainingType.TypeArguments[0], default, vectorArguments, at);
+        }
         if (!BclValueTypes.TryGet(method, out var handler))
             throw CompileError.Unsupported($"operator '{method}'", at);
         if (at is IBinaryOperation { IsLifted: true } lifted) return LiftedLibraryOperator(handler, method, lifted);

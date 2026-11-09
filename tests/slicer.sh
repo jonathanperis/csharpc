@@ -32,7 +32,7 @@ for name in "${SAMPLES[@]}"; do
     echo "FAIL $name: does not compile from the slice"; head -3 "$WORK/$name.log" | cut -c1-300 | sed 's/^/     /'; fail=$((fail + 1)); continue
   fi
   input=/dev/null; [[ -f "$ROOT/tests/samples/$name.stdin" ]] && input="$ROOT/tests/samples/$name.stdin"
-  "$WORK/$name" < "$input" > "$WORK/$name.out" 2> /dev/null; code=$?
+  timeout 60 "$WORK/$name" < "$input" > "$WORK/$name.out" 2> /dev/null; code=$?  # (a hang fails in a minute instead of burning a core)
   expected=0; [[ -f "$ROOT/tests/samples/$name.exitcode" ]] && expected=$(cat "$ROOT/tests/samples/$name.exitcode")
   if cmp -s "$WORK/$name.out" "$ROOT/tests/samples/$name.expected" && [[ $code == "$expected" ]]; then
     echo "PASS $name [$OPT, slice]"; pass=$((pass + 1))
@@ -40,6 +40,16 @@ for name in "${SAMPLES[@]}"; do
     echo "FAIL $name: output differs (exit $code, expected $expected)"; diff "$WORK/$name.out" "$ROOT/tests/samples/$name.expected" | head -5 | sed 's/^/     /'; fail=$((fail + 1))
   fi
 done
+# MemoryExtensions from the framework's IL, on its own (issue #252): its searches (IndexOf, LastIndexOf, Contains, IndexOfAny, SequenceEqual)
+# run on Vector128 where the target has it, and must give the recorded answers of the scalar reference. Alone because its wider surface
+# (SearchValues, Ascii, Vector256 paths) is not served yet when Guid/StringBuilder code reaches it too.
+if "$ROOT/tools/il-first/slicer/slice.sh" "$WORK/memory.dll" System.MemoryExtensions > "$WORK/memory.log" 2>&1 \
+   && CSHARPC_UPSTREAM_MAP="$WORK/memory.map" dotnet "$CSC" "$OPT" -r "$WORK/memory.dll" "$ROOT/tests/samples/1301_span_search_vector_paths.cs" -o "$WORK/s1301" > "$WORK/s1301.log" 2>&1 \
+   && timeout 120 "$WORK/s1301" > "$WORK/s1301.out" 2> /dev/null && cmp -s "$WORK/s1301.out" "$ROOT/tests/samples/1301_span_search_vector_paths.expected"; then
+  echo "PASS 1301_span_search_vector_paths [$OPT, MemoryExtensions slice]"; pass=$((pass + 1))
+else
+  echo "FAIL 1301_span_search_vector_paths from the MemoryExtensions slice"; head -3 "$WORK/memory.log" "$WORK/s1301.log" 2> /dev/null | cut -c1-300 | sed 's/^/     /'; fail=$((fail + 1))
+fi
 # RuntimeTypeHandle.CreateInstanceForAnotherGenericParameter (issue #224). The member is internal to CoreLib and the framework's own callers
 # are behind feature switches csharpc folds (ArraySortHelper<T>) or need reflection it has not got (ComparerHelpers), so the IL library
 # that calls it is written with Cecil (tools/il-first/slicer/Synth.cs). create_instance.expected was recorded on real .NET from the
@@ -47,7 +57,7 @@ done
 SLICER_BIN="${SLICER_BIN:-/tmp/csharpc-slicer}"
 if dotnet "$SLICER_BIN/Slicer.dll" synth-create-instance "$WORK/synth.dll" > "$WORK/synth.log" 2>&1 \
    && env -u CSHARPC_UPSTREAM_MAP dotnet "$CSC" "$OPT" -r "$WORK/synth.dll" "$ROOT/tests/slicer/create_instance.cs" -o "$WORK/create_instance" > "$WORK/create_instance.log" 2>&1 \
-   && "$WORK/create_instance" > "$WORK/create_instance.out" 2> /dev/null && cmp -s "$WORK/create_instance.out" "$ROOT/tests/slicer/create_instance.expected"; then
+   && timeout 60 "$WORK/create_instance" > "$WORK/create_instance.out" 2> /dev/null && cmp -s "$WORK/create_instance.out" "$ROOT/tests/slicer/create_instance.expected"; then
   echo "PASS create_instance [$OPT, IL library]"; pass=$((pass + 1))
 else
   echo "FAIL create_instance"; head -3 "$WORK/synth.log" "$WORK/create_instance.log" 2> /dev/null | cut -c1-300 | sed 's/^/     /'

@@ -111,6 +111,7 @@ public sealed partial class ModuleCodeGen
         Llvm = llvm;
         Module = module;
         Types = new TypeMapper(llvm, target);
+        FunctionCodeGen.Vector128Accelerated = FunctionCodeGen.TargetHasVector128(target.Triple); // folded into the framework's IsHardwareAccelerated tests
         Facts = new MemoryFacts(llvm);
         Types.StructType = ResolveStructType;
         CoreLib = new CoreLib(compilation);

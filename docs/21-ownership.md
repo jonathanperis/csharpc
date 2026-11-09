@@ -322,6 +322,17 @@ hashing helpers), most of it for Dictionary and HashSet.
    `CoreIntrinsics.IsExactClass<ListImpl<T>>`) and `CollectionsMarshal` (in `List.cs`) name `ListImpl`; the Linq fast path
    silently falls back to the slow path once List is the real class, and `CollectionsMarshal.AsSpan(list)` must come from
    the IL too (root it with List) when a program uses it.
+8. **SIMD (#252).** `Vector128<T>` is now a `<16 x i8>` LLVM vector in both front-ends (`FunctionCodeGen.Simd.cs`): construction, loads and
+   stores, comparisons and masks, bitwise and arithmetic operators, shifts, `ConditionalSelect`, `ExtractMostSignificantBits`, element access, the
+   `As*` views, and the `ISimdVector<TSelf,T>` members the framework's generic span code calls on it (`TVector.Equals`, `IndexOfWhereAllBitsSet`...).
+   `Vector128.IsHardwareAccelerated` is true on x86-64 and arm64 (wasm32 keeps the scalar paths); Vector64/256/512, `Vector<T>` and the ISA classes stay
+   false, so the framework's portable Vector128 branch runs. With `MemoryExtensions` taken from the framework IL (`tests/slicer.sh`), 130 518
+   searches of sample 1301 give the recorded answers. Instructions for 5 searches over 200 000 elements, shadow (the runtime's C search) / framework
+   IL on Vector128: `IndexOf` int 2.3 M / 3.8 M, byte 0.24 M / 1.0 M, short 1.0 M / 1.2 M, `IndexOfAny` 0.66 M / 0.72 M, `SequenceEqual` 0.03 M
+   (libc `memcmp`) / 0.44 M, and `LastIndexOf` 15.0 M / 2.2 M (the shadow's is scalar). The runtime's search still wins `IndexOf` and
+   `SequenceEqual` on x86-64 (libc uses 32-byte AVX2; the baseline here is 16 bytes), so those keep their runtime mapping until `MemoryExtensions`
+   is flipped. **`List<T>.IndexOf/Contains` do not reach any of this:** the real `List<T>` calls `Array.IndexOf`, which is the corelib's scalar
+   `ArrayExtras.IndexOf` (the shadow's `List` used its own bitwise search); the 5x regression measured for the List flip is that, not a missing Vector128.
 
 ### Proposed boundary, and the order
 

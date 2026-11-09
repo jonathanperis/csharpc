@@ -143,6 +143,13 @@ sealed class Slice
     public readonly HashSet<FieldDefinition> UsedFields = [];
     public readonly Dictionary<TypeDefinition, SortedSet<string>> Needs = new();                 // stop type -> internal members used
     public readonly Dictionary<TypeDefinition, int> StopUses = new();
+    /// <summary>Every member of a stop type the slice calls (public or not), by type: what the compiler has to serve for it.</summary>
+    public readonly Dictionary<TypeDefinition, SortedSet<string>> UsedMembers = new();
+    void NoteUsed(MethodDefinition m)
+    {
+        if (!UsedMembers.TryGetValue(m.DeclaringType, out var set)) UsedMembers[m.DeclaringType] = set = [];
+        set.Add(Describe(m));
+    }
     public readonly SortedDictionary<string, SortedSet<string>> Externs = new(StringComparer.Ordinal);
     public readonly SortedDictionary<string, int> Opcodes = new(StringComparer.Ordinal);
     readonly Queue<MethodDefinition> _queue = new();
@@ -335,7 +342,7 @@ sealed class Slice
         if (element.DeclaringType is ArrayType) return;
         var def = element as MethodDefinition ?? SafeResolve(element);
         if (def is null || def.Module != Core) return;
-        if (IsStop(def.DeclaringType)) { NoteMember(def); return; }
+        if (IsStop(def.DeclaringType)) { NoteMember(def); NoteUsed(def); return; }
         Enqueue(def);
     }
 
@@ -409,6 +416,13 @@ sealed class Slice
         foreach (var (t, set) in Needs.OrderByDescending(kv => kv.Value.Count).ThenBy(kv => kv.Key.FullName, StringComparer.Ordinal))
         {
             sb.AppendLine($"{t.FullName}\t{set.Count}\t{(ShadowedOrMembers(t) ? "shadowed" : "NOT shadowed")}");
+            foreach (var m in set) sb.AppendLine("    " + m);
+        }
+        sb.AppendLine();
+        sb.AppendLine("## members of stop types the slice calls, by type (every one the compiler must serve)");
+        foreach (var (t, set) in UsedMembers.OrderBy(kv => kv.Key.FullName, StringComparer.Ordinal))
+        {
+            sb.AppendLine($"{t.FullName}\t{set.Count}");
             foreach (var m in set) sb.AppendLine("    " + m);
         }
         sb.AppendLine();
