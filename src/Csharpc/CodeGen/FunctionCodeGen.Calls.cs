@@ -188,6 +188,11 @@ public sealed partial class FunctionCodeGen
             return type.IsFloatingPoint ? LlvmContext.ConstReal(type, one) : L.ConstInt(type, one);
         }
 
+        // IMinMaxValue<T>.MinValue / MaxValue on a primitive number: the type's own constant field (int.MinValue ...).
+        if (target.Name is "get_MinValue" or "get_MaxValue" && parameters.Length == 0 && target.ContainingType.Name == "IMinMaxValue"
+            && concrete.GetMembers(target.Name[4..]).OfType<IFieldSymbol>().FirstOrDefault(f => f is { IsStatic: true, IsConst: true, HasConstantValue: true }) is { } minMax)
+            return Constant(minMax.ConstantValue, concrete, inv);
+
         // IBinaryInteger<T>.ReadBigEndian/ReadLittleEndian(source, isUnsigned) on a primitive integer (explicit
         // interface implementations there): the corelib reads the bytes and checks that the value fits.
         if (target.Name is "ReadBigEndian" or "ReadLittleEndian" && parameters.Length == 2 && parameters[1].SpecialType == SpecialType.System_Boolean

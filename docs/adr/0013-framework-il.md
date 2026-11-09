@@ -43,7 +43,9 @@ can take it as IL; `--framework-il` overrides the choice.**
 2. *Used:* the sources name one of its namespaces (every dot-separated segment appears among the
    identifiers of the program's files and global usings) together with one of that namespace's
    public types, or one of its extension methods when no other framework assembly defines types in
-   the namespace (`list.ToImmutableArray()` counts, `Append` in System.Linq does not); or an assembly
+   the namespace (`list.ToImmutableArray()` counts), or when the assembly is the one named like the namespace
+   (`Select` counts for System.Linq, which every plain collection reaches, though Queryable and Parallel define the
+   name too); or an assembly
    compiled from IL (the program's `-r`/`<Reference>`/package assemblies, or a framework assembly
    chosen this way) references it — transitively, so System.Reflection.Metadata brings
    System.Collections.Immutable along.

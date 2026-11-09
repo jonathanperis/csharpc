@@ -405,13 +405,24 @@ public sealed partial class FunctionCodeGen
             if (IsCheckedFeatureGuard(method)) EmitValue(new IlInvocationOperation(_il!.Syntax, method, null, isVirtual: false, [], null));
             return I4(feature ? 1 : 0) with { Constant = feature ? 1 : 0 };
         }
-        // Vector<T>.Count: framework IL reads it next to its Vector.IsHardwareAccelerated test (false: the
-        // scalar path runs, with the same results). 16 bytes, NativeAOT's default for x64 and arm64.
+        // Vector<T>.Count: framework IL reads it next to its Vector.IsHardwareAccelerated test. 16 bytes, NativeAOT's default
+        // for x64 and arm64 (Vector<T> is Vector128<T> here, FunctionCodeGen.Simd.cs).
         if (method is { Name: "get_Count", Parameters.IsEmpty: true } && receiver is null
             && owner is { Name: "Vector", Arity: 1, ContainingNamespace: { Name: "Numerics", ContainingNamespace.Name: "System" } })
         {
             int count = 16 / Math.Max(1, (int)_m.Types.Target.SizeOf(T.Storage(S(owner.TypeArguments[0]))));
             return I4(count) with { Constant = count };
+        }
+        // Vector<T>.IsSupported: framework IL tests it in the same condition as Vector.IsHardwareAccelerated, and lowering the
+        // method needs the getter to fold. True for the numeric primitives, as in .NET.
+        if (method is { Name: "get_IsSupported", Parameters.IsEmpty: true } && receiver is null
+            && owner is { Name: "Vector", Arity: 1, ContainingNamespace: { Name: "Numerics", ContainingNamespace.Name: "System" } })
+        {
+            bool supported = S(owner.TypeArguments[0]).SpecialType is SpecialType.System_Byte or SpecialType.System_SByte or SpecialType.System_Int16
+                or SpecialType.System_UInt16 or SpecialType.System_Int32 or SpecialType.System_UInt32 or SpecialType.System_Int64
+                or SpecialType.System_UInt64 or SpecialType.System_IntPtr or SpecialType.System_UIntPtr or SpecialType.System_Single
+                or SpecialType.System_Double;
+            return I4(supported ? 1 : 0) with { Constant = supported ? 1 : 0 };
         }
         // `fixed (char* p = s)`: a reference to the first char (the terminator of an empty string), as in .NET;
         // the compiler tests for null before the call.

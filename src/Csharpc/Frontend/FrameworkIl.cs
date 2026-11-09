@@ -161,7 +161,9 @@ public static partial class FrameworkIl
         bool Named(string ns) => ns.Split('.').All(identifiers.Contains);
         var owners = index.Values.SelectMany(a => a.Types.Keys).GroupBy(n => n, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
         // In a namespace several assemblies share (System.Linq), an extension method only one of them defines
-        // still names it: AsParallel is System.Linq.Parallel's, while Select is everybody's.
+        // still names it: AsParallel is System.Linq.Parallel's, while Select is everybody's (System.Linq.Queryable's on
+        // IQueryable, System.Linq.Parallel's on ParallelQuery). A name several define counts for the assembly named like the
+        // namespace, the base one: it is the one every plain collection reaches (Select on an IEnumerable<T> is System.Linq's).
         var methodOwners = index.Values.SelectMany(a => a.Extensions.SelectMany(n => n.Value.Distinct(StringComparer.Ordinal).Select(m => n.Key + "." + m)))
             .GroupBy(m => m, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
         foreach (var a in index.Values.Where(a => a.Ineligible is null).OrderBy(a => a.Name, StringComparer.Ordinal))
@@ -169,7 +171,8 @@ public static partial class FrameworkIl
             var use = a.Types.Where(n => Named(n.Key)).SelectMany(n => n.Value.Where(identifiers.Contains).Select(t => n.Key + "." + t))
                 .Concat(a.Extensions.Where(n => Named(n.Key))
                     .SelectMany(n => n.Value.Where(m => identifiers.Contains(m)
-                            && (owners.GetValueOrDefault(n.Key) == 1 || methodOwners.GetValueOrDefault(n.Key + "." + m) == 1))
+                            && (owners.GetValueOrDefault(n.Key) == 1 || methodOwners.GetValueOrDefault(n.Key + "." + m) == 1
+                                || string.Equals(a.Name, n.Key, StringComparison.OrdinalIgnoreCase)))
                         .Select(m => n.Key + "." + m + "()")))
                 .OrderBy(u => u, StringComparer.Ordinal).FirstOrDefault();
             if (use is null) continue;
