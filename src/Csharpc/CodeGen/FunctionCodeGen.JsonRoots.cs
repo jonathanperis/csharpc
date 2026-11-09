@@ -100,7 +100,14 @@ public sealed partial class FunctionCodeGen
         if (type is IArrayTypeSymbol array) { KeepJsonType(array.ElementType, seen); return; }
         if (type is not INamedTypeSymbol named) return;
         foreach (var argument in named.TypeArguments) KeepJsonType(argument, seen);
-        if (named.SpecialType != SpecialType.None || !_m.IsUserType(S(named))) return;
+        if (named.SpecialType != SpecialType.None || !_m.IsUserType(S(named)))
+        {
+            // A BCL type of the graph (string, DateTime, List<T>...): the resolver asks it for its public constructors. Primitives have
+            // none, and the runtime answers that without a description.
+            if (named.SpecialType is SpecialType.None or SpecialType.System_String or SpecialType.System_Decimal or SpecialType.System_DateTime)
+                _m.MarkDynamicallyAccessed(named, ModuleCodeGen.DamPublicConstructors);
+            return;
+        }
         _m.MarkDynamicallyAccessed(named, ModuleCodeGen.DamConstructors | ModuleCodeGen.DamMethods | ModuleCodeGen.DamProperties | ModuleCodeGen.DamFields | ModuleCodeGen.DamEvents);
         if (named.BaseType is { } baseType) KeepJsonType(baseType, seen);
         foreach (var attribute in named.GetAttributes()) KeepJsonAttributeTypes(attribute, seen);

@@ -911,6 +911,9 @@ namespace CsharpcCoreLib
         internal static ConstructorInfo[] GetConstructors(Type type, BindingFlags flags)
         {
             byte* info = InfoOf(type, "constructors");
+            // Primitives, enums and interfaces have no instance constructors in metadata (IntPtr and UIntPtr do), whether or not the type is described.
+            if (info == null && (flags & BindingFlags.Static) == 0 && (type.IsEnum || type.IsInterface || (type.IsPrimitive && type != typeof(IntPtr) && type != typeof(UIntPtr))))
+                return new ConstructorInfo[0];
             RequireDescribed(info, type, flags, 1, 2, "constructors");
             var list = new List<ConstructorInfo>();
             byte* records = ReflectionRecords.InfoConstructors(info);
@@ -932,6 +935,8 @@ namespace CsharpcCoreLib
             ArgumentNullException.ThrowIfNull(types);
             for (int i = 0; i < types.Length; i++) ArgumentNullException.ThrowIfNull(types[i], "types");
             if (binder != null) throw new NotSupportedException("A custom Binder in GetConstructor is not supported by csharpc yet.");
+            // Arrays (their constructors take the lengths) and string (no default constructor) have no parameterless constructor.
+            if (types.Length == 0 && (type.IsArray || type == typeof(string)) && InfoOf(type, "constructors") == null) return null;
             foreach (var c in GetConstructors(type, flags))
                 if (SameParameterTypes(((RuntimeConstructorInfoImpl)(object)c).ParametersNoCopy, types)) return c;
             return null;
@@ -1190,13 +1195,12 @@ namespace CsharpcCoreLib
         }
 
         /// <summary>
-        /// Whether `type` is a System.Private.CoreLib type that csharpc keeps no attributes for and `attributeType` an attribute
-        /// class from another assembly: CoreLib references no other assembly, so none of its types carries such an attribute and
-        /// the exact answer is "none" (a query for CoreLib's own attribute classes, or for all of them, stays unanswerable).
+        /// Whether `type` is a System.Private.CoreLib type and `attributeType` an attribute class from another assembly: CoreLib
+        /// references no other assembly, so none of its types carries such an attribute and the exact answer is "none", whether or
+        /// not the type is described (a query for CoreLib's own attribute classes, or for all of them, stays unanswerable).
         /// </summary>
         private static bool CannotCarry(Type type, Type attributeType)
         {
-            if (InfoOf(type, "custom attributes") != null) return false;
             try { return IsCoreLib(type.Assembly) && !IsCoreLib(attributeType.Assembly); }
             catch (NotSupportedException) { return false; }
         }
@@ -1229,6 +1233,25 @@ namespace CsharpcCoreLib
                     if (TypeOf(ReflectionRecords.AttributeType(records + i * ReflectionRecords.AttributeSize)).FullName == fullName) return 1;
             }
             return 0;
+        }
+
+        /// <summary>
+        /// Type.GetCustomAttributes(inherit) called from the framework's IL: for a System.Private.CoreLib type whose list csharpc can't
+        /// reproduce, the attributes it does describe (none for a type it doesn't) instead of an error, since the framework asks for
+        /// classes of other assemblies (F# ones), which CoreLib types never carry.
+        /// </summary>
+        public static object[] TypeAttributesAllFramework(Type type, bool inherit)
+        {
+            if (!IsCoreLibType(type)) return GetTypeCustomAttributes(type, typeof(object), inherit);
+            byte* info = InfoOf(type, "custom attributes");
+            if (info == null || ((uint)ReflectionRecords.InfoDescribed(info) & 16) == 0) return CreateAttributes(null, 0, typeof(object));
+            return CreateAttributes(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), typeof(object));
+        }
+
+        private static bool IsCoreLibType(Type type)
+        {
+            try { return IsCoreLib(type.Assembly); }
+            catch (NotSupportedException) { return false; }
         }
 
         public static object[] TypeAttributesAll(Type type, bool inherit) => GetTypeCustomAttributes(type, typeof(object), inherit);
