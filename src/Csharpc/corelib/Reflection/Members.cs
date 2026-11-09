@@ -911,8 +911,8 @@ namespace CsharpcCoreLib
         internal static ConstructorInfo[] GetConstructors(Type type, BindingFlags flags)
         {
             byte* info = InfoOf(type, "constructors");
-            // Primitives and enums have no instance constructors in metadata (IntPtr and UIntPtr do), whether or not the type is described.
-            if (info == null && (flags & BindingFlags.Static) == 0 && (type.IsEnum || (type.IsPrimitive && type != typeof(IntPtr) && type != typeof(UIntPtr))))
+            // Primitives, enums and interfaces have no instance constructors in metadata (IntPtr and UIntPtr do), whether or not the type is described.
+            if (info == null && (flags & BindingFlags.Static) == 0 && (type.IsEnum || type.IsInterface || (type.IsPrimitive && type != typeof(IntPtr) && type != typeof(UIntPtr))))
                 return new ConstructorInfo[0];
             RequireDescribed(info, type, flags, 1, 2, "constructors");
             var list = new List<ConstructorInfo>();
@@ -935,6 +935,8 @@ namespace CsharpcCoreLib
             ArgumentNullException.ThrowIfNull(types);
             for (int i = 0; i < types.Length; i++) ArgumentNullException.ThrowIfNull(types[i], "types");
             if (binder != null) throw new NotSupportedException("A custom Binder in GetConstructor is not supported by csharpc yet.");
+            // Arrays (their constructors take the lengths) and string (no default constructor) have no parameterless constructor.
+            if (types.Length == 0 && (type.IsArray || type == typeof(string)) && InfoOf(type, "constructors") == null) return null;
             foreach (var c in GetConstructors(type, flags))
                 if (SameParameterTypes(((RuntimeConstructorInfoImpl)(object)c).ParametersNoCopy, types)) return c;
             return null;
