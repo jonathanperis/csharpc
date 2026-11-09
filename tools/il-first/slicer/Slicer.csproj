@@ -1,16 +1,20 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <!-- Spike tool for issue #191 part B: cuts the part of System.Private.CoreLib's IL that a listed type needs into a
-       standalone assembly (see Program.cs). Not part of the compiler or the build. Mono.Cecil comes from the ILLink tasks
-       package the SDK restores for trimming / PublishAot (~/.nuget/packages/microsoft.net.illink.tasks/<sdk version>). -->
+  <!-- Cuts the part of System.Private.CoreLib's IL that a list of types needs into a standalone assembly (see Program.cs, docs/21-ownership.md
+       Part B, ADR 0023). src/Csharpc/Csharpc.csproj builds it and runs it after every build of the compiler (the types served from the
+       framework's IL: src/Csharpc/upstream-types.txt); tools/il-first/slicer/slice.sh runs it for experiments. A BUILD-TIME TOOL ONLY:
+       Mono.Cecil comes from the Microsoft.NET.ILLink.Tasks package (the one the SDK restores for trimming and PublishAot; Csharpc.csproj
+       downloads it with a PackageDownload, as it does crossgen2) and is never referenced by the compiler or shipped. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net11.0</TargetFramework>
     <Nullable>disable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <IlLinkVersion>11.0.0-rc.2.26504.105</IlLinkVersion>
-    <NuGetRoot>$(HOME)/.nuget/packages/</NuGetRoot>
+    <!-- The package version is the SDK's bundled .NET version (Csharpc.csproj passes it; the default is the one the repo pins). -->
+    <IlLinkVersion Condition="'$(IlLinkVersion)' == ''">$(BundledNETCoreAppPackageVersion)</IlLinkVersion>
+    <NuGetRoot Condition="'$(NuGetRoot)' == ''">$(NuGetPackageRoot.TrimEnd('\').TrimEnd('/'))</NuGetRoot>
+    <NuGetRoot Condition="'$(NuGetRoot)' == ''">$(HOME)/.nuget/packages</NuGetRoot>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Mono.Cecil" HintPath="$(NuGetRoot)microsoft.net.illink.tasks/$(IlLinkVersion)/tools/net/Mono.Cecil.dll" />
+    <Reference Include="Mono.Cecil" HintPath="$(NuGetRoot)/microsoft.net.illink.tasks/$(IlLinkVersion)/tools/net/Mono.Cecil.dll" />
   </ItemGroup>
 </Project>

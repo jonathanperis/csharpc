@@ -1,11 +1,12 @@
 namespace Csharpc.Frontend;
 
 /// <summary>
-/// Part B spike of issue #191 (mixed-mode CoreLib), opt-in and off by default: <c>CSHARPC_UPSTREAM_MAP=a.map[,b.map]</c> names map files
-/// written by tools/il-first/slicer next to a slice assembly (<c>-r CsharpcUpstreamCore.dll</c>). A line <c>real=slice</c> says that the
-/// System.Private.CoreLib type <c>real</c> (metadata name, nested with '+') is served by the slice's type <c>slice</c>, cut from the
-/// framework's IL, instead of by a corelib shadow; the shadow of that type (and its nested types) is dropped. Everything else of the
-/// corelib stays. See docs/21-ownership.md and the spike report on issue #191.
+/// The System.Private.CoreLib types served from the framework's own IL (ADR 0023, docs/21-ownership.md Part B). The build cuts what the types
+/// listed in src/Csharpc/upstream-types.txt need out of the shared framework's CoreLib (tools/il-first/slicer) into CsharpcUpstream.dll and writes
+/// CsharpcUpstream.map next to it; both ship beside the compiler and every compilation reads the map: a line <c>real=slice</c> says that the
+/// CoreLib type <c>real</c> (metadata name, nested with '+') is served by the slice's type <c>slice</c> instead of by a corelib shadow, which must
+/// not exist. <c>CSHARPC_UPSTREAM_MAP=a.map[,b.map]</c> adds maps of slices cut by tools/il-first/slicer/slice.sh (<c>-r slice.dll</c>) for
+/// measuring a type before it joins the list; the build itself does not use it.
 /// </summary>
 public static class UpstreamSlice
 {
@@ -13,7 +14,13 @@ public static class UpstreamSlice
 
     private static IReadOnlyDictionary<string, List<string>>? s_members;
 
-    /// <summary>The (real type, slice type) pairs, empty unless CSHARPC_UPSTREAM_MAP is set.</summary>
+    /// <summary>The map the build wrote next to the compiler.</summary>
+    private static string ShippedMap => Path.Combine(AppContext.BaseDirectory, "CsharpcUpstream.map");
+
+    /// <summary>The slice assembly of the shipped map (an IL assembly of every compilation), when there is one.</summary>
+    public static IReadOnlyList<string> ShippedAssemblies => File.Exists(ShippedMap) ? [Path.ChangeExtension(ShippedMap, ".dll")] : [];
+
+    /// <summary>The (real type, slice type) pairs of the shipped map and of CSHARPC_UPSTREAM_MAP.</summary>
     public static IReadOnlyList<(string Real, string Slice)> Entries => s_entries ??= Read();
 
     /// <summary>
@@ -47,7 +54,9 @@ public static class UpstreamSlice
     {
         var entries = new List<(string, string)>();
         var members = new Dictionary<string, List<string>>();
-        foreach (var path in (Environment.GetEnvironmentVariable("CSHARPC_UPSTREAM_MAP") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        var maps = (Environment.GetEnvironmentVariable("CSHARPC_UPSTREAM_MAP") ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        if (File.Exists(ShippedMap)) maps.Insert(0, ShippedMap);
+        foreach (var path in maps)
             foreach (var line in File.ReadAllLines(path))
             {
                 if (line.IndexOf('=') is not (var eq and > 0)) continue;
