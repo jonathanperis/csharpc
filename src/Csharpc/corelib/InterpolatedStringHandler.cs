@@ -38,6 +38,14 @@ namespace CsharpcCoreLib
 
         public override string ToString() => Builder.ToString();
 
+        // CoreLib-internal members the framework's StringBuilder IL uses (AppendFormattedWithTempSpace; issue #191 part B).
+        public ReadOnlySpan<char> Text => Builder.ToString().AsSpan();
+
+        public void Clear() => _builder = null;
+
+        public static bool HasCustomFormatter(IFormatProvider provider) =>
+            provider != null && provider.GetType() != typeof(System.Globalization.CultureInfo) && provider.GetFormat(typeof(ICustomFormatter)) != null;
+
         public string ToStringAndClear()
         {
             string result = Builder.ToString();

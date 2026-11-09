@@ -56,7 +56,7 @@ public sealed partial class FunctionCodeGen
             if (special.Kind != IlKind.Token) stack.Push(special); // Token = handled, nothing to push
             return;
         }
-        if (op == ILOpCode.Newobj)
+        if (op == ILOpCode.Newobj && method.MethodKind == MethodKind.Constructor)
         {
             stack.Push(IlNewObject(method, args));
             return;
