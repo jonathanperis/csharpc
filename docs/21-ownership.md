@@ -296,6 +296,15 @@ hashing helpers), most of it for Dictionary and HashSet.
 3. **Default comparers decide Dictionary and HashSet.** Upstream calls `EqualityComparer<TKey>.Default` per probe, which the
    shadows replace by inline `CoreIntrinsics.AreEqual/HashOf`: +40 to 50 % run time and the larger code. Until the IL front-end
    lowers the default-comparer calls like the shadows do (#223), a Dictionary or HashSet flip fails the speed rule.
+   #223 lowers them so (`FunctionCodeGen.DefaultComparers.cs`): `EqualityComparer<T>.Default.Equals/GetHashCode` and
+   `Comparer<T>.Default.Compare` on a closed T are the same inline code as `CoreIntrinsics.AreEqual/HashOf/Compare`, in the IL and
+   the source front-end, and the getter call that made the comparer is erased when nothing else uses it. Two other costs the
+   framework's collections showed came out with it: `typeof(T).IsValueType` kept a dead `csrt_type_from_mt` call (the Type
+   object is now erased when unused, which is most of Dictionary's remaining gap), and `x.GetHashCode()` on a value-type `T`
+   (HashSet) boxed and dispatched virtually (now `HashOf`). Callgrind instruction counts, same program, -O2, shadow / slice before
+   / slice after: Dictionary<int,int> insert 146.4 M / 211.3 M / 151.3 M, lookup 97.4 M / 138.1 M / 93.3 M, remove 167.6 M / 275.8 M
+   / 171.0 M (within 5 %); HashSet<int> add and contains 73.2 M / n/a / 74.6 M; Dictionary<string,int> +21 % and HashSet<string> +31 %
+   remain (the string-comparer family, out of scope of #223). The slice's binary stays about 50 % larger.
 4. **`SR` is a size decision.** The CoreLib resource strings behind the exception messages (1 459 entries) cost 22 KB of
    strings plus the ResourceManager and culture code if embedded: List went from +132 KB to +12 KB by letting each reached
    `SR` getter carry its text as a literal (the slicer does what ILLink's resource substitution does). A real flip needs that
