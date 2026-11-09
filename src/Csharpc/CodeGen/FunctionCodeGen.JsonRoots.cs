@@ -27,12 +27,14 @@ public sealed partial class FunctionCodeGen
         // a program asking for reflection-based serialization.
         if (inv is IlOperation && _m.Il.OwnerOf(_method) is { } caller && caller.Name == inv.TargetMethod.ContainingAssembly?.Name) return;
         if (target.Parameters.Any(JsonReflectionContexts.IsJsonMetadataParameter)) return;
-        if (IlFirst.Assemblies.Contains("System.Text.Json", StringComparer.OrdinalIgnoreCase)) { KeepJsonReflectionRoots(target, inv); return; }
+        // The framework's reflection-based serializer: types that get no reflection metadata (anonymous, file-local) are the same
+        // explicit diagnostics as on the generated-metadata route, then the call's types are kept for reflection.
+        var frameworkSerializer = IlFirst.Assemblies.Contains("System.Text.Json", StringComparer.OrdinalIgnoreCase);
         // Compiled code: the metadata of reflection-based serialization is generated from the C# sources of the
         // call sites (JsonReflectionContexts), which IL doesn't have; without it the call would throw at run time.
         // (Options may carry a source-generated TypeInfoResolver: calls given options are left to run time. With
         // reflection disabled in runtimeconfig.json, .NET throws InvalidOperationException there, as the corelib does.)
-        if (inv is IlOperation && !_m.Il.IsCoreLib(_method) && JsonReflectionByDefault() && !inv.TargetMethod.Parameters.Any(JsonReflectionContexts.IsJsonMetadataParameter)
+        if (!frameworkSerializer && inv is IlOperation && !_m.Il.IsCoreLib(_method) && JsonReflectionByDefault() && !inv.TargetMethod.Parameters.Any(JsonReflectionContexts.IsJsonMetadataParameter)
             && !inv.Arguments.Any(a => a.Parameter?.Type is { Name: "JsonSerializerOptions", ContainingNamespace.Name: "Json" } && a.Value is not IlValueOperation { IsNullLiteral: true }))
         {
             // The program as IL: its synthesized contexts cover the roots found in its bodies; one they don't
@@ -67,6 +69,7 @@ public sealed partial class FunctionCodeGen
             };
             if (named is not null && JsonReflectionContexts.UnsupportedRoot(S(named)) is { } typeWhy) throw CompileError.Unsupported(typeWhy, inv);
         }
+        if (frameworkSerializer) KeepJsonReflectionRoots(target, inv);
     }
 
     /// <summary>

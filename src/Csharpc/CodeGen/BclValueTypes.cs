@@ -55,6 +55,9 @@ internal static partial class BclValueTypes
         const string prefix = "System.Reflection.MemberInfo.";
         var key = Intrinsics.Key(memberInfoMethod.OriginalDefinition);
         if (key.StartsWith(prefix, StringComparison.Ordinal) && s_methods.TryGetValue("System.Type." + key[prefix.Length..], out handler!)) return true;
+        // The same through ICustomAttributeProvider, which a Type is converted to when passed as one.
+        const string providerPrefix = "System.Reflection.ICustomAttributeProvider.";
+        if (key.StartsWith(providerPrefix, StringComparison.Ordinal) && s_methods.TryGetValue("System.Type." + key[providerPrefix.Length..], out handler!)) return true;
         return TryGet(memberInfoMethod, out handler);
     }
 

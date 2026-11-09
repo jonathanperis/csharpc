@@ -1186,6 +1186,7 @@ namespace CsharpcCoreLib
                 // Object / other bases with no attribute table entry have nothing to inherit — don't
                 // demand DynamicallyAccessedMembers metadata for them (Attribute.GetCustomAttributes
                 // defaults to inherit: true; Type.GetCustomAttributes(true) did the same).
+                if (IsCoreLibType(b)) continue; // csharpc keeps no attributes for a CoreLib base
                 byte* info = InfoOf(b, "custom attributes");
                 if (info == null) continue;
                 uint described = (uint)ReflectionRecords.InfoDescribed(info);
@@ -1247,12 +1248,46 @@ namespace CsharpcCoreLib
         /// reproduce, the attributes it does describe (none for a type it doesn't) instead of an error, since the framework asks for
         /// classes of other assemblies (F# ones), which CoreLib types never carry.
         /// </summary>
-        public static object[] TypeAttributesAllFramework(Type type, bool inherit)
+        public static object[] TypeAttributesAllFramework(Type type, bool inherit) => GetTypeCustomAttributesFramework(type, typeof(object), inherit);
+        public static object[] TypeAttributesOfFramework(Type type, Type attributeType, bool inherit) => GetTypeCustomAttributesFramework(type, attributeType, inherit);
+
+        public static bool IsTypeDefinedFramework(Type type, Type attributeType, bool inherit)
         {
-            if (!IsCoreLibType(type)) return GetTypeCustomAttributes(type, typeof(object), inherit);
+            ArgumentNullException.ThrowIfNull(attributeType);
+            if (CannotCarry(type, attributeType)) return false;
             byte* info = InfoOf(type, "custom attributes");
-            if (info == null || ((uint)ReflectionRecords.InfoDescribed(info) & 16) == 0) return CreateAttributes(null, 0, typeof(object));
-            return CreateAttributes(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), typeof(object));
+            if (info == null) return !(type.IsGenericParameter || IsCoreLibType(type) || !IsProgramAssembly(type)) && IsTypeDefined(type, attributeType, inherit);
+            uint described = (uint)ReflectionRecords.InfoDescribed(info);
+            if ((described & 128) != 0 && IsCoreLibType(type))
+                return (described & 16) != 0 && IsDefined(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
+            return IsTypeDefined(type, attributeType, inherit);
+        }
+
+        private static object[] GetTypeCustomAttributesFramework(Type type, Type attributeType, bool inherit)
+        {
+            ArgumentNullException.ThrowIfNull(attributeType);
+            byte* info = InfoOf(type, "custom attributes");
+            // A type nothing describes (a framework type, a generic parameter without attributes): none. A CoreLib type whose list
+            // csharpc cannot reproduce: the part it describes.
+            if (info == null) return type.IsGenericParameter || IsCoreLibType(type) || !IsProgramAssembly(type) ? CreateAttributes(null, 0, attributeType) : GetTypeCustomAttributes(type, attributeType, inherit);
+            uint described = (uint)ReflectionRecords.InfoDescribed(info);
+            if ((described & 128) != 0 && IsCoreLibType(type))
+                return (described & 16) == 0 ? CreateAttributes(null, 0, attributeType)
+                    : CreateAttributes(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
+            return GetTypeCustomAttributes(type, attributeType, inherit);
+        }
+
+        /// <summary>Whether `type` belongs to the program (its sources, or its assembly as IL) rather than to a framework or library assembly.</summary>
+        private static bool IsProgramAssembly(Type type)
+        {
+            try { return !IsFrameworkAssembly(type.Assembly); }
+            catch (NotSupportedException) { return false; }
+        }
+
+        private static bool IsFrameworkAssembly(Assembly assembly)
+        {
+            string name = assembly.FullName;
+            return name.StartsWith("System.", StringComparison.Ordinal) || name.StartsWith("Microsoft.", StringComparison.Ordinal) || name.StartsWith("netstandard,", StringComparison.Ordinal);
         }
 
         private static bool IsCoreLibType(Type type)

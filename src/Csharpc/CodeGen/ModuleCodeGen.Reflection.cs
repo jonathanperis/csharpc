@@ -312,6 +312,11 @@ public sealed partial class ModuleCodeGen
             if (_typeMts[_closedServicesScanned].Type is not INamedTypeSymbol { IsGenericType: true } closedType
                 || closedType.IsDefinition || TypeSubstitution.IsOpen(closedType))
                 continue;
+            if (_nullabilityQueried && _damMarks.TryGetValue(closedType, out var describedKinds))
+            {
+                MarkDynamicallyAccessed(closedType.OriginalDefinition, describedKinds);
+                any = true;
+            }
             if (_damMarks.TryGetValue(closedType.OriginalDefinition, out var definitionKinds))
             {
                 MarkDynamicallyAccessed(closedType, definitionKinds);
@@ -401,6 +406,24 @@ public sealed partial class ModuleCodeGen
             catch (CompileError error) { Errors.Add(error); }
         }
         return any;
+    }
+
+    private bool _nullabilityQueried;
+
+    /// <summary>
+    /// The program uses NullabilityInfoContext, which reads the open generic definition's members (the declared types in terms of its
+    /// type parameters) of every constructed generic type it is asked about: those definitions are described like their instantiations.
+    /// </summary>
+    internal void NoteNullabilityQueried()
+    {
+        if (_nullabilityQueried) return;
+        if (s_traceDam) Console.Error.WriteLine("[csharpc] NullabilityInfoContext is used: open generic definitions are described");
+        _nullabilityQueried = true;
+        _closedServicesScanned = 0;
+        // Open definitions marked before this (typeof(G<>) passed to an annotated Type) were skipped: describe them now.
+        foreach (var marked in _damMarks.Keys)
+            if (marked is INamedTypeSymbol { IsGenericType: true, IsDefinition: true }) _damQueue.Enqueue(marked);
+        ReflectionTable();
     }
 
     private bool _eventsQueried, _replayEvents;
@@ -623,7 +646,7 @@ public sealed partial class ModuleCodeGen
             _reflectionOrder.Add(entry);
         }
         // Open definitions (typeof(Impl<>)) list no members: their instantiations do.
-        if (named.IsDefinition && named.IsGenericType) return;
+        if (named.IsDefinition && named.IsGenericType && !_nullabilityQueried) return;
         uint wanted = ((kinds & DamPublicConstructors) != 0 ? RiPublicConstructors : 0) | ((kinds & DamNonPublicConstructors) != 0 ? RiNonPublicConstructors : 0)
             | ((kinds & DamPublicMethods) != 0 ? RiPublicMethods : 0) | ((kinds & DamNonPublicMethods) != 0 ? RiNonPublicMethods : 0)
             | ((kinds & DamPublicProperties) != 0 ? RiPublicProperties : 0) | ((kinds & DamNonPublicProperties) != 0 ? RiNonPublicProperties : 0)
@@ -1044,6 +1067,12 @@ public sealed partial class ModuleCodeGen
     {
         var name = Mangler.TypeSymbol(field.ContainingType, field.Name + (set ? "$reflectset" : "$reflectget"));
         var type = set ? Llvm.FunctionType(Llvm.Void, Llvm.Ptr, Llvm.Ptr) : Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr);
+        // A field of an open generic type (described for NullabilityInfoContext): there is no code for it to read or write.
+        if (TypeSubstitution.IsOpen(field.ContainingType))
+        {
+            var openMessage = $"{(set ? "Setting" : "Reading")} the field '{field.ToDisplayString()}' of an open generic type through reflection is not possible.";
+            return SyntheticFunction(name, type, (g, _) => g.EmitThrowingFactory(openMessage));
+        }
         try { return SyntheticFunction(name, type, (g, syntax) => g.EmitFieldAccessor(field, set, syntax)); }
         catch (CompileError)
         {

@@ -134,8 +134,14 @@ internal static partial class BclValueTypes
             g.Module.NoteTypeAttributesQueried();
             return g.CallCoreLib("ReflectionRuntime", g.InFrameworkIl ? "TypeAttributesAllFramework" : "TypeAttributesAll", [self, .. a]);
         };
-        t[$"{Type}.GetCustomAttributes(System.Type, bool)"] = typeAttributes("TypeAttributesOf");
-        t[$"{Type}.IsDefined(System.Type, bool)"] = typeAttributes("IsTypeDefined");
+        // The same for the typed queries: the framework's IL asks CoreLib and library types for attribute classes it cannot be sure of.
+        BclHandler frameworkTypeAttributes(string method, string frameworkMethod) => (g, _, self, a, _) =>
+        {
+            g.Module.NoteTypeAttributesQueried();
+            return g.CallCoreLib("ReflectionRuntime", g.InFrameworkIl ? frameworkMethod : method, [self, .. a]);
+        };
+        t[$"{Type}.GetCustomAttributes(System.Type, bool)"] = frameworkTypeAttributes("TypeAttributesOf", "TypeAttributesOfFramework");
+        t[$"{Type}.IsDefined(System.Type, bool)"] = frameworkTypeAttributes("IsTypeDefined", "IsTypeDefinedFramework");
         t[$"{Type}.GetCustomAttributesData()"] = typeAttributes("GetTypeCustomAttributesData");
         t[$"{Type}.MakeGenericType(System.Type[])"] = (g, _, self, a, _) =>
             Rt(g, "csrt_type_make_generic", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));

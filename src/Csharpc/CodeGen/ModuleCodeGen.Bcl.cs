@@ -368,8 +368,18 @@ public sealed partial class ModuleCodeGen
                 or SpecialType.System_IntPtr or SpecialType.System_UIntPtr:
                 return Builtin($"csrt_Boxed_{type.MetadataName}_MT");
         }
+        // A type parameter of a generic type (the declared type of a member of an open definition): the Type object of that parameter.
+        if (type is ITypeParameterSymbol { TypeParameterKind: TypeParameterKind.Type, ContainingSymbol: INamedTypeSymbol parameterOwner } typeParameter)
+        {
+            var chain = ChainArguments(parameterOwner);
+            for (var i = 0; i < chain.Count; i++)
+                if (SymbolEqualityComparer.Default.Equals(chain[i], typeParameter)) return GenericParameterMethodTable(parameterOwner, i);
+        }
         return type switch
         {
+            // T[] in a member of an open generic definition: an identity only, no instances (like the definition's own table).
+            IArrayTypeSymbol array when TypeSubstitution.IsOpen(array.ElementType) =>
+                NameOnlyMethodTable("openarray:" + array.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), ClrName(array), 0, array),
             IArrayTypeSymbol { IsSZArray: true } array => ArrayMethodTable(array.ElementType),
             IArrayTypeSymbol array => MdArrayMethodTable(array),
             IPointerTypeSymbol pointer when !TypeSubstitution.IsOpen(pointer.PointedAtType) =>
