@@ -4,6 +4,9 @@
 # that growth for exactness and speed. Only linux-x86_64 has budgets for them so far; other platforms print the sizes.
 # linq and async use System.Linq (async: results.Sum()) from the framework's own IL since the Linq flip (ADR 0023, #267): linq grew from
 # 164 552 to 249 112 B, async from 156 096 to 156 848 B on linux-x86_64; the other platforms are raised from their CI rounds.
+# List<T> comes from the framework's IL since the flip (ADR 0023, #265): measured on the flip's CI run, linux-x86_64 linq +3.6 %, regex +4.4 %, regexoptions +3.9 %,
+# collections +1.8 %; linux-aarch64 collections 139 264 and linq 166 216, macos-arm64 linq 186 488, wasi-wasm32 collections 151 047 and linq 172 310 B.
+# windows-x86_64: collections 156 160 and linq 182 784 B.
 # Lower a budget when a change makes a program smaller; raising one needs a reason in the commit.
 linux-x86_64 async 161792
 linux-x86_64 collections 145408
@@ -11,34 +14,34 @@ linux-x86_64 exceptions 37888
 linux-x86_64 hello 32768
 linux-x86_64 linq 257024
 linux-x86_64 numbers 133120
-linux-x86_64 regex 815104
-linux-x86_64 regexoptions 1929216
+linux-x86_64 regex 851968
+linux-x86_64 regexoptions 2004992
 linux-x86_64 typeinfo 44032
 linux-aarch64 async 152576
-linux-aarch64 collections 136192
+linux-aarch64 collections 144384
 linux-aarch64 exceptions 37888
 linux-aarch64 hello 32768
-linux-aarch64 linq 160768
+linux-aarch64 linq 171008
 linux-aarch64 numbers 129024
 linux-aarch64 typeinfo 48128
 macos-arm64 async 176128
 macos-arm64 collections 157696
 macos-arm64 exceptions 73728
 macos-arm64 hello 73728
-macos-arm64 linq 175104
+macos-arm64 linq 192512
 macos-arm64 numbers 157696
 macos-arm64 typeinfo 73728
 windows-x86_64 async 163840
-windows-x86_64 collections 155648
+windows-x86_64 collections 161792
 windows-x86_64 exceptions 50176
 windows-x86_64 hello 44032
-windows-x86_64 linq 179200
+windows-x86_64 linq 188416
 windows-x86_64 numbers 146432
 windows-x86_64 typeinfo 57344
 wasi-wasm32 async 151552
-wasi-wasm32 collections 147456
+wasi-wasm32 collections 156672
 wasi-wasm32 exceptions 53248
 wasi-wasm32 hello 52224
-wasi-wasm32 linq 167936
+wasi-wasm32 linq 177152
 wasi-wasm32 numbers 138240
 wasi-wasm32 typeinfo 63488

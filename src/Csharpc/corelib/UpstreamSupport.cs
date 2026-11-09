@@ -41,5 +41,12 @@ namespace CsharpcCoreLib
             var manager = s_strings ??= new ResourceManager("System.Private.CoreLib.Strings", typeof(object).Assembly);
             return manager.GetString(key) ?? key;
         }
+
+        /// <summary>
+        /// SR.GetUsingResourceKeysSwitchValue: AppContext's "System.Resources.UseSystemResourceKeys", false as in the shared framework's runtimeconfig
+        /// and under NativeAOT (ILLink's substitution of CoreLib's SR). Without it SR's static constructor reads the switch through AppContext and
+        /// its dictionaries: about twenty functions in every program that reaches an SR text.
+        /// </summary>
+        public static bool GetUsingResourceKeys() => false;
     }
 }

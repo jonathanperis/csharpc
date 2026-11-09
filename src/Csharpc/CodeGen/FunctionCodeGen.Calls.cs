@@ -46,7 +46,10 @@ public sealed partial class FunctionCodeGen
             throw CompileError.Unsupported("RuntimeHelpers.RunClassConstructor with a handle that is not typeof(X).TypeHandle", inv);
         }
         if (target.IsStatic) CheckJsonSerializerRoots(target, inv);
+        NoteReflectionRoots(target, inv);
         if (TypeObjectMember(inv.TargetMethod, inv.Instance) is { } typeMember) return CallBcl(typeMember, inv.TargetMethod, inv.Instance, inv.Arguments, inv);
+        if (inv is IlOperation && InFrameworkIl && inv.Instance is { } attributeReceiver && FrameworkAttributeQuery(inv.TargetMethod) is { } attributeQuery)
+            return CallCoreLib("ReflectionRuntime", attributeQuery, [EmitValue(attributeReceiver), .. inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(EmitArgumentValue)]);
         if (!_memberInfoDispatch && (inv is IlOperation || IsSimpleAttributeProviderReceiver(inv.Instance)) && inv.Instance is { } memberInfoReceiver && inv.TargetMethod is { IsStatic: false, IsVirtual: true } or { IsStatic: false, IsAbstract: true }
             && IsMemberInfoReference(memberInfoReceiver) && BclValueTypes.TryGetForType(inv.TargetMethod, out var typeOrMemberInfo))
             return EmitTypeOrMemberInfo(inv.TargetMethod, memberInfoReceiver, inv.Arguments, typeOrMemberInfo, inv, () => EmitInvocation(inv));
@@ -465,6 +468,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitObjectCreation(IObjectCreationOperation creation)
     {
+        if (creation.Type is INamedTypeSymbol { IsGenericType: true } createdGeneric && IsProgramMethod(_method)) _m.NoteProgramInstantiation(_subst.Apply(createdGeneric));
         if (creation.Initializer is not null) throw CompileError.Unsupported("object initializer", creation);
         if (creation.Constructor is { } created) NoteDynamicallyAccessedArguments(S(created), creation.Arguments);
         var type = (INamedTypeSymbol)TypeOf(creation)!;
@@ -841,6 +845,9 @@ public sealed partial class FunctionCodeGen
             _ => 0,
         };
         if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds, target.Name is "GetProperty" or "GetMethod" or "GetField" or "GetEvent" ? name : null);
+        // typeof(G<,>).MakeGenericType(...): G is instantiated over the types the program rooted for reflection.
+        if (target.Name == "MakeGenericType" && type is INamedTypeSymbol { IsGenericType: true } open && (open.IsUnboundGenericType || open.IsDefinition))
+            _m.NoteMakeGenericDefinition(open);
     }
 
     /// <summary>Type.GetType(string, ...) or Assembly.GetType(string, ...): a lookup by name.</summary>
@@ -861,6 +868,24 @@ public sealed partial class FunctionCodeGen
         while (instance is IConversionOperation { IsImplicit: true } conversion) instance = conversion.Operand;
         return instance is IParameterReferenceOperation or ILocalReferenceOperation && IsMemberInfoReference(instance)
             && TypeOf(instance) is INamedTypeSymbol { Name: "ICustomAttributeProvider" };
+    }
+
+    /// <summary>
+    /// MemberInfo / ParameterInfo / ICustomAttributeProvider attribute queries called from the framework's own IL: the corelib's
+    /// Framework* entry points (which also take a Type, and answer with what csharpc models where it cannot complete a list).
+    /// </summary>
+    private static string? FrameworkAttributeQuery(IMethodSymbol method)
+    {
+        if (method.IsStatic || method.ContainingType is not { ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } } owner
+            || owner.Name is not ("MemberInfo" or "ParameterInfo" or "ICustomAttributeProvider")) return null;
+        var parameters = method.Parameters;
+        return method.Name switch
+        {
+            "GetCustomAttributes" when parameters is [{ Type.SpecialType: SpecialType.System_Boolean }] => "FrameworkAttributes",
+            "GetCustomAttributes" when parameters is [{ Type.Name: "Type" }, { Type.SpecialType: SpecialType.System_Boolean }] => "FrameworkAttributesOf",
+            "IsDefined" when parameters is [{ Type.Name: "Type" }, { Type.SpecialType: SpecialType.System_Boolean }] => "FrameworkIsDefined",
+            _ => null,
+        };
     }
 
     /// <summary>A receiver typed MemberInfo (not Type): at run time it may be one of csharpc's Type objects, which have no MemberInfo vtable.</summary>
@@ -1025,6 +1050,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitArrayCreation(IArrayCreationOperation creation)
     {
+        if (creation.Type is IArrayTypeSymbol createdArray && IsProgramMethod(_method)) _m.NoteProgramInstantiation(_subst.Apply(createdArray));
         var arrayType = (IArrayTypeSymbol)TypeOf(creation)!;
         if (arrayType.Rank != 1) return EmitMdArrayCreation(creation, arrayType);
         var length = ToIndex(EmitValue(creation.DimensionSizes[0]), TypeOf(creation.DimensionSizes[0])!);
