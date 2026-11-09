@@ -33,6 +33,7 @@ public sealed partial class FunctionCodeGen
         if (TryDefaultComparerCall(inv, target) is { } defaultComparerResult) return defaultComparerResult;
         if (inv.Instance is { } shadowReceiver && _m.CoreLib.MapForReceiver(target, TypeOf(shadowReceiver)) is { } shadowMember) target = shadowMember;
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
+        if (TrySimdCall(inv, target) is { } simd) return simd;
         if (target is { Name: "RunClassConstructor", IsStatic: true, ContainingType: { Name: "RuntimeHelpers", ContainingNamespace.Name: "CompilerServices" } } && inv.Arguments.Length == 1)
         {
             // Static initialization is lazy per type with compile-time triggers (ModuleCodeGen.StaticInit.cs), so only a handle
@@ -920,6 +921,7 @@ public sealed partial class FunctionCodeGen
         var property = S(p.Property);
         if (TypeMapper.IsNullable(property.ContainingType)) return EmitNullableMember(p);
         if (property.ContainingType.IsAnonymousType) return AnonymousPropertyGet(p);
+        if (TrySimdProperty(p, property) is { } simdProperty) return simdProperty;
         // `T.Zero` on a static abstract interface property implemented by a user type.
         if (property is { IsStatic: true, GetMethod: { } staticAbstractGetter } && ResolveStaticInterfaceMember(staticAbstractGetter, p.ConstrainedToType) is { } staticGetter)
             return EmitUserCall(staticGetter, default, true, p.Arguments, isVirtual: false);

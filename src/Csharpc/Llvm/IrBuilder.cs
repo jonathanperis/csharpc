@@ -54,6 +54,11 @@ public sealed class IrBuilder(LlvmContext context) : IDisposable
     public LLVMValueRef Select(LLVMValueRef cond, LLVMValueRef then, LLVMValueRef @else) =>
         LLVMBuildSelect(Ref, cond, then, @else, "");
 
+    // Vectors
+    public LLVMValueRef ExtractElement(LLVMValueRef vector, LLVMValueRef index) => LLVMBuildExtractElement(Ref, vector, index, "");
+    public LLVMValueRef InsertElement(LLVMValueRef vector, LLVMValueRef element, LLVMValueRef index) => LLVMBuildInsertElement(Ref, vector, element, index, "");
+    public LLVMValueRef ShuffleVector(LLVMValueRef v1, LLVMValueRef v2, LLVMValueRef mask) => LLVMBuildShuffleVector(Ref, v1, v2, mask, "");
+
     // Aggregates (structs, Nullable<T>, ValueTuple)
     public LLVMValueRef ExtractValue(LLVMValueRef aggregate, uint index, string name = "") =>
         LLVMBuildExtractValue(Ref, aggregate, index, name);
@@ -68,6 +73,8 @@ public sealed class IrBuilder(LlvmContext context) : IDisposable
     {
         var load = LLVMBuildLoad2(Ref, type, ptr, name);
         if (type.IsInteger && type.IntWidth == 128) LLVMSetAlignment(load, 8);
+        // Vector128<T> (<16 x i8>): objects are 8-aligned, and the framework's vector loops read at any element address.
+        else if (type.Kind == LLVMTypeKind.Vector) LLVMSetAlignment(load, 1);
         return load;
     }
 
@@ -76,6 +83,7 @@ public sealed class IrBuilder(LlvmContext context) : IDisposable
     {
         var store = LLVMBuildStore(Ref, value, ptr);
         if (value.Type is { IsInteger: true, IntWidth: 128 }) LLVMSetAlignment(store, 8);
+        else if (value.Type.Kind == LLVMTypeKind.Vector) LLVMSetAlignment(store, 1);
         return store;
     }
     public LLVMValueRef StructGep(LLVMTypeRef type, LLVMValueRef ptr, uint index, string name = "") =>
