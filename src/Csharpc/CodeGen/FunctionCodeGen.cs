@@ -66,6 +66,9 @@ public sealed partial class FunctionCodeGen
     internal ModuleCodeGen Module => _m;
     /// <summary>The method being lowered (null for synthesized helpers).</summary>
     internal IMethodSymbol? CurrentMethod => _method;
+
+    /// <summary>The method being lowered is the shared framework's own IL (not the program's code).</summary>
+    internal bool InFrameworkIl => _m.Il.OwnerOf(_method) is { IsFramework: true };
     internal IrBuilder Builder => _b;
 
     public FunctionCodeGen(ModuleCodeGen module, IMethodSymbol? method, LoweredFunction fn, ClosureFunction? nested = null,

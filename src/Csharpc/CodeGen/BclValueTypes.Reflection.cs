@@ -125,7 +125,15 @@ internal static partial class BclValueTypes
             g.Module.NoteTypeAttributesQueried();
             return g.CallCoreLib("ReflectionRuntime", method, [self, .. a]);
         };
-        t[$"{Type}.GetCustomAttributes(bool)"] = typeAttributes("TypeAttributesAll");
+        // The untyped list of a System.Private.CoreLib type is one csharpc can't reproduce (the attributes CoreLib adds internally:
+        // [DebuggerTypeProxy], [NonVersionable]...). The program's own code gets that as an explicit error; the framework's IL
+        // (System.Text.Json asks every type for F# attributes) gets the attributes csharpc models: it filters for classes of other
+        // assemblies, which a CoreLib type never carries.
+        t[$"{Type}.GetCustomAttributes(bool)"] = (g, _, self, a, _) =>
+        {
+            g.Module.NoteTypeAttributesQueried();
+            return g.CallCoreLib("ReflectionRuntime", g.InFrameworkIl ? "TypeAttributesAllFramework" : "TypeAttributesAll", [self, .. a]);
+        };
         t[$"{Type}.GetCustomAttributes(System.Type, bool)"] = typeAttributes("TypeAttributesOf");
         t[$"{Type}.IsDefined(System.Type, bool)"] = typeAttributes("IsTypeDefined");
         t[$"{Type}.GetCustomAttributesData()"] = typeAttributes("GetTypeCustomAttributesData");
