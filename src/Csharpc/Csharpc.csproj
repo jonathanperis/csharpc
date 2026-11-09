@@ -212,7 +212,8 @@
     </PropertyGroup>
     <Error Condition="!Exists('$(_CsharpcCoreLibIl)') or !Exists('$(_CsharpcRefDir)')"
            Text="csharpc: the shared framework's System.Private.CoreLib ($(_CsharpcCoreLibIl)) and the reference pack ($(_CsharpcRefDir)) are needed to build CsharpcUpstream.dll, the types served from the framework's IL (src/Csharpc/upstream-types.txt)" />
-    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; build &quot;$(MSBuildThisFileDirectory)../../tools/il-first/slicer/Slicer.csproj&quot; -c Release -o &quot;$(_CsharpcSlicerDir)&quot; -p:NuGetRoot=&quot;$(NuGetPackageRoot)&quot; -p:IlLinkVersion=$(BundledNETCoreAppPackageVersion) --nologo -v:q"
+    <!-- (The package root passed without its trailing separator: on Windows `\&quot;` ends a quoted command-line argument and swallows the quote.) -->
+    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; build &quot;$(MSBuildThisFileDirectory)../../tools/il-first/slicer/Slicer.csproj&quot; -c Release -o &quot;$(_CsharpcSlicerDir)&quot; -p:NuGetRoot=&quot;$(NuGetPackageRoot.TrimEnd('\').TrimEnd('/'))&quot; -p:IlLinkVersion=$(BundledNETCoreAppPackageVersion) --nologo -v:q"
           StandardOutputImportance="low" />
     <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; &quot;$(_CsharpcSlicerDir)Slicer.dll&quot; emit --profile csharpc --roots-file &quot;$(MSBuildThisFileDirectory)upstream-types.txt&quot; --corelib &quot;$(_CsharpcCoreLibIl)&quot; --ref &quot;$(_CsharpcRefDir)&quot; --shadows &quot;$(MSBuildThisFileDirectory)corelib&quot; --name CsharpcUpstream --out &quot;$(OutDir)CsharpcUpstream.dll&quot;"
           StandardOutputImportance="low" />

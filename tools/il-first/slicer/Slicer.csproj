@@ -11,10 +11,10 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- The package version is the SDK's bundled .NET version (Csharpc.csproj passes it; the default is the one the repo pins). -->
     <IlLinkVersion Condition="'$(IlLinkVersion)' == ''">$(BundledNETCoreAppPackageVersion)</IlLinkVersion>
-    <NuGetRoot Condition="'$(NuGetRoot)' == ''">$(NuGetPackageRoot)</NuGetRoot>
-    <NuGetRoot Condition="'$(NuGetRoot)' == ''">$(HOME)/.nuget/packages/</NuGetRoot>
+    <NuGetRoot Condition="'$(NuGetRoot)' == ''">$(NuGetPackageRoot.TrimEnd('\').TrimEnd('/'))</NuGetRoot>
+    <NuGetRoot Condition="'$(NuGetRoot)' == ''">$(HOME)/.nuget/packages</NuGetRoot>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Mono.Cecil" HintPath="$(NuGetRoot)microsoft.net.illink.tasks/$(IlLinkVersion)/tools/net/Mono.Cecil.dll" />
+    <Reference Include="Mono.Cecil" HintPath="$(NuGetRoot)/microsoft.net.illink.tasks/$(IlLinkVersion)/tools/net/Mono.Cecil.dll" />
   </ItemGroup>
 </Project>

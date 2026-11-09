@@ -2,8 +2,9 @@
 # File sizes move in whole pages (segments are page-aligned), so the headroom is at least one page.
 # regex and regexoptions are the framework's own System.Text.RegularExpressions compiled from IL (ADR 0023, #206): the owner accepted
 # that growth for exactness and speed. Only linux-x86_64 has budgets for them so far; other platforms print the sizes.
-# List<T> comes from the framework's IL since the flip (ADR 0023): linq +3.6 % (the OrderBy buffer is a List), regex +4.4 %, regexoptions +3.9 %
-# on linux-x86_64 (the owner accepted about +5 %); the other platforms' linq budgets moved by the same 6 KiB until a CI round measures them.
+# List<T> comes from the framework's IL since the flip (ADR 0023, #265): measured on the flip's CI run, linux-x86_64 linq +3.6 %, regex +4.4 %, regexoptions +3.9 %,
+# collections +1.8 %; linux-aarch64 collections 139 264 and linq 166 216, macos-arm64 linq 186 488, wasi-wasm32 collections 151 047 and linq 172 310 B.
+# windows-x86_64 linq/collections carry the same +6 KiB guess until a CI round measures them.
 # Lower a budget when a change makes a program smaller; raising one needs a reason in the commit.
 linux-x86_64 async 156672
 linux-x86_64 collections 145408
@@ -15,17 +16,17 @@ linux-x86_64 regex 851968
 linux-x86_64 regexoptions 2004992
 linux-x86_64 typeinfo 44032
 linux-aarch64 async 152576
-linux-aarch64 collections 136192
+linux-aarch64 collections 144384
 linux-aarch64 exceptions 37888
 linux-aarch64 hello 32768
-linux-aarch64 linq 166912
+linux-aarch64 linq 171008
 linux-aarch64 numbers 129024
 linux-aarch64 typeinfo 48128
 macos-arm64 async 176128
 macos-arm64 collections 157696
 macos-arm64 exceptions 73728
 macos-arm64 hello 73728
-macos-arm64 linq 181248
+macos-arm64 linq 192512
 macos-arm64 numbers 157696
 macos-arm64 typeinfo 73728
 windows-x86_64 async 163840
@@ -36,9 +37,9 @@ windows-x86_64 linq 185344
 windows-x86_64 numbers 146432
 windows-x86_64 typeinfo 57344
 wasi-wasm32 async 151552
-wasi-wasm32 collections 147456
+wasi-wasm32 collections 156672
 wasi-wasm32 exceptions 53248
 wasi-wasm32 hello 52224
-wasi-wasm32 linq 174080
+wasi-wasm32 linq 177152
 wasi-wasm32 numbers 138240
 wasi-wasm32 typeinfo 63488
