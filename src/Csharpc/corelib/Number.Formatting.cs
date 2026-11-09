@@ -946,7 +946,7 @@ namespace CsharpcCoreLib
 
         private static bool HasNegativeSection(string format) => FindSection(format, 1) != 0;
 
-        private static void FormatCustom(ref CharBuilder sb, ref DigitBuffer g, string format, NumberFormatInfo nfi)
+        private static void FormatCustom(ref CharBuilder sb, ref DigitBuffer g, string format, NumberFormatInfo nfi, bool tiesToEven = false)
         {
             int digitCount, decimalPos, firstDigit, lastDigit;
             bool scientific;
@@ -1017,7 +1017,7 @@ namespace CsharpcCoreLib
                 {
                     g.Exp10 += scaleAdjust;
                     int pos = scientific ? digitCount : g.Exp10 + digitCount - decimalPos;
-                    Round(ref g, pos, false);
+                    Round(ref g, pos, tiesToEven);
                     if (g.N == 0)
                     {
                         int zero = FindSection(format, 2);

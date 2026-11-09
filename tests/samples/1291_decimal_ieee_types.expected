@@ -1,0 +1,186 @@
+constants
+9.999999E+96 -9.999999E+96 1E-101
+9.999999999999999E+384 1E-398
+9.999999999999999999999999999999999E+6144 1E-6176
+2.718282 3.141593 6.283185 3.141592653589793 3.141592653589793238462643383279503 2.718281828459045235360287471352662 6.283185307179586476925286766559006
+1 0 -1 -0 NaN Infinity -Infinity
+32800000
+32800001
+B2800001
+B2800000
+FC000000
+78000000
+F8000000
+77F8967F
+F7F8967F
+00000001
+31C0000000000001 77FB86F26FC0FFFF 0000000000000001 FC00000000000000 7800000000000000
+30400000000000000000000000000001 5FFFED09BEAD87C0378D8E63FFFFFFFF 00000000000000000000000000000001 FC000000000000000000000000000000
+32800001 4.194325E-27 1
+Decimal32 parse
+0                                             ok=True str='0' bin=32800000
+-0                                            ok=True str='-0' bin=B2800000
+1                                             ok=True str='1' bin=32800001
+1.5                                           ok=True str='1.5' bin=3200000F
+1.50                                          ok=True str='1.50' bin=31800096
+100                                           ok=True str='100' bin=32800064
+1E3                                           ok=True str='1E+03' bin=34000001
+1e-3                                          ok=True str='0.001' bin=31000001
+123456789                                     ok=True str='1.234568E+08' bin=3392D688
+1234567                                       ok=True str='1234567' bin=3292D687
+12345678                                      ok=True str='1.234568E+07' bin=3312D688
+0.0000001                                     ok=True str='1E-07' bin=2F000001
+9999999E90                                    ok=True str='9.999999E+96' bin=77F8967F
+9999999E91                                    ok=True str='Infinity' bin=78000000
+1E-101                                        ok=True str='1E-101' bin=00000001
+1E-102                                        ok=True str='0E-101' bin=00000000
+1E-110                                        ok=True str='0E-101' bin=00000000
+NaN                                           ok=True str='NaN' bin=FC000000
+Infinity                                      ok=True str='Infinity' bin=78000000
+-Infinity                                     ok=True str='-Infinity' bin=F8000000
+  7                                           ok=True str='7' bin=32800007
+1,000                                         ok=True str='1000' bin=328003E8
+0.1234567890123                               ok=True str='0.1234568' bin=2F12D688
+1.00000000000000000000000000000000000001      ok=True str='1.000000' bin=2F8F4240
+5E-101                                        ok=True str='5E-101' bin=00000005
+0.5E-100                                      ok=True str='5E-101' bin=00000005
+0.000                                         ok=True str='0.000' bin=31000000
+0E3                                           ok=True str='0E+03' bin=34000000
+-0.00                                         ok=True str='-0.00' bin=B1800000
+ties go to even
+0.12345675 -> 0.1234568
+0.12345665 -> 0.1234566
+0.12345685 -> 0.1234568
+0.123456750000001 -> 0.1234568
+-0.12345675 -> -0.1234568
+1234567.5 -> 1234568
+1234568.5 -> 1234568
+12345675 -> 1.234568E+07
+12345665 -> 1.234566E+07
+standard formats
+G: 1234.560
+G3: 1.23E+03
+F: 1234.56
+F2: 1234.56
+F0: 1235
+E: 1.234560E+003
+E3: 1.235E+003
+N: 1,234.56
+N1: 1,234.6
+P: 123,456.00 %
+R: 1234.560
+e: 1.234560e+003
+g: 1234.560
+f4: 1234.5600
+n: 1,234.56
+0.00: 1234.56
+#,##0.0: 1,234.6
+0.###E+0: 1.235E+3
+D: FormatException
+X: FormatException
+-0 F2 -> '-0.00'
+0.000 F2 -> '0.00'
+0E3 F2 -> '0.00'
+-0.00 F2 -> '-0.00'
+-0 E2 -> '-0.00E+000'
+0.000 E2 -> '0.00E+000'
+0E3 E2 -> '0.00E+000'
+-0.00 E2 -> '-0.00E+000'
+-0 N2 -> '-0.00'
+0.000 N2 -> '0.00'
+0E3 N2 -> '0.00'
+-0.00 N2 -> '-0.00'
+-0 G -> '-0'
+0.000 G -> '0.000'
+0E3 G -> '0E+03'
+-0.00 G -> '-0.00'
+-0 G5 -> '-0'
+0.000 G5 -> '0.000'
+0E3 G5 -> '0E+03'
+-0.00 G5 -> '-0.00'
+-0 F0 -> '-0'
+0.000 F0 -> '0'
+0E3 F0 -> '0'
+-0.00 F0 -> '-0'
+-0 0.00 -> '-0.00'
+0.000 0.00 -> '0.00'
+0E3 0.00 -> '0.00'
+-0.00 0.00 -> '-0.00'
+-0 #,##0.0 -> '-0.0'
+0.000 #,##0.0 -> '0.0'
+0E3 #,##0.0 -> '0.0'
+-0.00 #,##0.0 -> '-0.0'
+-0 0.###E+0 -> '-0E+0'
+0.000 0.###E+0 -> '0E+0'
+0E3 0.###E+0 -> '0E+0'
+-0.00 0.###E+0 -> '-0E+0'
+rounding in formats
+F1: 0.2 0.4 0.2 2.5 0.0 1.2 -1.2 1.3 10.0 100.0
+N1: 0.2 0.4 0.2 2.5 0.0 1.2 -1.2 1.3 10.0 100.0
+E1: 2.5E-001 3.5E-001 1.5E-001 2.5E+000 5.0E-002 1.2E+000 -1.2E+000 1.3E+000 1.0E+001 1.0E+002
+G2: 0.25 0.35 0.15 2.5 0.05 1.2 -1.2 1.3 10 1E+02
+0.0: 0.2 0.4 0.2 2.5 0.0 1.2 -1.2 1.3 10.0 100.0
+#.#: .2 .4 .2 2.5  1.2 -1.2 1.3 10 100
+0.0E+0: 2.5E-1 3.5E-1 1.5E-1 2.5E+0 5.0E-2 1.2E+0 -1.2E+0 1.3E+0 1.0E+1 1.0E+2
+cohorts and comparison
+True True True 0 3200000A 31800064 1.0 1.00
+False True -1 1 True True True
+0 False -1 False True True True True
+NaN -0 0 1.50 -1.50 -1 -1 3
+ArithmeticException: Function does not accept floating point Not-a-Number values.
+ArgumentException: '3' cannot be greater than 1.
+FormatException: The input string 'abc' was not in a correct format.
+ArgumentNullException: Value cannot be null. (Parameter 's')
+FormatException: The input string '1e5' was not in a correct format.
+-1.5
+ArgumentException: The number styles AllowHexSpecifier and AllowBinarySpecifier are not supported on the decimal type. (Parameter 'style')
+truncation and rounding to a power of ten
+2.5: round=2 trunc=2 floor=2 ceil=3 r1=2.5 away=3
+3.5: round=4 trunc=3 floor=3 ceil=4 r1=3.5 away=4
+-2.5: round=-2 trunc=-2 floor=-3 ceil=-2 r1=-2.5 away=-3
+2.4: round=2 trunc=2 floor=2 ceil=3 r1=2.4 away=2
+2.6: round=3 trunc=2 floor=2 ceil=3 r1=2.6 away=3
+1E3: round=1E+03 trunc=1E+03 floor=1E+03 ceil=1E+03 r1=1E+03 away=1E+03
+12.345: round=12 trunc=12 floor=12 ceil=13 r1=12.3 away=12
+0.4: round=0 trunc=0 floor=0 ceil=1 r1=0.4 away=0
+-0.4: round=-0 trunc=-0 floor=-1 ceil=-0 r1=-0.4 away=-0
+conversions from
+-5 4.294967E+09 -9.223372E+18 -9.223372036854776E+18 1.844674407370955E+19 18446744073709551615 -1.701411834604692317316873037158841E+38 3.402823669209384634633746074317682E+38 200 97
+0.1000000 0.1000000000000000 0.1000000000000000055511151231257827 0.100000001490116119384765625 1.000000E+20 1.000000E-20 NaN Infinity Infinity 0.5 0 -0
+1.234568E+07 1.234568E-07 7.922816251426434E+28 79228162514264337593543950335 1E-28 1.50 -0.00
+conversions to
+12 -12 255 10000000000 0.1 0.1 1.50 123456789.1234568 NaN -Infinity 0 2147483647 0 -128
+3.141592653589793 Infinity Infinity 1E-101 1000000000000000000000000000000 100000000000000000000000000000000000000 -170141183460469231731687303715884105728
+OverflowException: Arithmetic operation resulted in an overflow.
+OverflowException: Arithmetic operation resulted in an overflow.
+OverflowException: Arithmetic operation resulted in an overflow.
+OverflowException: Value was either too large or too small for a Decimal.
+OverflowException: Value was either too large or too small for a Decimal.
+OverflowException: Value was either too large or too small for a Decimal.
+widths
+1.5 1.50 1.234568 0.1234567890123457 Infinity NaN
+Decimal64 and Decimal128 text
+Infinity -0E-398 0E+90 0E-101 0.1 1.000000000000000000000000000000000E+40 1.234567890123456789012345678901235E+39 1.234567890123457E+19
+1.5,1.50,1.500
+123,456,789,012,345,678,901,234,567,890.12 -1.23457E+029 ¤1,234.57
+1.234568E+14
+classification
+1E3           int=True even=True odd=False normal=True sub=False finite=True neg=False
+1.5           int=False even=False odd=False normal=True sub=False finite=True neg=False
+4             int=True even=True odd=False normal=True sub=False finite=True neg=False
+3             int=True even=False odd=True normal=True sub=False finite=True neg=False
+0             int=True even=True odd=False normal=False sub=False finite=True neg=False
+-0.0          int=True even=True odd=False normal=False sub=False finite=True neg=True
+10.0          int=True even=True odd=False normal=True sub=False finite=True neg=False
+7.0           int=True even=False odd=True normal=True sub=False finite=True neg=False
+1E-95         int=False even=False odd=False normal=True sub=False finite=True neg=False
+1000000E-101  int=False even=False odd=False normal=True sub=False finite=True neg=False
+999999E-101   int=False even=False odd=False normal=False sub=True finite=True neg=False
+1E-101        int=False even=False odd=False normal=False sub=True finite=True neg=False
+False False True False True False True True
+spans and UTF-8
+False 0
+True 5 123.4
+True 1.5 1,5
+True 1.5 False False 2.50 7
+1.50 1.500       2.75|
