@@ -29,6 +29,11 @@ namespace CsharpcCoreLib
         /// <summary>The manifest module's token (0x00000001), the only module an assembly of csharpc's has.</summary>
         public virtual int MetadataToken => 1;
         public virtual bool IsResource() => false;
+        /// <summary>
+        /// The module's custom attributes: none are modelled (a source program's module carries none of csc's, and
+        /// [NullablePublicOnly], the one NullabilityInfoContext reads, is not kept for IL assemblies yet).
+        /// </summary>
+        public virtual IList<CustomAttributeData> GetCustomAttributesData() => new System.Collections.ObjectModel.ReadOnlyCollection<CustomAttributeData>(new CustomAttributeData[0]);
         public virtual Type[] GetTypes() => Assembly.GetTypes();
 
         public virtual Type GetType(string className) => GetType(className, false, false);

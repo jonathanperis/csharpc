@@ -450,7 +450,7 @@ namespace CsharpcCoreLib
     {
         internal static readonly int P = sizeof(nint);
         // csrt_MethodRecord
-        internal static int MethodSize => 9 * P + 16;
+        internal static int MethodSize => 10 * P + 24;
         internal static nint MethodIdentity(byte* m) => *(nint*)(m + 7 * P + 16);
         internal static nint MethodFunction(byte* m) => *(nint*)(m + 6 * P + 16);
         internal static nint MethodOpenFunction(byte* m) => *(nint*)(m + 8 * P + 16);
@@ -460,6 +460,8 @@ namespace CsharpcCoreLib
         internal static nint MethodInvoke(byte* m) => *(nint*)(m + 3 * P);
         internal static byte* MethodParameters(byte* m) => (byte*)*(nint*)(m + 4 * P);
         internal static byte* MethodAttributes(byte* m) => (byte*)*(nint*)(m + 5 * P);
+        internal static byte* MethodReturnAttributes(byte* m) => (byte*)*(nint*)(m + 9 * P + 16);
+        internal static int MethodReturnAttributeCount(byte* m) => *(int*)(m + 10 * P + 16);
         internal static int MethodParameterCount(byte* m) => *(int*)(m + 6 * P);
         internal static int MethodAttributeCount(byte* m) => *(int*)(m + 6 * P + 4);
         internal static int MethodFlags(byte* m) => *(int*)(m + 6 * P + 8);
@@ -684,7 +686,7 @@ namespace CsharpcCoreLib
         }
 
         public override ParameterInfo ReturnParameter =>
-            _returnParameter ??= new RuntimeParameterInfoImpl(null, this, -1, ReturnType);
+            _returnParameter ??= new RuntimeParameterInfoImpl(null, this, -1, ReturnType, _record);
         public override ICustomAttributeProvider ReturnTypeCustomAttributes => ReturnParameter;
         public override ParameterInfo[] GetParameters()
         {
@@ -743,10 +745,12 @@ namespace CsharpcCoreLib
     internal sealed unsafe class RuntimeParameterInfoImpl : ParameterInfo
     {
         private readonly byte* _record; // null: a return parameter
+        private readonly byte* _methodRecord; // a return parameter: the method's record, which lists its attributes
 
-        internal RuntimeParameterInfoImpl(byte* record, MemberInfo member, int position, Type type)
+        internal RuntimeParameterInfoImpl(byte* record, MemberInfo member, int position, Type type, byte* methodRecord = null)
         {
             _record = record;
+            _methodRecord = methodRecord;
             MemberImpl = member;
             PositionImpl = position;
             ClassImpl = type;
@@ -758,6 +762,9 @@ namespace CsharpcCoreLib
             }
             else AttrsImpl = ParameterAttributes.None;
         }
+
+        /// <summary>A ref, in or out parameter: ParameterType is the element type (csharpc has no Type objects for by-ref types).</summary>
+        internal bool IsByRefParameter => _record != null && (ReflectionRecords.ParameterFlags(_record) & (1 << 17)) != 0;
 
         private bool HasConstant => _record != null && (ReflectionRecords.ParameterFlags(_record) & (1 << 16)) != 0;
 
@@ -784,16 +791,17 @@ namespace CsharpcCoreLib
         }
 
         public override bool IsDefined(Type attributeType, bool inherit) =>
-            _record == null ? base.IsDefined(attributeType, inherit) : ReflectionRuntime.IsDefined(ReflectionRecords.ParameterAttributes(_record), ReflectionRecords.ParameterAttributeCount(_record), attributeType);
+            _record == null ? ReflectionRuntime.IsDefined(ReflectionRecords.MethodReturnAttributes(_methodRecord), ReflectionRecords.MethodReturnAttributeCount(_methodRecord), attributeType)
+                : ReflectionRuntime.IsDefined(ReflectionRecords.ParameterAttributes(_record), ReflectionRecords.ParameterAttributeCount(_record), attributeType);
         public override object[] GetCustomAttributes(bool inherit) => GetCustomAttributes(typeof(object), inherit);
         public override object[] GetCustomAttributes(Type attributeType, bool inherit)
         {
-            if (_record == null) throw new NotSupportedException("The custom attributes of a return parameter are not supported by csharpc yet.");
+            if (_record == null) return ReflectionRuntime.CreateAttributes(ReflectionRecords.MethodReturnAttributes(_methodRecord), ReflectionRecords.MethodReturnAttributeCount(_methodRecord), attributeType);
             return ReflectionRuntime.CreateAttributes(ReflectionRecords.ParameterAttributes(_record), ReflectionRecords.ParameterAttributeCount(_record), attributeType);
         }
         public override IList<CustomAttributeData> GetCustomAttributesData()
         {
-            if (_record == null) throw new NotSupportedException("The custom attributes of a return parameter are not supported by csharpc yet.");
+            if (_record == null) return ReflectionRuntime.AttributeData(ReflectionRecords.MethodReturnAttributes(_methodRecord), ReflectionRecords.MethodReturnAttributeCount(_methodRecord));
             return ReflectionRuntime.AttributeData(ReflectionRecords.ParameterAttributes(_record), ReflectionRecords.ParameterAttributeCount(_record));
         }
     }
