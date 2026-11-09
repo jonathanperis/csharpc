@@ -87,8 +87,13 @@ everything the corelib covers — compile and link exactly as before.
   as IL automatically (the index is rebuilt for every csharpc build).
 - Framework IL that names `System.Private.CoreLib` (rather than the reference facades) binds against an
   in-memory CoreLib facade (`Frontend/CoreLibFacade.cs`) that type-forwards each type to the reference
-  pack or to the corelib shadow; statics the reference pack doesn't declare resolve through the shadow
-  index (`IlAssemblySet.ShadowOf`).
+  pack or to the corelib shadow; members the reference pack doesn't declare resolve through the shadow
+  index (`IlAssembly.ShadowedMember`, issue #220): a static of the type's shadow or of a `[ShadowMembers]`
+  class, an instance method of a (possibly generic) type shadow, a `[ShadowInstance]` static for an instance
+  method (`string.GetRawStringData`), and the internal `Span<T>`/`ReadOnlySpan<T>` `(ref T, int)` constructors
+  as `MemoryMarshal.CreateSpan`/`CreateReadOnlySpan`. These are the contract layer of
+  [21-ownership.md](../21-ownership.md): the internals of the core types that the framework's own CoreLib IL
+  calls, served by the corelib. A member without an implementation stays an explicit CSLLVM0001.
 - *Mixed assemblies* (`FrameworkIl.MixedWithShadows`, 2026-11-05: System.Net.Primitives). An assembly that
   holds some types csharpc implements itself and otherwise plain C# is eligible anyway: every member of a
   shadowed type (IPAddress, IPEndPoint, EndPoint) is the shadow's and its IL is never lowered

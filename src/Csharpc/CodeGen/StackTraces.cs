@@ -778,6 +778,7 @@ public sealed class StackTraceInfo
             outermost = t;
         }
         var ns = md.GetString(md.GetTypeDefinition(outermost).Namespace);
+        ns = Frontend.UpstreamSlice.RealNamespace(ns); // a slice of the framework's IL reports the BCL's names, as a shadow does
         if (ns.Length > 0) sb.Append(ns).Append('.');
         sb.AppendJoin('.', typeNames).Append('.').Append(md.GetString(method.Name));
         var typeParameters = md.GetTypeDefinition(declaring).GetGenericParameters().Select(p => md.GetString(md.GetGenericParameter(p).Name)).ToArray();

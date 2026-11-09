@@ -210,6 +210,13 @@ namespace CsharpcCoreLib
 
         public abstract T[] Rent(int minimumLength);
         public abstract void Return(T[] array, bool clearArray = false);
+
+        /// <summary>CoreLib's internal overload (ValueListBuilder, ValueStringBuilder): clears only the first <paramref name="clearLength"/> elements.</summary>
+        public void Return(T[] array, int clearLength)
+        {
+            if (array != null && clearLength > 0) Array.Clear(array, 0, Math.Min(clearLength, array.Length));
+            Return(array, false);
+        }
     }
 
     internal sealed class SharedArrayPoolImpl<T> : ArrayPool<T>
