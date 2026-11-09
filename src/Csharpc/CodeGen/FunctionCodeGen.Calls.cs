@@ -301,7 +301,8 @@ public sealed partial class FunctionCodeGen
     {
         if (!target.IsStatic || target.ContainingType.TypeKind != TypeKind.Interface || constrainedTo is null) return null;
         var concrete = S(constrainedTo);
-        if (concrete is ITypeParameterSymbol || !_m.IsUserType(concrete)) return null; // primitives: generic-math paths
+        if (concrete is ITypeParameterSymbol) return null;
+        if (!_m.IsUserType(concrete)) return BuiltinStaticInterfaceMember(target, concrete); // primitives: generic-math paths, or an IL interface they implement inside CoreLib
         var implementation = concrete.FindImplementationForInterfaceMember(target) as IMethodSymbol;
         // A member whose own type arguments are set (`IAdapter.WaitAsync<int>`) is not found by Roslyn from the constructed symbol on every
         // path (sample 1272): ask for the generic definition within the same containing type (keeping a nested type's arguments).
