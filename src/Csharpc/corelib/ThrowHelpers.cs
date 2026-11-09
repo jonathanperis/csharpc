@@ -12,6 +12,10 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.ArgumentNullException")]
     internal static class ArgumentNullExceptionExtras
     {
+        /// <summary>CoreLib's internal ArgumentNullException.Throw(string), called by the framework's own IL (issue #191 part B).</summary>
+        public static void Throw(string paramName) =>
+            throw CoreIntrinsics.LibraryFrames(new ArgumentNullException(paramName), "System.ArgumentNullException.Throw(String paramName)");
+
         public static void ThrowIfNull(object argument, string paramName)
         {
             if (argument == null)

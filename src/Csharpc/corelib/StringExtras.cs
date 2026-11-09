@@ -26,6 +26,17 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.String")]
     internal static class StringExtras
     {
+        // The internal members of System.String that the framework's own CoreLib IL calls (docs/21-ownership.md, issue #191 part B);
+        // the IL front-end resolves them here because the reference pack does not declare them (IlAssembly.ShadowedMember).
+        [ShadowInstance]
+        public static ref char GetRawStringData(string s) => ref System.Runtime.CompilerServices.Unsafe.AsRef(in System.Runtime.InteropServices.MemoryMarshal.GetReference(s.AsSpan()));
+
+        [ShadowInstance]
+        public static ref byte GetRawStringDataAsUInt8(string s) => ref System.Runtime.CompilerServices.Unsafe.As<char, byte>(ref System.Runtime.CompilerServices.Unsafe.AsRef(in System.Runtime.InteropServices.MemoryMarshal.GetReference(s.AsSpan())));
+
+        /// <summary>A string of <paramref name="length"/> chars whose contents are not initialized (the caller fills them before the string escapes).</summary>
+        public static string FastAllocateString(nint length) => CoreIntrinsics.FastAllocateString((int)length);
+
         /// <summary>The hash string.GetHashCode() gives the same characters.</summary>
         public static int GetHashCode(ReadOnlySpan<char> value) => new string(value).GetHashCode();
 

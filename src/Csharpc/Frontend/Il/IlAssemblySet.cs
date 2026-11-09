@@ -500,6 +500,8 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         var header = Reader.GetBlobReader(reference.Signature).ReadSignatureHeader();
         if (header.CallingConvention == SignatureCallingConvention.VarArgs) throw new IlException($"vararg method '{owner}.{name}'");
         var arity = header.IsGeneric ? PeekGenericArity(blobReader) : 0;
+        // Before the search below, which would decode the (ref T, int) signature in the context of a base type that has no !0.
+        if (name == ".ctor" && definition.MetadataName is "Span`1" or "ReadOnlySpan`1" && ShadowedMember(owner, definition, reference, name, arity, header) is { } spanCreate) return spanCreate;
         for (INamedTypeSymbol? t = definition; t is not null; t = t.BaseType?.OriginalDefinition)
         {
             var typeContext = new IlGenericContext(IlGenericContext.TypeParametersOf(t), []);
@@ -510,28 +512,51 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                 if (Matches(candidate, signature)) return OnConstructed(owner, candidate);
             }
         }
-        // A static member of System.Private.CoreLib the reference pack doesn't have (Debug.SetProvider,
-        // which System.Diagnostics.TraceSource calls): the corelib shadow that implements it.
-        if (!header.IsInstance && definition.TypeParameters.IsEmpty && ShadowOf(definition) is { } shadow)
-        {
-            var shadowContext = new IlGenericContext([], []);
-            foreach (var candidate in shadow.GetMembers(name).OfType<IMethodSymbol>())
-            {
-                if (candidate.Arity != arity || !candidate.IsStatic) continue;
-                var signature = reference.DecodeMethodSignature(this, shadowContext with { MethodParameters = [.. candidate.TypeParameters] });
-                if (Matches(candidate, signature)) return candidate;
-            }
-        }
+        // A member of System.Private.CoreLib the reference pack doesn't have (Debug.SetProvider, which System.Diagnostics.TraceSource
+        // calls; string.GetRawStringData and the other internals the framework's own CoreLib IL calls): the corelib shadow that implements it.
+        if (ShadowedMember(owner, definition, reference, name, arity, header) is { } shadowed) return shadowed;
         throw new IlException($"method '{owner}.{name}' with the referenced signature not found");
     }
 
-    /// <summary>The corelib class shadowing a (non-generic) library type, from the corelib's shadow index.</summary>
-    private INamedTypeSymbol? ShadowOf(INamedTypeSymbol type)
+    /// <summary>
+    /// The corelib's implementation of a CoreLib-internal method the reference pack lacks: a static of the type's shadow or of a
+    /// [ShadowMembers] class for it; an instance method of a (possibly generic) type shadow; or, for an instance method, a
+    /// [ShadowInstance] static taking the receiver first. The IL call then targets that member directly, as for a static.
+    /// </summary>
+    private IMethodSymbol? ShadowedMember(INamedTypeSymbol owner, INamedTypeSymbol definition, MemberReference reference, string name, int arity, SignatureHeader header)
     {
-        if (CoreLibAssembly.Current is not { } corelib || type.ContainingType is not null) return null;
-        var full = type.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + type.MetadataName : type.MetadataName;
-        foreach (var shadow in corelib.Shadows)
-            if (shadow.Real == full && Compilation.GetTypeByMetadataName(shadow.Shadow) is { } found) return found;
+        // new Span<T>(ref T, int) / new ReadOnlySpan<T>(ref readonly T, int): CoreLib's internal constructors, which csharpc's span structs
+        // don't declare; MemoryMarshal.CreateSpan / CreateReadOnlySpan build the same value (the call site treats the result as the new object).
+        if (name == ".ctor" && header.IsInstance && definition.MetadataName is "Span`1" or "ReadOnlySpan`1" && definition.ContainingNamespace.ToDisplayString() == "System")
+        {
+            var spanSignature = reference.DecodeMethodSignature(this, new IlGenericContext(IlGenericContext.TypeParametersOf(definition), []));
+            if (spanSignature.ParameterTypes is [{ IsByRef: true }, { Type.SpecialType: SpecialType.System_Int32 }]
+                && Compilation.GetTypeByMetadataName("System.Runtime.InteropServices.MemoryMarshal") is { } marshal
+                && marshal.GetMembers(definition.Name == "Span" ? "CreateSpan" : "CreateReadOnlySpan").OfType<IMethodSymbol>()
+                    .FirstOrDefault(m => m.Arity == 1 && m.Parameters.Length == 2) is { } create)
+                return create.Construct(owner.TypeArguments[0]);
+        }
+        if (CoreLibAssembly.Current is not { } corelib || definition.ContainingType is not null) return null;
+        var full = definition.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + definition.MetadataName : definition.MetadataName;
+        foreach (var declaration in corelib.Shadows)
+        {
+            if (declaration.Real != full || Compilation.GetTypeByMetadataName(declaration.Shadow) is not { } container) continue;
+            var typeContext = new IlGenericContext(IlGenericContext.TypeParametersOf(container), []);
+            foreach (var candidate in container.GetMembers(name).OfType<IMethodSymbol>())
+            {
+                if (candidate.Arity != arity) continue;
+                var signature = reference.DecodeMethodSignature(this, typeContext with { MethodParameters = [.. candidate.TypeParameters] });
+                if (!header.IsInstance && candidate.IsStatic && Matches(candidate, signature))
+                    return container.IsGenericType && owner.IsGenericType ? (IMethodSymbol)OnConstructed(container.Construct([.. owner.TypeArguments]), candidate) : candidate;
+                if (header.IsInstance && !declaration.MembersOnly && !candidate.IsStatic && Matches(candidate, signature))
+                    return container.IsGenericType && owner.IsGenericType ? (IMethodSymbol)OnConstructed(container.Construct([.. owner.TypeArguments]), candidate) : candidate;
+                // [ShadowInstance] static R Name(T @this, P1 p1, ...) stands for the instance method T.Name(P1, ...).
+                if (header.IsInstance && candidate.IsStatic && declaration.MembersOnly && candidate.Parameters.Length == signature.ParameterTypes.Length + 1
+                    && CodeGen.CoreLib.IsInstanceShadow(candidate) && SameType(candidate.Parameters[0].Type, definition)
+                    && Matches(candidate, signature, skipFirst: true))
+                    return candidate;
+            }
+        }
         return null;
     }
 
@@ -541,12 +566,13 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         return blob.ReadCompressedInteger();
     }
 
-    private static bool Matches(IMethodSymbol candidate, MethodSignature<IlType> signature)
+    private static bool Matches(IMethodSymbol candidate, MethodSignature<IlType> signature, bool skipFirst = false)
     {
-        if (candidate.Parameters.Length != signature.ParameterTypes.Length) return false;
+        var offset = skipFirst ? 1 : 0;
+        if (candidate.Parameters.Length - offset != signature.ParameterTypes.Length) return false;
         for (var i = 0; i < signature.ParameterTypes.Length; i++)
         {
-            var p = candidate.Parameters[i];
+            var p = candidate.Parameters[i + offset];
             var s = signature.ParameterTypes[i];
             if ((p.RefKind != RefKind.None) != s.IsByRef || !SameType(p.Type, s.Type)) return false;
         }
