@@ -236,6 +236,85 @@ changed class by more than a family); **medium** for the verdicts of unread file
 hypotheses from the code's own headers and from what the CoreCLR CoreLib calls, to be replaced by measurements as
 each library goes through the A/B (Part B does this for collections, StringBuilder, number formatting and Guid).
 
+## Part B: the mixed-mode CoreLib spike (issue #191)
+
+Under boundary A of [ADR 0024](adr/0024-runtime-boundary.md) (our C runtime plus the contract layer, upstream above), can a
+type of System.Private.CoreLib drop its shadow and compile from the framework's IL while the rest of the corelib stays?
+The spike answers it for List, Dictionary, HashSet, StringBuilder, Guid and number formatting, without changing a default.
+
+### Mechanism
+
+- **The slicer** (`tools/il-first/slicer`, Mono.Cecil from the ILLink tasks package the SDK restores) reads the shared
+  framework's `System.Private.CoreLib.dll` and cuts, from the root types, the methods they reach (calls, field accesses, type
+  tokens, base types, interfaces, the virtual methods of every used type). A type the reference pack declares publicly is a
+  *stop type*: references to it stay references to the reference-pack assembly, which csharpc serves from its shadows and
+  intrinsics, so the slice binds like any framework IL assembly (ADR 0013). Every other CoreLib type reached joins the slice,
+  under `CsharpcCoreLib.Upstream.*` so it never collides with the reference pack's names. What the slice calls on a stop type
+  that the reference pack does not declare is the **contract**; the extern methods it reaches (FCalls, QCalls, P/Invokes)
+  are counted too (none for these six types).
+- **The compiler hook** (`CSHARPC_UPSTREAM_MAP=<slice>.map`, `Frontend/UpstreamSlice.cs`, off by default): the shadows of the
+  listed types and their nested types are dropped and the real types map to the slice's, as they map to a shadow. Stack traces
+  print the BCL names. Members the reference pack lacks resolve through the corelib's shadows (PR #222, issue #220).
+- Reproduce: `tools/il-first/slicer/slice.sh out.dll 'System.Collections.Generic.List!1'`, then
+  `tools/il-first/slicer/compare.sh program.cs out.dll` (shadow and slice builds: size, compile CPU, run CPU, output equality).
+
+### Per type (Linux x86-64, -O2, stripped; CPU times on a shared 4-core VPS under load, so sizes are exact and times are not)
+
+| Type | Slice (types / methods / IL bytes) | Contract members (static) | Samples from the slice | Binary, shadow to slice | Run (CPU, best of 7 to 9) | Lines deletable | Verdict |
+|---|---|---:|---|---|---|---:|---|
+| `List<T>` | 9 / 209 / 7.6 KB | 1 | 14 of 14 | 136.6 to 148.9 KB (+9 %) | 203 to 200 ms (=) | 556 (+ the Linq span fast path) | **go** |
+| `HashSet<T>` | 15 / 205 / 10.5 KB | 3 | 9 of 9 | 136.0 to 156.0 KB (+15 %) | 483 to 504 ms (+4 %, median +14 %) | 450 | **partial**: needs #223 |
+| `Dictionary<K,V>` | 21 / 283 / 13.2 KB | 3 | 14 of 14 | 125.5 to 179.6 KB (+43 %), string keys 129.7 to 203.6 KB (+57 %) | int keys 306 to 462 ms (+50 %), string keys 208 to 290 ms (+40 %) | 915 | **no-go until #223** |
+| `StringBuilder` | 10 / 289 / 14.4 KB | 16 | 1 of 4 | 134.7 to 135.5 KB (+0.6 %) | 470 to 402 ms (= within noise) | 1 497 + about 100 of compiler hooks | **partial**: plain API yes; interpolation and `AppendFormat` need #221 |
+| `Guid` | 14 / 134 / 12.6 KB | 7 | blocked | n/a | n/a | 1 068 | **blocked** by #221 |
+| `System.Number` (formatting, parsing) | 58 / 672 / 89.6 KB | 33 | blocked | n/a | n/a | about 3 500 | **blocked** by #221 and by the culture cluster |
+
+Compile CPU (the slice build against the shadow build, same program) rose from 10.6 to 15.2 s (List), 6.1 to 7.9 s (StringBuilder),
+8.5 to 22.9 s (Dictionary) and 9.7 to 18.4 s (HashSet): the real IL is more code to lower (SR, ThrowHelper, the comparer and
+hashing helpers), most of it for Dictionary and HashSet.
+
+### What it found
+
+1. **The contract is small, and it is the internals of a handful of types.** List needs one member beyond the public surface;
+   Dictionary and HashSet three; StringBuilder sixteen (String 2, CompositeFormat 4, Buffer, ArrayPool, MemoryExtensions,
+   ArgumentNullException, Enum, DefaultInterpolatedStringHandler, Rune, the internal `Span<T>` constructors). PR #222 adds the
+   ones the six types call (12 members in the corelib) and the mechanism that resolves them. Number formatting is the exception:
+   33 members, 19 of them `NumberFormatInfo` internals, i.e. the culture cluster (CultureInfo, CultureData, ICU) comes with it.
+2. **Unsupported IL constructs: none of the IL opcodes.** `localloc` (54 sites in Number, 1 to 7 elsewhere) and the
+   `ref`-returning accessors lower. What stopped the slices were member resolution (fixed in #222), two missing
+   capabilities of the primitives (#221: CoreLib-internal static abstract interfaces such as `IUtfChar<T>`, and interface
+   dispatch on built-in types for `ISpanFormattable`/`IFormattable`), and the default comparers (#223).
+3. **Default comparers decide Dictionary and HashSet.** Upstream calls `EqualityComparer<TKey>.Default` per probe, which the
+   shadows replace by inline `CoreIntrinsics.AreEqual/HashOf`: +40 to 50 % run time and the larger code. Until the IL front-end
+   lowers the default-comparer calls like the shadows do (#223), a Dictionary or HashSet flip fails the speed rule.
+4. **`SR` is a size decision.** The CoreLib resource strings behind the exception messages (1 459 entries) cost 22 KB of
+   strings plus the ResourceManager and culture code if embedded: List went from +132 KB to +12 KB by letting each reached
+   `SR` getter carry its text as a literal (the slicer does what ILLink's resource substitution does). A real flip needs that
+   step in the IL front-end, not a slicer.
+5. **Reflection-based generic instantiation is the other hard dependency.** `List<T>.Sort` reaches
+   `ArraySortHelper<T>.CreateArraySortHelper`, which creates its helper with
+   `RuntimeTypeHandle.CreateInstanceForAnotherGenericParameter`; the spike redirects the helper to a corelib type (a copy of the
+   span) and #224 asks for the compile-time intrinsic NativeAOT has.
+6. **Deleting a shadow can mean deleting compiler hooks.** StringBuilder's interpolation handler and
+   `DefaultInterpolatedStringHandler` are represented by the shadow `StringBuilder` in `TypeMapper` and
+   `FunctionCodeGen.Tuples.cs`/`Calls.cs` (about 120 lines); with the real struct those paths must go, and they produced
+   silent empty output when left in place (`sb.Append($"...")` appended nothing): the spike disables them when the slice serves
+   StringBuilder.
+7. **Other code leans on the shadows' layout.** Only `LinqSpans.cs` (the `List<T>` span fast path, through
+   `CoreIntrinsics.IsExactClass<ListImpl<T>>`) and `CollectionsMarshal` (in `List.cs`) name `ListImpl`; the Linq fast path
+   silently falls back to the slow path once List is the real class, and `CollectionsMarshal.AsSpan(list)` must come from
+   the IL too (root it with List) when a program uses it.
+
+### Proposed boundary, and the order
+
+The numbers support boundary A for collections and text, with the contract growing by the internals listed above (12 members so
+far, plus the spike's own shims) and no change to the runtime. Order: **List** first (go; flip PR deletes `ListImpl`, its enumerator object and the Linq
+hook), then the primitives' interface work (#221) and the default comparers (#223) which unblock **HashSet**, **StringBuilder**,
+**Dictionary**, **Guid**, then number formatting together with the culture cluster. Per #187's rule each flip PR deletes its
+shadow and reports the lines removed; none is part of this spike. If the owner would rather not keep the contract members in the
+corelib, the alternative is member-level mixed mode for String and Array (their internals are the bulk of the contract), which
+`IsShadowedIlType` does not support yet.
+
 ## Legend of the blocker codes
 
 LAYOUT, EQCMP, SIMD, ICU, SYSNATIVE, OPENSSL, THREAD, TASK, REFLECT, EXC, GC, GENMATH, SRCGEN, NEWTYPES, EVENTPIPE,
