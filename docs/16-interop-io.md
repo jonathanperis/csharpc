@@ -76,6 +76,16 @@ generic delegate types are a `NotSupportedException` / `ArgumentException`. A po
   `Aes.Create()` over CNG and `File.SetLastWriteTimeUtc`) therefore work on every platform with a NativeAOT runtime
   pack (samples 537, 540, 1005, 1211; not on WebAssembly).
 
+  The pack ships more shims than are linked by default (ADR 0022, "Linux over the pack's shims"; the full inventory is in
+  issue #208): `libSystem.Native` (277 `SystemNative_*` entry points) and `libSystem.Security.Cryptography.Native.OpenSsl`
+  (415 `CryptoNative_*`, with OpenSSL itself loaded with `dlopen` on first use) on linux-x64 and linux-arm64,
+  `libSystem.Native` and the Apple crypto shim on osx-arm64, and neither on win-x64 (the Windows IL binds kernel32, ws2_32 and
+  CNG directly). A shim is added to the link line only when the IL of a chosen assembly P/Invokes it, so a program that reaches
+  none links nothing (`hello` is byte-identical with the archives on the link line). `libSystem.Native` is admitted for
+  System.Formats.Tar, System.IO.Compression.ZipFile and, in the opt-in native TLS mode, System.Security.Cryptography and
+  System.Net.Security; the other callers (Console, Process, Pipes, sockets, the file system watcher) are corelib shadows,
+  and `Posix.cs`, `Win32.cs`, `NetNative.cs` and `SocketEngine.cs` stay until those flip.
+
 ### Static archives and `DirectPInvoke` (NativeAOT's names)
 
 PublishAot can link a native library into the executable instead of loading it: `<DirectPInvoke Include="foo" />` makes

@@ -56,6 +56,7 @@ Start with the [top-level README](../README.md) for what csharpc is and how to i
 | [0021](adr/0021-finalizers.md) | Finalizers, `GC.SuppressFinalize`, and the `ObjectiveCMarshal` reference tracking |
 | [0022](adr/0022-tls.md) | TLS and X.509: the corelib over OpenSSL, not the framework's IL |
 | [0023](adr/0023-framework-il-first.md) | Framework IL first: hand-implement only the runtime-coupled core, compile the rest of the framework from its IL, per library by measurement (`CSHARPC_IL_FIRST`) |
+| [0024](adr/0024-runtime-boundary.md) | Where the runtime boundary sits: our C runtime, or NativeAOT's runtime with csharpc as the LLVM backend (a study; proposed) |
 
 The docs describe the code as it is. When a feature lands, update the feature matrix and the open bullets in
 [06-roadmap.md](06-roadmap.md), and the document of the area it touches.

@@ -108,6 +108,51 @@ public sealed partial class FunctionCodeGen
     }
 
     /// <summary>
+    /// assembly.GetCustomAttributesData(): the same compile-time metadata as the typed queries, as CustomAttributeData (the
+    /// framework's InternalsVisibleTo checks read it). The program's own assembly is an unknown list (csc synthesizes
+    /// attributes csharpc doesn't reproduce), so the query throws NotSupportedException there rather than answer short.
+    /// </summary>
+    internal LLVMValueRef AssemblyCustomAttributesData(LLVMValueRef assembly, IOperation at)
+    {
+        NullCheck(assembly);
+        var name = CallCoreLib("AssemblyImpl", "NameOf", assembly);
+        var result = NewTemp(L.Ptr, "attributesdata");
+        var done = NewBlock("attributesdata.done");
+        foreach (var (identity, declared, unknown) in KnownAssemblyAttributeData())
+        {
+            var hit = NewBlock("attributesdata.assembly");
+            var next = NewBlock("attributesdata.next");
+            _b.CondBr(CallRuntime("csrt_string_equals", L.I1, [L.Ptr, L.Ptr], name, _m.StringLiteral(identity)), hit, next);
+            _b.PositionAtEnd(hit);
+            var (records, count) = _m.AssemblyAttributeRecords(declared, unknown);
+            _b.Store(CallCoreLib("ReflectionRuntime", "AssemblyAttributesData", records, count), result);
+            _b.Br(done);
+            _b.PositionAtEnd(next);
+        }
+        ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.NotSupportedException")!,
+            CallCoreLib("AssemblyImpl", "UnavailableAttributesMessage", name));
+        _b.PositionAtEnd(done);
+        return _b.Load(L.Ptr, result);
+    }
+
+    /// <summary>The assemblies whose attributes csharpc has as metadata: the program's own (an unknown list) and the IL ones.</summary>
+    private List<(string Identity, IEnumerable<AttributeData> Declared, bool Unknown)> KnownAssemblyAttributeData()
+    {
+        List<(string Identity, IEnumerable<AttributeData> Declared, bool Unknown)> assemblies = [];
+        if (_m.MainIl is null && _m.ProgramAssemblyName(null) is { } programName)
+        {
+            var root = _m.ProgramAssemblies.FirstOrDefault(a => a.IsRoot);
+            bool OfRoot(AttributeData a) => _m.ProgramAssemblies.Count <= 1
+                || a.ApplicationSyntaxReference?.SyntaxTree.FilePath is not { } path
+                || path == Frontend.RoslynFrontend.AssemblyInfoTreePath
+                || root?.Files.Contains(Path.GetFullPath(path)) == true;
+            assemblies.Add((programName, _m.Compilation.Assembly.GetAttributes().Where(OfRoot).ToList(), true));
+        }
+        foreach (var il in _m.Il.Assemblies) assemblies.Add((il.Symbol.Identity.GetDisplayName(), il.Symbol.GetAttributes(), false));
+        return assemblies;
+    }
+
+    /// <summary>
     /// Assembly.EntryPoint: the program's entry method for the assembly that has it (a standalone reflection record, as
     /// `ldtoken` of it would give), null for every other assembly. When csc's entry point is a method it synthesizes
     /// (`&lt;Main&gt;` bridging an async or Task-returning Main) csharpc has no symbol for it: NotSupportedException.

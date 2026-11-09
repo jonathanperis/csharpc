@@ -1,0 +1,20 @@
+Hidden True: hidden
+Hidden False: MissingMethodException: No parameterless constructor defined for type 'Hidden'.
+Open False: open
+Open True: open
+Point False: point 0
+Point True: point 0
+NeedsArgs True: MissingMethodException: Cannot dynamically create an instance of type 'NeedsArgs'. Reason: No parameterless constructor defined.
+NeedsArgs False: MissingMethodException: Cannot dynamically create an instance of type 'NeedsArgs'. Reason: No parameterless constructor defined.
+WithCtor False: withctor
+Throws True: TargetInvocationException: ctor failed
+attributes of CoreLib types
+Int32 0 0 False True
+String 0 0 False True
+Object 0 0 False True
+DateTime 0 0 False True
+Half 0 0 False True
+1 True
+Half over UTF-8
+True 1.5 False False 2.25 7 True Infinity True -0.5
+FormatException

@@ -804,6 +804,30 @@ namespace CsharpcCoreLib
             return Globalization.DateTimeParse.TryParseExactMultiple(s, formats, Dtfi(provider), style, out result);
         }
 
+        public static DateTime ParseExact(ReadOnlySpan<char> s, ReadOnlySpan<char> format, IFormatProvider provider, System.Globalization.DateTimeStyles style = System.Globalization.DateTimeStyles.None)
+        {
+            Globalization.DateTimeFormatInfo.ValidateStyles(style);
+            return Globalization.DateTimeParse.ParseExact(s, format, Dtfi(provider), style);
+        }
+
+        public static DateTime ParseExact(ReadOnlySpan<char> s, string[] formats, IFormatProvider provider, System.Globalization.DateTimeStyles style = System.Globalization.DateTimeStyles.None)
+        {
+            Globalization.DateTimeFormatInfo.ValidateStyles(style);
+            return Globalization.DateTimeParse.ParseExactMultiple(s, formats, Dtfi(provider), style);
+        }
+
+        public static bool TryParseExact(ReadOnlySpan<char> s, ReadOnlySpan<char> format, IFormatProvider provider, System.Globalization.DateTimeStyles style, out DateTime result)
+        {
+            Globalization.DateTimeFormatInfo.ValidateStyles(style);
+            return Globalization.DateTimeParse.TryParseExact(s, format, Dtfi(provider), style, out result);
+        }
+
+        public static bool TryParseExact(ReadOnlySpan<char> s, string[] formats, IFormatProvider provider, System.Globalization.DateTimeStyles style, out DateTime result)
+        {
+            Globalization.DateTimeFormatInfo.ValidateStyles(style);
+            return Globalization.DateTimeParse.TryParseExactMultiple(s, formats, Dtfi(provider), style, out result);
+        }
+
         // DateTime.ToString / TryFormat with a provider (the provider-less forms are codegen members).
         [ShadowInstance] public static string ToShortDateString(DateTime @this) => Globalization.DateTimeFormat.Format(@this, "d", null);
         [ShadowInstance] public static string ToLongDateString(DateTime @this) => Globalization.DateTimeFormat.Format(@this, "D", null);

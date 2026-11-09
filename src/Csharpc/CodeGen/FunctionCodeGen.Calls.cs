@@ -45,6 +45,9 @@ public sealed partial class FunctionCodeGen
         }
         if (target.IsStatic) CheckJsonSerializerRoots(target, inv);
         if (TypeObjectMember(inv.TargetMethod, inv.Instance) is { } typeMember) return CallBcl(typeMember, inv.TargetMethod, inv.Instance, inv.Arguments, inv);
+        if (!_memberInfoDispatch && inv is IlOperation && inv.Instance is { } memberInfoReceiver && inv.TargetMethod is { IsStatic: false, IsVirtual: true } or { IsStatic: false, IsAbstract: true }
+            && IsMemberInfoReference(memberInfoReceiver) && BclValueTypes.TryGetForType(inv.TargetMethod, out var typeOrMemberInfo))
+            return EmitTypeOrMemberInfo(inv.TargetMethod, memberInfoReceiver, inv.Arguments, typeOrMemberInfo, inv, () => EmitInvocation(inv));
         if (UnsafeAccessorOf(target) is { } unsafeAccessor) return EmitUnsafeAccessor(target, unsafeAccessor, inv);
         if (target.IsStatic && (TryUnsafeMethod(target, inv) ?? TryMemoryMarshalReference(target, inv) ?? TryMarshalLayoutMethod(target, inv)) is { } unsafeResult) return unsafeResult;
         // `T.Create()` on a static abstract/virtual interface member: after substitution T is concrete.
@@ -268,6 +271,31 @@ public sealed partial class FunctionCodeGen
         };
     }
 
+    /// <summary>
+    /// A corelib shadow of a BCL struct (BFloat16, Decimal32, ...) implements the interface members generic code constrains on as
+    /// plain public statics of the BCL type, without naming the interfaces (it can't declare the operators INumberBase asks of
+    /// the type it shadows): the static member of the same name and signature. A member the shadow lacks stays unimplemented.
+    /// </summary>
+    private IMethodSymbol? ShadowStaticMember(ITypeSymbol concrete, IMethodSymbol target)
+    {
+        if (concrete is not INamedTypeSymbol type || !CoreLib.IsCoreLib(type)) return null;
+        if (target.AssociatedSymbol is IPropertySymbol property)
+        {
+            var found = type.GetMembers(property.Name).OfType<IPropertySymbol>().FirstOrDefault(p => p.IsStatic && p.Parameters.Length == property.Parameters.Length);
+            return target.MethodKind == MethodKind.PropertyGet ? found?.GetMethod : found?.SetMethod;
+        }
+        foreach (var candidate in type.GetMembers(target.Name).OfType<IMethodSymbol>())
+        {
+            if (!candidate.IsStatic || candidate.Parameters.Length != target.Parameters.Length || candidate.TypeParameters.Length != target.TypeParameters.Length) continue;
+            var same = true;
+            for (var i = 0; i < candidate.Parameters.Length && same; i++)
+                same = candidate.Parameters[i].RefKind == target.Parameters[i].RefKind
+                    && SymbolEqualityComparer.Default.Equals(S(candidate.Parameters[i].Type), S(target.Parameters[i].Type));
+            if (same) return candidate;
+        }
+        return null;
+    }
+
     /// <summary>Static abstract/virtual interface member + constrained type → the concrete implementation.</summary>
     internal IMethodSymbol? ResolveStaticInterfaceMember(IMethodSymbol target, ITypeSymbol? constrainedTo)
     {
@@ -279,6 +307,7 @@ public sealed partial class FunctionCodeGen
         // path (sample 1272): ask for the generic definition within the same containing type (keeping a nested type's arguments).
         if (implementation is null && target.IsGenericMethod)
             implementation = concrete.FindImplementationForInterfaceMember(target.ConstructedFrom) as IMethodSymbol;
+        implementation ??= ShadowStaticMember(concrete, target);
         // A generic static abstract member (`static abstract bool IsNullableAt<TState>(...)`) is implemented by the type's
         // generic method definition: it takes the call's type arguments, or its body would be lowered open.
         if (implementation is { IsGenericMethod: true } && target.IsGenericMethod && SymbolEqualityComparer.Default.Equals(implementation, implementation.ConstructedFrom)
@@ -793,7 +822,8 @@ public sealed partial class FunctionCodeGen
         {
             "GetProperty" or "GetProperties" => ModuleCodeGen.DamProperties,
             "GetMethod" or "GetMethods" => ModuleCodeGen.DamMethods,
-            "GetConstructor" or "GetConstructors" => ModuleCodeGen.DamConstructors,
+            // typeof(G<>).MakeGenericType(...) is made to be instantiated (Activator.CreateInstance, GetConstructor): its constructors stay.
+            "GetConstructor" or "GetConstructors" or "MakeGenericType" => ModuleCodeGen.DamConstructors,
             "GetField" or "GetFields" => ModuleCodeGen.DamFields,
             "GetEvent" or "GetEvents" => ModuleCodeGen.DamEvents,
             // GetMember(s) look through every kind; the name filter of a GetMember also matches ".ctor", so it stays unrestricted.
@@ -808,6 +838,42 @@ public sealed partial class FunctionCodeGen
         target is { Name: "GetType", Parameters: [{ Type.SpecialType: SpecialType.System_String }, ..] }
         && (target is { IsStatic: true, ContainingType: { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } }
             || target is { IsStatic: false, ContainingType: { Name: "Assembly", ContainingNamespace: { Name: "Reflection", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } });
+
+    private bool _memberInfoDispatch;
+
+    /// <summary>A receiver typed MemberInfo (not Type): at run time it may be one of csharpc's Type objects, which have no MemberInfo vtable.</summary>
+    private bool IsMemberInfoReference(IOperation instance) =>
+        TypeOf(instance) is INamedTypeSymbol named && _m.CoreLib.Unmap(named) is INamedTypeSymbol { Name: "MemberInfo", ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } };
+
+    /// <summary>
+    /// A MemberInfo member called through a MemberInfo-typed reference (System.Text.Json reads attributes of a Type or a PropertyInfo
+    /// through one): a Type object takes the Type handler of the member, anything else the virtual call.
+    /// </summary>
+    private LLVMValueRef EmitTypeOrMemberInfo(IMethodSymbol method, IOperation instance, ImmutableArray<IArgumentOperation> arguments, BclHandler typeHandler, IOperation at, Func<LLVMValueRef> other)
+    {
+        var self = EmitValue(instance);
+        NullCheck(self);
+        var isType = _b.ICmp(LLVMIntPredicate.EQ, _b.Load(L.Ptr, self), _m.ExternalGlobal("csrt_Type_MT"));
+        var hasResult = method.ReturnType.SpecialType != SpecialType.System_Void;
+        var storage = hasResult ? NewTemp(T.Value(S(method.ReturnType)), "memberinfo") : default;
+        var typeBlock = NewBlock("memberinfo.type");
+        var otherBlock = NewBlock("memberinfo.other");
+        var done = NewBlock("memberinfo.done");
+        _b.CondBr(isType, typeBlock, otherBlock);
+        _b.PositionAtEnd(typeBlock);
+        var typeResult = CallBcl(typeHandler, method, instance, arguments, at);
+        if (hasResult) _b.Store(typeResult, storage);
+        _b.Br(done);
+        _b.PositionAtEnd(otherBlock);
+        _memberInfoDispatch = true;
+        LLVMValueRef otherResult;
+        try { otherResult = other(); }
+        finally { _memberInfoDispatch = false; }
+        if (hasResult) _b.Store(otherResult, storage);
+        _b.Br(done);
+        _b.PositionAtEnd(done);
+        return hasResult ? _b.Load(T.Value(S(method.ReturnType)), storage) : default;
+    }
 
     private BclHandler? TypeObjectMember(IMethodSymbol target, IOperation? instance)
     {
@@ -832,6 +898,9 @@ public sealed partial class FunctionCodeGen
             foreach (var known in KnownTypeofValues(infoInstance)) NoteReflectedType(S(infoGetter), S(known), null);
         if (p.Property.GetMethod is { } typeGetter && TypeObjectMember(typeGetter, p.Instance) is { } typeMember)
             return CallBcl(typeMember, typeGetter, p.Instance, p.Arguments, p);
+        if (!_memberInfoDispatch && p is IlOperation && p.Instance is { } memberInfoReceiver && p.Property.GetMethod is ({ IsStatic: false, IsVirtual: true } or { IsStatic: false, IsAbstract: true }) and var memberInfoGetter
+            && IsMemberInfoReference(memberInfoReceiver) && BclValueTypes.TryGetForType(memberInfoGetter, out var typeOrMemberInfo))
+            return EmitTypeOrMemberInfo(memberInfoGetter, memberInfoReceiver, p.Arguments, typeOrMemberInfo, p, () => EmitPropertyGet(p));
         var property = S(p.Property);
         if (TypeMapper.IsNullable(property.ContainingType)) return EmitNullableMember(p);
         if (property.ContainingType.IsAnonymousType) return AnonymousPropertyGet(p);

@@ -32,8 +32,8 @@ public sealed class Compiler(CompilerOptions options)
         var triple = options.Target ?? TargetMachine.HostTriple;
         var darwin = TargetMachine.IsDarwinTriple(triple);
         var windows = TargetMachine.IsWindowsTriple(triple);
-        NativeTls.On = NativeTls.Enabled(windows, darwin);
         var wasm = TargetMachine.IsWasmTriple(triple);
+        NativeTls.On = NativeTls.Enabled(windows, darwin, linux: !windows && !darwin && !wasm);
         // Before the corelib index or the framework index is read: they depend on which shadows are mapped. The Windows
         // native-TLS mode is the same mechanism with a hand-picked family of shadows (NativeTls).
         try

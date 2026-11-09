@@ -1269,6 +1269,23 @@ public sealed partial class ModuleCodeGen
         return new AttributeSet(list, pseudo, false);
     }
 
+    /// <summary>
+    /// An assembly's attributes as a record array plus its count word (Assembly.GetCustomAttributesData). One an attribute of which
+    /// csharpc can't decode, or an <paramref name="unknown"/> list (csc synthesizes attributes of a source assembly that csharpc
+    /// doesn't reproduce), makes the list unknown: the query then throws NotSupportedException at run time instead of answering short.
+    /// </summary>
+    internal (LLVMValueRef Records, LLVMValueRef Count) AssemblyAttributeRecords(IEnumerable<AttributeData> declared, bool unknown)
+    {
+        var instances = new List<AttributeInstance>();
+        foreach (var data in declared)
+        {
+            if (FromAttributeData(data) is { } instance) instances.Add(instance);
+            else unknown = true;
+        }
+        var list = Attributes(new AttributeSet(instances, 0, unknown));
+        return (AttributeArray(list), AttributeCount(list));
+    }
+
     private AttributeInstance? PseudoAttribute(string name) =>
         Compilation.GetTypeByMetadataName(name)?.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty) is { } ctor
             ? new AttributeInstance(ctor, [], []) : null;
