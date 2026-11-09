@@ -359,6 +359,9 @@ typedef struct csrt_MethodRecord {
                                                // a property's accessor, an expression tree's ldtoken) are one MethodInfo
     const void* open_function;                 // (ignored target, this, args...) of an instance method of a class or
                                                // interface (an open instance delegate, MethodInfo.CreateDelegate); NULL: none
+    const csrt_AttributeRecord* return_attributes;  // the attributes of the return parameter (MethodInfo.ReturnParameter)
+    uint32_t return_attribute_count;
+    uint32_t reserved;
 } csrt_MethodRecord;
 
 // MethodInfo.CreateDelegate: the Invoke signatures of the delegate types the program names.

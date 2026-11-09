@@ -317,8 +317,37 @@ public sealed partial class ModuleCodeGen
         return BuildAttributeSet(definition.GetAttributes(), synthesized, FieldHasUnlistedAttributes(definition));
     }
 
+    // csc moves the null-state attributes of a property to its accessors (they are not on the property itself in metadata):
+    // [AllowNull] and [DisallowNull] go to the setter's value parameter, [MaybeNull] and [NotNull] to the getter's return value.
+    private const string AllowNullName = "System.Diagnostics.CodeAnalysis.AllowNullAttribute", DisallowNullName = "System.Diagnostics.CodeAnalysis.DisallowNullAttribute",
+        MaybeNullName = "System.Diagnostics.CodeAnalysis.MaybeNullAttribute", NotNullName = "System.Diagnostics.CodeAnalysis.NotNullAttribute";
+
+    private static bool IsForwardedToAccessor(AttributeData a) =>
+        a.AttributeClass?.ToDisplayString() is AllowNullName or DisallowNullName or MaybeNullName or NotNullName;
+
     private AttributeSet SourcePropertyAttributes(IPropertySymbol definition) =>
-        BuildAttributeSet(definition.GetAttributes(), NullablePropertyAttributes(definition) ?? [], PropertyHasUnlistedAttributes(definition));
+        BuildAttributeSet(definition.GetAttributes().Where(a => !IsForwardedToAccessor(a)).ToList(), NullablePropertyAttributes(definition) ?? [], PropertyHasUnlistedAttributes(definition));
+
+    /// <summary>
+    /// The attributes of a method's return value (the sequence-0 parameter): [Nullable] where the return type's flags differ from
+    /// the method's context, the declared [return: ...] attributes, and a getter's [MaybeNull]/[NotNull] moved from its property.
+    /// </summary>
+    private AttributeSet SourceReturnAttributes(IMethodSymbol definition)
+    {
+        var synthesized = new List<AttributeInstance?>();
+        if (NullableReturnAttributes(definition) is { } nullableReturn) synthesized.AddRange(nullableReturn);
+        var declared = definition.GetReturnTypeAttributes().ToList();
+        if (definition is { MethodKind: MethodKind.PropertyGet, AssociatedSymbol: IPropertySymbol property })
+            declared.AddRange(property.GetAttributes().Where(a => a.AttributeClass?.ToDisplayString() is MaybeNullName or NotNullName));
+        return BuildAttributeSet(declared, synthesized, ReturnHasUnlistedAttributes(definition));
+    }
+
+    private bool ReturnHasUnlistedAttributes(IMethodSymbol m)
+    {
+        if (InSynthesizedType(m.ContainingType) || m.RefKind is RefKind.RefReadOnly || NeedsTypeAttribute(m.ReturnType)) return true;
+        // Nullable annotations csharpc doesn't model exactly (the callers keep the list unknown).
+        return AnnotationsEnabled(m) && NullableReturnAttributes(m) is null && NullableRelevant(m.ReturnType);
+    }
 
     private AttributeSet SourceParameterAttributes(IParameterSymbol p)
     {
@@ -326,7 +355,10 @@ public sealed partial class ModuleCodeGen
         var synthesized = new List<AttributeInstance?>();
         if (p.IsParams && p.Type is IArrayTypeSymbol) synthesized.Add(PseudoAttribute("System.ParamArrayAttribute"));
         if (NullableParameterAttributes(p) is { } nullableParameter) synthesized.AddRange(nullableParameter);
-        var declared = p.GetAttributes();
+        IEnumerable<AttributeData> declared = p.GetAttributes();
+        // A setter's value parameter takes the property's [AllowNull] / [DisallowNull].
+        if (p.ContainingSymbol is IMethodSymbol { MethodKind: MethodKind.PropertySet, AssociatedSymbol: IPropertySymbol setterProperty } setter && p.Ordinal == setter.Parameters.Length - 1)
+            declared = declared.Concat(setterProperty.GetAttributes().Where(a => a.AttributeClass?.ToDisplayString() is AllowNullName or DisallowNullName)).ToList();
         bool Has(string name) => declared.Any(a => a.AttributeClass?.ToDisplayString() == name);
         // In / Out / Optional are flags in metadata; reflection lists them as pseudo attributes, once.
         var derived = new List<AttributeInstance?>();

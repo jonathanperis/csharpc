@@ -97,6 +97,7 @@ public sealed partial class ModuleCodeGen
         public LLVMValueRef OpenFunction;
         public required List<ParameterRecordData> Parameters;
         public required List<AttributeRecordData> Attributes;
+        public List<AttributeRecordData> ReturnAttributes = [];
         public required uint MethodAttributes, Flags;
         // A listed method's invoker and function are made only once the program can use them (ModuleCodeGen.LazyInvokers.cs).
         public bool InvokePending, FunctionPending, OpenPending;
@@ -1081,6 +1082,7 @@ public sealed partial class ModuleCodeGen
             OpenPending = OpenInstanceDelegatable(method),
             Parameters = parameters,
             Attributes = Attributes(MethodAttributeSet(method, il)),
+            ReturnAttributes = Attributes(ReturnAttributeSet(method, il, ilParameters)),
             MethodAttributes = MethodAttributesOf(method),
             Flags = (method.IsOverride && InheritsNoAttributes(method) ? 2u /* CSRT_METHOD_NO_INHERITED_ATTRIBUTES */ : 0)
                 | (genericDefinition ? 4u /* CSRT_METHOD_GENERIC_DEFINITION */ : 0),
@@ -1253,6 +1255,21 @@ public sealed partial class ModuleCodeGen
     }
 
     private IEnumerable<AttributeInstance> MemberAttributeInstances(IMethodSymbol method, IlAssembly? il) => MethodAttributeSet(method, il).Instances;
+
+    /// <summary>The attributes of the return value: the sequence-0 parameter row of an IL method, csc's for source.</summary>
+    private AttributeSet ReturnAttributeSet(IMethodSymbol method, IlAssembly? il, Dictionary<int, (IlAssembly Assembly, Parameter Row)>? ilParameters)
+    {
+        if (il is null || ilParameters is null)
+        {
+            // Reference-assembly methods (the BCL): Roslyn hides the attributes the compiler decodes, so the list is not known.
+            if (!method.OriginalDefinition.Locations.Any(l => l.IsInSource)) return new AttributeSet([], 0, true);
+            return SourceReturnAttributes(method.OriginalDefinition);
+        }
+        if (!ilParameters.TryGetValue(0, out var row)) return new AttributeSet([], 0, false);
+        if ((row.Row.Attributes & System.Reflection.ParameterAttributes.HasFieldMarshal) != 0)
+            return new AttributeSet([], 0, true);
+        return new AttributeSet(DecodeAttributes(row.Assembly, row.Row.GetCustomAttributes(), IlGenericContext.For(method.OriginalDefinition)).ToList(), 0, false);
+    }
 
     private AttributeSet ParameterAttributeSet(IParameterSymbol p, (IlAssembly Assembly, Parameter Row)? row)
     {
@@ -1500,7 +1517,7 @@ public sealed partial class ModuleCodeGen
                     record = new MethodRecordData
                     {
                         Method = record.Method, Name = record.Name, Declaring = record.Declaring, ReturnType = record.ReturnType,
-                        Invoke = LlvmContext.Null(Llvm.Ptr), Parameters = record.Parameters, Attributes = [], MethodAttributes = record.MethodAttributes,
+                        Invoke = LlvmContext.Null(Llvm.Ptr), Parameters = record.Parameters, Attributes = [], ReturnAttributes = record.ReturnAttributes, MethodAttributes = record.MethodAttributes,
                         Flags = 1, // CSRT_METHOD_SOURCE_LAMBDA
                     };
                 _delegateMethods[handle] = (name, record);
@@ -1516,7 +1533,7 @@ public sealed partial class ModuleCodeGen
 
     private LLVMTypeRef AttributeRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
     private LLVMTypeRef ParameterRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
-    private LLVMTypeRef MethodRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+    private LLVMTypeRef MethodRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef DelegateSignatureType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef ReflectionInfoType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.I32);
     private LLVMTypeRef EventRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32);
@@ -1563,7 +1580,8 @@ public sealed partial class ModuleCodeGen
         return Llvm.ConstStruct(m.Name, m.Declaring, m.ReturnType, m.Invoke, parameters, AttributeArray(m.Attributes),
             Llvm.ConstInt(Llvm.I32, m.Parameters.Count), AttributeCount(m.Attributes),
             Llvm.ConstUInt(Llvm.I32, m.MethodAttributes), Llvm.ConstUInt(Llvm.I32, m.Flags), m.Function.IsNull ? LlvmContext.Null(Llvm.Ptr) : m.Function,
-            MemberIdentity(m.Method), m.OpenFunction.IsNull ? LlvmContext.Null(Llvm.Ptr) : m.OpenFunction);
+            MemberIdentity(m.Method), m.OpenFunction.IsNull ? LlvmContext.Null(Llvm.Ptr) : m.OpenFunction,
+            AttributeArray(m.ReturnAttributes), AttributeCount(m.ReturnAttributes), Llvm.ConstInt(Llvm.I32, 0));
     }
 
     private readonly Dictionary<ISymbol, LLVMValueRef> _memberIdentities = new(SymbolEqualityComparer.Default);

@@ -1,0 +1,45 @@
+Sample.Array: String[] read=NotNull write=NotNull element=[String read=NotNull write=NotNull]
+Sample.ListOfMaybe: List`1 read=NotNull write=NotNull args=[String read=Nullable write=Nullable]
+Sample.MaybeArrayOfMaybe: String[] read=Nullable write=Nullable element=[String read=Nullable write=Nullable]
+Sample.MaybeListOfStrings: List`1 read=Nullable write=Nullable args=[String read=NotNull write=NotNull]
+Sample.MaybeObj: Object read=Nullable write=Nullable
+Sample.Nested: Dictionary`2 read=NotNull write=NotNull args=[String read=NotNull write=NotNull; List`1 read=Nullable write=Nullable args=[String read=Nullable write=Nullable]]
+Sample.NotNullString: String read=NotNull write=NotNull
+Sample.NullableNumber: Nullable`1 read=Nullable write=Nullable
+Sample.NullableString: String read=Nullable write=Nullable
+Sample.Number: Int32 read=NotNull write=NotNull
+Sample.Obj: Object read=NotNull write=NotNull
+Sample.Pair: KeyValuePair`2 read=NotNull write=NotNull args=[String read=Nullable write=Nullable; Nullable`1 read=Nullable write=Nullable]
+Sample.Tuple: ValueTuple`2 read=NotNull write=NotNull args=[String read=NotNull write=NotNull; String read=Nullable write=Nullable]
+Sample.AllowNullProperty: String read=NotNull write=Nullable
+Sample.Count: Int32 read=NotNull write=NotNull
+Sample.DisallowNullProperty: String read=Nullable write=NotNull
+Sample.InternalName: String read=NotNull write=NotNull
+Sample.MaybeNullProperty: String read=Nullable write=NotNull
+Sample.Name: String read=NotNull write=NotNull
+Sample.NotNullProperty: String read=NotNull write=Nullable
+Sample.PrivateMaybe: String read=Nullable write=Nullable
+Sample.ReadOnlyName: String read=NotNull write=Unknown
+Sample.Title: String read=Nullable write=Nullable
+Sample.WriteOnly: String read=Unknown write=Nullable
+event Changed: EventHandler read=Nullable write=Nullable
+event Ready: EventHandler read=NotNull write=NotNull
+Echo(text): String read=NotNull write=NotNull
+Echo(other): String read=Nullable write=Nullable
+Echo(n): Int32 read=NotNull write=NotNull
+Echo(items): List`1 read=NotNull write=NotNull args=[String read=Nullable write=Nullable]
+Echo return: String read=NotNull write=NotNull
+Find(key): String read=NotNull write=Nullable
+Find(value): String read=Nullable write=NotNull
+Find return: String read=Nullable write=Nullable
+ctor(required): String read=NotNull write=NotNull
+ctor(optional): String read=Nullable write=Nullable
+Oblivious.Items: List`1 read=Unknown write=Unknown args=[String read=Unknown write=Unknown]
+Oblivious.Name: String read=Unknown write=Unknown
+Oblivious.Number: Int32 read=NotNull write=NotNull
+Oblivious.Prop: String read=Unknown write=Unknown
+again: String read=Nullable write=Nullable
+null property: propertyInfo
+null field: fieldInfo
+null parameter: parameterInfo
+null event: eventInfo

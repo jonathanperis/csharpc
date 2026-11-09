@@ -22,11 +22,48 @@ namespace CsharpcCoreLib
             return ReflectionRuntime.GetMethodNameFlagsTypes(type, name, flags, types);
         }
 
+        /// <summary>
+        /// Type.GetMemberWithSameMetadataDefinitionAs: the member of `type` that comes from the same metadata row as `member`
+        /// (a constructed generic's member and its definition's). Members are matched by kind and name; overloads by parameter
+        /// count and arity, and where that still leaves several the answer is an explicit NotSupportedException.
+        /// </summary>
         public static MemberInfo GetMemberWithSameMetadataDefinitionAs(Type type, MemberInfo member)
         {
             ArgumentNullException.ThrowIfNull(type);
             ArgumentNullException.ThrowIfNull(member);
-            throw new NotSupportedException("Type.GetMemberWithSameMetadataDefinitionAs is not supported by csharpc yet.");
+            const BindingFlags all = BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance | BindingFlags.DeclaredOnly;
+            MemberInfo found = null;
+            int matches = 0;
+            switch (member)
+            {
+                case FieldInfo field:
+                    found = type.GetField(field.Name, all);
+                    matches = found is null ? 0 : 1;
+                    break;
+                case EventInfo e:
+                    found = type.GetEvent(e.Name, all);
+                    matches = found is null ? 0 : 1;
+                    break;
+                case PropertyInfo property:
+                    foreach (var candidate in type.GetProperties(all))
+                        if (candidate.Name == property.Name && candidate.GetIndexParameters().Length == property.GetIndexParameters().Length) { found = candidate; matches++; }
+                    break;
+                case ConstructorInfo ctor:
+                    foreach (var candidate in type.GetConstructors(all))
+                        if (candidate.IsStatic == ctor.IsStatic && candidate.GetParameters().Length == ctor.GetParameters().Length) { found = candidate; matches++; }
+                    break;
+                case MethodInfo method:
+                    foreach (var candidate in type.GetMethods(all))
+                        if (candidate.Name == method.Name && candidate.IsStatic == method.IsStatic
+                            && candidate.GetParameters().Length == method.GetParameters().Length
+                            && candidate.GetGenericArguments().Length == method.GetGenericArguments().Length) { found = candidate; matches++; }
+                    break;
+                default:
+                    throw new NotSupportedException("Type.GetMemberWithSameMetadataDefinitionAs of a " + member.GetType().Name + " is not supported by csharpc yet.");
+            }
+            if (matches == 1) return found;
+            if (matches == 0) throw new MissingMemberException(type.FullName, member.Name);
+            throw new NotSupportedException("Type.GetMemberWithSameMetadataDefinitionAs of the overloaded member '" + member.Name + "' of '" + type + "' is not supported by csharpc yet.");
         }
 
         public static Type MakeArrayTypeRank(Type type, int rank)

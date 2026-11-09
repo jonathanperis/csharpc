@@ -515,6 +515,14 @@ public sealed partial class ModuleCodeGen
         return data.Emitted && NullableContextInstance(data.Common!.Value) is { } context ? [context] : [];
     }
 
+    /// <summary>The return value's [Nullable] (the flags of the return type when they differ from the method's context); null: not modelled.</summary>
+    private List<AttributeInstance>? NullableReturnAttributes(IMethodSymbol method)
+    {
+        if (NullableInfoOfMember(method) is not { } info) return null;
+        if (!info.Methods.TryGetValue(method.OriginalDefinition, out var data)) return [];
+        return NullableIfDifferent(data.Return, data.Effective) is { } attribute ? [attribute] : [];
+    }
+
     private List<AttributeInstance>? NullableParameterAttributes(IParameterSymbol parameter)
     {
         if (parameter.ContainingSymbol is not IMethodSymbol method || NullableInfoOfMember(method) is not { } info) return null;
