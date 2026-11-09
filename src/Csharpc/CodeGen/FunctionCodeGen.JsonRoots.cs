@@ -27,14 +27,14 @@ public sealed partial class FunctionCodeGen
         // a program asking for reflection-based serialization.
         if (inv is IlOperation && _m.Il.OwnerOf(_method) is { } caller && caller.Name == inv.TargetMethod.ContainingAssembly?.Name) return;
         if (target.Parameters.Any(JsonReflectionContexts.IsJsonMetadataParameter)) return;
-        // The framework's reflection-based serializer: types that get no reflection metadata (anonymous, file-local) are the same
-        // explicit diagnostics as on the generated-metadata route, then the call's types are kept for reflection.
-        var frameworkSerializer = IlFirst.Assemblies.Contains("System.Text.Json", StringComparer.OrdinalIgnoreCase);
+        // The framework's own reflection-based serializer needs no generated metadata: the call roots its types for reflection
+        // (NoteReflectionRoots, the rule for every [RequiresUnreferencedCode] framework method).
+        if (IlFirst.Assemblies.Contains("System.Text.Json", StringComparer.OrdinalIgnoreCase)) return;
         // Compiled code: the metadata of reflection-based serialization is generated from the C# sources of the
         // call sites (JsonReflectionContexts), which IL doesn't have; without it the call would throw at run time.
         // (Options may carry a source-generated TypeInfoResolver: calls given options are left to run time. With
         // reflection disabled in runtimeconfig.json, .NET throws InvalidOperationException there, as the corelib does.)
-        if (!frameworkSerializer && inv is IlOperation && !_m.Il.IsCoreLib(_method) && JsonReflectionByDefault() && !inv.TargetMethod.Parameters.Any(JsonReflectionContexts.IsJsonMetadataParameter)
+        if (inv is IlOperation && !_m.Il.IsCoreLib(_method) && JsonReflectionByDefault() && !inv.TargetMethod.Parameters.Any(JsonReflectionContexts.IsJsonMetadataParameter)
             && !inv.Arguments.Any(a => a.Parameter?.Type is { Name: "JsonSerializerOptions", ContainingNamespace.Name: "Json" } && a.Value is not IlValueOperation { IsNullLiteral: true }))
         {
             // The program as IL: its synthesized contexts cover the roots found in its bodies; one they don't
@@ -69,73 +69,6 @@ public sealed partial class FunctionCodeGen
             };
             if (named is not null && JsonReflectionContexts.UnsupportedRoot(S(named)) is { } typeWhy) throw CompileError.Unsupported(typeWhy, inv);
         }
-        if (frameworkSerializer) KeepJsonReflectionRoots(target, inv);
-    }
-
-    /// <summary>
-    /// System.Text.Json compiled from the framework's IL reads the members of the types it serializes through real reflection
-    /// (DefaultJsonTypeInfoResolver), which the trimmer leaves to the program ([RequiresUnreferencedCode]). A serializer call
-    /// that names its types keeps every member of them and of the types their members and generic arguments name, as the
-    /// program would have rooted them for ILLink; the shadow JSON route gets the same from its generated metadata.
-    /// </summary>
-    private void KeepJsonReflectionRoots(IMethodSymbol target, IInvocationOperation inv)
-    {
-        var seen = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
-        foreach (var t in target.TypeArguments) KeepJsonType(_subst.Apply(t), seen);
-        foreach (var arg in inv.Arguments)
-        {
-            var value = arg.Value;
-            if (arg.Parameter is { Name: "value" } && value is IConversionOperation { Operand.Type: { } operandType }) KeepJsonType(_subst.Apply(operandType), seen);
-            if (value is IlValueOperation { TypeOfOperand: { } typeOf }) KeepJsonType(_subst.Apply(typeOf), seen);
-            while (value is IConversionOperation c) value = c.Operand;
-            switch (value)
-            {
-                case ITypeOfOperation typeOfOperation: KeepJsonType(_subst.Apply(typeOfOperation.TypeOperand), seen); break;
-                case IInvocationOperation { TargetMethod.Name: "GetType", Instance.Type: { } instanceType }: KeepJsonType(_subst.Apply(instanceType), seen); break;
-            }
-            if (arg.Parameter is { Name: "value" } && value.Type is { } valueType) KeepJsonType(_subst.Apply(valueType), seen);
-        }
-    }
-
-    private void KeepJsonType(ITypeSymbol type, HashSet<ITypeSymbol> seen)
-    {
-        if (type is ITypeParameterSymbol || !seen.Add(type)) return;
-        // object: the resolver asks for its (public, parameterless) constructor too, to create the instances of an object-typed value.
-        if (type.SpecialType == SpecialType.System_Object) { _m.MarkDynamicallyAccessed(type, ModuleCodeGen.DamPublicConstructors); return; }
-        if (type is IArrayTypeSymbol array) { KeepJsonType(array.ElementType, seen); return; }
-        if (type is not INamedTypeSymbol named) return;
-        foreach (var argument in named.TypeArguments) KeepJsonType(argument, seen);
-        if (named.SpecialType != SpecialType.None || !_m.IsUserType(S(named)))
-        {
-            // A BCL type of the graph (string, DateTime, List<T>...): the resolver asks it for its public constructors. Primitives have
-            // none, and the runtime answers that without a description.
-            if (named.SpecialType is SpecialType.None or SpecialType.System_String or SpecialType.System_Decimal or SpecialType.System_DateTime)
-                _m.MarkDynamicallyAccessed(named, ModuleCodeGen.DamPublicConstructors);
-            return;
-        }
-        _m.MarkDynamicallyAccessed(named, ModuleCodeGen.DamConstructors | ModuleCodeGen.DamMethods | ModuleCodeGen.DamProperties | ModuleCodeGen.DamFields | ModuleCodeGen.DamEvents);
-        if (named.BaseType is { } baseType) KeepJsonType(baseType, seen);
-        foreach (var attribute in named.GetAttributes()) KeepJsonAttributeTypes(attribute, seen);
-        foreach (var member in named.GetMembers())
-        {
-            if (member.IsStatic) continue;
-            foreach (var attribute in member.GetAttributes()) KeepJsonAttributeTypes(attribute, seen);
-            switch (member)
-            {
-                case IPropertySymbol property: KeepJsonType(property.Type, seen); break;
-                case IFieldSymbol field: KeepJsonType(field.Type, seen); break;
-                case IMethodSymbol { MethodKind: MethodKind.Constructor } constructor:
-                    foreach (var parameter in constructor.Parameters) KeepJsonType(parameter.Type, seen);
-                    break;
-            }
-        }
-    }
-
-    // [JsonConverter(typeof(C))], [JsonDerivedType(typeof(D))]: the Types the attribute names are created or serialized too.
-    private void KeepJsonAttributeTypes(AttributeData attribute, HashSet<ITypeSymbol> seen)
-    {
-        foreach (var argument in attribute.ConstructorArguments.Concat(attribute.NamedArguments.Select(n => n.Value)))
-            if (argument.Kind == TypedConstantKind.Type && argument.Value is ITypeSymbol named) KeepJsonType(named, seen);
     }
 
     /// <summary>The types an IL serializer call needs metadata for, as the front end found them (JsonReflectionContexts.Il.cs).</summary>

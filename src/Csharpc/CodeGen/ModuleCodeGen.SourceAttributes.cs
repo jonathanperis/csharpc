@@ -24,22 +24,23 @@ public sealed partial class ModuleCodeGen
     /// <summary>An attribute list plus what its count word also says (see <see cref="AttributeCount"/>).</summary>
     internal sealed class AttributeRecordList : List<AttributeRecordData>
     {
-        public bool Unknown;
+        public bool Unknown, NullableExplicit;
         public int Pseudo;
     }
 
     /// <summary>A member's attributes: metadata attributes first, then the pseudo-custom ones (<see cref="Pseudo"/> of them).</summary>
-    internal readonly record struct AttributeSet(List<AttributeInstance> Instances, int Pseudo, bool Unknown);
+    internal readonly record struct AttributeSet(List<AttributeInstance> Instances, int Pseudo, bool Unknown, bool NullableExplicit = false);
 
     /// <summary>The count word of an attribute list: records in bits 0-23, trailing pseudo-custom attributes in 24-29, "unknown" in bit 30.</summary>
     private LLVMValueRef AttributeCount(List<AttributeRecordData> list) =>
-        Llvm.ConstInt(Llvm.I32, list.Count | (list is AttributeRecordList l ? (l.Pseudo << 24) | (l.Unknown ? 0x40000000 : 0) : 0));
+        Llvm.ConstInt(Llvm.I32, list.Count | (list is AttributeRecordList l ? (l.Pseudo << 24) | (l.Unknown ? 0x40000000 : 0) | (l.NullableExplicit ? unchecked((int)0x80000000) : 0) : 0));
 
     private AttributeRecordList Attributes(AttributeSet set)
     {
         var list = Attributes(set.Instances);
         list.Pseudo = set.Pseudo;
         list.Unknown = set.Unknown;
+        list.NullableExplicit = set.NullableExplicit;
         return list;
     }
 
@@ -254,7 +255,7 @@ public sealed partial class ModuleCodeGen
 
     private bool FieldHasUnlistedAttributes(IFieldSymbol f)
     {
-        if (InSynthesizedType(f.ContainingType) || f.IsRequired || f.IsFixedSizeBuffer) return true;
+        if (InSynthesizedType(f.ContainingType) || f.IsFixedSizeBuffer) return true;
         if (f.IsConst && f.Type.SpecialType == SpecialType.System_Decimal) return true; // [DecimalConstant]
         if (NeedsTypeAttribute(f.Type)) return true;
         return AnnotationsEnabled(f) && NullableFieldAttributes(f) is null && NullableRelevant(f.Type);
@@ -262,7 +263,7 @@ public sealed partial class ModuleCodeGen
 
     private bool PropertyHasUnlistedAttributes(IPropertySymbol p)
     {
-        if (InSynthesizedType(p.ContainingType) || p.IsRequired || NeedsTypeAttribute(p.Type) || p.Parameters.Any(x => NeedsTypeAttribute(x.Type))) return true;
+        if (InSynthesizedType(p.ContainingType) || NeedsTypeAttribute(p.Type) || p.Parameters.Any(x => NeedsTypeAttribute(x.Type))) return true;
         return AnnotationsEnabled(p) && NullablePropertyAttributes(p) is null && (NullableRelevant(p.Type) || p.Parameters.Any(x => NullableRelevant(x.Type)));
     }
 
@@ -298,9 +299,13 @@ public sealed partial class ModuleCodeGen
         // Roslyn reports [Extension] as IsExtensionMethod, not among the attributes; the metadata has it
         // (ExpressionStringBuilder prints `xs.Where(...)` for an extension method's call because of it).
         var declared = definition.GetAttributes();
+        if (definition.MethodKind == MethodKind.Constructor && !definition.IsStatic && HasRequiredMembers(definition.ContainingType)
+            && !declared.Any(a => a.AttributeClass?.Name == "SetsRequiredMembersAttribute"))
+            synthesized.AddRange(RequiredConstructorAttributes());
         if (definition.IsExtensionMethod && !declared.Any(a => a.AttributeClass?.Name == "ExtensionAttribute"))
             synthesized.Add(PseudoAttribute("System.Runtime.CompilerServices.ExtensionAttribute"));
-        return BuildAttributeSet(declared, synthesized, MethodHasUnlistedAttributes(definition));
+        return WithExplicitNullable(BuildAttributeSet(declared, synthesized, MethodHasUnlistedAttributes(definition)), definition,
+            info => info.Methods.ContainsKey(definition) ? new List<byte>() : null);
     }
 
     private AttributeSet SourceFieldAttributes(IFieldSymbol definition)
@@ -314,7 +319,10 @@ public sealed partial class ModuleCodeGen
             AddCompilerGeneratedFieldAttributes(generated);
             synthesized.AddRange(generated);
         }
-        return BuildAttributeSet(definition.GetAttributes(), synthesized, FieldHasUnlistedAttributes(definition));
+        if (definition.IsRequired && RequiredMemberInstance() is { } requiredField) synthesized.Add(requiredField);
+        var fieldOwner = definition.AssociatedSymbol is IPropertySymbol or IEventSymbol ? definition.AssociatedSymbol.OriginalDefinition : definition.OriginalDefinition;
+        return WithExplicitNullable(BuildAttributeSet(definition.GetAttributes(), synthesized, FieldHasUnlistedAttributes(definition)), definition,
+            info => info.Slots.GetValueOrDefault(fieldOwner));
     }
 
     // csc moves the null-state attributes of a property to its accessors (they are not on the property itself in metadata):
@@ -326,7 +334,9 @@ public sealed partial class ModuleCodeGen
         a.AttributeClass?.ToDisplayString() is AllowNullName or DisallowNullName or MaybeNullName or NotNullName;
 
     private AttributeSet SourcePropertyAttributes(IPropertySymbol definition) =>
-        BuildAttributeSet(definition.GetAttributes().Where(a => !IsForwardedToAccessor(a)).ToList(), NullablePropertyAttributes(definition) ?? [], PropertyHasUnlistedAttributes(definition));
+        WithExplicitNullable(BuildAttributeSet(definition.GetAttributes().Where(a => !IsForwardedToAccessor(a)).ToList(),
+            [.. NullablePropertyAttributes(definition) ?? [], .. definition.IsRequired && RequiredMemberInstance() is { } requiredProperty ? new[] { requiredProperty } : []], PropertyHasUnlistedAttributes(definition)),
+            definition, info => info.Slots.GetValueOrDefault(definition.OriginalDefinition));
 
     /// <summary>
     /// The attributes of a method's return value (the sequence-0 parameter): [Nullable] where the return type's flags differ from
@@ -339,7 +349,8 @@ public sealed partial class ModuleCodeGen
         var declared = definition.GetReturnTypeAttributes().ToList();
         if (definition is { MethodKind: MethodKind.PropertyGet, AssociatedSymbol: IPropertySymbol property })
             declared.AddRange(property.GetAttributes().Where(a => a.AttributeClass?.ToDisplayString() is MaybeNullName or NotNullName));
-        return BuildAttributeSet(declared, synthesized, ReturnHasUnlistedAttributes(definition));
+        return WithExplicitNullable(BuildAttributeSet(declared, synthesized, ReturnHasUnlistedAttributes(definition)), definition,
+            info => info.Methods.TryGetValue(definition.OriginalDefinition, out var data) ? data.Return : null);
     }
 
     private bool ReturnHasUnlistedAttributes(IMethodSymbol m)
@@ -365,7 +376,8 @@ public sealed partial class ModuleCodeGen
         if (p.RefKind is RefKind.In or RefKind.RefReadOnlyParameter || Has(InAttributeName)) derived.Add(PseudoAttribute(InAttributeName));
         if (p.RefKind == RefKind.Out || Has(OutAttributeName)) derived.Add(PseudoAttribute(OutAttributeName));
         if (p.IsOptional || Has(OptionalAttributeName)) derived.Add(PseudoAttribute(OptionalAttributeName));
-        return BuildAttributeSet(declared, synthesized, ParameterHasUnlistedAttributes(p), derived, derivesInOutOptional: true);
+        return WithExplicitNullable(BuildAttributeSet(declared, synthesized, ParameterHasUnlistedAttributes(p), derived, derivesInOutOptional: true), p,
+            info => p.ContainingSymbol is IMethodSymbol owner && info.Methods.TryGetValue(owner.OriginalDefinition, out var data) ? data.Parameters.GetValueOrDefault(p.Ordinal) : null);
     }
 
     // ---- methods csc adds to a type that Roslyn's symbols don't have ----

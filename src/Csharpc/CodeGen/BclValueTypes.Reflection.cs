@@ -142,7 +142,7 @@ internal static partial class BclValueTypes
         };
         t[$"{Type}.GetCustomAttributes(System.Type, bool)"] = frameworkTypeAttributes("TypeAttributesOf", "TypeAttributesOfFramework");
         t[$"{Type}.IsDefined(System.Type, bool)"] = frameworkTypeAttributes("IsTypeDefined", "IsTypeDefinedFramework");
-        t[$"{Type}.GetCustomAttributesData()"] = typeAttributes("GetTypeCustomAttributesData");
+        t[$"{Type}.GetCustomAttributesData()"] = frameworkTypeAttributes("GetTypeCustomAttributesData", "GetTypeCustomAttributesDataFramework");
         t[$"{Type}.MakeGenericType(System.Type[])"] = (g, _, self, a, _) =>
             Rt(g, "csrt_type_make_generic", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
         t[$"{Type}.MakeArrayType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_make_array", self);

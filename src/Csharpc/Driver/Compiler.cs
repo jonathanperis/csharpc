@@ -184,7 +184,7 @@ public sealed class Compiler(CompilerOptions options)
             var programIl = mainProgram is null ? null : il.Assemblies.First(a => string.Equals(a.Path, Path.GetFullPath(mainProgram.Path), StringComparison.Ordinal));
             // Reflection-based JSON metadata is generated in the binding compilation, which must see the
             // program's internals as the program itself does (JsonReflectionContexts.Il.cs); before any binding.
-            var jsonFromIl = programIl is not null && settings.JsonReflectionEnabled == true && JsonReflectionContexts.ReferencesJsonSerializer(programIl.Reader)
+            var jsonFromIl = programIl is not null && !IlFirst.Assemblies.Contains("System.Text.Json", StringComparer.OrdinalIgnoreCase) && settings.JsonReflectionEnabled == true && JsonReflectionContexts.ReferencesJsonSerializer(programIl.Reader)
                 && JsonReflectionContexts.GrantInternalsAccess(programIl.Reference, settings.AssemblyName!);
             // Converter hooks for the program's resources and GetConverter calls are generated like the JSON contexts: before any binding.
             var convertersFromIl = programIl is not null && (settings.ResourceTypes.Count > 0 || ResourceConverters.CallsGetConverter(programIl.Reader))
