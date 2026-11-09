@@ -284,6 +284,15 @@ hashing helpers), most of it for Dictionary and HashSet.
    `ref`-returning accessors lower. What stopped the slices were member resolution (fixed in #222), two missing
    capabilities of the primitives (#221: CoreLib-internal static abstract interfaces such as `IUtfChar<T>`, and interface
    dispatch on built-in types for `ISpanFormattable`/`IFormattable`), and the default comparers (#223).
+   #221 is closed by two general mechanisms. The slicer hosts, per built-in type, the methods that implement the static
+   abstract members of the slice's interfaces (`implementers`/`internal-interfaces` list them: `IUtfChar<T>` on char and byte,
+   `IBinaryIntegerParseAndFormatInfo<T>` on the 11 integers and char, `IBinaryFloatParseAndFormatInfo<T>` on float, double,
+   Half, BFloat16) in a `<Type>InterfaceMembers` class named in the map file (`members:System.Char=...`); the constrained-call
+   resolution (`FunctionCodeGen.BuiltinInterfaceMembers.cs`) looks a member up there, and a member with no implementation is
+   an explicit CSLLVM0001 naming the interface member and the constraint type, no longer invalid IR. Boxed built-in values
+   dispatch `ISpanFormattable.TryFormat` / `IUtf8SpanFormattable.TryFormat` through the corelib's `BoxedSpanFormattable`, as
+   `IConvertible` goes through `BoxedConvertible`. Guid, StringBuilder (all 4 samples) and System.Number now compile from
+   their slices; `tests/slicer.sh` runs the samples against them.
 3. **Default comparers decide Dictionary and HashSet.** Upstream calls `EqualityComparer<TKey>.Default` per probe, which the
    shadows replace by inline `CoreIntrinsics.AreEqual/HashOf`: +40 to 50 % run time and the larger code. Until the IL front-end
    lowers the default-comparer calls like the shadows do (#223), a Dictionary or HashSet flip fails the speed rule.

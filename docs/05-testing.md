@@ -84,6 +84,10 @@ On macOS the scripts need bash 4+ and GNU coreutils (`brew install bash coreutil
 `$(brew --prefix coreutils)/libexec/gnubin` on `PATH`); `tests/debuginfo.sh` drives gdb and is
 Linux-only.
 
+`tests/slicer.sh` is the test of the opt-in mixed-mode CoreLib route (ADR 0023, issue #191 part B): it slices Guid, StringBuilder and
+Number out of the framework's `System.Private.CoreLib` (`tools/il-first/slicer`, needs the Mono.Cecil of the ILLink tasks package) and
+runs samples compiled against the slice with the recordings made on real .NET. Off by default, so not part of the merge gate.
+
 **Windows.** The scripts run in Git Bash (`tests/platform.sh` holds the per-OS helpers; checkouts
 must keep LF line endings, `core.autocrlf=false`). .NET on Windows ends `Console.WriteLine` with
 `Environment.NewLine`, `"\r\n"`, so the expected stdout is the recording with every `"\n"` turned

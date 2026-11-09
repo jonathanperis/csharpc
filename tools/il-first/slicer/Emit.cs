@@ -46,12 +46,15 @@ sealed class Emitter
         foreach (var t in order.Where(t => t.DeclaringType is null)) Shell(t);
         foreach (var t in order.Where(t => t.DeclaringType is not null).OrderBy(t => Depth(t))) Shell(t);
         foreach (var t in order) Declare(t);
+        var hosted = DeclareHosted();
         foreach (var t in order) Bodies(t);
+        foreach (var t in hosted) Bodies(t);
 
         EmbedStrings();
         _m.Assembly.Write(_cli.Out);
         var roots = _s.RootTypes.Concat(_s.RootTypes.SelectMany(Nested)).Distinct().Where(_types.ContainsKey);
-        File.WriteAllLines(Path.ChangeExtension(_cli.Out, ".map"), roots.OrderBy(t => t.FullName, StringComparer.Ordinal).Select(t => MetadataName(t, false) + "=" + MetadataName(t, true)));
+        File.WriteAllLines(Path.ChangeExtension(_cli.Out, ".map"), roots.OrderBy(t => t.FullName, StringComparer.Ordinal).Select(t => MetadataName(t, false) + "=" + MetadataName(t, true))
+            .Concat(_hostClass.OrderBy(kv => kv.Key.FullName, StringComparer.Ordinal).Select(kv => "members:" + MetadataName(kv.Key, false) + "=" + kv.Value.Namespace + "." + kv.Value.Name)));
         Console.WriteLine($"{_cli.Out}: {_types.Count} types, {_methods.Count} methods ({_methods.Values.Count(m => m.HasBody)} with bodies), {_fields.Count} fields; skipped {_skippedMembers} members");
         Console.WriteLine("UPSTREAM_TYPES=" + string.Join(",", _s.RootTypes.Where(t => t.DeclaringType is null).Select(t => t.FullName)));
     }
@@ -204,6 +207,42 @@ sealed class Emitter
             if (e.InvokeMethod is not null && _methods.TryGetValue(e.InvokeMethod, out var iv)) ne.InvokeMethod = iv;
             if (ne.AddMethod is not null || ne.RemoveMethod is not null) n.Events.Add(ne);
         }
+    }
+
+    readonly Dictionary<TypeDefinition, TypeDefinition> _hostClass = new();
+
+    /// <summary>
+    /// The primitives' implementations of the slice's static abstract interface members (Slice.Hosted), as static methods of one class per
+    /// built-in type. The method is named after the member it implements, "System.IUtfChar`1.CastFrom" (the interface's metadata name
+    /// without the slice prefix, '+' for a nested one), and the map file's "members:System.Char=CsharpcCoreLib.Upstream.System.CharInterfaceMembers"
+    /// tells the compiler which built-in type the class stands in for (Frontend/UpstreamSlice.cs). Returns the CoreLib types whose bodies to copy.
+    /// </summary>
+    List<TypeDefinition> DeclareHosted()
+    {
+        var result = new List<TypeDefinition>();
+        foreach (var (stop, methods) in _s.Hosted.OrderBy(kv => kv.Key.FullName, StringComparer.Ordinal))
+        {
+            var host = new TypeDefinition(_cli.Prefix + "." + stop.Namespace, stop.Name + "InterfaceMembers",
+                TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit, _m.TypeSystem.Object);
+            _m.Types.Add(host);
+            _hostClass[stop] = host;
+            foreach (var m in methods)
+            {
+                var declared = m.Overrides.Select(o => o.Resolve()).First(d => d is not null && _types.ContainsKey(d.DeclaringType));
+                var nm = new MethodDefinition(declared.DeclaringType.FullName.Replace('/', '+') + "." + declared.Name, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, _m.TypeSystem.Void)
+                    { ImplAttributes = m.ImplAttributes, CallingConvention = m.CallingConvention };
+                host.Methods.Add(nm);
+                _methods[m] = nm;
+            }
+            foreach (var m in methods)
+            {
+                var nm = _methods[m];
+                nm.ReturnType = Type(m.ReturnType);
+                foreach (var p in m.Parameters) nm.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, Type(p.ParameterType)));
+            }
+            result.Add(stop);
+        }
+        return result;
     }
 
     ModuleReference AddModuleRef(string name) { var r = new ModuleReference(name); _m.ModuleReferences.Add(r); return r; }
