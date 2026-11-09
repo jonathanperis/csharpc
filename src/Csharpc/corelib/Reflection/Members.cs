@@ -132,6 +132,8 @@ namespace CsharpcCoreLib
         public abstract ICustomAttributeProvider ReturnTypeCustomAttributes { get; }
         public virtual Delegate CreateDelegate(Type delegateType) => throw new NotSupportedException("Derived classes must provide an implementation.");
         public virtual Delegate CreateDelegate(Type delegateType, object target) => throw new NotSupportedException("Derived classes must provide an implementation.");
+        public T CreateDelegate<T>() where T : Delegate => (T)CreateDelegate(typeof(T));
+        public T CreateDelegate<T>(object target) where T : Delegate => (T)CreateDelegate(typeof(T), target);
         public override bool Equals(object obj) => base.Equals(obj);
         public override int GetHashCode() => base.GetHashCode();
 
@@ -1066,6 +1068,51 @@ namespace CsharpcCoreLib
         // lists those after the metadata's attributes in GetCustomAttributes but before them in
         // GetCustomAttributesData), bit 30 that csc synthesizes attributes csharpc can't reproduce for the member.
         internal const int AttributesUnknown = 0x40000000;
+        /// <summary>The list is incomplete (csc adds attributes csharpc cannot reproduce) but its [Nullable] attributes are exact.</summary>
+        internal const int AttributesNullableExplicit = unchecked((int)0x80000000);
+        [ThreadStatic] private static int s_nullabilityReads;
+        /// <summary>NullabilityInfoContext reads attribute lists: those whose [Nullable] attributes are exact are readable.</summary>
+        internal static void EnterNullabilityRead() => s_nullabilityReads++;
+        internal static void ExitNullabilityRead() => s_nullabilityReads--;
+        private static bool UnknownForReader(int raw) =>
+            (raw & AttributesUnknown) != 0 && s_partialReads == 0 && !(s_nullabilityReads > 0 && (raw & AttributesNullableExplicit) != 0);
+
+        // The framework's own IL asking for the attributes of a member (System.Text.Json looks for [SetsRequiredMembers], [JsonConstructor]... by name):
+        // a list csharpc cannot complete (the attributes csc synthesizes) answers with the attributes it models, where the program's own call gets
+        // the explicit NotSupportedException. The framework filters for classes csc never synthesizes.
+        [ThreadStatic] private static int s_partialReads;
+
+        public static object[] FrameworkAttributes(object provider, bool inherit) => FrameworkAttributesOf(provider, typeof(object), inherit);
+
+        public static object[] FrameworkAttributesOf(object provider, Type attributeType, bool inherit)
+        {
+            ArgumentNullException.ThrowIfNull(provider);
+            if (provider is Type type) return GetTypeCustomAttributesFramework(type, attributeType, inherit);
+            s_partialReads++;
+            try
+            {
+                bool all = attributeType == typeof(object);
+                if (provider is MemberInfo member) return all ? member.GetCustomAttributes(inherit) : member.GetCustomAttributes(attributeType, inherit);
+                if (provider is ParameterInfo parameter) return all ? parameter.GetCustomAttributes(inherit) : parameter.GetCustomAttributes(attributeType, inherit);
+                var other = (ICustomAttributeProvider)provider;
+                return all ? other.GetCustomAttributes(inherit) : other.GetCustomAttributes(attributeType, inherit);
+            }
+            finally { s_partialReads--; }
+        }
+
+        public static bool FrameworkIsDefined(object provider, Type attributeType, bool inherit)
+        {
+            ArgumentNullException.ThrowIfNull(provider);
+            if (provider is Type type) return IsTypeDefinedFramework(type, attributeType, inherit);
+            s_partialReads++;
+            try
+            {
+                if (provider is MemberInfo member) return member.IsDefined(attributeType, inherit);
+                if (provider is ParameterInfo parameter) return parameter.IsDefined(attributeType, inherit);
+                return ((ICustomAttributeProvider)provider).IsDefined(attributeType, inherit);
+            }
+            finally { s_partialReads--; }
+        }
 
         /// <summary>
         /// Whether a typed query could have matched an attribute csc synthesizes into metadata (nullable annotations,
@@ -1088,13 +1135,15 @@ namespace CsharpcCoreLib
             bool all = attributeType == typeof(object);
             if (!all && attributeType != typeof(Attribute) && !attributeType.IsSubclassOf(typeof(Attribute)) && !attributeType.IsInterface)
                 throw new ArgumentException("Type passed in must be derived from System.Attribute or System.Attribute itself.");
-            if ((raw & AttributesUnknown) != 0 && MaybeSynthesized(attributeType)) throw UnknownAttributes();
+            if ((raw & AttributesUnknown) != 0 && s_partialReads == 0 && MaybeSynthesized(attributeType)) throw UnknownAttributes();
             var list = new List<object>();
             for (int i = 0; i < count; i++)
             {
                 byte* a = records + i * ReflectionRecords.AttributeSize;
                 if (!all && !attributeType.IsAssignableFrom(TypeOf(ReflectionRecords.AttributeType(a)))) continue;
-                list.Add(CallFactory(ReflectionRecords.AttributeCreate(a)));
+                // The framework's own query (s_partialReads): an attribute class csharpc cannot construct is left out, like the other attributes it cannot list.
+                try { list.Add(CallFactory(ReflectionRecords.AttributeCreate(a))); }
+                catch (NotSupportedException) when (s_partialReads > 0) { }
             }
             // CoreCLR returns an array of the requested type (object[] / Attribute[] / TagAttribute[]).
             // CreateInstance only for a concrete Attribute subclass: those already have T[] from
@@ -1113,7 +1162,7 @@ namespace CsharpcCoreLib
             int count = raw & 0xFFFFFF;
             for (int i = 0; i < count; i++)
                 if (attributeType.IsAssignableFrom(TypeOf(ReflectionRecords.AttributeType(records + i * ReflectionRecords.AttributeSize)))) return true;
-            if ((raw & AttributesUnknown) != 0 && MaybeSynthesized(attributeType)) throw UnknownAttributes();
+            if ((raw & AttributesUnknown) != 0 && s_partialReads == 0 && MaybeSynthesized(attributeType)) throw UnknownAttributes();
             return false;
         }
 
@@ -1123,7 +1172,7 @@ namespace CsharpcCoreLib
         /// <summary>CustomAttributeData lists the pseudo-custom attributes (In, Optional, MarshalAs, ...) before the metadata's.</summary>
         internal static IList<CustomAttributeData> AttributeData(byte* records, int raw)
         {
-            if ((raw & AttributesUnknown) != 0) throw UnknownAttributes();
+            if (UnknownForReader(raw)) throw UnknownAttributes();
             int count = raw & 0xFFFFFF;
             int pseudo = (raw >> 24) & 0x3F;
             var list = new CustomAttributeData[count];
@@ -1171,7 +1220,8 @@ namespace CsharpcCoreLib
                 throw NotKept(type, "custom attributes");
             }
             uint described = (uint)ReflectionRecords.InfoDescribed(info);
-            if ((described & 128) != 0)
+            // 4096: incomplete, but its [Nullable] attributes are exact (what NullabilityInfoContext reads).
+            if ((described & 128) != 0 && !(s_nullabilityReads > 0 && (described & 4096) != 0))
                 throw new NotSupportedException("The custom attributes of '" + type + "' are not supported by csharpc yet: it can't reproduce the list .NET reports for this type.");
             if ((described & 16) == 0) throw NotKept(type, "custom attributes");
             return info;
@@ -1258,7 +1308,7 @@ namespace CsharpcCoreLib
             byte* info = InfoOf(type, "custom attributes");
             if (info == null) return !(type.IsGenericParameter || IsCoreLibType(type) || !IsProgramAssembly(type)) && IsTypeDefined(type, attributeType, inherit);
             uint described = (uint)ReflectionRecords.InfoDescribed(info);
-            if ((described & 128) != 0 && IsCoreLibType(type))
+            if ((described & 128) != 0 && (IsCoreLibType(type) || !IsProgramAssembly(type)))
                 return (described & 16) != 0 && IsDefined(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
             return IsTypeDefined(type, attributeType, inherit);
         }
@@ -1271,7 +1321,7 @@ namespace CsharpcCoreLib
             // csharpc cannot reproduce: the part it describes.
             if (info == null) return type.IsGenericParameter || IsCoreLibType(type) || !IsProgramAssembly(type) ? CreateAttributes(null, 0, attributeType) : GetTypeCustomAttributes(type, attributeType, inherit);
             uint described = (uint)ReflectionRecords.InfoDescribed(info);
-            if ((described & 128) != 0 && IsCoreLibType(type))
+            if ((described & 128) != 0 && (IsCoreLibType(type) || !IsProgramAssembly(type)))
                 return (described & 16) == 0 ? CreateAttributes(null, 0, attributeType)
                     : CreateAttributes(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
             return GetTypeCustomAttributes(type, attributeType, inherit);

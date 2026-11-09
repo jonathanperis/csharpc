@@ -380,8 +380,9 @@ public sealed partial class ModuleCodeGen
     /// <summary>Describes newly marked types; true when anything was created (the worklists must drain again).</summary>
     private bool EmitReflectionMetadata()
     {
-        if (_reflectionTable.IsNull && _delegateMethodTable.IsNull) return DescribeDelegateSignatures();
-        var any = CloseOpenGenericRegistrations() | DescribeDelegateMethods() | DescribeDelegateSignatures();
+        var rooted = CloseReflectionInstantiations();
+        if (_reflectionTable.IsNull && _delegateMethodTable.IsNull) return DescribeDelegateSignatures() | rooted;
+        var any = rooted | CloseOpenGenericRegistrations() | DescribeDelegateMethods() | DescribeDelegateSignatures();
         if (_reflectionTable.IsNull) return any;
         any |= DescribeTypeAttributes();
         if (_replayEvents)
@@ -469,7 +470,7 @@ public sealed partial class ModuleCodeGen
     // can't know the exact list .NET returns, the entry says so (CSRT_RI_ATTRIBUTES_UNKNOWN) and the query
     // throws rather than answering with a different list.
 
-    private const uint RiAttributes = 16, RiAttributesUnknown = 128;
+    private const uint RiAttributes = 16, RiAttributesUnknown = 128, RiNullableExplicit = 4096;
     private bool _typeAttributesQueried;
     private int _typeAttributesScanned;
 
@@ -489,15 +490,17 @@ public sealed partial class ModuleCodeGen
             ITypeSymbol key;
             List<AttributeInstance>? attributes;
             var synthesizedUnknown = false;
+            var explicitNullable = false;
             switch (described)
             {
-                case INamedTypeSymbol named when DescribesOwnAttributes(named) && IsProgramType(named):
+                case INamedTypeSymbol named when DescribesOwnAttributes(named) && (IsProgramType(named) || IsIlLibraryType(named)):
                     key = named;
                     attributes = Decoded(() => { var list = TypeAttributeInstances(named.OriginalDefinition, out var unknown); synthesizedUnknown = unknown; return list; });
                     break;
                 case GenericParameter parameter:
                     key = parameter.Parameter;
                     attributes = Decoded(() => GenericParameterAttributeInstances(parameter.Parameter));
+                    explicitNullable = attributes is not null && parameter.Parameter.ContainingSymbol is INamedTypeSymbol parameterOwner && ExplicitInfoOfMember(parameter.Parameter) is not null && AnnotationsEnabled(parameterOwner);
                     break;
                 default:
                     continue;
@@ -510,6 +513,7 @@ public sealed partial class ModuleCodeGen
                 _reflectionOrder.Add(entry);
             }
             SetTypeAttributes(entry, attributes, synthesizedUnknown);
+            if (explicitNullable) entry.Described |= RiAttributesUnknown | RiNullableExplicit; // a list only the nullability reader may use
             any = true;
         }
         // Types kept for [DynamicallyAccessedMembers] (whenever their entry appeared).
@@ -528,6 +532,9 @@ public sealed partial class ModuleCodeGen
     /// <summary>A type of the program's own code: from its sources, or from its assembly when it is given as IL.</summary>
     private bool IsProgramType(INamedTypeSymbol type) =>
         type.OriginalDefinition.Locations.Any(l => l.IsInSource) || (MainIl is not null && Il.OwnerOf(type.OriginalDefinition) == MainIl);
+
+    /// <summary>A type of an IL assembly that is neither the program's nor System.Private.CoreLib (a package, the shared framework's libraries): its attributes are in its metadata.</summary>
+    private bool IsIlLibraryType(INamedTypeSymbol type) => !IsShadowedIlType(type) && Il.OwnerOf(type.OriginalDefinition) is { IsCoreLib: false };
 
     private static bool DescribesOwnAttributes(INamedTypeSymbol type) =>
         type.TypeKind is TypeKind.Class or TypeKind.Struct or TypeKind.Interface or TypeKind.Enum or TypeKind.Delegate && !type.IsAnonymousType && !type.IsTupleType;
@@ -626,6 +633,12 @@ public sealed partial class ModuleCodeGen
         // Source: [Nullable] where the parameter's value differs from the context (ModuleCodeGen.NullableAttributes.cs).
         if (NullableGenericParameterAttributes(parameter) is { } nullable)
             return [.. nullable, .. parameter.GetAttributes().Select(FromAttributeData).OfType<AttributeInstance>()];
+        // A parameter of a record or a type with a primary constructor: its byte is known, csc's omission of it (it equals the context) is not.
+        if (owner is INamedTypeSymbol explicitOwner && ExplicitInfoOfMember(parameter) is not null && AnnotationsEnabled(explicitOwner))
+        {
+            try { return [NullableInstance([TypeParameterValue(parameter, true, explicitOwner)])!, .. parameter.GetAttributes().Select(FromAttributeData).OfType<AttributeInstance>()]; }
+            catch (NullableUnsupported) { }
+        }
         // Otherwise [Nullable] on constrained or annotated parameters is synthesized.
         if (parameter.HasNotNullConstraint || parameter.ConstraintTypes.Length > 0
             || (AnnotationsEnabled(owner) && !parameter.HasValueTypeConstraint && !parameter.HasUnmanagedTypeConstraint)
