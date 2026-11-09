@@ -463,6 +463,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitObjectCreation(IObjectCreationOperation creation)
     {
+        if (creation.Type is INamedTypeSymbol { IsGenericType: true } createdGeneric && IsProgramMethod(_method)) _m.NoteProgramInstantiation(_subst.Apply(createdGeneric));
         if (creation.Initializer is not null) throw CompileError.Unsupported("object initializer", creation);
         if (creation.Constructor is { } created) NoteDynamicallyAccessedArguments(S(created), creation.Arguments);
         var type = (INamedTypeSymbol)TypeOf(creation)!;
@@ -1044,6 +1045,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitArrayCreation(IArrayCreationOperation creation)
     {
+        if (creation.Type is IArrayTypeSymbol createdArray && IsProgramMethod(_method)) _m.NoteProgramInstantiation(_subst.Apply(createdArray));
         var arrayType = (IArrayTypeSymbol)TypeOf(creation)!;
         if (arrayType.Rank != 1) return EmitMdArrayCreation(creation, arrayType);
         var length = ToIndex(EmitValue(creation.DimensionSizes[0]), TypeOf(creation.DimensionSizes[0])!);

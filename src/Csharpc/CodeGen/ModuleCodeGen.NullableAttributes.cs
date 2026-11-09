@@ -66,7 +66,16 @@ public sealed partial class ModuleCodeGen
     {
         type = type.OriginalDefinition;
         // A nested type inherits the context of its container, which votes with it: resolve from the outermost type.
-        if (type.ContainingType is { } outer && !NullableOf(outer).Exact) return new NullableType();
+        if (type.ContainingType is { } outer && !NullableOf(outer).Exact)
+        {
+            // The container's attributes are not reproduced, so neither are this type's context bytes: its members' full bytes still are.
+            if (_nullableTypes.TryGetValue(type, out var nested)) return nested;
+            nested = new NullableType();
+            _nullableTypes[type] = nested;
+            try { AnalyzeExplicit(type, nested); nested.Explicit = true; }
+            catch (NullableUnsupported) { nested.Slots.Clear(); nested.Methods.Clear(); }
+            return nested;
+        }
         if (_nullableTypes.TryGetValue(type, out var cached) && (cached.Resolved || type.ContainingType is not null)) return cached;
         var info = Compute(type);
         if (info.Exact && type.ContainingType is null) Resolve(type, info, 0);
@@ -190,7 +199,7 @@ public sealed partial class ModuleCodeGen
                     break;
                 case IPropertySymbol property:
                     {
-                        if (property.IsIndexer || property.IsRequired) throw new NullableUnsupported();
+                        if (property.IsIndexer) throw new NullableUnsupported();
                         var flags = new List<byte>();
                         TypeFlags(property.Type, PropertyTypeSyntax(property), enabled, flags);
                         info.Slots[property.OriginalDefinition] = flags;
@@ -234,7 +243,7 @@ public sealed partial class ModuleCodeGen
     }
 
     /// <summary>
-    /// A record or a type with a primary constructor: csc's [NullableContext] choice involves the members it synthesizes and
+    /// A type whose exact analysis stopped (a record, a primary constructor, required members...): csc's [NullableContext] choice involves the members it synthesizes and
     /// is not reproduced, but the bytes of every declared member's type (a positional parameter and its property included) are
     /// known from the declarations. They are listed in full, [Nullable] on every member with a reference type, so that reading
     /// them through NullabilityInfoContext gives csc's answer; the lists stay unknown for everything else.
@@ -246,7 +255,7 @@ public sealed partial class ModuleCodeGen
             throw new NullableUnsupported();
         if (type.ContainingType is { } outer && IsGenericContext(outer)) throw new NullableUnsupported();
         var declarations = type.DeclaringSyntaxReferences.Select(r => r.GetSyntax()).OfType<TypeDeclarationSyntax>().ToList();
-        if (declarations.Count != 1 || declarations[0].ParameterList is null && !type.IsRecord) throw new NullableUnsupported();
+        if (declarations.Count != 1) throw new NullableUnsupported();
         var enabled = AnnotationsEnabled(type);
         foreach (var member in type.GetMembers())
             if (member is not INamedTypeSymbol && !member.IsImplicitlyDeclared && member.DeclaringSyntaxReferences.Length > 0 && AnnotationsEnabled(member) != enabled)
@@ -281,7 +290,7 @@ public sealed partial class ModuleCodeGen
                             info.Slots[field.OriginalDefinition] = flags;
                         }
                         break;
-                    case IPropertySymbol { IsIndexer: false, IsRequired: false } property:
+                    case IPropertySymbol { IsIndexer: false } property:
                         {
                             var flags = new List<byte>();
                             if (property.DeclaringSyntaxReferences.Length == 1 && property.DeclaringSyntaxReferences[0].GetSyntax() is ParameterSyntax positionalSyntax

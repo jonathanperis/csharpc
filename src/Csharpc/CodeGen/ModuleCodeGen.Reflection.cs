@@ -493,7 +493,7 @@ public sealed partial class ModuleCodeGen
             var explicitNullable = false;
             switch (described)
             {
-                case INamedTypeSymbol named when DescribesOwnAttributes(named) && (IsProgramType(named) || IsIlLibraryType(named)):
+                case INamedTypeSymbol named when DescribesOwnAttributes(named) && ((IsProgramType(named) && !CoreLib.IsCoreLib(named)) || IsIlLibraryType(named)):
                     key = named;
                     attributes = Decoded(() => { var list = TypeAttributeInstances(named.OriginalDefinition, out var unknown); synthesizedUnknown = unknown; return list; });
                     break;
@@ -520,7 +520,7 @@ public sealed partial class ModuleCodeGen
         for (var i = 0; i < _reflectionOrder.Count; i++)
         {
             var entry = _reflectionOrder[i];
-            if ((entry.Described & (RiAttributes | RiAttributesUnknown)) != 0 || entry.Type is not INamedTypeSymbol named || !DescribesOwnAttributes(named)) continue;
+            if ((entry.Described & (RiAttributes | RiAttributesUnknown)) != 0 || entry.Type is not INamedTypeSymbol named || !DescribesOwnAttributes(named) || CoreLib.IsCoreLib(named)) continue;
             var unknownSynthesized = false;
             var list = Decoded(() => { var l = TypeAttributeInstances(named.OriginalDefinition, out var unknown); unknownSynthesized = unknown; return l; });
             SetTypeAttributes(entry, list, unknownSynthesized);
@@ -603,6 +603,8 @@ public sealed partial class ModuleCodeGen
         // [StructLayout] is the type's layout flag, not a listed attribute. [NullableContext] and [Nullable] come first.
         var declared = definition.GetAttributes().Where(a => !IsUnlistedAttribute(a)).Select(FromAttributeData).OfType<AttributeInstance>().ToList();
         if (NullableTypeAttributes(definition) is { } nullable) declared.InsertRange(0, nullable);
+        // A type that declares `required` members is marked [RequiredMember] (after the nullable ones).
+        if (definition.GetMembers().Any(m => m is IPropertySymbol { IsRequired: true } or IFieldSymbol { IsRequired: true }) && RequiredMemberInstance() is { } required) declared.Add(required);
         return declared;
     }
 
@@ -610,8 +612,7 @@ public sealed partial class ModuleCodeGen
     private bool SynthesizesTypeAttributes(INamedTypeSymbol type)
     {
         if (type.IsRecord || type.IsReadOnly || type.IsRefLikeType || type.IsSerializable || type.IsImplicitlyDeclared) return true;
-        if (type.GetMembers().Any(m => m is IPropertySymbol { IsIndexer: true } or IMethodSymbol { IsExtensionMethod: true }
-                or IPropertySymbol { IsRequired: true } or IFieldSymbol { IsRequired: true }))
+        if (type.GetMembers().Any(m => m is IPropertySymbol { IsIndexer: true } or IMethodSymbol { IsExtensionMethod: true }))
             return true;
         // Nullable annotations in the declaration become [NullableContext]/[Nullable] attributes: on the type when its base
         // class or members mention reference types.
@@ -1381,6 +1382,27 @@ public sealed partial class ModuleCodeGen
         return (AttributeArray(list), AttributeCount(list));
     }
 
+    /// <summary>The type has `required` members, declared or inherited: csc marks every constructor of it that does not say [SetsRequiredMembers].</summary>
+    private static bool HasRequiredMembers(INamedTypeSymbol type)
+    {
+        for (var t = type; t is not null; t = t.BaseType)
+            if (t.GetMembers().Any(m => m is IPropertySymbol { IsRequired: true } or IFieldSymbol { IsRequired: true })) return true;
+        return false;
+    }
+
+    private AttributeInstance? RequiredMemberInstance() => PseudoAttribute("System.Runtime.CompilerServices.RequiredMemberAttribute");
+
+    /// <summary>[Obsolete("Constructors of types with required members are not supported in this version of your compiler.", true)] and [CompilerFeatureRequired("RequiredMembers")].</summary>
+    private IEnumerable<AttributeInstance?> RequiredConstructorAttributes()
+    {
+        var stringType = Compilation.GetSpecialType(SpecialType.System_String);
+        var obsolete = Compilation.GetTypeByMetadataName("System.ObsoleteAttribute")?.InstanceConstructors.FirstOrDefault(c => c.Parameters.Length == 2 && c.Parameters[0].Type.SpecialType == SpecialType.System_String);
+        yield return obsolete is null ? null : new AttributeInstance(obsolete,
+            [new AttributeValue(stringType, "Constructors of types with required members are not supported in this version of your compiler."), new AttributeValue(Compilation.GetSpecialType(SpecialType.System_Boolean), true)], []);
+        var feature = Compilation.GetTypeByMetadataName("System.Runtime.CompilerServices.CompilerFeatureRequiredAttribute")?.InstanceConstructors.FirstOrDefault(c => c.Parameters.Length == 1);
+        yield return feature is null ? null : new AttributeInstance(feature, [new AttributeValue(stringType, "RequiredMembers")], []);
+    }
+
     private AttributeInstance? PseudoAttribute(string name) =>
         Compilation.GetTypeByMetadataName(name)?.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty) is { } ctor
             ? new AttributeInstance(ctor, [], []) : null;
@@ -1675,10 +1697,47 @@ public sealed partial class ModuleCodeGen
         return _memberIdentities[member] = identity;
     }
 
+    private LLVMValueRef _assemblyReferencesTable;
+
+    /// <summary>A pointer to the C string "assembly:reference,reference;..." of the framework assemblies the program has types of (what an attribute class's assembly must be among for a type to carry it).</summary>
+    internal LLVMValueRef AssemblyReferencesTable()
+    {
+        if (_assemblyReferencesTable.IsNull)
+            _assemblyReferencesTable = Module.AddGlobal("csharpc.assemblyrefs", Llvm.Ptr, constant: true, linkage: LLVMLinkage.Private);
+        return _assemblyReferencesTable;
+    }
+
+    private void FinishAssemblyReferences()
+    {
+        if (_assemblyReferencesTable.IsNull) return;
+        var names = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var (_, described) in _typeMts)
+            if (described is ITypeSymbol { ContainingAssembly: { } assembly } && !SymbolEqualityComparer.Default.Equals(assembly, Compilation.Assembly)) names.Add(assembly.Name);
+        var text = new System.Text.StringBuilder();
+        var directory = Frontend.SharedFramework.Directory;
+        foreach (var name in names)
+        {
+            if (directory is null || name.Contains('/') || name.Contains((char)92)) continue;
+            var path = Path.Combine(directory, name + ".dll");
+            if (!File.Exists(path)) continue;
+            try
+            {
+                using var stream = File.OpenRead(path);
+                using var pe = new System.Reflection.PortableExecutable.PEReader(stream);
+                var reader = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+                var references = reader.AssemblyReferences.Select(h => reader.GetString(reader.GetAssemblyReference(h).Name));
+                text.Append(name).Append(':').Append(string.Join(',', references)).Append(';');
+            }
+            catch (Exception e) when (e is IOException or BadImageFormatException or InvalidOperationException) { }
+        }
+        Native.LLVMSetInitializer(_assemblyReferencesTable, CString(text.ToString()));
+    }
+
     private void FinishReflectionMetadata()
     {
         FinishLazyInvokers();
         FinishMemberRecords();
+        FinishAssemblyReferences();
         LLVMValueRef Header(LLVMValueRef array, int count) => Llvm.ConstStruct(Llvm.ConstInt(Llvm.I64, count), array);
         if (!_reflectionTable.IsNull)
         {

@@ -255,7 +255,7 @@ public sealed partial class ModuleCodeGen
 
     private bool FieldHasUnlistedAttributes(IFieldSymbol f)
     {
-        if (InSynthesizedType(f.ContainingType) || f.IsRequired || f.IsFixedSizeBuffer) return true;
+        if (InSynthesizedType(f.ContainingType) || f.IsFixedSizeBuffer) return true;
         if (f.IsConst && f.Type.SpecialType == SpecialType.System_Decimal) return true; // [DecimalConstant]
         if (NeedsTypeAttribute(f.Type)) return true;
         return AnnotationsEnabled(f) && NullableFieldAttributes(f) is null && NullableRelevant(f.Type);
@@ -263,7 +263,7 @@ public sealed partial class ModuleCodeGen
 
     private bool PropertyHasUnlistedAttributes(IPropertySymbol p)
     {
-        if (InSynthesizedType(p.ContainingType) || p.IsRequired || NeedsTypeAttribute(p.Type) || p.Parameters.Any(x => NeedsTypeAttribute(x.Type))) return true;
+        if (InSynthesizedType(p.ContainingType) || NeedsTypeAttribute(p.Type) || p.Parameters.Any(x => NeedsTypeAttribute(x.Type))) return true;
         return AnnotationsEnabled(p) && NullablePropertyAttributes(p) is null && (NullableRelevant(p.Type) || p.Parameters.Any(x => NullableRelevant(x.Type)));
     }
 
@@ -299,6 +299,9 @@ public sealed partial class ModuleCodeGen
         // Roslyn reports [Extension] as IsExtensionMethod, not among the attributes; the metadata has it
         // (ExpressionStringBuilder prints `xs.Where(...)` for an extension method's call because of it).
         var declared = definition.GetAttributes();
+        if (definition.MethodKind == MethodKind.Constructor && !definition.IsStatic && HasRequiredMembers(definition.ContainingType)
+            && !declared.Any(a => a.AttributeClass?.Name == "SetsRequiredMembersAttribute"))
+            synthesized.AddRange(RequiredConstructorAttributes());
         if (definition.IsExtensionMethod && !declared.Any(a => a.AttributeClass?.Name == "ExtensionAttribute"))
             synthesized.Add(PseudoAttribute("System.Runtime.CompilerServices.ExtensionAttribute"));
         return WithExplicitNullable(BuildAttributeSet(declared, synthesized, MethodHasUnlistedAttributes(definition)), definition,
@@ -316,6 +319,7 @@ public sealed partial class ModuleCodeGen
             AddCompilerGeneratedFieldAttributes(generated);
             synthesized.AddRange(generated);
         }
+        if (definition.IsRequired && RequiredMemberInstance() is { } requiredField) synthesized.Add(requiredField);
         var fieldOwner = definition.AssociatedSymbol is IPropertySymbol or IEventSymbol ? definition.AssociatedSymbol.OriginalDefinition : definition.OriginalDefinition;
         return WithExplicitNullable(BuildAttributeSet(definition.GetAttributes(), synthesized, FieldHasUnlistedAttributes(definition)), definition,
             info => info.Slots.GetValueOrDefault(fieldOwner));
@@ -330,7 +334,8 @@ public sealed partial class ModuleCodeGen
         a.AttributeClass?.ToDisplayString() is AllowNullName or DisallowNullName or MaybeNullName or NotNullName;
 
     private AttributeSet SourcePropertyAttributes(IPropertySymbol definition) =>
-        WithExplicitNullable(BuildAttributeSet(definition.GetAttributes().Where(a => !IsForwardedToAccessor(a)).ToList(), NullablePropertyAttributes(definition) ?? [], PropertyHasUnlistedAttributes(definition)),
+        WithExplicitNullable(BuildAttributeSet(definition.GetAttributes().Where(a => !IsForwardedToAccessor(a)).ToList(),
+            [.. NullablePropertyAttributes(definition) ?? [], .. definition.IsRequired && RequiredMemberInstance() is { } requiredProperty ? new[] { requiredProperty } : []], PropertyHasUnlistedAttributes(definition)),
             definition, info => info.Slots.GetValueOrDefault(definition.OriginalDefinition));
 
     /// <summary>

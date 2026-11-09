@@ -14,6 +14,11 @@ namespace Csharpc.CodeGen;
 /// </summary>
 public sealed partial class FunctionCodeGen
 {
+    /// <summary>The method is the program's own: its sources, or its assembly given as IL (not the corelib, not a framework or package library).</summary>
+    private bool IsProgramMethod(IMethodSymbol? method) =>
+        method is not null && (SymbolEqualityComparer.Default.Equals(method.ContainingAssembly, _m.Compilation.Assembly) && !CoreLib.IsCoreLib(method)
+            || _m.MainIl is not null && _m.Il.OwnerOf(method.OriginalDefinition) == _m.MainIl);
+
     /// <summary>The method (or its type) carries [RequiresUnreferencedCode].</summary>
     private static bool RequiresUnreferencedCode(IMethodSymbol method)
     {
@@ -38,64 +43,20 @@ public sealed partial class FunctionCodeGen
 
     private void KeepReflectionRoots(IMethodSymbol target, IInvocationOperation inv)
     {
-        var seen = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
-        foreach (var t in target.TypeArguments) KeepReflectionType(_subst.Apply(t), seen);
+                foreach (var t in target.TypeArguments) _m.KeepReflectionType(_subst.Apply(t));
         foreach (var arg in inv.Arguments)
         {
             var value = arg.Value;
-            if (arg.Parameter is { Name: "value" } && value is IConversionOperation { Operand.Type: { } operandType }) KeepReflectionType(_subst.Apply(operandType), seen);
-            if (value is IlValueOperation { TypeOfOperand: { } typeOf }) KeepReflectionType(_subst.Apply(typeOf), seen);
+            if (arg.Parameter is { Name: "value" } && value is IConversionOperation { Operand.Type: { } operandType }) _m.KeepReflectionType(_subst.Apply(operandType));
+            if (value is IlValueOperation { TypeOfOperand: { } typeOf }) _m.KeepReflectionType(_subst.Apply(typeOf));
             while (value is IConversionOperation c) value = c.Operand;
             switch (value)
             {
-                case ITypeOfOperation typeOfOperation: KeepReflectionType(_subst.Apply(typeOfOperation.TypeOperand), seen); break;
-                case IInvocationOperation { TargetMethod.Name: "GetType", Instance.Type: { } instanceType }: KeepReflectionType(_subst.Apply(instanceType), seen); break;
+                case ITypeOfOperation typeOfOperation: _m.KeepReflectionType(_subst.Apply(typeOfOperation.TypeOperand)); break;
+                case IInvocationOperation { TargetMethod.Name: "GetType", Instance.Type: { } instanceType }: _m.KeepReflectionType(_subst.Apply(instanceType)); break;
             }
-            if (arg.Parameter is { Name: "value" } && value.Type is { } valueType) KeepReflectionType(_subst.Apply(valueType), seen);
+            if (arg.Parameter is { Name: "value" } && value.Type is { } valueType) _m.KeepReflectionType(_subst.Apply(valueType));
         }
     }
 
-    private void KeepReflectionType(ITypeSymbol type, HashSet<ITypeSymbol> seen)
-    {
-        if (type is ITypeParameterSymbol || !seen.Add(type)) return;
-        _m.NoteReflectionRoot(type);
-        // object: the resolver asks for its (public, parameterless) constructor too, to create the instances of an object-typed value.
-        if (type.SpecialType == SpecialType.System_Object) { _m.MarkDynamicallyAccessed(type, ModuleCodeGen.DamPublicConstructors); return; }
-        if (type is IArrayTypeSymbol array) { KeepReflectionType(array.ElementType, seen); return; }
-        if (type is not INamedTypeSymbol named) return;
-        foreach (var argument in named.TypeArguments) KeepReflectionType(argument, seen);
-        // The members of the program's own types (its sources, its assembly as IL, packages) are kept; a library's types (BCL, the framework's
-        // own) are roots by themselves, not descended into.
-        if (named.SpecialType != SpecialType.None || !_m.IsProgramOrPackageType(named))
-        {
-            // A BCL type of the graph (string, DateTime, List<T>...): the resolver asks it for its public constructors. Primitives have
-            // none, and the runtime answers that without a description.
-            if (named.SpecialType is SpecialType.None or SpecialType.System_String or SpecialType.System_Decimal or SpecialType.System_DateTime)
-                _m.MarkDynamicallyAccessed(named, ModuleCodeGen.DamPublicConstructors);
-            return;
-        }
-        _m.MarkDynamicallyAccessed(named, ModuleCodeGen.DamConstructors | ModuleCodeGen.DamMethods | ModuleCodeGen.DamProperties | ModuleCodeGen.DamFields | ModuleCodeGen.DamEvents);
-        if (named.BaseType is { } baseType) KeepReflectionType(baseType, seen);
-        foreach (var attribute in named.GetAttributes()) KeepAttributeTypes(attribute, seen);
-        foreach (var member in named.GetMembers())
-        {
-            if (member.IsStatic) continue;
-            foreach (var attribute in member.GetAttributes()) KeepAttributeTypes(attribute, seen);
-            switch (member)
-            {
-                case IPropertySymbol property: KeepReflectionType(property.Type, seen); break;
-                case IFieldSymbol field: KeepReflectionType(field.Type, seen); break;
-                case IMethodSymbol { MethodKind: MethodKind.Constructor } constructor:
-                    foreach (var parameter in constructor.Parameters) KeepReflectionType(parameter.Type, seen);
-                    break;
-            }
-        }
-    }
-
-    // [JsonConverter(typeof(C))], [JsonDerivedType(typeof(D))]: the Types an attribute names are created or serialized too.
-    private void KeepAttributeTypes(AttributeData attribute, HashSet<ITypeSymbol> seen)
-    {
-        foreach (var argument in attribute.ConstructorArguments.Concat(attribute.NamedArguments.Select(n => n.Value)))
-            if (argument.Kind == TypedConstantKind.Type && argument.Value is ITypeSymbol named) KeepReflectionType(named, seen);
-    }
 }

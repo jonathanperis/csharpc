@@ -806,8 +806,15 @@ namespace CsharpcCoreLib
         }
         public override IList<CustomAttributeData> GetCustomAttributesData()
         {
-            if (_record == null) return ReflectionRuntime.AttributeData(ReflectionRecords.MethodReturnAttributes(_methodRecord), ReflectionRecords.MethodReturnAttributeCount(_methodRecord));
-            return ReflectionRuntime.AttributeData(ReflectionRecords.ParameterAttributes(_record), ReflectionRecords.ParameterAttributeCount(_record));
+            try
+            {
+                if (_record == null) return ReflectionRuntime.AttributeData(ReflectionRecords.MethodReturnAttributes(_methodRecord), ReflectionRecords.MethodReturnAttributeCount(_methodRecord));
+                return ReflectionRuntime.AttributeData(ReflectionRecords.ParameterAttributes(_record), ReflectionRecords.ParameterAttributeCount(_record));
+            }
+            catch (NotSupportedException e)
+            {
+                throw new NotSupportedException(e.Message + " (" + (_record == null ? "the return value" : "parameter '" + Name + "'") + " of '" + MemberImpl.DeclaringType + "." + MemberImpl.Name + "')");
+            }
         }
     }
 
@@ -1141,9 +1148,7 @@ namespace CsharpcCoreLib
             {
                 byte* a = records + i * ReflectionRecords.AttributeSize;
                 if (!all && !attributeType.IsAssignableFrom(TypeOf(ReflectionRecords.AttributeType(a)))) continue;
-                // The framework's own query (s_partialReads): an attribute class csharpc cannot construct is left out, like the other attributes it cannot list.
-                try { list.Add(CallFactory(ReflectionRecords.AttributeCreate(a))); }
-                catch (NotSupportedException) when (s_partialReads > 0) { }
+                list.Add(CallFactory(ReflectionRecords.AttributeCreate(a)));
             }
             // CoreCLR returns an array of the requested type (object[] / Attribute[] / TagAttribute[]).
             // CreateInstance only for a concrete Attribute subclass: those already have T[] from
@@ -1256,8 +1261,46 @@ namespace CsharpcCoreLib
         private static bool CannotCarry(Type type, Type attributeType)
         {
             // An array type's attributes are System.Array's, whatever its element type.
-            try { return (type.IsArray || IsCoreLib(type.Assembly)) && !IsCoreLib(attributeType.Assembly); }
+            try
+            {
+                if ((type.IsArray || IsCoreLib(type.Assembly)) && !IsCoreLib(attributeType.Assembly)) return true;
+                // A framework type carries attribute classes of its own assembly and of the assemblies it references; the framework's
+                // assemblies reference each other in layers, so a class of a higher one (System.Text.Json's) is never on a lower one's types.
+                if (IsCoreLib(attributeType.Assembly) || type.IsGenericParameter) return false;
+                string typeAssembly = AssemblyName(type.Assembly), attributeAssembly = AssemblyName(attributeType.Assembly);
+                return typeAssembly != attributeAssembly && !IsProgramName(typeAssembly) && ReferencesOf(typeAssembly) is { } references && !references.Contains(attributeAssembly);
+            }
             catch (NotSupportedException) { return false; }
+        }
+
+        private static string AssemblyName(Assembly assembly)
+        {
+            string full = assembly.FullName;
+            int comma = full.IndexOf(',');
+            return comma < 0 ? full : full.Substring(0, comma);
+        }
+
+        private static bool IsProgramName(string name) => !(name.StartsWith("System.", StringComparison.Ordinal) || name.StartsWith("Microsoft.", StringComparison.Ordinal) || name == "netstandard");
+
+        private static Dictionary<string, HashSet<string>> s_references;
+
+        /// <summary>The assemblies a framework assembly references (compile-time table); null where the table does not list it.</summary>
+        private static HashSet<string> ReferencesOf(string assembly)
+        {
+            if (s_references == null)
+            {
+                var table = new Dictionary<string, HashSet<string>>();
+                byte* text = *(byte**)CoreIntrinsics.AssemblyReferencesAddress();
+                if (text != null)
+                    foreach (string entry in Utf8.FromNative(text).Split(';'))
+                    {
+                        int colon = entry.IndexOf(':');
+                        if (colon <= 0) continue;
+                        table[entry.Substring(0, colon)] = new HashSet<string>(entry.Substring(colon + 1).Split(','));
+                    }
+                s_references = table;
+            }
+            return s_references.TryGetValue(assembly, out var references) ? references : null;
         }
 
         private static bool IsCoreLib(Assembly assembly) => assembly.FullName.StartsWith("System.Private.CoreLib,", StringComparison.Ordinal);
@@ -1308,20 +1351,28 @@ namespace CsharpcCoreLib
             byte* info = InfoOf(type, "custom attributes");
             if (info == null) return !(type.IsGenericParameter || IsCoreLibType(type) || !IsProgramAssembly(type)) && IsTypeDefined(type, attributeType, inherit);
             uint described = (uint)ReflectionRecords.InfoDescribed(info);
-            if ((described & 128) != 0 && (IsCoreLibType(type) || !IsProgramAssembly(type)))
+            if (PartialAnswer(described, type))
                 return (described & 16) != 0 && IsDefined(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
             return IsTypeDefined(type, attributeType, inherit);
         }
 
         private static object[] GetTypeCustomAttributesFramework(Type type, Type attributeType, bool inherit)
         {
+            s_partialReads++;
+            try { return GetTypeCustomAttributesFrameworkCore(type, attributeType, inherit); }
+            finally { s_partialReads--; }
+        }
+
+        private static object[] GetTypeCustomAttributesFrameworkCore(Type type, Type attributeType, bool inherit)
+        {
             ArgumentNullException.ThrowIfNull(attributeType);
+            if (CannotCarry(type, attributeType)) return CreateAttributes(null, 0, attributeType);
             byte* info = InfoOf(type, "custom attributes");
             // A type nothing describes (a framework type, a generic parameter without attributes): none. A CoreLib type whose list
             // csharpc cannot reproduce: the part it describes.
             if (info == null) return type.IsGenericParameter || IsCoreLibType(type) || !IsProgramAssembly(type) ? CreateAttributes(null, 0, attributeType) : GetTypeCustomAttributes(type, attributeType, inherit);
             uint described = (uint)ReflectionRecords.InfoDescribed(info);
-            if ((described & 128) != 0 && (IsCoreLibType(type) || !IsProgramAssembly(type)))
+            if (PartialAnswer(described, type))
                 return (described & 16) == 0 ? CreateAttributes(null, 0, attributeType)
                     : CreateAttributes(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
             return GetTypeCustomAttributes(type, attributeType, inherit);
@@ -1339,6 +1390,10 @@ namespace CsharpcCoreLib
             string name = assembly.FullName;
             return name.StartsWith("System.", StringComparison.Ordinal) || name.StartsWith("Microsoft.", StringComparison.Ordinal) || name.StartsWith("netstandard,", StringComparison.Ordinal);
         }
+
+        /// <summary>A framework type whose list csharpc cannot give (unknown, or not kept): the framework's own query takes the part it describes.</summary>
+        private static bool PartialAnswer(uint described, Type type) =>
+            ((described & 128) != 0 || (described & 16) == 0) && (IsCoreLibType(type) || !IsProgramAssembly(type));
 
         private static bool IsCoreLibType(Type type)
         {
@@ -1359,6 +1414,23 @@ namespace CsharpcCoreLib
                 return IsDefined(ReflectionRecords.InfoInheritedAttributes(info), ReflectionRecords.InfoInheritedAttributeCount(info), attributeType);
             CheckInherited(type, inherit);
             return info != null && IsDefined(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
+        }
+
+        /// <summary>Type.GetCustomAttributesData() called from the framework's IL: the attributes csharpc models where it cannot complete the list.</summary>
+        public static IList<CustomAttributeData> GetTypeCustomAttributesDataFramework(Type type)
+        {
+            s_partialReads++;
+            try
+            {
+                byte* info = InfoOf(type, "custom attributes");
+                bool framework = type.IsGenericParameter || IsCoreLibType(type) || !IsProgramAssembly(type);
+                if (info == null) return framework ? AttributeData(null, 0) : GetTypeCustomAttributesData(type);
+                uint described = (uint)ReflectionRecords.InfoDescribed(info);
+                if (PartialAnswer(described, type))
+                    return (described & 16) == 0 ? AttributeData(null, 0) : AttributeData(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info));
+                return GetTypeCustomAttributesData(type);
+            }
+            finally { s_partialReads--; }
         }
 
         public static IList<CustomAttributeData> GetTypeCustomAttributesData(Type type)
