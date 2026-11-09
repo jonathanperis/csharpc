@@ -343,6 +343,11 @@ hashing helpers), most of it for Dictionary and HashSet.
    is flipped. **`List<T>.IndexOf/Contains` do not reach any of this:** the real `List<T>` calls `Array.IndexOf`, which is the corelib's scalar
    `ArrayExtras.IndexOf` (the shadow's `List` used its own bitwise search); the 5x regression measured for the List flip is that, not a missing Vector128.
 
+**Status (2026-11-09): List<T> is served from the framework's IL** (`src/Csharpc/upstream-types.txt`, ADR 0023 "Types of System.Private.CoreLib"):
+`corelib/List.cs` (595 lines) is gone, `CollectionsMarshal`'s List members reach the framework's `List<T>` through `[UnsafeAccessor]`
+(`corelib/CollectionsMarshal.cs`), and the build ships `CsharpcUpstream.dll`. The measured costs the owner accepted are in the ADR row (`Add` +33 %,
+`RemoveAll` +14 %, about +5 % size; `Insert`/`RemoveAt` 20x faster); #259 tracks closing the `Add` gap in the compiler.
+
 ### Proposed boundary, and the order
 
 The numbers support boundary A for collections and text, with the contract growing by the internals listed above (12 members so

@@ -158,6 +158,9 @@ public sealed class Compiler(CompilerOptions options)
             Phase($"choose framework IL ({framework.Count} assembl{(framework.Count == 1 ? "y" : "ies")})");
         }
         catch (InvalidOperationException e) { return Fail(e.Message); }
+        // The types of System.Private.CoreLib served from the framework's IL (CsharpcUpstream.dll, ADR 0023): IL assemblies of every compilation.
+        foreach (var upstream in UpstreamSlice.ShippedAssemblies)
+            if (!ilPaths.Contains(upstream, StringComparer.Ordinal)) ilPaths.Add(upstream);
         // The corelib as a precompiled assembly (ADR 0015): after the framework choice, which must not
         // follow the corelib's own references.
         if (options.CoreLibIl && RoslynFrontend.CoreLibFiles() is { Count: > 0 } coreLibFiles)

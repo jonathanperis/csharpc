@@ -17,8 +17,8 @@ public sealed partial class FunctionCodeGen
     // Roslyn reports `static extern` methods from metadata as not extern when they have neither a
     // [DllImport] nor an InternalCall flag: an [UnsafeAccessor] in framework IL is only a method with no RVA.
     private static AttributeData? UnsafeAccessorOf(IMethodSymbol method) =>
-        method.IsExtern || (method.IsStatic && method.MetadataToken != 0 && !method.IsAbstract && method.MethodKind == MethodKind.Ordinary
-            && method.DeclaredAccessibility is Accessibility.Private or Accessibility.Internal && !method.IsGenericMethod)
+        method.IsExtern || (method.IsStatic && method.OriginalDefinition.MetadataToken != 0 && !method.IsAbstract && method.MethodKind == MethodKind.Ordinary
+            && method.DeclaredAccessibility is Accessibility.Private or Accessibility.Internal)
             ? method.GetAttributes().FirstOrDefault(a => a.AttributeClass is
                 { Name: "UnsafeAccessorAttribute", ContainingNamespace: { Name: "CompilerServices", ContainingNamespace.Name: "Runtime" } })
             : null;

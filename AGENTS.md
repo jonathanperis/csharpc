@@ -102,6 +102,8 @@ before every commit that touches `src/`.
   `CSHARPC_TARGET_WASI`. Throwing helpers are `CSRT_THROWS` (they return on wasm), and offsets into runtime
   objects must follow the pointer size (wasm32 has 4-byte pointers).
 
+- A CoreLib type served from the framework's IL (`src/Csharpc/upstream-types.txt`, ADR 0023): no shadow, no `corelib` code for it; the build cuts it out of the
+  shared framework's CoreLib (`tools/il-first/slicer`, `CsharpcUpstream.dll`). Corelib code reaches its internals with `[UnsafeAccessor]` (`corelib/CollectionsMarshal.cs`).
 - New library surface: prefer C# in `src/Csharpc/corelib`; use `Intrinsics.cs` only for things that
   must map to an LLVM intrinsic or the C runtime. Keep C in `src/runtime` for GC, unwinding,
   threading and OS boundaries.
