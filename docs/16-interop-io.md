@@ -126,9 +126,8 @@ reading or writing memory.
 ### `[LibraryImport]` and other source generators
 
 csharpc runs Roslyn source generators (`Frontend/SourceGenerators.cs`) and compiles their output
-with the program, as csc does. `[GeneratedRegex]` is handled by csharpc's own generator
-(`Frontend/GeneratedRegex.cs`, [12-corelib.md](12-corelib.md#regular-expressions)) in place of the
-SDK's, which emits code built on `RegexRunner` internals. The generated marshalling code is ordinary C#; the marshallers it uses
+with the program, as csc does. `[GeneratedRegex]` is the SDK's own regex generator, linked into csharpc like the
+others, whose output runs against the framework's `Regex` ([12-corelib.md](12-corelib.md#regular-expressions)). The generated marshalling code is ordinary C#; the marshallers it uses
 (`Utf8StringMarshaller`, `Utf16StringMarshaller`, `AnsiStringMarshaller`, `SpanMarshaller`,
 `ReadOnlySpanMarshaller`, `ArrayMarshaller`) are corelib shadows.
 
@@ -151,7 +150,7 @@ Which generators, with which inputs:
   over the merged program left is the JSON generator for the contexts csharpc synthesizes for reflection-style
   `System.Text.Json` calls.
 * **Single files**: the targeting pack's LibraryImport and System.Text.Json generators, when their
-  attribute appears in the code, and csharpc's `[GeneratedRegex]`.
+  attribute appears in the code, and the regex generator for `[GeneratedRegex]`.
 
 A generator that throws (csc's warnings CS8784/CS8785) or can't be loaded is an error under csharpc:
 csc would compile without its output, so the program would silently differ.

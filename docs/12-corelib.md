@@ -70,7 +70,7 @@ internal static class StringExtras { public static string Join<T>(string separat
   code valid both ways and stay conservative (no primary constructors, no collection expressions).
 * Prefer lazy static data (`static T[] s_x; static T[] X => s_x ??= ...`) to static field
   initializers: an initializer becomes a `.cctor` checked on every static field access of the type.
-* Code generated into the program (`[GeneratedRegex]`, the reflection-style JSON contexts) can only use
+* Code generated into the program (the reflection-style JSON contexts) can only use
   **public** corelib members; the corelib reaches generated program code through `CoreIntrinsics`
   hooks (`JsonConfigureHook`/`JsonBuiltInHook` call `CsharpcCoreLib.ProgramHooks` when the program has it).
 * `#nullable disable` at the top; corelib diagnostics are never shown to users. A corelib that doesn't
@@ -196,7 +196,7 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   the exact `1 / x` (.NET uses `RCPSS`/`FRECPE` where the hardware has them, so its answer differs between CPUs and is
   only an estimate). Results of the libm functions follow the platform's libm (glibc here, as .NET on Linux), so a few
   differ in the last bit on WebAssembly's libc; `Math.Log`/`Log2` of a negative number return the positive quiet NaN on Unix as .NET does (Windows passes its C runtime's through).
-* **`System.Text.RegularExpressions`** (`corelib/Regex/`, see [Regular expressions](#regular-expressions)).
+* **`System.Text.RegularExpressions`** is not a shadow: it is compiled from the framework's IL ([Regular expressions](#regular-expressions)).
 * **Compiled-code support for the IL front-end** (docs/adr/0010-il-frontend.md): async method builders,
   `AsyncIteratorMethodBuilder`, `ManualResetValueTaskSourceCore<T>`, `ConfiguredCancelableAsyncEnumerable<T>`,
   `ExceptionDispatchInfo` (`AsyncBuilders.cs`, `AsyncIterators.cs`, `ExceptionDispatchInfo.cs`, see
@@ -278,42 +278,24 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
 
 ### Regular expressions
 
-`corelib/Regex/` is a port of .NET's own engine (dotnet/runtime release/11.0, commit `bc123d0`,
-MIT, [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md)): `RegexParser`, the `RegexNode` tree and its
-optimizer, `RegexFindOptimizations` / `RegexPrefixAnalyzer`, `RegexCharClass` (+ its Unicode tables),
-`RegexCaseEquivalences`, `RegexWriter`, `RegexInterpreter` / `RegexRunner`, and the public API
-(`Regex` static and instance methods, `Match`/`Group`/`Capture` and their collections, `Replace` with
-substitutions and `MatchEvaluator`, `Split`, `Escape`/`Unescape`, `Count`, `EnumerateMatches`/`ValueMatch`,
-`EnumerateSplits`, `RegexMatchTimeoutException`, `RegexParseException`, the static cache). The files keep
-upstream's names and structure; the mechanical adaptations are listed below, and changes of substance are
-marked `csharpc:` in the code. Results, captures, exception types
-and messages are .NET's, which the differential fuzzer (`tools/fuzz/corelib.sh`, random patterns with
-all option combinations) checks.
+`System.Text.RegularExpressions` has no corelib port: the framework's own assembly is compiled from its IL
+(ADR 0013, [ADR 0023](adr/0023-framework-il-first.md)), so every engine, option, `Match`/`Group`/`Capture` type,
+`Replace`/`Split`/`Count`/`EnumerateMatches`, the static cache, `RegexParseException` and
+`RegexMatchTimeoutException` are .NET's code, and deriving from `RegexRunner` works. The port that stood here
+(16 830 lines, interpreter only) was deleted by the flip.
 
-* **Engine choice:** every regex runs on the interpreter. `RegexOptions.Compiled` has the same results
-  (it only selects .NET's Reflection.Emit code generator). `RegexOptions.NonBacktracking` throws
-  `NotSupportedException("RegexOptions.NonBacktracking is not supported by csharpc yet.")` when the
-  `Regex` is constructed: its engine (symbolic automata) is not ported and its capture semantics differ.
-* **`[GeneratedRegex]`:** csharpc's own source generator (`Frontend/GeneratedRegex.cs`) replaces the
-  SDK's, whose output is built on `RegexRunner` internals. Each member returns a cached interpreter
-  instance for the attribute's pattern, options, timeout and culture; the SDK generator's diagnostics
-  (SYSLIB1040–1043) are reproduced. Only `GetType()` differs (`Regex` instead of the generated class).
-  Members with the same pattern, options and timeout share one instance (and the first one's culture),
-  as they share the SDK generator's implementation. In a program given as IL the SDK's generator already
-  ran: each member's body (`ldsfld <Generated>::Instance; ret`) becomes the same cached instance, built
-  from its attribute, one per generated class (`Frontend/GeneratedRegex.Il.cs`).
-* **Culture:** `IgnoreCase` uses .NET's case equivalence tables with the culture's casing behaviour
-  (Turkish/Azeri vs. others): the current culture's name at construction, or `CultureInvariant`, or
-  `[GeneratedRegex(..., cultureName)]`, as in .NET.
-* **Adaptations** (`RegexSupport.cs`): resource strings, `ValueStringBuilder`/`ValueListBuilder` without
-  `ArrayPool`, small stand-ins for `Hashtable`, `SearchValues`, `ReadOnlyMemory<char>` segments and the
-  `CultureInfo` name, lazily created static tables (corelib types get no static constructor), large
-  tables as UTF-16 string constants, no C# 12+ syntax. `AppContext`'s `REGEX_DEFAULT_MATCH_TIMEOUT` is not
-  read (the default timeout is infinite). Deriving from `RegexRunner`/`RegexRunnerFactory` and
-  `Regex.CompileToAssembly` report `CSLLVM0002`.
-* **Cost:** nothing when unused (hello world is byte-identical). A program using `Regex` links the whole
-  engine (~450 KB) and takes longer to compile (roughly 15–25 s at `-O2`: the parser, optimizer and
-  interpreter are large methods).
+* **Engines:** whatever the framework picks: the interpreter, and `RegexOptions.NonBacktracking`'s symbolic engine.
+  `RegexOptions.Compiled` selects the Reflection.Emit code generator in .NET; run-time code generation is not
+  possible under csharpc (as in NativeAOT), so the framework's own fallback to the interpreter applies and the
+  results are the same.
+* **`[GeneratedRegex]`:** the SDK's own generator (`System.Text.RegularExpressions.Generator.dll` of the targeting
+  pack, linked into csharpc like the JSON and `LibraryImport` generators, `Frontend/SourceGenerators.cs`) runs, and
+  its `RegexRunner`-derived classes run against the real `Regex`. Its diagnostics (SYSLIB1040-1043) and `GetType()`
+  are .NET's. In a program given as IL the SDK's generator already ran and its output is ordinary IL.
+* **Cost:** nothing when unused (hello world is byte-identical). A program that uses `Regex` links the framework's
+  engine: about 1.4x the size the port had for `new Regex(pattern)`, and about 3.6x once it calls a constructor or
+  static method that takes `RegexOptions`, which reaches the NonBacktracking engine (ADR 0023 has the table). The
+  owner accepted the size for exactness and speed (the framework's code is 1.4x faster on the throughput program).
 
 ### System.Text.Json
 
