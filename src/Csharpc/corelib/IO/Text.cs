@@ -275,6 +275,23 @@ namespace CsharpcCoreLib
             WriteLine();
         }
 
+        // .NET 11's Rune overloads: the UTF-16 code units one at a time, through the virtual Write(char) / WriteLine(char).
+        public virtual void Write(Rune value)
+        {
+            Span<char> units = stackalloc char[2];
+            int length = value.EncodeToUtf16(units);
+            Write(units[0]);
+            if (length > 1) Write(units[1]);
+        }
+
+        public virtual void WriteLine(Rune value)
+        {
+            Span<char> units = stackalloc char[2];
+            int length = value.EncodeToUtf16(units);
+            if (length > 1) { Write(units[0]); WriteLine(units[1]); }
+            else WriteLine(units[0]);
+        }
+
         // The asynchronous writes run the synchronous ones on the thread pool, as .NET's defaults do.
         private Task OnPool(Action write, CancellationToken cancellationToken) =>
             Task.Factory.StartNew(write, cancellationToken, TaskCreationOptions.DenyChildAttach, TaskScheduler.Default);
@@ -291,6 +308,24 @@ namespace CsharpcCoreLib
         public virtual Task WriteAsync(StringBuilder value, CancellationToken cancellationToken = default) =>
             cancellationToken.IsCancellationRequested ? Task.FromCanceled(cancellationToken)
             : value == null ? Task.CompletedTask : WriteAsync(value.ToString().AsMemory(), cancellationToken);
+
+        public virtual Task WriteAsync(Rune value)
+        {
+            Span<char> units = stackalloc char[2];
+            int length = value.EncodeToUtf16(units);
+            if (length == 1) return WriteAsync(units[0]);
+            char high = units[0], low = units[1];
+            return OnPool(() => { Write(high); Write(low); }, CancellationToken.None);
+        }
+
+        public virtual Task WriteLineAsync(Rune value)
+        {
+            Span<char> units = stackalloc char[2];
+            int length = value.EncodeToUtf16(units);
+            if (length == 1) return WriteLineAsync(units[0]);
+            char high = units[0], low = units[1];
+            return OnPool(() => { Write(high); WriteLine(low); }, CancellationToken.None);
+        }
 
         public virtual Task WriteLineAsync(char value) => OnPool(() => WriteLine(value), CancellationToken.None);
         public virtual Task WriteLineAsync(string value) => OnPool(() => WriteLine(value), CancellationToken.None);
