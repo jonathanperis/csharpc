@@ -140,6 +140,7 @@ public static class ProjectLoader
         ];
         // `#:property EventSourceSupport=true` and friends: the MSBuild property behind a feature switch wins.
         var overrides = new Dictionary<string, string>(StringComparer.Ordinal);
+        var publishAot = true;
         if (File.Exists(path))
             foreach (var line in File.ReadLines(path))
             {
@@ -150,12 +151,20 @@ public static class ProjectLoader
                 if (eq <= 0) continue;
                 var property = body[..eq].Trim();
                 var value = body[(eq + 1)..].Trim().Trim('"');
+                if (property.Equals("PublishAot", StringComparison.OrdinalIgnoreCase) && bool.TryParse(value, out var aot)) publishAot = aot;
                 foreach (var (msbuild, feature) in s_featureSwitchProperties)
                     if (property.Equals(msbuild, StringComparison.OrdinalIgnoreCase) && bool.TryParse(value, out var on))
                         overrides[feature] = on ? "true" : "false";
             }
-        foreach (var name in enabled) yield return new(name, overrides.Remove(name, out var v) ? v : "true");
-        foreach (var name in disabled) yield return new(name, overrides.Remove(name, out var v) ? v : "false");
+        // File-based apps are published AOT by default and the SDK writes the AOT feature switches; `#:property PublishAot=false`
+        // leaves only the binary formatter one (the runtimeconfig `dotnet build app.cs` writes), so the framework's reflection-based
+        // JSON, DefaultValueAttribute and the like are on, as in .NET.
+        if (publishAot)
+        {
+            foreach (var name in enabled) yield return new(name, overrides.Remove(name, out var v) ? v : "true");
+            foreach (var name in disabled) yield return new(name, overrides.Remove(name, out var v) ? v : "false");
+        }
+        else yield return new("System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization", overrides.Remove("System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization", out var binary) ? binary : "false");
         foreach (var (name, value) in overrides) yield return new(name, value);
     }
 
