@@ -40,7 +40,7 @@ changes a default.
   csharpc-specific (libc/Win32/OpenSSL bindings, compiler hooks); (5) DATA: tables.
 - **Verdicts.** `keep`; `shrink` (a part is contract, the rest upstream's); `delete-when-IL-wins` (a ceiling: the
   file goes when the real IL of its types passes the per-library A/B of ADR 0023, with the blockers listed). A
-  verdict is not a decision to delete: speed > security > size still decides each case, and the Json and Regex
+  verdict is not a decision to delete: security > speed > size still decides each case, and the Json and Regex
   rows belong to the A/B in #187/#188/#189.
 - **Other columns.** `origin` (the header names dotnet/runtime: `ported`), `data_lines` (literal tables and lines
   over 300 characters), `compiler_hooks` (string literals naming the shadowed type in `CodeGen`/`Frontend`, i.e.

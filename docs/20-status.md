@@ -9,7 +9,7 @@ was read at `6b95c16`, the last commit with a full CI run.
 
 An LLVM front-end for C#, used standalone (like rustc) and as .NET's AOT layer in NativeAOT's place
 behind `PublishAot`. The compiler is C#; the runtime keeps C where it is the right tool. Priorities, in
-order: **speed, security, size**; behaviour byte-identical to .NET (an explicit "not supported" over any
+order: **security, speed, size**; behaviour byte-identical to .NET (an explicit "not supported" over any
 silent difference); every fix with a regression sample recorded from real .NET.
 
 ## Milestone status

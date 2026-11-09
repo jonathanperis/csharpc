@@ -126,16 +126,19 @@ bug like a wrong output.
   the behavioural oracle for the tests and a benchmark baseline, not a support target
   ([ADR 0016](adr/0016-nativeaot-parity-and-end-state.md)). The finish line is M9: the dotnet fork with csharpc in
   NativeAOT's place, beating NativeAOT on the TechEmpower benchmarks.
-- **Faster (first priority):** throughput ahead of NativeAOT and the JIT on every benchmark, on every
+- **Safer (first priority):** hardening on by default ([17-security.md](17-security.md)); code that moves
+  from a shadow to upstream IL keeps every guard the shadow had. A security measure may cost speed and
+  size (numbers in the commit). The checks .NET semantics require (bounds, casts, array covariance) are
+  correctness, outside this order: they are never dropped, only made cheaper.
+- **Faster (second priority):** throughput ahead of NativeAOT and the JIT on every benchmark, on every
   platform; start-up and compile time measured too (compile time against `dotnet publish
-  -p:PublishAot=true`). A speed regression is never acceptable.
-- **Safer (second priority):** hardening on by default ([17-security.md](17-security.md)). The checks .NET
-  semantics require (bounds, casts, array covariance) are correctness, outside this order: they are never
-  dropped, only made cheaper.
+  -p:PublishAot=true`). A speed regression is a bug unless a security measure requires it, with the
+  numbers stated.
 - **Smaller (third priority):** executables a fraction of NativeAOT's size, with nothing linked that the
   program doesn't use (pay-for-play library code). Size still counts — budgets fail CI, and an
-  unexplained size increase is a bug — but a measured speed gain or a security measure may cost size (stated with numbers in the
-  commit, budget raised with that reason); size never buys a speed loss or weaker hardening.
+  unexplained size increase is a bug — but a security measure or a measured speed gain may cost size (stated
+  with numbers in the commit, budget raised with that reason); size never buys weaker security or a speed
+  loss.
 
 Evidence comes from CI ([benchmarks/RESULTS.md](../benchmarks/RESULTS.md), the compatibility runs), not
 claims. Known gaps: NativeAOT is ahead on `asyncfanout` (x86-64 and arm64) and on `fileio`,

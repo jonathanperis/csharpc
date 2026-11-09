@@ -41,6 +41,27 @@ if (args.Length > 0 && args[0] == "internal-interfaces")
     }
     return;
 }
+if (args.Length > 1 && args[0] == "simd-refs")
+{
+    // simd-refs <dll or directory>...: the members of System.Runtime.Intrinsics (and System.Numerics.Vector) the assemblies' IL calls, with the number
+    // of call sites: what a Vector128 lowering has to serve for them (FunctionCodeGen.Simd.cs, issue #252).
+    var counts = new SortedDictionary<string, int>(StringComparer.Ordinal);
+    foreach (var path in args.Skip(1).SelectMany(a => Directory.Exists(a) ? Directory.GetFiles(a, "*.dll") : [a]))
+    {
+        ModuleDefinition module;
+        try { module = ModuleDefinition.ReadModule(path); } catch { continue; }
+        foreach (var method in module.GetTypes().SelectMany(t => t.Methods).Where(m => m.HasBody))
+            foreach (var i in method.Body.Instructions)
+                if (i.Operand is MethodReference r && r.DeclaringType.GetElementType().FullName is { } type
+                    && (type.StartsWith("System.Runtime.Intrinsics.", StringComparison.Ordinal) || type is "System.Numerics.Vector" or "System.Numerics.Vector`1"))
+                {
+                    var key = $"{type}::{r.Name}({string.Join(",", r.Parameters.Select(p => p.ParameterType.Name))}) [{Path.GetFileName(path)}]";
+                    counts[key] = counts.GetValueOrDefault(key) + 1;
+                }
+    }
+    foreach (var (key, n) in counts) Console.WriteLine($"{n,4} {key}");
+    return;
+}
 if (args.Length > 2 && args[0] == "callers")
 {
     // callers <Type full name, ! for backtick> <method name>: the CoreLib methods that call it, and whether the call sits behind a
