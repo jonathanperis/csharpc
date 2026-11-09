@@ -61,7 +61,7 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         INamedTypeSymbol n when IsSystemStruct(n, "Index") => Llvm.I32,                       // .NET's own encoding: ~n = from end
         INamedTypeSymbol n when IsSystemStruct(n, "Range") => Llvm.Struct(Llvm.I32, Llvm.I32), // { Index start, Index end }
         // StringBuilder.AppendInterpolatedStringHandler: represented by the StringBuilder it appends into.
-        INamedTypeSymbol { Name: "AppendInterpolatedStringHandler", ContainingType.Name: "StringBuilder" } => Llvm.Ptr,
+        INamedTypeSymbol { Name: "AppendInterpolatedStringHandler", ContainingType.Name: "StringBuilder" } when !Frontend.UpstreamSlice.Serves("System.Text.StringBuilder") => Llvm.Ptr,
         // DefaultInterpolatedStringHandler (compiled `$"..."`, seen by the IL front-end): a StringBuilder.
         INamedTypeSymbol { Name: "DefaultInterpolatedStringHandler", ContainingType: null, ContainingNamespace.Name: "CompilerServices" } => Llvm.Ptr,
         // System.Threading.Lock.Scope: represented by the Lock itself (Scope.Dispose exits it).

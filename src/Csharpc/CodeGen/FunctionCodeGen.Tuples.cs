@@ -136,8 +136,9 @@ public sealed partial class FunctionCodeGen
 
 public sealed partial class FunctionCodeGen
 {
+    // Not when StringBuilder itself comes from the framework's IL (UpstreamSlice): the handler is then the real struct.
     private static bool IsStringBuilderHandler(ITypeSymbol? type) =>
-        type is INamedTypeSymbol { Name: "AppendInterpolatedStringHandler", ContainingType.Name: "StringBuilder" };
+        type is INamedTypeSymbol { Name: "AppendInterpolatedStringHandler", ContainingType.Name: "StringBuilder" } && !Frontend.UpstreamSlice.Serves("System.Text.StringBuilder");
 
     /// <summary>
     /// This function creates a StringBuilder handler with a format provider (sb.Append(provider, $"...")): its

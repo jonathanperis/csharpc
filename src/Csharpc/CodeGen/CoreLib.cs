@@ -67,6 +67,17 @@ public sealed class CoreLib
             _assembly = compilation.References.Select(compilation.GetAssemblyOrModuleSymbol).OfType<IAssemblySymbol>()
                 .FirstOrDefault(a => a.Name == Frontend.CoreLibAssembly.Name);
         }
+        // Part B spike (#191): types served by a slice of the framework's IL drop their shadow (and their nested types').
+        var upstream = Frontend.UpstreamSlice.Entries;
+        if (upstream.Count > 0)
+        {
+            shadows.RemoveAll(s => upstream.Any(u => !u.Real.Contains('+') && (s.Real == u.Real || s.Real.StartsWith(u.Real + "+", StringComparison.Ordinal))));
+            foreach (var (real, slice) in upstream)
+            {
+                _shadowNameByReal[real] = slice;
+                _realByShadowName[slice] = real;
+            }
+        }
         foreach (var (membersOnly, real, metadataName) in shadows)
         {
             if (!membersOnly)
