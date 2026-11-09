@@ -304,6 +304,15 @@ hashing helpers), most of it for Dictionary and HashSet.
    `ArraySortHelper<T>.CreateArraySortHelper`, which creates its helper with
    `RuntimeTypeHandle.CreateInstanceForAnotherGenericParameter`; the spike redirects the helper to a corelib type (a copy of the
    span) and #224 asks for the compile-time intrinsic NativeAOT has.
+   #224 adds it (`FunctionCodeGen.IlGenericInstantiation.cs`): a call with `typeof` constants becomes `newobj G<T>::.ctor()`,
+   anything else is an explicit diagnostic, and `System.RuntimeType` in framework IL means `System.Type`. Measured first: the
+   `ArraySortHelper<T>` call sits behind `RuntimeFeature.IsDynamicCodeCompiled`, which csharpc folds to false as NativeAOT does, so
+   `List<T>.Sort` and `Array.Sort` compile from the framework's own helper without the redirect (removed from the slicer, sample 1299)
+   and never reach the intrinsic. The unguarded callers are `ComparerHelpers.CreateDefaultComparer` / `CreateDefaultEqualityComparer`
+   (the real `EqualityComparer<T>.Default` and `Comparer<T>.Default`); they stop one step earlier, at
+   `typeof(IEquatable<>).MakeGenericType(type)` ("csharpc compiles only the generic instantiations the program creates"), which is
+   what a flip of the default comparers needs next. The intrinsic itself is tested with an IL library written with Cecil
+   (`tests/slicer.sh`, `tools/il-first/slicer/Synth.cs`) because no C# program can call the internal member.
 6. **Deleting a shadow can mean deleting compiler hooks.** StringBuilder's interpolation handler and
    `DefaultInterpolatedStringHandler` are represented by the shadow `StringBuilder` in `TypeMapper` and
    `FunctionCodeGen.Tuples.cs`/`Calls.cs` (about 120 lines); with the real struct those paths must go, and they produced

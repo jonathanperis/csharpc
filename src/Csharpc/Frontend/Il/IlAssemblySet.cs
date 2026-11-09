@@ -409,6 +409,9 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                 if (!_referenced.TryGetValue(assemblyName, out var assembly))
                     throw new IlException($"'{full}' is defined in assembly '{assemblyName}', which '{Name}' references but csharpc was not given (pass it with -r)");
                 result = assembly.GetTypeByMetadataName(full) ?? assembly.ResolveForwardedType(full) ?? Compilation.GetTypeByMetadataName(full);
+                // System.RuntimeType, CoreLib's internal implementation of System.Type: csharpc's Type objects are all of one runtime class,
+                // so framework IL that casts to it or names it in a signature (RuntimeTypeHandle's members) means System.Type.
+                if (result is null && full == "System.RuntimeType" && assemblyName == "System.Private.CoreLib") result = Compilation.GetTypeByMetadataName("System.Type");
                 break;
             case HandleKind.ModuleDefinition:
                 result = Symbol.GetTypeByMetadataName(full);
