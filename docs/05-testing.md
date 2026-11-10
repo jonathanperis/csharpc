@@ -143,6 +143,11 @@ the first lines of a unified diff between the expected and actual stdout.
 
 ## CI
 
+The merge bar for a PR that touches `src/**` also includes the Bootstrap checks "Roslyn hosted from IL" and
+"csharpc compiles csharpc (-O0)" / "(-O2)" (`.github/workflows/bootstrap.yml` on `pull_request`): the five
+jobs below do not compile Roslyn or csharpc itself, and Bootstrap was red on `main` twice in two days while
+every PR gate was green. The 16 native-suite shards of that workflow run on pushes to `main` and `ci/m6-**`.
+
 The merge bar is the five jobs `test (x86-64)`, `test (arm64)`, `test (macos-arm64)`,
 `test (windows-x64)` and `test (wasm32-wasi)` in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
 A full run (push to `main` or `ci/**`, a pull request, or a manual dispatch of that workflow) splits
