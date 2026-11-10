@@ -145,17 +145,19 @@ unless `NO_COLOR` is set. Exit codes:
 | 2 | bad command line |
 | 70 | internal compiler error |
 
-### Defaults that differ from NativeAOT
+### Feature-switch defaults
 
-Where NativeAOT's default trades speed for size, csharpc keeps speed (the project's priority order: speed, security,
-size). Output is identical either way, and the project's own setting is honoured both ways.
+csharpc compiles in the feature switches .NET would set for the same kind of program, because programs observe them
+(`AppContext.TryGetSwitch`, and code paths the switches select). A single file gets what `dotnet run app.cs` writes (a
+file-based app defaults to `PublishAot=true` and its AOT switches); a project gets the `RuntimeHostConfigurationOption`
+items of its MSBuild evaluation; an explicit property, runtimeconfig value or `#:property` always wins.
 
-- **LINQ.** NativeAOT sets `UseSizeOptimizedLinq=true` (`Microsoft.NETCore.Native.targets`; the SDK also sets it for
-  file-based apps), which compiles `System.Linq.Enumerable.IsSizeOptimized` to true. csharpc leaves it false unless
-  `UseSizeOptimizedLinq` (project property or `#:property`) or the runtimeconfig switch asks for it. On the LINQ
-  throughput program the speed-optimized path takes 0.79 s against 1.80 s of user CPU, and the binary is 1 369 against
-  969 KB stripped ([ADR 0023](adr/0023-framework-il-first.md), Linq row). csharpc's own build sets
-  `UseSizeOptimizedLinq=true`, because its self-compile needs it to fit in the CI runner's memory.
+- **LINQ.** `System.Linq.Enumerable.IsSizeOptimized` is true for single files and for projects with `PublishAot=true`
+  (`UseSizeOptimizedLinq=true` in `Microsoft.NETCore.Native.targets`), false for other projects. It changes observable
+  results such as `TryGetNonEnumeratedCount`. For information, on the LINQ throughput program the speed-optimized path
+  takes 0.79 s against 1.80 s of user CPU, and the binary is 1 369 against 969 KB stripped
+  ([ADR 0023](adr/0023-framework-il-first.md), Linq row); `UseSizeOptimizedLinq=false` picks it. csharpc's own build
+  sets `UseSizeOptimizedLinq=true`, because its self-compile needs it to fit in the CI runner's memory.
 
 ## Tests
 

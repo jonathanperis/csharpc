@@ -15,7 +15,7 @@
     <PredefinedCulturesOnly>false</PredefinedCulturesOnly>
     <!-- csharpc's own native build (tools/bootstrap/selfhost.sh) takes System.Linq's size-optimized path: the speed-optimized
          one's per-shape iterators, instantiated for every element type csharpc uses, make the self-compile exceed the CI
-         runner's memory. User programs default to the speed path (ADR 0023, Linq row). -->
+         runner's memory. User programs get .NET's default for their kind (ADR 0023, Linq row). -->
     <UseSizeOptimizedLinq>true</UseSizeOptimizedLinq>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
 
