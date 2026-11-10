@@ -410,8 +410,9 @@ public static partial class FrameworkIl
             // A library with types of its own that also forwards a few to CoreLib (System.Data.Common: DBNull)
             // stands on its own. It stays a facade when it forwards types its reference-pack twin defines
             // (System.Runtime.InteropServices: DllImportAttribute): with the implementation in the twin's place,
-            // those would resolve back to it through the CoreLib facade, and binding would loop.
-            if (a.Types.Values.Any(types => types.Length > 0) && !ForwardsTwinTypes(a)) continue;
+            // those would resolve back to it through the CoreLib facade, and binding would loop, unless the assembly
+            // is one whose twin is kept under another name (TwinReference).
+            if (a.Types.Values.Any(types => types.Length > 0) && (!ForwardsTwinTypes(a) || TwinReference.Supported(a.Name))) continue;
             var blocked = a.ForwardsTo.FirstOrDefault(t => t.StartsWith("System.Private.", StringComparison.Ordinal)
                 && (!index.TryGetValue(t, out var target) || target.Ineligible is not null));
             if (blocked is not null) a.Ineligible = $"it forwards types to {blocked} (a facade)";
