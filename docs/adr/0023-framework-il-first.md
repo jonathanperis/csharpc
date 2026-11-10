@@ -2,6 +2,8 @@
 
 - **Status:** Accepted as policy (2026-11-08, owner decision); the per-library decisions below are measured. System.Text.RegularExpressions
   is flipped (#206, owner: "flip now, accept the size"), System.Linq too (#267); no other default has changed yet. Issues #187 (policy) and #189 (this ADR).
+  The order of further CoreLib flips and the NativeAOT column of the table below are set by
+  [ADR 0025](0025-optimizer-before-flips.md) (compiler milestone first, NativeAOT as the yardstick).
 
 ## Context
 
