@@ -763,6 +763,8 @@ public sealed partial class FunctionCodeGen
             _m.ExternalGlobal(named.Name == "Mutex" ? "csrt_Mutex_MT" : "csrt_Semaphore_MT"),
         _ when IsBoxablePrimitive(type) => _m.ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"),
         _ when BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) || BclValueTypes.IsBigInteger(type) || Int128Support.Is128(type) => _m.TypeMethodTable(type, at),
+        _ when IsIndexType(type) => _m.IndexRangeMethodTable(isRange: false),
+        _ when IsRangeType(type) => _m.IndexRangeMethodTable(isRange: true),
         INamedTypeSymbol { TypeKind: TypeKind.Enum } e => _m.EnumMethodTable(e),
         INamedTypeSymbol { TypeKind: TypeKind.Class } named when _m.IsUserType(named) || _m.IsLibraryException(named) =>
             _m.GetLayout(named).MethodTable,
