@@ -74,13 +74,14 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         // Vector64/128/256<T>: opaque bytes. csharpc has no SIMD operations yet (their IsHardwareAccelerated
         // and the ISA classes' IsSupported fold to false); locals and fields of these types still need a size.
         // Vector128<T> is <16 x i8> whatever T (FunctionCodeGen.Simd.cs); the others stay bytes.
-        INamedTypeSymbol n when SimdVectorBytes(n) is { } bytes => n.Name == "Vector128" ? Native.LLVMVectorType(Llvm.I8, 16) : LlvmContext.Array(Llvm.I8, bytes),
+        INamedTypeSymbol n when SimdVectorBytes(n) is { } bytes => n.Name is "Vector128" or "Vector" ? Native.LLVMVectorType(Llvm.I8, 16) : LlvmContext.Array(Llvm.I8, bytes),
         { TypeKind: TypeKind.Struct } => throw CompileError.Unsupported($"struct '{type}'", type),
         { TypeKind: TypeKind.TypeParameter } => throw CompileError.Unsupported($"generic type parameter '{type}'", type),
         _ => throw CompileError.Unsupported($"type '{type}'", type),
     };
 
     private static uint? SimdVectorBytes(INamedTypeSymbol type) =>
+        type is { Name: "Vector", Arity: 1, ContainingType: null } && FunctionCodeGen.InNumericsNamespace(type) ? 16u : // Vector<T>: NativeAOT's default size
         type is { Arity: 1, ContainingNamespace: { Name: "Intrinsics", ContainingNamespace: { Name: "Runtime", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } }
             ? type.Name switch { "Vector64" => 8u, "Vector128" => 16u, "Vector256" => 32u, "Vector512" => 64u, _ => null }
             : null;
