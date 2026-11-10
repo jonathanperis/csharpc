@@ -204,6 +204,83 @@ namespace CsharpcCoreLib
         public string[] Members { get; }
     }
 
+    // The attributes of framework types a program can list (TypeDescriptor.GetAttributes, Type.GetCustomAttributes on a library type):
+    // [Serializable] is the pseudo-attribute CoreCLR adds, [TypeForwardedFrom] is on the types that moved between assemblies.
+    [Shadows("System.SerializableAttribute")]
+    public sealed class SerializableAttributeImpl : Attribute
+    {
+        public SerializableAttributeImpl() { }
+    }
+
+    [Shadows("System.Runtime.CompilerServices.TypeForwardedFromAttribute")]
+    public sealed class TypeForwardedFromAttributeImpl : Attribute
+    {
+        public TypeForwardedFromAttributeImpl(string assemblyFullName)
+        {
+            if (string.IsNullOrEmpty(assemblyFullName)) throw new ArgumentNullException("assemblyFullName");
+            AssemblyFullName = assemblyFullName;
+        }
+        public string AssemblyFullName { get; }
+    }
+
+    [Shadows("System.Diagnostics.DebuggerDisplayAttribute")]
+    public sealed class DebuggerDisplayAttributeImpl : Attribute
+    {
+        private Type _target;
+        private string _targetName;
+        public DebuggerDisplayAttributeImpl(string value) { Value = value ?? ""; Name = ""; Type = ""; }
+        public string Value { get; }
+        public string Name { get; set; }
+        public string Type { get; set; }
+        public Type Target { get => _target; set { ArgumentNullException.ThrowIfNull(value); _targetName = value.AssemblyQualifiedName; _target = value; } }
+        public string TargetTypeName { get => _targetName; set => _targetName = value; }
+    }
+
+    [Shadows("System.Diagnostics.DebuggerTypeProxyAttribute")]
+    public sealed class DebuggerTypeProxyAttributeImpl : Attribute
+    {
+        private Type _target;
+        private string _targetName;
+        public DebuggerTypeProxyAttributeImpl(Type type)
+        {
+            ArgumentNullException.ThrowIfNull(type);
+            ProxyTypeName = type.AssemblyQualifiedName;
+        }
+        public DebuggerTypeProxyAttributeImpl(string typeName) { ProxyTypeName = typeName; }
+        public string ProxyTypeName { get; }
+        public Type Target { get => _target; set { ArgumentNullException.ThrowIfNull(value); _targetName = value.AssemblyQualifiedName; _target = value; } }
+        public string TargetTypeName { get => _targetName; set => _targetName = value; }
+    }
+
+    [Shadows("System.FlagsAttribute")]
+    public sealed class FlagsAttributeImpl : Attribute
+    {
+        public FlagsAttributeImpl() { }
+    }
+
+    [Shadows("System.AttributeUsageAttribute")]
+    public sealed class AttributeUsageAttributeImpl : Attribute
+    {
+        public AttributeUsageAttributeImpl(AttributeTargets validOn) { ValidOn = validOn; Inherited = true; }
+        public AttributeTargets ValidOn { get; }
+        public bool AllowMultiple { get; set; }
+        public bool Inherited { get; set; }
+    }
+
+    [Shadows("System.CLSCompliantAttribute")]
+    public sealed class CLSCompliantAttributeImpl : Attribute
+    {
+        public CLSCompliantAttributeImpl(bool isCompliant) { IsCompliant = isCompliant; }
+        public bool IsCompliant { get; }
+    }
+
+    [Shadows("System.Runtime.InteropServices.ComVisibleAttribute")]
+    public sealed class ComVisibleAttributeImpl : Attribute
+    {
+        public ComVisibleAttributeImpl(bool visibility) { Value = visibility; }
+        public bool Value { get; }
+    }
+
     [Shadows("System.ObsoleteAttribute")]
     public sealed class ObsoleteAttributeImpl : Attribute
     {

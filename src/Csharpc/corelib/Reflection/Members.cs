@@ -819,7 +819,7 @@ namespace CsharpcCoreLib
     }
 
     /// <summary>The reflection entry points (BclValueTypes.Reflection.cs maps Type/Array/Delegate members here).</summary>
-    internal static unsafe class ReflectionRuntime
+    internal static unsafe partial class ReflectionRuntime
     {
 
         private static readonly object s_lock = new object();
