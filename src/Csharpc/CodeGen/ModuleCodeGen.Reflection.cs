@@ -567,7 +567,11 @@ public sealed partial class ModuleCodeGen
         if (attributes is null) entry.Described |= RiAttributesUnknown;
         else
         {
-            KeepAttributeArguments(attributes);
+            // Only for the types reflection is expected to look into (the program's, those kept for [DynamicallyAccessedMembers]): every IL library
+            // type's attributes are described once the program asks for any, and rooting what their arguments name (each [DebuggerTypeProxy]'s
+            // proxy with all its members) made csharpc's own compile run out of memory.
+            if (entry.Type is INamedTypeSymbol described && (IsProgramType(described) || _damMarks.ContainsKey(described) || _damMarks.ContainsKey(described.OriginalDefinition)))
+                KeepAttributeArguments(attributes);
             // The declared attributes are exact; the list's count word says csc synthesizes more (Nullable, ...), which
             // makes the untyped queries and those for System attributes throw while a program's own attributes stay exact.
             entry.Attributes = synthesizedUnknown ? Attributes(new AttributeSet(attributes, 0, true)) : Attributes(attributes);
