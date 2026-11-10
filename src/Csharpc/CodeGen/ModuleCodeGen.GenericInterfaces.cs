@@ -133,7 +133,9 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     private IMethodSymbol? DispatchCallee(IMethodSymbol target, INamedTypeSymbol type)
     {
-        var itf = target.ContainingType;
+        // The candidates' types are in their runtime identity (tuple element names erased, as the layouts are keyed); a call
+        // through `Iterator<(string Name, int Price)>` must still find `OrderedIterator<(string, int)>` derived from it.
+        var itf = TypeSubstitution.EraseTupleNames(target.ContainingType, Compilation);
         var typeArgs = target.TypeArguments.ToArray();
         if (itf.TypeKind != TypeKind.Interface)
         {
@@ -152,6 +154,8 @@ public sealed partial class ModuleCodeGen
             return callee?.Construct(typeArgs);
         }
         var member = target.ConstructedFrom;
+        if (!ReferenceEquals(itf, target.ContainingType))
+            member = itf.GetMembers(target.Name).OfType<IMethodSymbol>().First(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, target.OriginalDefinition));
         if (!type.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, itf))) return null;
         var impl = type.FindImplementationForInterfaceMember(member) as IMethodSymbol;
         if (impl is null) return member.IsAbstract ? null : target; // the interface's default body
@@ -174,7 +178,8 @@ public sealed partial class ModuleCodeGen
     {
         IndexImplementers();
         if (target.ContainingType.TypeKind != TypeKind.Interface) return (_classSequence, []);
-        return (_classesByInterface.GetValueOrDefault(target.ContainingType) ?? [], _structsByInterface.GetValueOrDefault(target.ContainingType) ?? []);
+        var itf = TypeSubstitution.EraseTupleNames(target.ContainingType, Compilation);
+        return (_classesByInterface.GetValueOrDefault(itf) ?? [], _structsByInterface.GetValueOrDefault(itf) ?? []);
     }
 
     /// <summary>Is the method table of this candidate there to dispatch on (a class: and constructed)?</summary>

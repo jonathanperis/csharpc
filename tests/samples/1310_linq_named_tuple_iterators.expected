@@ -1,0 +1,8 @@
+cy,ann,bob,di
+31,40
+(bob, 50),(ann, 62)
+(2, bob+di);(3, ann);(4, cy)
+ann,di,bob
+121 di
+cy40,ann31,bob25
+31,25,40,25

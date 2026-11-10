@@ -318,6 +318,11 @@ public sealed partial class FunctionCodeGen
             if (!_m.IsUserMethod(om))
                 return ReadModifyWrite(c.Target, old =>
                 {
+                    if (IsVector128Struct(om.ContainingType)) // acc += v on Vector128<T> / Vector<T>
+                    {
+                        var vector = EmitSimd(om, om.ContainingType.TypeArguments[0], default, [old, Coerce(EmitValue(c.Value), c.Value.Type, om.Parameters[1].Type)], c);
+                        return (vector, vector);
+                    }
                     if (!BclValueTypes.TryGet(om, out var handler)) throw CompileError.Unsupported($"compound assignment with operator '{om}'", c);
                     var r = handler(this, om, default, [Coerce(old, c.Target.Type, om.Parameters[0].Type),
                         Coerce(EmitValue(c.Value), c.Value.Type, om.Parameters[1].Type)], c);

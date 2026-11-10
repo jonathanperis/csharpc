@@ -323,7 +323,7 @@ static class Rules
         "Net/UriRelative.cs", "Number.Formatting.cs", "Regex/RegexCaseEquivalences.Data.cs", "Resources.cs", "Rune.cs", "StringBuilder.cs", "StringExtras.cs",
         "Tasks/AsyncGate.cs", "Tasks/TaskState.cs", "Text/Encoding.cs", "Text/Latin1BestFit.cs", "Threading/ReaderWriterLockSlim.cs", "Tracing/EventSource.cs",
         "UnicodeData.g.cs", "AggregateExceptionSupport.cs", "ArrayInterfaces.cs", "BigIntegerOps.cs", "BigNum.cs", "DecimalOps.cs", "DelegateThunks.cs",
-        "Dynamic/DynamicObjects.cs", "EnumRuntime.cs", "LinqIterators.cs", "LinqSpans.cs", "SpanSearch.cs", "ValueBuilders.cs", "Random/CoreDebug.cs",
+        "Dynamic/DynamicObjects.cs", "EnumRuntime.cs", "SpanSearch.cs", "RuntimeSpans.cs", "ValueBuilders.cs", "Random/CoreDebug.cs",
     };
 
     static Dictionary<string, Fam> BuildOverrides()
@@ -352,9 +352,8 @@ static class Rules
         Add("Number.Parsing.cs", Numbers);
         Add("Number.Parsing.Culture.cs", Numbers);
         Add("OrdinalCasing.cs", F("culture", ClPure, "delete", "OrdinalIgnoreCase comparison over the invariant simple case mapping: managed upstream (Ordinal, OrdinalCasing)", "ICU"));
-        Add("LinqIterators.cs", Above("linq", "hand-written iterators standing in for System.Linq's Iterator<T> classes", "SIMD,EQCMP"));
-        Add("LinqSpans.cs", Above("linq", "Enumerable span fast paths over src/runtime/span.c", "SIMD"));
         Add("SpanSearch.cs", Span);
+        Add("RuntimeSpans.cs", Span);
         Add("ThreadApartment.cs", F("thread", ClContract, "keep", "Thread.GetApartmentState & co.", "THREAD"));
         Add("ValueBuilders.cs", ported);
         Add("Random/CoreDebug.cs", ported);
