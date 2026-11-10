@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis.Operations;
 namespace Csharpc.CodeGen;
 
 /// <summary>
-/// <c>Vector128&lt;T&gt;</c> on LLVM vectors (issue #252). A Vector128 is a <c>&lt;16 x i8&gt;</c> whatever its element type; an operation views it as
+/// <c>Vector128&lt;T&gt;</c> (and <c>System.Numerics.Vector&lt;T&gt;</c> at the same 16 bytes) on LLVM vectors (issue #252). A Vector128 is a <c>&lt;16 x i8&gt;</c> whatever its element type; an operation views it as
 /// <c>&lt;N x T&gt;</c> by bitcast and returns it as <c>&lt;16 x i8&gt;</c> again, so <c>As&lt;T, U&gt;</c> and the <c>AsByte</c> family are the identity.
 /// The framework's span helpers (<c>SpanHelpers.IndexOfValueType</c>, <c>IndexOfAny</c>, <c>SequenceEqual</c>...) test
 /// <c>Vector128.IsHardwareAccelerated</c> and then run their vector path, which this serves for both front-ends: <see cref="TrySimdCall"/>
@@ -30,9 +30,17 @@ public sealed partial class FunctionCodeGen
     private static bool InIntrinsicsNamespace(INamedTypeSymbol type) =>
         type.ContainingNamespace is { Name: "Intrinsics", ContainingNamespace: { Name: "Runtime", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } };
 
-    private static bool IsVector128Struct(ITypeSymbol? type) => type is INamedTypeSymbol { Name: "Vector128", Arity: 1 } n && InIntrinsicsNamespace(n);
+    /// <summary>System.Numerics.Vector / Vector&lt;T&gt;: 16 bytes here (NativeAOT's default on x64 and arm64), so the same lowering as Vector128.</summary>
+    internal static bool InNumericsNamespace(INamedTypeSymbol type) =>
+        type.ContainingNamespace is { Name: "Numerics", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } };
 
-    private static bool IsVector128Class(ITypeSymbol? type) => type is INamedTypeSymbol { Name: "Vector128", Arity: 0 } n && InIntrinsicsNamespace(n);
+    private static bool IsVector128Struct(ITypeSymbol? type) =>
+        type is INamedTypeSymbol { Name: "Vector128", Arity: 1 } n && InIntrinsicsNamespace(n)
+        || type is INamedTypeSymbol { Name: "Vector", Arity: 1, ContainingType: null } v && InNumericsNamespace(v);
+
+    private static bool IsVector128Class(ITypeSymbol? type) =>
+        type is INamedTypeSymbol { Name: "Vector128", Arity: 0 } n && InIntrinsicsNamespace(n)
+        || type is INamedTypeSymbol { Name: "Vector", Arity: 0, ContainingType: null } v && InNumericsNamespace(v);
 
     private SimdElement ElementOf(ITypeSymbol type, IOperation? at = null)
     {
@@ -139,6 +147,7 @@ public sealed partial class FunctionCodeGen
             "One" => Raw(Splat(element.IsFloat ? LlvmContext.ConstReal(element.Llvm, 1) : L.ConstInt(element.Llvm, 1), element)),
             "AllBitsSet" => ConstAllOnes(),
             "Count" or "ElementCount" => L.ConstInt(L.I32, element.Count),
+            "Indices" => Raw(Native.LLVMConstVector([.. Enumerable.Range(0, element.Count).Select(i => element.IsFloat ? LlvmContext.ConstReal(element.Llvm, i) : L.ConstInt(element.Llvm, i))], (uint)element.Count)),
             "IsSupported" => L.True,
             _ => null,
         };
@@ -153,6 +162,32 @@ public sealed partial class FunctionCodeGen
     }
 
     private LLVMValueRef ConstAllOnes() => Native.LLVMConstAllOnes(RawVector);
+
+    /// <summary>
+    /// <c>new Vector&lt;T&gt;(T value)</c> (every lane the value) and <c>new Vector&lt;T&gt;(ReadOnlySpan&lt;T&gt; / Span&lt;T&gt; values)</c> (the first 16 bytes; a span
+    /// that is too short throws ArgumentOutOfRangeException, as .NET's). Other forms (arrays, bytes) are an explicit diagnostic.
+    /// </summary>
+    private LLVMValueRef? TrySimdCreation(IObjectCreationOperation creation, INamedTypeSymbol type)
+    {
+        if (!IsVector128Struct(type) || creation.Constructor is not { Parameters.Length: 1 } constructor) return null;
+        var parameter = S(constructor.Parameters[0].Type);
+        var element = ElementOf(type.TypeArguments[0], creation);
+        if (SymbolEqualityComparer.Default.Equals(parameter, element.Type))
+            return Raw(Splat(EmitArgumentValue(creation.Arguments[0]), element));
+        if (parameter is INamedTypeSymbol { Name: "ReadOnlySpan" or "Span", TypeArguments: [var spanElement] } && TypeMapper.IsSpan(parameter))
+        {
+            var span = EmitArgumentValue(creation.Arguments[0]);
+            var perVector = 16 / (int)T.Target.SizeOf(T.Storage(S(spanElement)));
+            var tooShort = NewBlock("simd.span.short");
+            var ok = NewBlock("simd.span.ok");
+            _b.CondBr(_b.ICmp(LLVMIntPredicate.SLT, SpanLength(span), L.ConstInt(L.I32, perVector)), tooShort, ok);
+            _b.PositionAtEnd(tooShort);
+            ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.ArgumentOutOfRangeException")!, "Specified argument was out of the range of valid values. (Parameter 'values')");
+            _b.PositionAtEnd(ok);
+            return Load128(SpanPointer(span));
+        }
+        return null;
+    }
 
     private LLVMValueRef? TrySimdCall(IInvocationOperation inv, IMethodSymbol target)
     {
@@ -175,7 +210,8 @@ public sealed partial class FunctionCodeGen
     {
         var name = target.Name;
         // Members that name no element type: conversions between element views are the identity on the raw bytes.
-        if (name is "As" or "AsByte" or "AsSByte" or "AsUInt16" or "AsInt16" or "AsUInt32" or "AsInt32" or "AsUInt64" or "AsInt64" or "AsSingle" or "AsDouble" or "AsNInt" or "AsNUInt")
+        if (name is "As" or "AsByte" or "AsSByte" or "AsUInt16" or "AsInt16" or "AsUInt32" or "AsInt32" or "AsUInt64" or "AsInt64" or "AsSingle" or "AsDouble" or "AsNInt" or "AsNUInt"
+            || name.StartsWith("AsVector", StringComparison.Ordinal)) // Vector.AsVectorInt32 ...
             return a[0];
         if (elementType is null) throw CompileError.Unsupported($"'{target}'", at);
         var e = ElementOf(elementType, at);
@@ -196,6 +232,51 @@ public sealed partial class FunctionCodeGen
             case "get_Zero": return Zero();
             case "get_AllBitsSet": return ConstAllOnes();
             case "get_Count" or "get_ElementCount": return L.ConstInt(L.I32, e.Count);
+            case "Create" when a.Length == 1 && a[0].Type.Kind == LLVMTypeKind.Struct: // Create(ReadOnlySpan<T>): the first vector's worth
+            {
+                var tooShort = NewBlock("simd.span.short");
+                var ok = NewBlock("simd.span.ok");
+                _b.CondBr(_b.ICmp(LLVMIntPredicate.SLT, SpanLength(a[0]), L.ConstInt(L.I32, e.Count)), tooShort, ok);
+                _b.PositionAtEnd(tooShort);
+                ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.ArgumentOutOfRangeException")!, "Specified argument was out of the range of valid values. (Parameter 'values')");
+                _b.PositionAtEnd(ok);
+                return Load128(SpanPointer(a[0]));
+            }
+            case "Widen" when a.Length == 3: // Widen(source, out low, out high): the lower and upper half, each lane twice as wide
+            {
+                var wide = ElementOf(((INamedTypeSymbol)target.Parameters[1].Type).TypeArguments[0], at);
+                var source = View(a[0], e);
+                var half = e.Count / 2;
+                LLVMValueRef Half(int start)
+                {
+                    var mask = Native.LLVMConstVector([.. Enumerable.Range(start, half).Select(i => L.ConstInt(L.I32, i))], (uint)half);
+                    var lanes = _b.ShuffleVector(source, Native.LLVMGetPoison(VectorOf(e)), mask);
+                    var to = Native.LLVMVectorType(wide.Llvm, (uint)half);
+                    return Raw(_b.Cast(e.IsFloat ? LLVMOpcode.FPExt : e.IsSigned ? LLVMOpcode.SExt : LLVMOpcode.ZExt, lanes, to));
+                }
+                foreach (var (address, value) in new[] { (a[1], Half(0)), (a[2], Half(half)) })
+                    Native.LLVMSetAlignment(_b.Store(value, address), 1);
+                return default;
+            }
+            case "Sum" when a.Length == 1:
+            {
+                // Lanes added pairwise ((a0 + a1) + (a2 + a3)), as the hardware's horizontal add does: the order is only visible for floats.
+                var lanes = Enumerable.Range(0, e.Count).Select(i => _b.ExtractElement(View(a[0], e), L.ConstInt(L.I32, i))).ToList();
+                while (lanes.Count > 1)
+                    lanes = [.. Enumerable.Range(0, lanes.Count / 2).Select(i => _b.BinOp(e.IsFloat ? LLVMOpcode.FAdd : LLVMOpcode.Add, lanes[2 * i], lanes[2 * i + 1]))];
+                return lanes[0];
+            }
+            case "CopyTo" when a.Length == 1 && a[0].Type.Kind == LLVMTypeKind.Struct: // CopyTo(Span<T> destination)
+            {
+                var tooShort = NewBlock("simd.copy.short");
+                var ok = NewBlock("simd.copy.ok");
+                _b.CondBr(_b.ICmp(LLVMIntPredicate.SLT, SpanLength(a[0]), L.ConstInt(L.I32, e.Count)), tooShort, ok);
+                _b.PositionAtEnd(tooShort);
+                ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.ArgumentException")!, "Destination is too short. (Parameter 'destination')");
+                _b.PositionAtEnd(ok);
+                Native.LLVMSetAlignment(_b.Store(instance, SpanPointer(a[0])), 1);
+                return default;
+            }
             case "Create" or "CreateScalarUnsafe" or "CreateScalar" when a.Length == 1 && a[0].Type == e.Llvm:
                 if (name == "Create") return Raw(Splat(a[0], e));
                 return Raw(_b.InsertElement(name == "CreateScalar" ? LlvmContext.Null(VectorOf(e)) : Native.LLVMGetPoison(VectorOf(e)), a[0], L.ConstInt(L.I32, 0)));

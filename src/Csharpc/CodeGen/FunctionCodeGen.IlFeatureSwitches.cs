@@ -42,10 +42,11 @@ public sealed partial class FunctionCodeGen
             // csharpc has no hardware intrinsics yet: the framework's scalar fallbacks run (same results by
             // design). Ssse3.IsSupported, AdvSimd.Arm64.IsSupported, Vector128.IsHardwareAccelerated, ...
             (_, "get_IsSupported") when IsHardwareIntrinsicClass(method.ContainingType) => false,
-            // Vector128 is on LLVM vectors where the target has a 128-bit unit (FunctionCodeGen.Simd.cs); Vector64/256/512 and Vector<T> are not.
-            ("System.Runtime.Intrinsics.Vector128", "get_IsHardwareAccelerated") => Vector128Accelerated,
+            // Vector128 and Vector<T> (16 bytes, NativeAOT's default) are on LLVM vectors where the target has a 128-bit unit
+            // (FunctionCodeGen.Simd.cs); Vector64/256/512 are not.
+            ("System.Runtime.Intrinsics.Vector128" or "System.Numerics.Vector", "get_IsHardwareAccelerated") => Vector128Accelerated,
             ("System.Runtime.Intrinsics.Vector64" or "System.Runtime.Intrinsics.Vector256"
-                or "System.Runtime.Intrinsics.Vector512" or "System.Numerics.Vector", "get_IsHardwareAccelerated") => false,
+                or "System.Runtime.Intrinsics.Vector512", "get_IsHardwareAccelerated") => false,
             _ => null,
         };
 
