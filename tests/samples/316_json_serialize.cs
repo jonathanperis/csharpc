@@ -1,4 +1,4 @@
-#:property PublishAot=false
+#:property JsonSerializerIsReflectionEnabledByDefault=true
 // JsonSerializer.Serialize for user types without a JsonSerializerContext (.NET's reflection-based
 // path; csharpc generates the metadata at compile time): properties in declaration order (derived
 // before base), collections, dictionaries, nullables, enums, structs, records, numbers and dates.

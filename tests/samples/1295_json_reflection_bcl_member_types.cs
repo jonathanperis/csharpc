@@ -1,4 +1,4 @@
-#:property PublishAot=false
+#:property JsonSerializerIsReflectionEnabledByDefault=true
 #nullable enable
 // Reflection-based System.Text.Json over a class whose members are BCL types: the resolver asks every type of the graph for its
 // public constructors (primitives and enums have none) and for its attributes, whichever library implements the serializer.

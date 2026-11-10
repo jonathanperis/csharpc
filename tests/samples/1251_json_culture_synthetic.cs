@@ -1,4 +1,4 @@
-#:property PublishAot=false
+#:property JsonSerializerIsReflectionEnabledByDefault=true
 // System.Text.Json is culture-invariant: whatever the current culture's number symbols are (a decimal
 // comma, a Unicode minus, other digits, other NaN/infinity symbols), Utf8JsonWriter, JsonSerializer
 // (source-generated and reflection-style), JsonNode, JsonElement and the reader write and parse exactly the

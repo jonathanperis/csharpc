@@ -81,7 +81,26 @@ public sealed partial class ModuleCodeGen
     {
         if (!method.IsStatic || !method.Parameters.IsEmpty || method.IsGenericMethod || method.ReturnType.SpecialType != SpecialType.System_Boolean
             || Il.OwnerOf(method) is not { } owner) return null;
-        return SubstitutionsOf(owner).BoolStubs.TryGetValue((method.ContainingType.ToDisplayString(), method.Name), out var value) ? value : null;
+        if (SubstitutionsOf(owner).BoolStubs.TryGetValue((method.ContainingType.ToDisplayString(), method.Name), out var value)) return value;
+        return FeatureSwitchDefinitionValue(method);
+    }
+
+    /// <summary>
+    /// A static bool property marked [FeatureSwitchDefinition("Name")] whose switch the program's runtime config sets: its getter folds
+    /// to that value, as NativeAOT's ILCompiler folds it (JsonSerializer.IsReflectionEnabledByDefault, which a PublishAot build sets
+    /// false, makes the reflection-based resolver dead code). Unset switches stay run-time reads.
+    /// </summary>
+    private bool? FeatureSwitchDefinitionValue(IMethodSymbol getter)
+    {
+        if (getter is not { MethodKind: MethodKind.PropertyGet, AssociatedSymbol: IPropertySymbol property }) return null;
+        foreach (var attribute in property.GetAttributes())
+        {
+            if (attribute.AttributeClass is not { Name: "FeatureSwitchDefinitionAttribute", ContainingNamespace: { Name: "CodeAnalysis", ContainingNamespace.Name: "Diagnostics" } }
+                || attribute.ConstructorArguments is not [{ Value: string name }]) continue;
+            foreach (var (key, value) in RuntimeConfig)
+                if (key == name) return bool.TryParse(value, out var flag) ? flag : null;
+        }
+        return null;
     }
 
     /// <summary>Whether a substitution removes this manifest resource ("FxResources.X.SR.resources") of the assembly.</summary>

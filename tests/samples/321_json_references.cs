@@ -1,4 +1,4 @@
-#:property PublishAot=false
+#:property JsonSerializerIsReflectionEnabledByDefault=true
 // ReferenceHandler.Preserve / IgnoreCycles, cycle detection and MaxDepth on write and read.
 using System.Collections.Generic;
 using System.Text.Json;
