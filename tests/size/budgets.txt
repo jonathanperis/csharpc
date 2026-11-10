@@ -12,6 +12,7 @@
 # program that formats a number carries the real Resize/Remove/enumerator code and its tables); hello, exceptions and typeinfo unchanged. The other platforms' async,
 # collections, linq and numbers budgets moved by the same number of bytes until the CI rounds of that PR give their own measurements.
 # The randomized string comparers and the Marvin string hash (#285) added about 4 KB to collections (linux-x86_64 measured 167 336); other platforms moved by the same bytes.
+# linux-aarch64 async measured 173 592 on the first CI round of #285.
 # Lower a budget when a change makes a program smaller; raising one needs a reason in the commit.
 linux-x86_64 async 183296
 linux-x86_64 collections 173056
@@ -22,7 +23,7 @@ linux-x86_64 numbers 148480
 linux-x86_64 regex 902144
 linux-x86_64 regexoptions 2161664
 linux-x86_64 typeinfo 44032
-linux-aarch64 async 173056
+linux-aarch64 async 179200
 linux-aarch64 collections 172032
 linux-aarch64 exceptions 37888
 linux-aarch64 hello 32768

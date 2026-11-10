@@ -9,6 +9,8 @@
 
 #ifdef _WIN32
 int rand_s(unsigned int* value);
+#elif defined(__wasi__)
+#include <wasi/api.h>
 #elif defined(__APPLE__) || defined(__linux__)
 #include <sys/random.h>
 #else
@@ -35,6 +37,9 @@ void csrt_os_random(void* buffer, size_t count) {
         if (rand_s(&value) != 0) abort();
         bytes[i] = (uint8_t)value;
     }
+#elif defined(__wasi__)
+    // WASI preview 1 random_get (wasi-libc's headers declare no getentropy)
+    if (__wasi_random_get(bytes, count) != 0) abort();
 #else
     while (count > 0) {
         size_t n = count > 256 ? 256 : count; // getentropy's limit
