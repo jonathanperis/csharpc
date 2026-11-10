@@ -108,8 +108,8 @@ string resources (`internal static string Arg_X => GetResourceString("Arg_X");`)
 strings; `System.ComponentModel.TypeConverter`'s table alone is 30 KB). A getter of exactly that IL shape (`ldstr key; (ldnull | ldstr default); call
 SR.GetResourceString; ret`) is now lowered as `ret "<the text>"` (`ModuleCodeGen.ResourceLiterals.cs`), so a program carries the texts of the getters it
 reaches (the slicer does the same for CoreLib: +12 KB instead of +120 KB), and the tables are compiled in only when a lowered method looks a text up by a key
-it computes (a call of `SR.GetResourceString` that is not such a getter). Measured, stripped -O2: `tests/size` regex 877 232 to 778 008 B,
-regexoptions 2 010 744 to 1 915 752 B; the `CollectionBase` sample 707 to 269 KB (shadow 251), `ObservableCollection` 824 to 617 KB (shadow 253),
+it computes (a call of `SR.GetResourceString` that is not such a getter). Measured, stripped -O2: `tests/size` regex 891 472 to 817 080 B,
+regexoptions 2 127 976 to 2 053 672 B (on the Dictionary/HashSet flip's main); the `CollectionBase` sample 707 to 269 KB (shadow 251), `ObservableCollection` 824 to 617 KB (shadow 253),
 `TypeConverter` 3 700 to 2 546 KB (shadow 679), `Collections` exceptions 232 to 175 KB (shadow 223). The texts are the neutral-culture ones, as
 before (csharpc is invariant); `ResourceManager` over the program's own resources is unchanged.
 
