@@ -280,8 +280,8 @@ static class Rules
 
     static readonly Dictionary<string, Fam> AssemblyFamilies = new()
     {
-        ["System.Text.Json"] = Above("json", "System.Text.Json: IL wins on speed (A/B #187), costs size; delete only on the A/B decision", "AB187,NEWTYPES,REFLECT,SRCGEN"),
-        ["System.Text.Encodings.Web"] = Above("json", "System.Text.Encodings.Web: the shadow encoder differs from .NET (U+FFFD, #187)", "AB187"),
+        ["System.Text.Json"] = Above("json", "System.Text.Json: from IL (ADR 0023, #286)", "NONE"),
+        ["System.Text.Encodings.Web"] = Above("json", "System.Text.Encodings.Web: from IL (ADR 0023, #286)", "NONE"),
         ["System.Text.RegularExpressions"] = Above("regex", "System.Text.RegularExpressions: engine correct from IL (20/22 samples, #188); size is the cost", "AB187,SRCGEN,SIMD"),
         ["System.Linq"] = Above("linq", "System.Linq: managed upstream; hand-written iterator classes and span fast paths today", "SIMD,EQCMP"),
         ["System.Memory"] = Above("memory", "System.Memory: from IL (ADR 0023, #306)", "NONE"),
@@ -367,7 +367,6 @@ static class Rules
         Add("Globalization/BidiData.g.cs", F("unicode-data", ClData, "keep", "generated bidi table (tools/unicode); replaced when CharUnicodeInfo comes from IL", "NONE"));
         Add("Globalization/GraphemeData.g.cs", F("unicode-data", ClData, "keep", "generated grapheme table (tools/unicode); replaced when StringInfo/GraphemeBreak come from IL", "NONE"));
         Add("Globalization/BidiData.cs", F("unicode-data", ClData, "keep", "bidi category lookup over the generated table", "NONE"));
-        Add("Json/UnicodeRanges.g.cs", F("json", ClData, "delete", "generated UnicodeRanges table for System.Text.Encodings.Web", "AB187"));
         Add("Text/Latin1BestFit.cs", F("encoding-data", ClData, "delete", "Latin1 encoder best-fit fallback and its table, ported verbatim from upstream", "NONE"));
         Add("Regex/RegexCaseEquivalences.Data.cs", F("regex", ClData, "delete", "generated casing-equivalence table of System.Text.RegularExpressions", "AB187"));
         Add("Regex/RegexCharClass.Tables.cs", F("regex", ClData, "delete", "generated Unicode category/block tables of System.Text.RegularExpressions", "AB187"));
@@ -409,8 +408,6 @@ static class Rules
         Add("Net/NetNative.cs", osGlue);
         Add("Net/SocketEngine.cs", osGlue);
         Add("Net/UriRelative.cs", Above("uri", "System.Uri's relative-URI half, ported from upstream", "ICU,RES"));
-        Add("Json/SerializerConvertersExtra.cs", Above("json", "System.Text.Json converters", "AB187,NEWTYPES,REFLECT,SRCGEN"));
-        Add("Json/SerializerObjects.cs", Above("json", "System.Text.Json object converters", "AB187,NEWTYPES,REFLECT,SRCGEN"));
         Add("Random/Random.cs", Random);
         return d;
     }

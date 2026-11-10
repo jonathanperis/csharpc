@@ -11,39 +11,45 @@
 # collections 163 032 (+13.7 %), linq 277 048, numbers 143 912 (+11.5 %), regex 875 072, regexoptions 2 097 888 (the corelib's culture caches are Dictionary<string, ...>, so every
 # program that formats a number carries the real Resize/Remove/enumerator code and its tables); hello, exceptions and typeinfo unchanged. The other platforms' async,
 # collections, linq and numbers budgets moved by the same number of bytes until the CI rounds of that PR give their own measurements.
+# The randomized string comparers and the Marvin string hash (#285) added about 4 KB to collections (linux-x86_64 measured 167 336); other platforms moved by the same bytes.
+# linux-aarch64 async measured 173 592 on the first CI round of #285.
+# json and jsonwriter are the framework's own System.Text.Json compiled from IL (ADR 0023, #286): the owner accepted that growth for exactness and speed
+# (shadow before the flip: json 369 432 B, jsonwriter 275 352 B); measured 6 656 792 and 953 456 B on linux-x86_64 (on top of the Linq and Dictionary/HashSet flips), the only platform with budgets for them so far.
 # Lower a budget when a change makes a program smaller; raising one needs a reason in the commit.
 linux-x86_64 async 183296
-linux-x86_64 collections 167936
+linux-x86_64 collections 173056
 linux-x86_64 exceptions 37888
 linux-x86_64 hello 32768
+linux-x86_64 json 6856704
+linux-x86_64 jsonwriter 983040
 linux-x86_64 linq 285696
 linux-x86_64 numbers 148480
 linux-x86_64 regex 902144
 linux-x86_64 regexoptions 2161664
 linux-x86_64 typeinfo 44032
-linux-aarch64 async 173056
-linux-aarch64 collections 166912
+linux-aarch64 async 179200
+linux-aarch64 collections 172032
 linux-aarch64 exceptions 37888
 linux-aarch64 hello 32768
 linux-aarch64 linq 260096
 linux-aarch64 numbers 144384
 linux-aarch64 typeinfo 48128
 macos-arm64 async 196608
-macos-arm64 collections 180224
+macos-arm64 collections 185344
 macos-arm64 exceptions 73728
 macos-arm64 hello 73728
 macos-arm64 linq 285696
 macos-arm64 numbers 173056
 macos-arm64 typeinfo 73728
 windows-x86_64 async 191488
-windows-x86_64 collections 184320
+windows-x86_64 collections 189440
 windows-x86_64 exceptions 50176
 windows-x86_64 hello 44032
 windows-x86_64 linq 295936
 windows-x86_64 numbers 161792
 windows-x86_64 typeinfo 57344
 wasi-wasm32 async 178176
-wasi-wasm32 collections 179200
+wasi-wasm32 collections 184320
 wasi-wasm32 exceptions 53248
 wasi-wasm32 hello 52224
 wasi-wasm32 linq 295936

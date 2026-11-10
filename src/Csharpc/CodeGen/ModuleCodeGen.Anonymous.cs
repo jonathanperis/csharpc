@@ -33,6 +33,18 @@ public sealed partial class ModuleCodeGen
         return lowered;
     }
 
+    /// <summary>The constructor reflection reaches (System.Text.Json builds anonymous types by it): one parameter per property, in order.</summary>
+    private LoweredFunction AnonymousConstructor(IMethodSymbol constructor)
+    {
+        var layout = GetAnonymousLayout((INamedTypeSymbol)constructor.ContainingType.OriginalDefinition);
+        var type = FunctionTypeOf(constructor);
+        var fn = Module.AddFunction(Mangler.Method(constructor), type);
+        Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
+        var lowered = new LoweredFunction(fn, type);
+        new FunctionCodeGen(this, null, lowered).EmitAnonymousConstructor(layout);
+        return lowered;
+    }
+
     public AnonymousLayout GetAnonymousLayout(INamedTypeSymbol type)
     {
         if (_anonymous.TryGetValue(type, out var existing)) return existing;

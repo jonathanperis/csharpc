@@ -64,6 +64,54 @@ namespace CsharpcCoreLib
         public string MemberName { get; }
     }
 
+    // Attribute classes of the BCL that user and framework types carry (reflection creates them as GetCustomAttributes does).
+    [Shadows("System.FlagsAttribute")]
+    public sealed class FlagsAttributeImpl : Attribute { public FlagsAttributeImpl() { } }
+
+    [Shadows("System.Diagnostics.DebuggerDisplayAttribute")]
+    public sealed class DebuggerDisplayAttributeImpl : Attribute
+    {
+        public DebuggerDisplayAttributeImpl(string value) { Value = value; }
+        public string Value { get; }
+        public string Name { get; set; }
+        public string Type { get; set; }
+        public Type Target { get; set; }
+        public string TargetTypeName { get; set; }
+    }
+
+    [Shadows("System.Diagnostics.DebuggerTypeProxyAttribute")]
+    public sealed class DebuggerTypeProxyAttributeImpl : Attribute
+    {
+        public DebuggerTypeProxyAttributeImpl(Type type) { ProxyTypeName = type.AssemblyQualifiedName; }
+        public DebuggerTypeProxyAttributeImpl(string typeName) { ProxyTypeName = typeName; }
+        public string ProxyTypeName { get; }
+        public Type Target { get; set; }
+        public string TargetTypeName { get; set; }
+    }
+
+    [Shadows("System.AttributeUsageAttribute")]
+    public sealed class AttributeUsageAttributeImpl : Attribute
+    {
+        public AttributeUsageAttributeImpl(AttributeTargets validOn) { ValidOn = validOn; Inherited = true; }
+        public AttributeTargets ValidOn { get; }
+        public bool AllowMultiple { get; set; }
+        public bool Inherited { get; set; }
+    }
+
+    [Shadows("System.CLSCompliantAttribute")]
+    public sealed class CLSCompliantAttributeImpl : Attribute
+    {
+        public CLSCompliantAttributeImpl(bool isCompliant) { IsCompliant = isCompliant; }
+        public bool IsCompliant { get; }
+    }
+
+    [Shadows("System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverageAttribute")]
+    public sealed class ExcludeFromCodeCoverageAttributeImpl : Attribute
+    {
+        public ExcludeFromCodeCoverageAttributeImpl() { }
+        public string Justification { get; set; }
+    }
+
     [Shadows("System.Runtime.CompilerServices.ScopedRefAttribute")]
     public sealed class ScopedRefAttributeImpl : Attribute { public ScopedRefAttributeImpl() { } }
 
