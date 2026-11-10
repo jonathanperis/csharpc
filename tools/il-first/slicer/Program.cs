@@ -149,7 +149,7 @@ sealed class Cli
                     c.Replace["System.ThrowHelper::GetAddingDuplicateWithKeyArgumentException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetAddingDuplicateWithKeyArgumentException";
                     c.Redirect["System.Collections.Generic.NonRandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer";
                     c.Redirect["System.Collections.Generic.IInternalStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamInternalStringEqualityComparer";
-                    c.Redirect["System.Collections.Generic.RandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer";
+                    c.Redirect["System.Collections.Generic.RandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamRandomizedStringEqualityComparer";
                     c.Stop.AddRange(["Interop", "Interop/Sys", "Interop/Globalization"]);
                     break;
                 case "--out": c.Out = args[++i]; break;

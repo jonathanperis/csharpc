@@ -108,6 +108,7 @@ void csrt_init(int argc, char** argv) {
     if (pwd && pwd[0] == '/') (void)chdir(pwd);
 #endif
     csrt_gc_init();
+    csrt_string_hash_init();
     setvbuf(stdout, s_stdout_buffer, _IOFBF, sizeof s_stdout_buffer);
 #if !defined(_WIN32) && !defined(__wasi__)
     // .NET ignores SIGPIPE (CoreCLR's PAL and NativeAOT both do): writing to a closed pipe or socket fails
