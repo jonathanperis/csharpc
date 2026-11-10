@@ -1,0 +1,10 @@
+mid 2 4
+grow 5 15 40 50
+next 42
+swap -2.5 1.5
+scale 21 1.5
+sum 21
+shift 2 3 1
+inside 1 0
+wrapped 1 1 8 6
+midAgain 11 22
