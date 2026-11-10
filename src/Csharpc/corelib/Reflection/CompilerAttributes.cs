@@ -42,6 +42,28 @@ namespace CsharpcCoreLib
     [Shadows("System.Runtime.CompilerServices.IsReadOnlyAttribute")]
     public sealed class IsReadOnlyAttributeImpl : Attribute { public IsReadOnlyAttributeImpl() { } }
 
+    // What csc writes for `required` members (the attribute classes are public in the reference assemblies).
+    [Shadows("System.Runtime.CompilerServices.RequiredMemberAttribute")]
+    public sealed class RequiredMemberAttributeImpl : Attribute { public RequiredMemberAttributeImpl() { } }
+
+    [Shadows("System.Runtime.CompilerServices.CompilerFeatureRequiredAttribute")]
+    public sealed class CompilerFeatureRequiredAttributeImpl : Attribute
+    {
+        public CompilerFeatureRequiredAttributeImpl(string featureName) { FeatureName = featureName; }
+        public string FeatureName { get; }
+        public bool IsOptional { get; set; }
+    }
+
+    [Shadows("System.Diagnostics.CodeAnalysis.SetsRequiredMembersAttribute")]
+    public sealed class SetsRequiredMembersAttributeImpl : Attribute { public SetsRequiredMembersAttributeImpl() { } }
+
+    [Shadows("System.Reflection.DefaultMemberAttribute")]
+    public sealed class DefaultMemberAttributeImpl : Attribute
+    {
+        public DefaultMemberAttributeImpl(string memberName) { MemberName = memberName; }
+        public string MemberName { get; }
+    }
+
     [Shadows("System.Runtime.CompilerServices.ScopedRefAttribute")]
     public sealed class ScopedRefAttributeImpl : Attribute { public ScopedRefAttributeImpl() { } }
 

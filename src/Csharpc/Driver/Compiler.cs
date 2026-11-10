@@ -158,6 +158,9 @@ public sealed class Compiler(CompilerOptions options)
             Phase($"choose framework IL ({framework.Count} assembl{(framework.Count == 1 ? "y" : "ies")})");
         }
         catch (InvalidOperationException e) { return Fail(e.Message); }
+        // The types of System.Private.CoreLib served from the framework's IL (CsharpcUpstream.dll, ADR 0023): IL assemblies of every compilation.
+        foreach (var upstream in UpstreamSlice.ShippedAssemblies)
+            if (!ilPaths.Contains(upstream, StringComparer.Ordinal)) ilPaths.Add(upstream);
         // The corelib as a precompiled assembly (ADR 0015): after the framework choice, which must not
         // follow the corelib's own references.
         if (options.CoreLibIl && RoslynFrontend.CoreLibFiles() is { Count: > 0 } coreLibFiles)
@@ -184,7 +187,7 @@ public sealed class Compiler(CompilerOptions options)
             var programIl = mainProgram is null ? null : il.Assemblies.First(a => string.Equals(a.Path, Path.GetFullPath(mainProgram.Path), StringComparison.Ordinal));
             // Reflection-based JSON metadata is generated in the binding compilation, which must see the
             // program's internals as the program itself does (JsonReflectionContexts.Il.cs); before any binding.
-            var jsonFromIl = programIl is not null && settings.JsonReflectionEnabled == true && JsonReflectionContexts.ReferencesJsonSerializer(programIl.Reader)
+            var jsonFromIl = programIl is not null && !IlFirst.Assemblies.Contains("System.Text.Json", StringComparer.OrdinalIgnoreCase) && settings.JsonReflectionEnabled == true && JsonReflectionContexts.ReferencesJsonSerializer(programIl.Reader)
                 && JsonReflectionContexts.GrantInternalsAccess(programIl.Reference, settings.AssemblyName!);
             // Converter hooks for the program's resources and GetConverter calls are generated like the JSON contexts: before any binding.
             var convertersFromIl = programIl is not null && (settings.ResourceTypes.Count > 0 || ResourceConverters.CallsGetConverter(programIl.Reader))

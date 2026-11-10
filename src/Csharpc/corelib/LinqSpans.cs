@@ -24,10 +24,9 @@ namespace CsharpcCoreLib
                 span = array;
                 return true;
             }
-            if (CoreIntrinsics.IsExactClass<ListImpl<TSource>>(source))
+            if (CoreIntrinsics.IsExactClass<System.Collections.Generic.List<TSource>>(source))
             {
-                ListImpl<TSource> list = CoreIntrinsics.ReinterpretAs<ListImpl<TSource>>(source);
-                span = new ReadOnlySpan<TSource>(list._items, 0, list._size);
+                span = CollectionsMarshalImpl.AsSpan(CoreIntrinsics.ReinterpretAs<System.Collections.Generic.List<TSource>>(source));
                 return true;
             }
             span = default;

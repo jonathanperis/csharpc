@@ -103,8 +103,8 @@ everything the corelib covers — compile and link exactly as before.
   needed them, and writing them again as shadows would have been ~3 000 lines of ported code. The
   libSystem.Native calls of that assembly (socket-address shims) sit in the shadowed types only. A program that
   names System.Net.Sockets takes System.Net.Primitives too, since the corelib's sockets test for its DnsEndPoint.
-- System.Collections.NonGeneric is mixed too (2026-11-06): `CollectionBase` is a shadow ([ADR 0022](0022-tls.md): the
-  certificate collections derive from it), `SortedList`, `Queue` and `Stack` come from IL.
+- System.Collections.NonGeneric was mixed for a while (`CollectionBase` a shadow, [ADR 0022](0022-tls.md)); the shadow is gone (ADR 0023,
+  #271) and the whole assembly comes from IL: the corelib's certificate collections derive from the real `CollectionBase`.
 - A framework method csharpc deliberately doesn't compile (it would pull in a whole subsystem, such as
   System.Xml's http(s) downloads needing System.Net.Http) is a boundary (`ModuleCodeGen.IlBoundary`):
   a CSLLVM0008 warning at compile time and a stub that prints the reason and aborts if called.

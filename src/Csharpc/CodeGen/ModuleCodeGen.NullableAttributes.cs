@@ -43,6 +43,7 @@ public sealed partial class ModuleCodeGen
     private sealed class NullableType
     {
         public bool Exact, Resolved;
+        public bool Explicit, Oblivious;                 // not Exact, but every member's full [Nullable] bytes are known (records, primary constructors)
         public byte? Common;
         public bool Emitted;
         public byte Effective;
@@ -65,7 +66,16 @@ public sealed partial class ModuleCodeGen
     {
         type = type.OriginalDefinition;
         // A nested type inherits the context of its container, which votes with it: resolve from the outermost type.
-        if (type.ContainingType is { } outer && !NullableOf(outer).Exact) return new NullableType();
+        if (type.ContainingType is { } outer && !NullableOf(outer).Exact)
+        {
+            // The container's attributes are not reproduced, so neither are this type's context bytes: its members' full bytes still are.
+            if (_nullableTypes.TryGetValue(type, out var nested)) return nested;
+            nested = new NullableType();
+            _nullableTypes[type] = nested;
+            try { AnalyzeExplicit(type, nested); nested.Explicit = true; }
+            catch (NullableUnsupported) { nested.Slots.Clear(); nested.Methods.Clear(); }
+            return nested;
+        }
         if (_nullableTypes.TryGetValue(type, out var cached) && (cached.Resolved || type.ContainingType is not null)) return cached;
         var info = Compute(type);
         if (info.Exact && type.ContainingType is null) Resolve(type, info, 0);
@@ -82,7 +92,14 @@ public sealed partial class ModuleCodeGen
             Analyze(type, info);
             info.Exact = true;
         }
-        catch (NullableUnsupported) { info.Exact = false; }
+        catch (NullableUnsupported)
+        {
+            info.Exact = false;
+            info.Slots.Clear();
+            info.Methods.Clear();
+            try { AnalyzeExplicit(type, info); info.Explicit = true; }
+            catch (NullableUnsupported) { info.Slots.Clear(); info.Methods.Clear(); }
+        }
         return info;
     }
 
@@ -182,7 +199,7 @@ public sealed partial class ModuleCodeGen
                     break;
                 case IPropertySymbol property:
                     {
-                        if (property.IsIndexer || property.IsRequired) throw new NullableUnsupported();
+                        if (property.IsIndexer) throw new NullableUnsupported();
                         var flags = new List<byte>();
                         TypeFlags(property.Type, PropertyTypeSyntax(property), enabled, flags);
                         info.Slots[property.OriginalDefinition] = flags;
@@ -223,6 +240,76 @@ public sealed partial class ModuleCodeGen
         }
 
         info.Common = MostCommon(votes);
+    }
+
+    /// <summary>
+    /// A type whose exact analysis stopped (a record, a primary constructor, required members...): csc's [NullableContext] choice involves the members it synthesizes and
+    /// is not reproduced, but the bytes of every declared member's type (a positional parameter and its property included) are
+    /// known from the declarations. They are listed in full, [Nullable] on every member with a reference type, so that reading
+    /// them through NullabilityInfoContext gives csc's answer; the lists stay unknown for everything else.
+    /// </summary>
+    private void AnalyzeExplicit(INamedTypeSymbol type, NullableType info)
+    {
+        if (type.TypeKind is not (TypeKind.Class or TypeKind.Struct) || type.IsAnonymousType || type.IsTupleType || type.IsImplicitlyDeclared
+            || NullableAttributeType is null)
+            throw new NullableUnsupported();
+        if (type.ContainingType is { } outer && IsGenericContext(outer)) throw new NullableUnsupported();
+        var declarations = type.DeclaringSyntaxReferences.Select(r => r.GetSyntax()).OfType<TypeDeclarationSyntax>().ToList();
+        if (declarations.Count != 1) throw new NullableUnsupported();
+        var enabled = AnnotationsEnabled(type);
+        foreach (var member in type.GetMembers())
+            if (member is not INamedTypeSymbol && !member.IsImplicitlyDeclared && member.DeclaringSyntaxReferences.Length > 0 && AnnotationsEnabled(member) != enabled)
+                throw new NullableUnsupported();
+        if (!enabled) { info.Oblivious = true; return; } // nothing is synthesized in an oblivious type: every member's bytes are absent
+        var positional = new Dictionary<string, List<byte>>();
+        if (declarations[0].ParameterList is { } list)
+        {
+            var primary = type.InstanceConstructors.FirstOrDefault(c => c.DeclaringSyntaxReferences.Length == 1 && c.DeclaringSyntaxReferences[0].GetSyntax() is TypeDeclarationSyntax
+                && c.Parameters.Length == list.Parameters.Count) ?? throw new NullableUnsupported();
+            var method = new NullableMethod();
+            for (var i = 0; i < list.Parameters.Count; i++)
+            {
+                if (list.Parameters[i].Type is not { } parameterType) throw new NullableUnsupported();
+                var flags = new List<byte>();
+                TypeFlags(primary.Parameters[i].Type, parameterType, enabled, flags);
+                positional[list.Parameters[i].Identifier.Text] = flags;
+                method.Parameters[i] = flags;
+            }
+            info.Methods[primary.OriginalDefinition] = method;
+        }
+        foreach (var member in type.GetMembers())
+        {
+            try
+            {
+                switch (member)
+                {
+                    case IFieldSymbol { IsImplicitlyDeclared: false } field when !field.IsFixedSizeBuffer && FieldTypeSyntax(field) is not null:
+                        {
+                            var flags = new List<byte>();
+                            TypeFlags(field.Type, FieldTypeSyntax(field), enabled, flags);
+                            info.Slots[field.OriginalDefinition] = flags;
+                        }
+                        break;
+                    case IPropertySymbol { IsIndexer: false } property:
+                        {
+                            var flags = new List<byte>();
+                            if (property.DeclaringSyntaxReferences.Length == 1 && property.DeclaringSyntaxReferences[0].GetSyntax() is ParameterSyntax positionalSyntax
+                                && positional.TryGetValue(positionalSyntax.Identifier.Text, out var known))
+                                flags = known;
+                            else if (PropertyTypeSyntax(property) is { } propertySyntax) TypeFlags(property.Type, propertySyntax, enabled, flags);
+                            else break;
+                            info.Slots[property.OriginalDefinition] = flags;
+                            foreach (var accessor in new[] { property.GetMethod, property.SetMethod })
+                                if (accessor is not null && AnalyzeMethod(accessor, info, enabled) is { } analyzed) info.Methods[accessor.OriginalDefinition] = analyzed;
+                        }
+                        break;
+                    case IMethodSymbol { MethodKind: MethodKind.Constructor, IsImplicitlyDeclared: false } constructor when !info.Methods.ContainsKey(constructor.OriginalDefinition):
+                        if (AnalyzeMethod(constructor, info, enabled) is { } analyzedConstructor) info.Methods[constructor.OriginalDefinition] = analyzedConstructor;
+                        break;
+                }
+            }
+            catch (NullableUnsupported) { } // that member's lists stay unknown
+        }
     }
 
     private static bool IsGenericContext(INamedTypeSymbol type)
@@ -479,6 +566,26 @@ public sealed partial class ModuleCodeGen
         if (info.Emitted && NullableContextInstance(info.Common!.Value) is { } context) list.Add(context);
         if (info.Base is { } baseFlags && NullableIfDifferent(baseFlags, info.Effective) is { } baseAttribute) list.Add(baseAttribute);
         return list;
+    }
+
+    /// <summary>The analysis of the type of a member whose lists carry explicit [Nullable] attributes (AnalyzeExplicit), else null.</summary>
+    private NullableType? ExplicitInfoOfMember(ISymbol member)
+    {
+        if (member.ContainingType is not { } type || type.OriginalDefinition.Locations.All(l => !l.IsInSource)) return null;
+        var info = NullableOf(type);
+        return info.Explicit && !info.Exact ? info : null;
+    }
+
+    /// <summary>
+    /// The set with the member's full [Nullable] bytes in front and the flag that says they are exact (an incomplete list the nullability
+    /// reader may use); unchanged for a member that is not in an explicit type or was not analyzed.
+    /// </summary>
+    private AttributeSet WithExplicitNullable(AttributeSet set, ISymbol member, Func<NullableType, List<byte>?> flagsOf)
+    {
+        if (ExplicitInfoOfMember(member) is not { } info || (flagsOf(info) ?? (info.Oblivious ? new List<byte>() : null)) is not { } flags) return set;
+        var instances = set.Instances;
+        if (flags.Any(b => b != 0) && NullableInstance(flags) is { } attribute) instances = [attribute, .. instances];
+        return set with { Instances = instances, NullableExplicit = true };
     }
 
     private NullableType? NullableInfoOfMember(ISymbol member)

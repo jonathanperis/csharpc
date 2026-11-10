@@ -23,9 +23,5 @@ bin="${SLICER_BIN:-/tmp/csharpc-slicer}"
 out="$1"; roots="$2"; shift 2
 mode=emit
 if [ "${1:-}" = analyze ]; then mode=analyze; shift; fi
-replace='System.SR::InternalGetResourceString=CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetResourceString'
-redirect='System.Collections.Generic.NonRandomizedStringEqualityComparer=CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer;'
-redirect+='System.Collections.Generic.IInternalStringEqualityComparer=CsharpcCoreLib:CsharpcCoreLib.UpstreamInternalStringEqualityComparer;'
-redirect+='System.Collections.Generic.RandomizedStringEqualityComparer=CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer'
-stop='Interop,Interop/Sys,Interop/Globalization'
-exec dotnet "$bin/Slicer.dll" "$mode" --roots "$roots" --replace "$replace" --redirect "$redirect" --stop "$stop" --out "$out" "$@"
+# The contract choices live in the slicer's "csharpc" profile (shared with the build, src/Csharpc/Csharpc.csproj).
+exec dotnet "$bin/Slicer.dll" "$mode" --roots "$roots" --profile csharpc --out "$out" "$@"

@@ -184,6 +184,8 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint TypeInfoTableAddress();
         /// <summary>Type attributes are read at run time (Type.GetCustomAttributesData through a MemberInfo): keeps their metadata.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void TypeAttributesQueried();
+        /// <summary>The address of a pointer to the "assembly:reference,reference;..." C string of the framework assemblies the program has types of.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint AssemblyReferencesAddress();
         /// <summary>NullabilityInfoContext is used: the open definitions of the generic types whose members are reflected keep theirs too.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void NullabilityQueried();
         /// <summary>The run-time Enum.Parse table (ModuleCodeGen.Enums.cs, EnumParseTable).</summary>

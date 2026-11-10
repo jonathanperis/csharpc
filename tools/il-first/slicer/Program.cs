@@ -130,6 +130,21 @@ sealed class Cli
                 case "analyze" or "emit": c.Command = args[i]; break;
                 case "--roots": c.Roots.AddRange(args[++i].Replace('!', '`').Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)); break;
                 case "--stop": c.Stop.AddRange(args[++i].Replace('!', '`').Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)); break;
+                case "--roots-file":
+                    // One CoreLib type per line (metadata name, '!' or '`' for the arity), '#' starts a comment: the build's list of types served from IL.
+                    foreach (var line in File.ReadAllLines(args[++i]))
+                        if (line.Split('#')[0].Trim() is { Length: > 0 } root) c.Roots.Add(root.Replace('!', '`'));
+                    break;
+                case "--profile":
+                    // The contract choices of the shipped slice (docs/21-ownership.md Part B), the same for the build and for tools/il-first/slicer/slice.sh.
+                    if (args[++i] != "csharpc") throw new ArgumentException("unknown profile " + args[i]);
+                    c.Replace["System.SR::InternalGetResourceString"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetResourceString";
+                    c.Replace["System.SR::GetUsingResourceKeysSwitchValue"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetUsingResourceKeys";
+                    c.Redirect["System.Collections.Generic.NonRandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer";
+                    c.Redirect["System.Collections.Generic.IInternalStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamInternalStringEqualityComparer";
+                    c.Redirect["System.Collections.Generic.RandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer";
+                    c.Stop.AddRange(["Interop", "Interop/Sys", "Interop/Globalization"]);
+                    break;
                 case "--out": c.Out = args[++i]; break;
                 case "--corelib": c.CoreLib = args[++i]; break;
                 case "--ref": c.RefDir = args[++i]; break;
