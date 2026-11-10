@@ -608,8 +608,7 @@ public sealed partial class FunctionCodeGen
                 var size = IlInt(Pop());
                 var source = IlAddress(Pop());
                 var destination = IlAddress(Pop());
-                var f = _m.Intrinsic("llvm.memmove.p0.p0.i64", L.Void, L.Ptr, L.Ptr, L.I64, L.I1);
-                _m.Facts.NoReferences(_b.Call(f.Type, f.Fn, [destination, source, IlToI64(size, signed: false), L.False]));
+                MemMove(destination, source, IlToI64(size, signed: false), noReferences: true); // cpblk copies bytes: no references
                 return false;
             }
 
