@@ -57,10 +57,15 @@ whether the flipped libraries still beat NativeAOT.
    review per flip, numbers recorded).
 4. **NativeAOT is the yardstick.** Every ADR 0023 row gains a NativeAOT column (size, compile time, speed) next to the shadow
    and IL numbers, and the merged flips are re-measured. Any case where csharpc loses to NativeAOT on speed goes to the owner.
-5. **Linq defaults to speed-optimized** (`UseSizeOptimizedLinq=false`), a deliberate difference from NativeAOT's size-first
-   default, because the project's order is security, then speed, then size. Measured on the Linq throughput program:
-   0.79 s and 1 369 KB speed-optimized, 1.80 s and 969 KB size-optimized; output is byte-identical. csharpc's own self-compile
-   sets size-optimized explicitly to fit the CI runner. A project can choose either.
+5. **Linq follows .NET's own default for each kind of program** (corrected after #290's gate). A first version of this
+   decision chose speed-optimized Linq for every program, but `UseSizeOptimizedLinq` is observable
+   (`Enumerable.TryGetNonEnumeratedCount` answers differently, and `AppContext` exposes the switch), so it changed output
+   (samples 462 and 345), and byte-identical behaviour outranks speed. csharpc therefore sets exactly what .NET sets: a
+   single file gets the file-based app's default (size-optimized), a project with `PublishAot=true` gets `true` (NativeAOT's
+   targets), a project without it gets .NET's default (`false`), and an explicit property, runtimeconfig entry or
+   `#:property` always wins. For information, on the Linq throughput program speed-optimized is 0.79 s and 1 369 KB,
+   size-optimized 1.80 s and 969 KB; closing that gap belongs to the compiler milestone, not to a different default.
+   csharpc's own self-compile sets size-optimized explicitly to fit the CI runner.
 6. **Process:** the shared files that every flip edits (`tests/size/budgets.txt`, the ADR 0023 table, `ownership.tsv`) are
    split per library, so parallel PRs stop conflicting and re-running hours of CI. The Bootstrap PR checks ("Roslyn hosted
    from IL", "csharpc compiles csharpc") are part of the merge bar for `src/**` changes (#303).
