@@ -340,7 +340,7 @@ namespace CsharpcCoreLib
         public static void Sort(Array array, System.Collections.IComparer comparer)
         {
             if (array == null) ThrowHelper.ArgumentNull("array");
-            if (array.Rank != 1) throw new RankException("Only single dimensional arrays are supported for the requested action.");
+            if (array.Rank != 1) throw new RankException("Only single dimension arrays are supported here.");
             var items = new object[array.Length];
             for (int i = 0; i < items.Length; i++) items[i] = array.GetValue(i);
             comparer ??= System.Collections.Comparer.Default;
@@ -368,7 +368,7 @@ namespace CsharpcCoreLib
         public static int BinarySearch(Array array, int index, int length, object value, System.Collections.IComparer comparer)
         {
             if (array == null) ThrowHelper.ArgumentNull("array");
-            if (array.Rank != 1) throw new RankException("Only single dimensional arrays are supported for the requested action.");
+            if (array.Rank != 1) throw new RankException("Only single dimension arrays are supported here.");
             if (index < 0 || length < 0) throw new ArgumentOutOfRangeException(index < 0 ? "index" : "length", "Non-negative number required.");
             if (array.Length - index < length)
                 throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
@@ -402,6 +402,20 @@ namespace CsharpcCoreLib
     /// </summary>
     internal static class ArrayChecks
     {
+        /// <summary>Array.IndexOf(Array, object) with the element type known only at run time: object.Equals per element.</summary>
+        public static int IndexOfUntyped(Array array, object value)
+        {
+            if (array == null) ThrowHelper.ArgumentNull("array");
+            if (array.Rank != 1) throw new RankException("Only single dimension arrays are supported here.");
+            int length = array.Length;
+            for (int i = 0; i < length; i++)
+            {
+                object element = array.GetValue(i);
+                if (element == null ? value == null : element.Equals(value)) return i;
+            }
+            return -1;
+        }
+
         /// <summary>`span is "text"`: the chars equal the constant's.</summary>
         public static bool SpanEqualsString(ReadOnlySpan<char> span, string value)
         {
