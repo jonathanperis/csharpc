@@ -5,11 +5,15 @@
 # List<T> comes from the framework's IL since the flip (ADR 0023, #265): measured on the flip's CI run, linux-x86_64 linq +3.6 %, regex +4.4 %, regexoptions +3.9 %,
 # collections +1.8 %; linux-aarch64 collections 139 264 and linq 166 216, macos-arm64 linq 186 488, wasi-wasm32 collections 151 047 and linq 172 310 B.
 # windows-x86_64: collections 156 160 and linq 182 784 B.
+# json and jsonwriter are the framework's own System.Text.Json compiled from IL (ADR 0023, #286): the owner accepted that growth for exactness and speed
+# (shadow before the flip: json 369 432 B, jsonwriter 275 352 B); measured 6 555 416 and 906 048 B on linux-x86_64, the only platform with budgets for them so far.
 # Lower a budget when a change makes a program smaller; raising one needs a reason in the commit.
 linux-x86_64 async 156672
 linux-x86_64 collections 145408
 linux-x86_64 exceptions 37888
 linux-x86_64 hello 32768
+linux-x86_64 json 6752256
+linux-x86_64 jsonwriter 933888
 linux-x86_64 linq 176128
 linux-x86_64 numbers 133120
 linux-x86_64 regex 851968
