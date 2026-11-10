@@ -107,6 +107,10 @@ everything the corelib covers — compile and link exactly as before.
   names System.Net.Sockets takes System.Net.Primitives too, since the corelib's sockets test for its DnsEndPoint.
 - System.Collections.NonGeneric was mixed for a while (`CollectionBase` a shadow, [ADR 0022](0022-tls.md)); the shadow is gone (ADR 0023,
   #271) and the whole assembly comes from IL: the corelib's certificate collections derive from the real `CollectionBase`.
+- *Assemblies that define types and forward others to CoreLib* (`TwinReference`, 2026-11-10: System.Collections, System.Collections.Concurrent).
+  The reference-pack twin cannot simply be replaced by the implementation: its forwards (`List<T>`) would resolve through the CoreLib facade back to
+  the implementation. The twin stays as a copy under another assembly identity (the Assembly row's name pointed at its own tail, "Collections"),
+  with the types the implementation defines made non-public in the copy, and the facade forwards the CoreLib types to it.
 - A framework method csharpc deliberately doesn't compile (it would pull in a whole subsystem, such as
   System.Xml's http(s) downloads needing System.Net.Http) is a boundary (`ModuleCodeGen.IlBoundary`):
   a CSLLVM0008 warning at compile time and a stub that prints the reason and aborts if called.

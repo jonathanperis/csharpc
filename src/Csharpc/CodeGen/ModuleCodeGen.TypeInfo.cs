@@ -418,7 +418,7 @@ public sealed partial class ModuleCodeGen
         var named = (INamedTypeSymbol)type;
         var definition = named.OriginalDefinition;
         if (!definition.DeclaringSyntaxReferences.IsEmpty || definition.ContainingAssembly is not { } assembly || CoreLib.IsCoreLib(definition)
-            || SharedFramework.InterfacesOf(assembly.Name, Mangler.MetadataName(definition)) is not { } metadata)
+            || SharedFramework.InterfacesOf(Frontend.TwinReference.OriginalName(assembly.Name), Mangler.MetadataName(definition)) is not { } metadata)
             return named.Interfaces;
         var mapped = MapInterfaces(metadata, ChainArguments(named), ref exact);
         return mapped;
@@ -965,7 +965,7 @@ public sealed partial class ModuleCodeGen
                 var top = definition;
                 while (top.ContainingType is { } outer) top = outer;
                 var ns = top.ContainingNamespace is { IsGlobalNamespace: false } n ? n.ToDisplayString() : "";
-                return SharedFramework.DefiningAssembly(assembly.Identity.Name, ns, top.MetadataName);
+                return SharedFramework.DefiningAssembly(Frontend.TwinReference.OriginalName(assembly.Identity.Name), ns, top.MetadataName);
             }
             default:
                 return null;
