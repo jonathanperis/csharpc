@@ -559,9 +559,9 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                     .FirstOrDefault(m => m.Arity == 1 && m.Parameters.Length == 2) is { } create)
                 return create.Construct(owner.TypeArguments[0]);
         }
-        if (CoreLibAssembly.Current is not { } corelib || definition.ContainingType is not null) return null;
+        if (definition.ContainingType is not null) return null;
         var full = definition.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + definition.MetadataName : definition.MetadataName;
-        foreach (var declaration in corelib.Shadows)
+        foreach (var declaration in CoreLibAssembly.ShadowsOf(Compilation))
         {
             if (declaration.Real != full || Compilation.GetTypeByMetadataName(declaration.Shadow) is not { } container) continue;
             var typeContext = new IlGenericContext(IlGenericContext.TypeParametersOf(container), []);
