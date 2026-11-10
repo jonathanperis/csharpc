@@ -24,6 +24,10 @@ internal static class TwinReference
 
     public static bool Supported(string assemblyName) => SupportedAssemblies.Contains(assemblyName, StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>The reference assembly a renamed copy stands for ("Collections" is "System.Collections"), else the name itself.</summary>
+    public static string OriginalName(string name) =>
+        SupportedAssemblies.FirstOrDefault(a => CopyName(a).Equals(name, StringComparison.OrdinalIgnoreCase)) ?? name;
+
     /// <summary>The assembly a twin copy takes its name from: "System.Collections" is "Collections", "System.Collections.Concurrent" is "Collections.Concurrent".</summary>
     public static string CopyName(string assemblyName) => assemblyName[(assemblyName.IndexOf('.') + 1)..];
 

@@ -965,7 +965,7 @@ public sealed partial class ModuleCodeGen
                 var top = definition;
                 while (top.ContainingType is { } outer) top = outer;
                 var ns = top.ContainingNamespace is { IsGlobalNamespace: false } n ? n.ToDisplayString() : "";
-                return SharedFramework.DefiningAssembly(assembly.Identity.Name, ns, top.MetadataName);
+                return SharedFramework.DefiningAssembly(Frontend.TwinReference.OriginalName(assembly.Identity.Name), ns, top.MetadataName);
             }
             default:
                 return null;

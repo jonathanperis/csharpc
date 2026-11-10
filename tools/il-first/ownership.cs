@@ -317,7 +317,7 @@ static class Rules
     // Files read while building the table (the sample that verifies the rules; docs/21-ownership.md).
     public static readonly HashSet<string> Read = new(StringComparer.Ordinal)
     {
-        "ArrayExtras.cs", "Buffers/ReadOnlySequence.cs", "Collections.cs", "Concurrent/ConcurrentDictionary.cs", "Convert.cs", "Core.cs",
+        "ArrayExtras.cs", "Buffers/ReadOnlySequence.cs", "Queue.cs", "Concurrent/ConcurrentDictionary.cs", "Convert.cs", "Core.cs",
         "Crypto/AesNative.cs", "Dictionary.cs", "ExceptionData.cs", "FloatingPointMath.cs", "Globalization/CultureData.cs", "Globalization/IcuLocaleData.cs",
         "Globalization/Interop.Globalization.cs", "Guid.cs", "HashSet.cs", "IO/Posix.cs", "IO/Streams.cs", "List.cs", "Net/NetNative.cs",
         "Net/UriRelative.cs", "Number.Formatting.cs", "Regex/RegexCaseEquivalences.Data.cs", "Resources.cs", "Rune.cs", "StringBuilder.cs", "StringExtras.cs",

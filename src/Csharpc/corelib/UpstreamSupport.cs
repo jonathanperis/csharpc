@@ -23,6 +23,7 @@ namespace CsharpcCoreLib
         public static System.Collections.Generic.IEqualityComparer<string> GetStringComparer(object comparer) => null;
         // Upstream returns RandomizedStringEqualityComparer, redirected to this class as well (never created: GetStringComparer is null).
         public UpstreamNonRandomizedStringEqualityComparer GetRandomizedEqualityComparer() => null;
+        public System.Collections.Generic.IEqualityComparer<string> GetUnderlyingEqualityComparer() => null; // OrderedDictionary.Resize, after a type test no object passes
         public static UpstreamNonRandomizedStringEqualityComparer Create(System.Collections.Generic.IEqualityComparer<string> underlyingComparer, bool ignoreCase) => null;
     }
 

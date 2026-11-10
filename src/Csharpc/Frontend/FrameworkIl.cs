@@ -77,6 +77,8 @@ public static partial class FrameworkIl
         ["System.ComponentModel.TypeConverter"] = ["System.ComponentModel.Primitives", "System.Collections.NonGeneric", "System.Collections.Specialized", "System.Drawing.Primitives"],
     };
 
+    private static readonly string[] CorelibDependencies = ["System.Collections.NonGeneric", "System.Collections", "System.Collections.Concurrent"];
+
     private static string[] Followed(Assembly a) =>
         FollowedReferences.TryGetValue(a.Name, out var followed) ? [.. a.References.Where(r => followed.Contains(r, StringComparer.OrdinalIgnoreCase))] : a.References;
 
@@ -186,10 +188,12 @@ public static partial class FrameworkIl
         if (identifiers.Contains("GetConverter") && Named("System.ComponentModel") && index.TryGetValue("System.ComponentModel.TypeConverter", out var described) && Unusable(described) is null)
             Add(described, "the program calls TypeDescriptor.GetConverter");
 
-        // The corelib's X509 certificate collections (shadows) derive from the real CollectionBase, as in .NET; whichever TLS or HTTP
-        // code reaches them, the program does not name the base class.
-        if (index.TryGetValue("System.Collections.NonGeneric", out var nonGeneric) && nonGeneric.Ineligible is null && Unusable(nonGeneric) is null)
-            Add(nonGeneric, "the corelib's certificate collections derive from its CollectionBase");
+        // What the corelib's shadows build on, reached from whichever call the program makes (it names none of these): the X509 certificate
+        // collections derive from the real CollectionBase, Parallel.ForEach and Task.Run's helpers use Partitioner, SemaphoreSlim and the
+        // JSON shadows use LinkedList and Stack.
+        foreach (var dependency in CorelibDependencies)
+            if (index.TryGetValue(dependency, out var needed) && needed.Ineligible is null && Unusable(needed) is null)
+                Add(needed, "the corelib uses its types");
 
         // The corelib's sockets (shadows) take and test types of System.Net.Primitives that are plain IL there
         // (DnsEndPoint, for Socket.Connect(EndPoint)): a program that names System.Net.Sockets needs them, even
