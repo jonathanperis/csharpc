@@ -517,6 +517,10 @@ public sealed partial class ModuleCodeGen
         // blittable as in .NET. Other shadows may lay their fields out differently from .NET: not blittable.
         INamedTypeSymbol { Name: "Guid", TypeKind: TypeKind.Struct, ContainingType: null, ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } s
             when CoreLib.TryMap(s) is { TypeKind: TypeKind.Struct } shadow && IsUserType(shadow) => IsBlittable(shadow),
+        // A CoreLib struct served from the framework's IL (upstream-types.txt, ADR 0023) has .NET's own fields, so it is as
+        // blittable as they are: NFloat (one double on 64-bit targets), which Apple's CGPoint/CGSize/CGRect are made of.
+        INamedTypeSymbol { TypeKind: TypeKind.Struct } s when !IsUserType(s) && CoreLib.TryMap(s) is { TypeKind: TypeKind.Struct } served
+            && served.ContainingNamespace.ToDisplayString().StartsWith(Frontend.UpstreamSlice.Prefix, StringComparison.Ordinal) && IsUserType(served) => IsBlittable(served),
         _ => false,
     };
 
