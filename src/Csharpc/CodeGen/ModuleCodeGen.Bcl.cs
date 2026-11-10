@@ -148,15 +148,22 @@ public sealed partial class ModuleCodeGen
         // dispatches that member (a builtin slot table, ModuleCodeGen.CoreLib.cs).
         var convertible = Compilation.GetTypeByMetadataName("System.IConvertible")!;
         var convertibleSlots = BuiltinSlotTable(convertible, Mangler.TypeSymbol(enumType, "BoxICNV"), LLVMLinkage.Internal, BoxedConvertibleMember);
+        // ISpanFormattable, as System.Enum's (the framework's interpolation handlers and string.Format format a boxed T through it):
+        // corelib's BoxedEnumSpanFormattable writes the IFormattable text.
+        var spanFormattable = Compilation.GetTypeByMetadataName("System.ISpanFormattable")!;
+        var spanFormattableSlots = BuiltinSlotTable(spanFormattable, Mangler.TypeSymbol(enumType, "BoxISPF"), LLVMLinkage.Internal, member =>
+            Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".BoxedEnumSpanFormattable")?.GetMembers(member.Name).OfType<IMethodSymbol>()
+                .SingleOrDefault(m => m.Parameters.Length == member.Parameters.Length + 1));
         var mapInit = LlvmContext.ConstArray(entryType, Entry(formattable, formatThunk, "BoxITBL"), Entry(comparable, compareThunk, "BoxICMP"),
-            LlvmContext.ConstNamedStruct(entryType, InterfaceMethodTable(convertible), convertibleSlots));
+            LlvmContext.ConstNamedStruct(entryType, InterfaceMethodTable(convertible), convertibleSlots),
+            LlvmContext.ConstNamedStruct(entryType, InterfaceMethodTable(spanFormattable), spanFormattableSlots));
         var map = Module.AddGlobal(Mangler.TypeSymbol(enumType, "BoxIMAP"), Native.LLVMTypeOf(mapInit), mapInit, constant: true, linkage: LLVMLinkage.Internal);
         Native.LLVMSetInitializer(global, Llvm.ConstStruct(
             ExternalGlobal("csrt_Object_MT"),
             CString(Mangler.MetadataName(enumType)),
             Llvm.ConstInt(Llvm.I32, 8 + (long)Types.Target.SizeOf(valueType)),
             Llvm.ConstInt(Llvm.I32, 64 | 128 /* CSRT_MT_VALUE_TYPE | CSRT_MT_ENUM */),
-            map, Llvm.ConstInt(Llvm.I32, 3), Llvm.ConstInt(Llvm.I32, ElementKind(underlying)),
+            map, Llvm.ConstInt(Llvm.I32, 4), Llvm.ConstInt(Llvm.I32, ElementKind(underlying)),
             LlvmContext.ConstArray(Llvm.Ptr, thunk, Runtime("csrt_valuetype_equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn,
                 hashThunk)));
         return global;

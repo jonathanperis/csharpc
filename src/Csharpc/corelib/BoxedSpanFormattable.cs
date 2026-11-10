@@ -56,4 +56,20 @@ namespace CsharpcCoreLib
             throw new InvalidCastException();
         }
     }
+
+    /// <summary>ISpanFormattable.TryFormat of a boxed enum (System.Enum implements it): the text IFormattable.ToString gives, if it fits.</summary>
+    internal static class BoxedEnumSpanFormattable
+    {
+        public static bool TryFormat(object self, Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider provider)
+        {
+            string text = ((IFormattable)self).ToString(format.IsEmpty ? null : format.ToString(), provider);
+            if (text.AsSpan().TryCopyTo(destination))
+            {
+                charsWritten = text.Length;
+                return true;
+            }
+            charsWritten = 0;
+            return false;
+        }
+    }
 }
