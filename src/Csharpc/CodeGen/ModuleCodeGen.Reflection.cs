@@ -521,7 +521,16 @@ public sealed partial class ModuleCodeGen
         for (var i = 0; i < _reflectionOrder.Count; i++)
         {
             var entry = _reflectionOrder[i];
-            if ((entry.Described & (RiAttributes | RiAttributesUnknown)) != 0 || entry.Type is not INamedTypeSymbol named || !DescribesOwnAttributes(named) || CoreLib.IsCoreLib(named)) continue;
+            if ((entry.Described & (RiAttributes | RiAttributesUnknown)) != 0 || entry.Type is not INamedTypeSymbol named) continue;
+            if (named.IsAnonymousType)
+            {
+                // csc gives an anonymous type [CompilerGenerated] and [DebuggerDisplay]: csharpc lists neither, so the program's own query is the explicit
+                // error and the framework's (System.Text.Json looks for its own attributes) gets the empty list.
+                SetTypeAttributes(entry, [], synthesizedUnknown: true);
+                any = true;
+                continue;
+            }
+            if (!DescribesOwnAttributes(named) || CoreLib.IsCoreLib(named)) continue;
             var unknownSynthesized = false;
             var list = Decoded(() => { var l = TypeAttributeInstances(named.OriginalDefinition, out var unknown); unknownSynthesized = unknown; return l; });
             SetTypeAttributes(entry, list, unknownSynthesized);

@@ -37,9 +37,7 @@ public sealed class IlAssemblySet : IDisposable
     public bool IsCoreLib(ISymbol? symbol) => OwnerOf(symbol) is { IsCoreLib: true };
 
     /// <summary>Opens and validates the assemblies; throws <see cref="InvalidOperationException"/> with a user-facing message.</summary>
-    /// <param name="nestedTypesVisibleIn">The program whose private nested types the binding compilation must be able to name
-    /// (reflection-based JSON metadata for them is generated in another assembly; JsonReflectionContexts.Il.cs).</param>
-    public static IlAssemblySet Load(IEnumerable<string> paths, string? nestedTypesVisibleIn = null)
+    public static IlAssemblySet Load(IEnumerable<string> paths)
     {
         var set = new IlAssemblySet();
         foreach (var path in paths.Select(Path.GetFullPath).Distinct(StringComparer.Ordinal))
@@ -56,9 +54,7 @@ public sealed class IlAssemblySet : IDisposable
             if (!reader.IsAssembly) throw new InvalidOperationException($"'{path}' is a module, not an assembly");
             if (IsReferenceAssembly(reader))
                 throw new InvalidOperationException($"'{path}' is a reference assembly (no method bodies); reference the implementation assembly instead");
-            var image = nestedTypesVisibleIn is not null && string.Equals(path, Path.GetFullPath(nestedTypesVisibleIn), StringComparison.Ordinal)
-                ? JsonReflectionContexts.WithPrivateNestedTypesInternal(bytes, pe, reader) : bytes;
-            var reference = MetadataReference.CreateFromImage(image, filePath: path);
+            var reference = MetadataReference.CreateFromImage(bytes, filePath: path);
             set._assemblies.Add(new IlAssembly(path, pe, reader, reference));
         }
         return set;

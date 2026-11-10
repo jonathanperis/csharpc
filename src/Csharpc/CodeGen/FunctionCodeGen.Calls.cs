@@ -45,7 +45,6 @@ public sealed partial class FunctionCodeGen
             }
             throw CompileError.Unsupported("RuntimeHelpers.RunClassConstructor with a handle that is not typeof(X).TypeHandle", inv);
         }
-        if (target.IsStatic) CheckJsonSerializerRoots(target, inv);
         NoteReflectionRoots(target, inv);
         if (inv is IlOperation && InFrameworkIl && inv.Instance is { } fieldsReceiver && target is { Name: "GetFields", Parameters: [{ Type.Name: "BindingFlags" }], ContainingType: { Name: "Type", ContainingNamespace.Name: "System" } })
             return CallCoreLib("FieldReflection", "FrameworkGetFields", [EmitValue(fieldsReceiver), EmitArgumentValue(inv.Arguments[0])]);

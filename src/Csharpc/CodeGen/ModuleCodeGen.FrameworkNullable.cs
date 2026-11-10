@@ -99,6 +99,12 @@ public sealed partial class ModuleCodeGen
         return list;
     }
 
+    /// <summary>
+    /// The members of an anonymous type: csc gives them [CompilerGenerated] and [DebuggerBrowsable] and no nullable annotations (the properties are
+    /// of type parameters). The list is empty and flagged, so only the nullability reader and the framework's own queries may use it.
+    /// </summary>
+    private static AttributeSet AnonymousTypeSet() => FrameworkNullableSet([]);
+
     private static AttributeSet FrameworkNullableSet(List<AttributeInstance> instances) => new(instances, 0, Unknown: true, NullableExplicit: true);
 
     /// <summary>The nullable attributes of a BCL type, or null where its implementation cannot be found.</summary>
@@ -134,6 +140,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>A BCL method's, constructor's or accessor's [NullableContext]; null where unknown.</summary>
     private AttributeSet? FrameworkMethodSet(IMethodSymbol method)
     {
+        if (method.ContainingType.IsAnonymousType) return AnonymousTypeSet();
         if (FrameworkOwner(method) is not { } owner || FrameworkMethod(owner, method.OriginalDefinition) is not { } handle) return null;
         var reader = owner.Assembly.Reader;
         return FrameworkNullableSet(NullableAttributesOf(reader, reader.GetMethodDefinition(handle).GetCustomAttributes()));
@@ -142,6 +149,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>The attributes of a BCL method's return value (sequence 0) or parameter.</summary>
     private AttributeSet? FrameworkParameterSet(IMethodSymbol method, int sequence)
     {
+        if (method.ContainingType.IsAnonymousType) return AnonymousTypeSet();
         if (FrameworkOwner(method) is not { } owner || FrameworkMethod(owner, method.OriginalDefinition) is not { } handle) return null;
         var reader = owner.Assembly.Reader;
         foreach (var parameter in reader.GetMethodDefinition(handle).GetParameters())
@@ -152,6 +160,7 @@ public sealed partial class ModuleCodeGen
 
     private AttributeSet? FrameworkPropertySet(IPropertySymbol property)
     {
+        if (property.ContainingType.IsAnonymousType) return AnonymousTypeSet();
         if (FrameworkOwner(property) is not { } owner) return null;
         var reader = owner.Assembly.Reader;
         var matches = reader.GetTypeDefinition(owner.Type).GetProperties().Where(h => reader.GetString(reader.GetPropertyDefinition(h).Name) == property.MetadataName).ToList();
@@ -160,6 +169,7 @@ public sealed partial class ModuleCodeGen
 
     private AttributeSet? FrameworkFieldSet(IFieldSymbol field)
     {
+        if (field.ContainingType.IsAnonymousType) return AnonymousTypeSet();
         if (FrameworkOwner(field) is not { } owner) return null;
         var reader = owner.Assembly.Reader;
         var matches = reader.GetTypeDefinition(owner.Type).GetFields().Where(h => reader.GetString(reader.GetFieldDefinition(h).Name) == field.MetadataName).ToList();

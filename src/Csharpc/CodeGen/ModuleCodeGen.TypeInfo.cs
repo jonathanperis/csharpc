@@ -808,9 +808,7 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>Type.IsVisible: public all the way out, and so are the type arguments.</summary>
     /// <summary>
-    /// A nested type's accessibility: the program's own private nested types are bound as internal when its
-    /// reflection-based JSON metadata is generated (JsonReflectionContexts.WithPrivateNestedTypesInternal), so
-    /// those read the real one from the assembly.
+    /// A nested type's accessibility, read from the assembly's own metadata (the binding compilation may see a private nested type as internal).
     /// </summary>
     private Accessibility NestedAccessibility(INamedTypeSymbol type)
     {
