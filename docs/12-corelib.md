@@ -158,8 +158,8 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   ported `DateTimeFormat`/`DateTimeParse` with the offset, the local zone from libc like `DateTime`; binary
   serialization is not implemented).
 * **`System.Buffers`:** `ArrayPool<T>` (keeps returned arrays as .NET's shared pool does: one per size bucket per
-  thread, then 32 per bucket shared, up to 1 Mi elements), `MemoryPool<T>` (port of System.Memory's `ArrayMemoryPool`, buffers from
-  `ArrayPool<T>.Shared`, so sizes are .NET's), `IMemoryOwner<T>`.
+  thread, then 32 per bucket shared, up to 1 Mi elements), `IMemoryOwner<T>`. System.Memory (`MemoryPool<T>`,
+  `ReadOnlySequence<T>`, `SequenceReader<T>`, `ArrayBufferWriter<T>`, `EncodingExtensions`) comes from the framework's IL (ADR 0023).
 * **`MemoryExtensions`:** searches and comparisons compare integers, chars, bools and enums byte-wise in the
   runtime and every other element type with `EqualityComparer<T>.Default` semantics (`SpanEquality.cs`), plus the
   `IEqualityComparer<T>` overloads.
