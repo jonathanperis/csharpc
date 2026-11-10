@@ -1,0 +1,41 @@
+The given key 'text' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: text
+The given key '42' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: 42
+The given key '-42' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: -42
+The given key '5000000000' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: 5000000000
+The given key '7' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: 7
+The given key '18446744073709551615' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: 18446744073709551615
+The given key 'c' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: c
+The given key '-3' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: -3
+The given key 'Green' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: Green
+The given key '(1, -2)' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: (1, -2)
+The given key '(1, a)' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: (1, a)
+The given key '11111111-2222-3333-4444-555555555555' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: 11111111-2222-3333-4444-555555555555
+The given key '1.5' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: 1.5
+The given key '2.5' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: 2.5
+The given key 'True' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: True
+The given key 'formatted:null' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: formatted:null
+The given key 'System.Object[]' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: System.Object[]
+The given key 'boxed' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: boxed
+The given key '12' was not present in the dictionary.
+ArgumentException: An item with the same key has already been added. Key: 12
+key
+The given key '3' was not present in the dictionary.
+False

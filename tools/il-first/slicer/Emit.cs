@@ -274,10 +274,19 @@ sealed class Emitter
                 var scope = AsmRef(new AssemblyNameReference(forward[..colon], new Version(1, 0, 0, 0)));
                 var call = new MethodReference(forward[(sep + 2)..], nm.ReturnType, new TypeReference(typeName[..dot], typeName[(dot + 1)..], _m, scope, false));
                 foreach (var p in nm.Parameters) call.Parameters.Add(new ParameterDefinition(p.ParameterType));
+                MethodReference target = call;
+                if (nm.HasGenericParameters)
+                {
+                    // A generic method forwards with its own type parameters (ThrowHelper.ThrowKeyNotFoundException<T>(T key)).
+                    foreach (var _ in nm.GenericParameters) call.GenericParameters.Add(new GenericParameter(call));
+                    var instance = new GenericInstanceMethod(call);
+                    foreach (var gp in nm.GenericParameters) instance.GenericArguments.Add(gp);
+                    target = instance;
+                }
                 var il = nm.Body.GetILProcessor();
                 if (nm.HasThis) il.Emit(OpCodes.Ldarg_0);
                 foreach (var p in nm.Parameters) il.Emit(OpCodes.Ldarg, p);
-                il.Emit(OpCodes.Call, call);
+                il.Emit(OpCodes.Call, target);
                 il.Emit(OpCodes.Ret);
                 continue;
             }

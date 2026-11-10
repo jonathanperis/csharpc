@@ -3,7 +3,8 @@
 #
 #   tests/slicer.sh [-O0|-O2] [sample-name-filter ...]
 #
-# Slices System.Guid, System.Text.StringBuilder, System.Number, Dictionary and HashSet out of the shared framework's System.Private.CoreLib (the
+# Slices System.Guid, System.Text.StringBuilder and System.Number out of the shared framework's System.Private.CoreLib (List, Dictionary and HashSet
+# are served from it by default, src/Csharpc/upstream-types.txt, so every sample here runs with them; the
 # primitives' implementations of CoreLib-internal interfaces such as IUtfChar<T> and IBinaryIntegerParseAndFormatInfo<T>
 # travel in the slice, issue #221; boxed primitives dispatch ISpanFormattable), compiles each sample with
 # CSHARPC_UPSTREAM_MAP pointing at the slice, runs it and compares stdout and the exit code with the recording made on real
@@ -20,7 +21,7 @@ CSC="$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll"
 [[ -f "$CSC" ]] || dotnet build "$ROOT/src/Csharpc" -c Release -m:1 > /dev/null || exit 1
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 
-"$ROOT/tools/il-first/slicer/slice.sh" "$WORK/slice.dll" System.Guid,System.Text.StringBuilder,System.Number,System.Collections.Generic.Dictionary!2,System.Collections.Generic.HashSet!1 > "$WORK/slice.log" 2>&1 \
+"$ROOT/tools/il-first/slicer/slice.sh" "$WORK/slice.dll" System.Guid,System.Text.StringBuilder,System.Number > "$WORK/slice.log" 2>&1 \
   || { cat "$WORK/slice.log"; echo "FAIL: slicing"; exit 1; }
 export CSHARPC_UPSTREAM_MAP="$WORK/slice.map"
 
