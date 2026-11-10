@@ -476,6 +476,7 @@ public sealed partial class ModuleCodeGen
         var mtType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32, LlvmContext.Array(Llvm.Ptr, ClassLayout.ObjectSlotCount));
         var global = Module.AddGlobal($"__memory{index}_MT", mtType, constant: true, linkage: LLVMLinkage.Internal);
         _memoryMethodTables[memory] = global;
+        RegisterTypeMethodTable(global, memory); // the Type object of a boxed Memory<T> is typeof(Memory<T>)
         LoweredFunction Make(string name, LLVMTypeRef ret, params LLVMTypeRef[] ps)
         {
             var type = Llvm.FunctionType(ret, ps);

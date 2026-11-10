@@ -176,9 +176,15 @@ public sealed partial class FunctionCodeGen
             && S(method.ContainingType) is INamedTypeSymbol arrayInterface)
             _m.RequestArrayInterface(arrayInterface);
         if (args is [{ Constant: string typeName }, ..] && IsGetTypeByName(method)) _m.NoteTypeByName(typeName);
-        if (receiver is { Symbol: ITypeSymbol reflected }) NoteReflectedType(method, S(reflected), args is [{ Constant: string name }, ..] ? name : null);
+        var reflectedKnown = false;
+        if (receiver is { Symbol: ITypeSymbol reflected }) { reflectedKnown = true; NoteReflectedType(method, S(reflected), args is [{ Constant: string name }, ..] ? name : null); }
         else if (receiver is { FromLocal: not null } && method.ContainingType is { Name: "Type" or "TypeInfo" })
-            foreach (var known in IlKnownTypeofValues(receiver)) NoteReflectedType(method, S(known), args is [{ Constant: string name }, ..] ? name : null);
+            foreach (var known in IlKnownTypeofValues(receiver)) { reflectedKnown = true; NoteReflectedType(method, S(known), args is [{ Constant: string name }, ..] ? name : null); }
+        // `Type t = cond ? typeof(A<>) : typeof(B<>); t.MakeGenericType(...)`: the value went through a merge, so every open generic
+        // definition the method names with typeof is a candidate.
+        if (!reflectedKnown && method.Name == "MakeGenericType" && method.ContainingType is { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } })
+            foreach (var candidate in IlTypeofOperandsOfMethod().Where(t => t is INamedTypeSymbol { IsGenericType: true } open && (open.IsUnboundGenericType || open.IsDefinition)))
+                NoteReflectedType(method, S(candidate), null);
 
         // Library operators and conversions (decimal + decimal, (long)BigInteger ...): the source path's operator lowering.
         if (method.MethodKind is MethodKind.UserDefinedOperator or MethodKind.Conversion && method.IsStatic && !_m.IsUserMethod(mapped)

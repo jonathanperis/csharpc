@@ -76,6 +76,16 @@ public sealed partial class FunctionCodeGen
         _ => [],
     };
 
+    /// <summary>The types the method's body names with typeof (ldtoken followed by Type.GetTypeFromHandle).</summary>
+    private IEnumerable<ITypeSymbol> IlTypeofOperandsOfMethod()
+    {
+        var instructions = IlBody.Instructions;
+        for (var i = 1; i < instructions.Length; i++)
+            if (instructions[i] is { OpCode: ILOpCode.Call, Token: var call } && instructions[i - 1].OpCode == ILOpCode.Ldtoken
+                && IlMethod(call) is { Name: "GetTypeFromHandle" } getter && IsSystemType(getter.ContainingType))
+                yield return ResolveIlType(instructions[i - 1].Token);
+    }
+
     private IReadOnlyList<ITypeSymbol> IlTypeofStoredIn(int local)
     {
         if (_ilTypeofLocals is null)

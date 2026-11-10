@@ -288,6 +288,7 @@ public sealed partial class ModuleCodeGen
 
     private AttributeSet SourceMethodAttributes(IMethodSymbol definition)
     {
+        if (FrameworkMethodSet(definition) is { } frameworkMethod) return frameworkMethod;
         var synthesized = new List<AttributeInstance?>();
         // [NullableContext] comes first (before [CompilerGenerated] and [Extension]).
         if (NullableMethodAttributes(definition) is { } nullableContext) synthesized.AddRange(nullableContext);
@@ -310,6 +311,7 @@ public sealed partial class ModuleCodeGen
 
     private AttributeSet SourceFieldAttributes(IFieldSymbol definition)
     {
+        if (FrameworkFieldSet(definition) is { } frameworkField) return frameworkField;
         var synthesized = new List<AttributeInstance?>();
         if (NullableFieldAttributes(definition) is { } nullableField) synthesized.AddRange(nullableField);
         // An auto-property's backing field: the attributes the compiler emits on it, before the property's [field: ...] ones.
@@ -334,7 +336,7 @@ public sealed partial class ModuleCodeGen
         a.AttributeClass?.ToDisplayString() is AllowNullName or DisallowNullName or MaybeNullName or NotNullName;
 
     private AttributeSet SourcePropertyAttributes(IPropertySymbol definition) =>
-        WithExplicitNullable(BuildAttributeSet(definition.GetAttributes().Where(a => !IsForwardedToAccessor(a)).ToList(),
+        FrameworkPropertySet(definition) ?? WithExplicitNullable(BuildAttributeSet(definition.GetAttributes().Where(a => !IsForwardedToAccessor(a)).ToList(),
             [.. NullablePropertyAttributes(definition) ?? [], .. definition.IsRequired && RequiredMemberInstance() is { } requiredProperty ? new[] { requiredProperty } : []], PropertyHasUnlistedAttributes(definition)),
             definition, info => info.Slots.GetValueOrDefault(definition.OriginalDefinition));
 
@@ -344,6 +346,7 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     private AttributeSet SourceReturnAttributes(IMethodSymbol definition)
     {
+        if (FrameworkParameterSet(definition, 0) is { } frameworkReturn) return frameworkReturn;
         var synthesized = new List<AttributeInstance?>();
         if (NullableReturnAttributes(definition) is { } nullableReturn) synthesized.AddRange(nullableReturn);
         var declared = definition.GetReturnTypeAttributes().ToList();
@@ -362,6 +365,7 @@ public sealed partial class ModuleCodeGen
 
     private AttributeSet SourceParameterAttributes(IParameterSymbol p)
     {
+        if (p.ContainingSymbol is IMethodSymbol frameworkOwner && FrameworkParameterSet(frameworkOwner, p.Ordinal + 1) is { } frameworkParameter) return frameworkParameter;
         // [ParamArray] comes first (csc emits it before the source's attributes).
         var synthesized = new List<AttributeInstance?>();
         if (p.IsParams && p.Type is IArrayTypeSymbol) synthesized.Add(PseudoAttribute("System.ParamArrayAttribute"));

@@ -47,6 +47,8 @@ public sealed partial class FunctionCodeGen
         }
         if (target.IsStatic) CheckJsonSerializerRoots(target, inv);
         NoteReflectionRoots(target, inv);
+        if (inv is IlOperation && InFrameworkIl && inv.Instance is { } fieldsReceiver && target is { Name: "GetFields", Parameters: [{ Type.Name: "BindingFlags" }], ContainingType: { Name: "Type", ContainingNamespace.Name: "System" } })
+            return CallCoreLib("FieldReflection", "FrameworkGetFields", [EmitValue(fieldsReceiver), EmitArgumentValue(inv.Arguments[0])]);
         if (TypeObjectMember(inv.TargetMethod, inv.Instance) is { } typeMember) return CallBcl(typeMember, inv.TargetMethod, inv.Instance, inv.Arguments, inv);
         if (inv is IlOperation && InFrameworkIl && inv.Instance is { } attributeReceiver && FrameworkAttributeQuery(inv.TargetMethod) is { } attributeQuery)
             return CallCoreLib("ReflectionRuntime", attributeQuery, [EmitValue(attributeReceiver), .. inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(EmitArgumentValue)]);

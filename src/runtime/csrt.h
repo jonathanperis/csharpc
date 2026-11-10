@@ -375,7 +375,8 @@ enum { CSRT_RI_PUBLIC_CONSTRUCTORS = 1, CSRT_RI_NONPUBLIC_CONSTRUCTORS = 2, CSRT
        CSRT_RI_NONPUBLIC_METHODS = 8, CSRT_RI_ATTRIBUTES = 16, CSRT_RI_PUBLIC_PROPERTIES = 32, CSRT_RI_NONPUBLIC_PROPERTIES = 64,
        CSRT_RI_ATTRIBUTES_UNKNOWN = 128 /* the type's attributes can't be listed exactly: querying them throws */,
        CSRT_RI_PUBLIC_FIELDS = 256, CSRT_RI_NONPUBLIC_FIELDS = 512,
-       CSRT_RI_PUBLIC_EVENTS = 1024, CSRT_RI_NONPUBLIC_EVENTS = 2048 };
+       CSRT_RI_PUBLIC_EVENTS = 1024, CSRT_RI_NONPUBLIC_EVENTS = 2048,
+       CSRT_RI_FIELDS_HIDDEN = 8192 /* a reference-assembly type in the chain hides its non-public fields */ };
 enum { CSRT_PROPERTY_PUBLIC = 1 /* an accessor is public */, CSRT_PROPERTY_STATIC = 2 };
 typedef struct csrt_PropertyRecord {
     const char* name;
