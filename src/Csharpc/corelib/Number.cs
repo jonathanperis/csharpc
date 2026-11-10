@@ -112,8 +112,14 @@ namespace CsharpcCoreLib
         internal static string Int64ToDecStr(long value)
         {
             if (value >= 0) return UInt64ToDecStr((ulong)value);
-            return NegativeInt64ToDecStr(value, CsharpcCoreLib.Globalization.NumberFormatInfo.CurrentInfo.NegativeSign);
+            return NegativeInt64ToDecStrCurrentCulture(value);
         }
+
+        // Out of line: inlined into Int64ToDecStr, the culture lookup made that function too big to inline into the callers that print
+        // non-negative numbers (about 11 instructions more per int.ToString()).
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static string NegativeInt64ToDecStrCurrentCulture(long value) =>
+            NegativeInt64ToDecStr(value, CsharpcCoreLib.Globalization.NumberFormatInfo.CurrentInfo.NegativeSign);
 
         /// <summary>.NET's NegativeNumberToDecStr: `sNegative` followed by the digits of |value|.</summary>
         internal static unsafe string NegativeInt64ToDecStr(long value, string sNegative)

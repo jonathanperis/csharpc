@@ -42,10 +42,11 @@ public sealed partial class FunctionCodeGen
             // csharpc has no hardware intrinsics yet: the framework's scalar fallbacks run (same results by
             // design). Ssse3.IsSupported, AdvSimd.Arm64.IsSupported, Vector128.IsHardwareAccelerated, ...
             (_, "get_IsSupported") when IsHardwareIntrinsicClass(method.ContainingType) => false,
-            // Vector128 is on LLVM vectors where the target has a 128-bit unit (FunctionCodeGen.Simd.cs); Vector64/256/512 and Vector<T> are not.
-            ("System.Runtime.Intrinsics.Vector128", "get_IsHardwareAccelerated") => Vector128Accelerated,
+            // Vector128 and Vector<T> (16 bytes, NativeAOT's default) are on LLVM vectors where the target has a 128-bit unit
+            // (FunctionCodeGen.Simd.cs); Vector64/256/512 are not.
+            ("System.Runtime.Intrinsics.Vector128" or "System.Numerics.Vector", "get_IsHardwareAccelerated") => Vector128Accelerated,
             ("System.Runtime.Intrinsics.Vector64" or "System.Runtime.Intrinsics.Vector256"
-                or "System.Runtime.Intrinsics.Vector512" or "System.Numerics.Vector", "get_IsHardwareAccelerated") => false,
+                or "System.Runtime.Intrinsics.Vector512", "get_IsHardwareAccelerated") => false,
             _ => null,
         };
 
@@ -72,10 +73,39 @@ public sealed partial class FunctionCodeGen
             // csc's guard around a dynamic call site's creation: csharpc binds the site, there is nothing to create.
             case ILOpCode.Ldsfld when IlIsDynamicGuard(previous.Token): return true;
             case ILOpCode.Call or ILOpCode.Callvirt:
-                try { return IlAssembly.ResolveMember(previous.Token, IlBody.Context) is IMethodSymbol m ? FeatureSwitchValue(m) : null; }
+                try
+                {
+                    if (IlAssembly.ResolveMember(previous.Token, IlBody.Context) is not IMethodSymbol m) return null;
+                    return IlTypeEqualityConstant(block, index - 1, m) ?? FeatureSwitchValue(m);
+                }
                 catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { return null; }
             default: return null;
         }
+    }
+
+    /// <summary>
+    /// `typeof(A) == typeof(B)` / `!=` (ldtoken, GetTypeFromHandle, ldtoken, GetTypeFromHandle, op_Equality) with both types known: in a generic
+    /// method lowered for one instantiation that is a constant, and the branch it guards is never lowered. This is what keeps
+    /// `if (typeof(T) == typeof(string)) ... else general-path` from compiling the general path (and everything it reaches) for T = string, as
+    /// ILCompiler's dead-branch elimination does; the framework's collections and formatting are full of it.
+    /// </summary>
+    private bool? IlTypeEqualityConstant(IlBlock block, int callIndex, IMethodSymbol equality)
+    {
+        if (equality is not { Name: "op_Equality" or "op_Inequality", ContainingType: { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } }
+            || callIndex - 4 < block.First) return null;
+        var instructions = IlBody.Instructions;
+        ITypeSymbol? TypeLoadedAt(int tokenIndex, int getIndex)
+        {
+            if (instructions[tokenIndex].OpCode != ILOpCode.Ldtoken || instructions[getIndex].OpCode != ILOpCode.Call) return null;
+            var handle = System.Reflection.Metadata.Ecma335.MetadataTokens.EntityHandle(instructions[tokenIndex].Token);
+            if (handle.Kind is not (HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification)) return null;
+            if (IlAssembly.ResolveMember(instructions[getIndex].Token, IlBody.Context) is not IMethodSymbol { Name: "GetTypeFromHandle", ContainingType.Name: "Type" }) return null;
+            return S(ResolveIlType(instructions[tokenIndex].Token));
+        }
+        if (TypeLoadedAt(callIndex - 4, callIndex - 3) is not { } left || TypeLoadedAt(callIndex - 2, callIndex - 1) is not { } right) return null;
+        if (left is ITypeParameterSymbol || right is ITypeParameterSymbol) return null;
+        var same = SymbolEqualityComparer.Default.Equals(left, right);
+        return equality.Name == "op_Equality" ? same : !same;
     }
 
     /// <summary>

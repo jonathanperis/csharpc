@@ -603,7 +603,7 @@ namespace CsharpcCoreLib
             }
             // MemoryExtensions' wording ends with a period (Enumerable's doesn't).
             if (span.Length == 0) throw new InvalidOperationException("Sequence contains no elements.");
-            if (comparer == null && LinqSpans.TryMinMaxPrimitive(span, sign < 0, out best)) return best; // vector reductions, same answer
+            if (comparer == null && RuntimeSpans.TryMinMaxPrimitive(span, sign < 0, out best)) return best; // vector reductions, same answer
             best = span[0];
             for (int i = 1; i < span.Length; i++)
             {
@@ -1002,7 +1002,6 @@ namespace CsharpcCoreLib
 namespace CsharpcCoreLib
 {
     using System.Collections.Generic;
-    using System.Linq;
     using System.Threading.Tasks;
 
     // Task combinators over IEnumerable: materialize, then use the runtime's array overloads.
@@ -1010,7 +1009,7 @@ namespace CsharpcCoreLib
     internal static class TaskExtras
     {
         // The checks .NET makes on the collection itself (a null one is ArgumentNullException 'tasks', not 'source').
-        private static T[] TasksArray<T>(IEnumerable<T> tasks) => tasks == null ? throw new ArgumentNullException("tasks") : Enumerable.ToArray(tasks);
+        private static T[] TasksArray<T>(IEnumerable<T> tasks) => tasks == null ? throw new ArgumentNullException("tasks") : new List<T>(tasks).ToArray();
         public static Task<TResult[]> WhenAll<TResult>(IEnumerable<Task<TResult>> tasks) => Task.WhenAll(TasksArray(tasks));
         public static Task WhenAll(IEnumerable<Task> tasks) => Task.WhenAll(TasksArray(tasks));
         public static Task<Task> WhenAny(IEnumerable<Task> tasks) => Task.WhenAny(TasksArray(tasks));

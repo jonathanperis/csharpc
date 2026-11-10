@@ -131,7 +131,7 @@ namespace CsharpcCoreLib
             if (CoreIntrinsics.IsBitwiseEquatable<T>())
             {
                 // Integers, chars, enums: the runtime's vectorized search for the bits (what EqualityComparer<T>.Default would answer).
-                int found = LinqSpans.IndexOfBitwise(new ReadOnlySpan<T>(array, startIndex, count), value);
+                int found = RuntimeSpans.IndexOfBitwise(new ReadOnlySpan<T>(array, startIndex, count), value);
                 return found < 0 ? -1 : startIndex + found;
             }
             for (int i = startIndex; i < startIndex + count; i++)
