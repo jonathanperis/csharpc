@@ -21,7 +21,7 @@ public sealed partial class FunctionCodeGen
             // The Type overloads (Enum.GetValues(typeof(Color))): with a typeof operand they are the
             // generic ones in disguise; the leading Type argument is dropped.
             if (target.Parameters.FirstOrDefault()?.Type is not { Name: "Type", ContainingNamespace.Name: "System" }) return null;
-            if (TypeOfOperand(args[0].Value) is not { } typeOperand || S(typeOperand) is not INamedTypeSymbol { TypeKind: TypeKind.Enum } named)
+            if (ExactTypeOf(args[0].Value) is not { } typeOperand || S(typeOperand) is not INamedTypeSymbol { TypeKind: TypeKind.Enum } named)
             {
                 // Configuration.Binder and similar pass a run-time Type into Enum.Parse/IsDefined:
                 // lower to a corelib helper (NotSupportedException until a full run-time enum table exists)

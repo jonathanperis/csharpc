@@ -232,7 +232,7 @@ internal static partial class BclValueTypes
         // isn't constructed. .NET's argument checks are corelib C# (ReflectionRuntime.GetUninitializedObject).
         t["System.Runtime.CompilerServices.RuntimeHelpers.GetUninitializedObject(System.Type)"] = (g, _, _, a, at) =>
         {
-            if (at is Microsoft.CodeAnalysis.Operations.IInvocationOperation { Arguments: [var argument] } && FunctionCodeGen.TypeOfOperand(argument.Value) is { } created)
+            if (at is Microsoft.CodeAnalysis.Operations.IInvocationOperation { Arguments: [var argument] } && g.ExactTypeOf(argument.Value) is { } created)
                 g.NoteConstructedType(created is INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T, TypeArguments: [var underlying] } ? underlying : created);
             return g.CallCoreLib("ReflectionRuntime", "GetUninitializedObject", a[0]);
         };

@@ -861,7 +861,7 @@ public sealed partial class FunctionCodeGen
         return new IlValueOperation(il.Syntax, type, () => IlTyped(e, type), nonNull: e.NonNull || e.IsThis)
         {
             Constant = e.Constant is null ? default : TypedConstant(e.Constant, type),
-            TypeOfOperand = e is { Kind: IlKind.Ref, Symbol: ITypeSymbol known } ? known : null,
+            TypeOfOperand = e is { Kind: IlKind.Ref, Symbol: ITypeSymbol known } ? known : e is { Kind: IlKind.Ref, FromLocal: { } local } ? IlExactTypeofLocal(local) : null,
             BoxedFrom = e is { Kind: IlKind.Ref, Unboxed: { Type: { } boxedType } boxed } && !boxed.Value.IsNull ? IlOperand(boxed, boxedType) : null,
             IsNullLiteral = e is { Kind: IlKind.Ref, Type: null } && !e.Value.IsNull && Native.LLVMIsNull(e.Value) != 0,
             EntryType = e.Type,

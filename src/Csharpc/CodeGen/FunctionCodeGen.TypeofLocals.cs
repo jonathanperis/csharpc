@@ -97,4 +97,68 @@ public sealed partial class FunctionCodeGen
         }
         return _ilTypeofLocals.TryGetValue(local, out var known) ? known : [];
     }
+
+    // ---- exact values: a local that holds `typeof(T)` wherever it is read ----
+    // Unlike the flow-insensitive lists above (metadata: extra types are harmless), these feed lowerings that need the one
+    // type an argument is (Assembly.GetCustomAttributes(t), Enum.GetName(t, v), Marshal.SizeOf(t)): a local qualifies only
+    // when its single store is a typeof and nothing else can change it (`Type t = typeof(A); asm.GetCustomAttributes(t, false)`,
+    // as the Mono-derived WinForms' Control.ProductName does).
+
+    /// <summary>T when <paramref name="operation"/> is `typeof(T)`, in source or in IL, or a local that is exactly `typeof(T)`; null otherwise.</summary>
+    internal ITypeSymbol? ExactTypeOf(IOperation operation)
+    {
+        if (TypeOfOperand(operation) is { } known) return known;
+        while (operation is IConversionOperation { Operand: { } inner }) operation = inner;
+        return operation is ILocalReferenceOperation { Local: { IsConst: false, RefKind: RefKind.None } local } ? ExactTypeofLocal(local) : null;
+    }
+
+    private readonly Dictionary<ILocalSymbol, ITypeSymbol?> _exactTypeofLocals = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// T when a source local is declared `= typeof(T)` and never written again: no assignment (deconstructions included),
+    /// no ref/out argument, no `ref` to it, anywhere in its member (lambdas and local functions too).
+    /// </summary>
+    private ITypeSymbol? ExactTypeofLocal(ILocalSymbol local)
+    {
+        if (_exactTypeofLocals.TryGetValue(local, out var cached)) return cached;
+        ITypeSymbol? result = null;
+        if (IsSystemType(local.Type)
+            && local.DeclaringSyntaxReferences is [var reference] && reference.GetSyntax() is VariableDeclaratorSyntax { Initializer: { } initializer } declarator
+            && _m.Compilation.ContainsSyntaxTree(declarator.SyntaxTree))
+        {
+            var model = _m.Compilation.GetSemanticModel(declarator.SyntaxTree);
+            IOperation? value = model.GetOperation(initializer.Value);
+            while (value is IConversionOperation { Operand: { } inner }) value = inner;
+            SyntaxNode scope = declarator.Ancestors().FirstOrDefault(n => n is MemberDeclarationSyntax and not GlobalStatementSyntax)
+                ?? declarator.SyntaxTree.GetRoot();
+            if (value is ITypeOfOperation typeOf && !scope.DescendantNodes().OfType<IdentifierNameSyntax>().Any(id =>
+                    id.Identifier.ValueText == local.Name && IsWrite(id) && SymbolEqualityComparer.Default.Equals(model.GetSymbolInfo(id).Symbol, local)))
+                result = typeOf.TypeOperand;
+        }
+        return _exactTypeofLocals[local] = result;
+
+        static bool IsWrite(IdentifierNameSyntax id) =>
+            id.Ancestors().OfType<AssignmentExpressionSyntax>().Any(a => a.Left.Span.Contains(id.Span))
+            || id.Parent is ArgumentSyntax { RefKindKeyword.RawKind: (int)SyntaxKind.RefKeyword or (int)SyntaxKind.OutKeyword }
+            || id.Parent is RefExpressionSyntax;
+    }
+
+    /// <summary>
+    /// T when IL local <paramref name="local"/> is exactly `typeof(T)` wherever it is read: its one store is
+    /// `ldtoken T; call Type.GetTypeFromHandle` and its address is never taken.
+    /// </summary>
+    private ITypeSymbol? IlExactTypeofLocal(int local)
+    {
+        if (IlTypeofStoredIn(local) is not [var type]) return null;
+        var stores = 0;
+        foreach (var instruction in IlBody.Instructions)
+        {
+            var op = instruction.OpCode;
+            int? index = op is ILOpCode.Stloc_0 or ILOpCode.Stloc_1 or ILOpCode.Stloc_2 or ILOpCode.Stloc_3 ? op - ILOpCode.Stloc_0
+                : op is ILOpCode.Stloc_s or ILOpCode.Stloc or ILOpCode.Ldloca_s or ILOpCode.Ldloca ? (int)instruction.Int : null;
+            if (index != local) continue;
+            if (op is ILOpCode.Ldloca_s or ILOpCode.Ldloca || ++stores > 1) return null;
+        }
+        return type;
+    }
 }
