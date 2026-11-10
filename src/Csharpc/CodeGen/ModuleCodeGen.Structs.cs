@@ -529,4 +529,38 @@ public sealed partial class ModuleCodeGen
         new FunctionCodeGen(this, null, hash).EmitTupleBoxHash(tuple);
         return global;
     }
+
+    private readonly Dictionary<bool, LLVMValueRef> _indexRangeMethodTables = [];
+
+    /// <summary>
+    /// Method table for boxed System.Index (<c>isRange: false</c>) and System.Range: ToString, Equals and GetHashCode over the payload at
+    /// offset 8, so Dictionary&lt;Range, V&gt;, HashSet&lt;Index&gt; and <c>object o = ^1</c> behave like any other boxed value type.
+    /// </summary>
+    public LLVMValueRef IndexRangeMethodTable(bool isRange)
+    {
+        if (_indexRangeMethodTables.TryGetValue(isRange, out var existing)) return existing;
+        var name = isRange ? "Range" : "Index";
+        var mtType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32, LlvmContext.Array(Llvm.Ptr, ClassLayout.ObjectSlotCount));
+        var global = Module.AddGlobal($"__{name}_MT", mtType, constant: true, linkage: LLVMLinkage.Internal);
+        _indexRangeMethodTables[isRange] = global;
+        LoweredFunction Make(string suffix, LLVMTypeRef ret, params LLVMTypeRef[] ps)
+        {
+            var type = Llvm.FunctionType(ret, ps);
+            var fn = Module.AddFunction($"__{name}_{suffix}", type);
+            Native.LLVMSetLinkage(fn, LLVMLinkage.Internal);
+            return new LoweredFunction(fn, type);
+        }
+        var toString = Make("ToString", Llvm.Ptr, Llvm.Ptr);
+        var equals = Make("Equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr);
+        var hash = Make("GetHashCode", Llvm.I32, Llvm.Ptr);
+        var symbol = Compilation.GetTypeByMetadataName("System." + name)!;
+        var size = 8 + Types.Target.SizeOf(Types.Value(symbol));
+        Native.LLVMSetInitializer(global, Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString("System." + name),
+            Llvm.ConstInt(Llvm.I32, (long)size), Llvm.ConstInt(Llvm.I32, 64 /* CSRT_MT_VALUE_TYPE */), LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
+            LlvmContext.ConstArray(Llvm.Ptr, toString.Fn, equals.Fn, hash.Fn)));
+        new FunctionCodeGen(this, null, toString).EmitIndexRangeBoxToString(symbol);
+        new FunctionCodeGen(this, null, equals).EmitIndexRangeBoxEquals(symbol, global);
+        new FunctionCodeGen(this, null, hash).EmitIndexRangeBoxHash(symbol);
+        return global;
+    }
 }

@@ -820,7 +820,7 @@ public sealed partial class FunctionCodeGen
         LLVMValueRef Sign(LLVMValueRef gt, LLVMValueRef lt) =>
             _b.BinOp(LLVMOpcode.Sub, _b.Cast(LLVMOpcode.ZExt, gt, i32), _b.Cast(LLVMOpcode.ZExt, lt, i32));
 
-        if (IsIntegral(t)) return BclValueTypes.IntegerCompareTo(this, a, b, TypeMapper.IsSigned(t));
+        if (IsIntegral(t) || Int128Support.Is128(t)) return BclValueTypes.IntegerCompareTo(this, a, b, TypeMapper.IsSigned(t));
         if (TypeMapper.IsFloatingPoint(t))
         {
             // double.CompareTo: NaN is smaller than everything (and equal to NaN).
