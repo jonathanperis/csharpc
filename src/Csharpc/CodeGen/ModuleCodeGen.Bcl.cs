@@ -375,6 +375,9 @@ public sealed partial class ModuleCodeGen
                 or SpecialType.System_IntPtr or SpecialType.System_UIntPtr:
                 return Builtin($"csrt_Boxed_{type.MetadataName}_MT");
         }
+        // Memory<T> and ReadOnlyMemory<T>: the table their boxes carry is the one typeof names (GetType() == typeof(...), IsInstanceOfType).
+        if (type is INamedTypeSymbol memoryType && TypeMapper.IsMemory(memoryType) && !TypeSubstitution.IsOpen(memoryType) && !memoryType.IsUnboundGenericType)
+            return MemoryMethodTable(memoryType);
         // A type parameter of a generic type (the declared type of a member of an open definition): the Type object of that parameter.
         if (type is ITypeParameterSymbol { TypeParameterKind: TypeParameterKind.Type, ContainingSymbol: INamedTypeSymbol parameterOwner } typeParameter)
         {

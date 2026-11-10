@@ -25,10 +25,10 @@ those parts of csharpc.
   policy, Insert/Remove/Replace, AppendFormat and the chunk enumerator), adapted to the csharpc corelib.
 - **Source:** <https://github.com/dotnet/runtime>, release/11.0, commit
   `bc123d0bd173a538addc07e0f8fa38a90f0925c1`.
-- **What:** `System.Text.Json` and `System.Text.Encodings.Web` in `src/Csharpc/corelib/Json/`, ported
-  from `src/libraries/System.Text.Json/src` and `src/libraries/System.Text.Encodings.Web/src` (see the
-  table below), adapted to the csharpc corelib. Each ported file keeps the upstream license header
-  and names its upstream sources.
+- **What:** `ArrayBufferWriter<T>` in `src/Csharpc/corelib/Json/ArrayBufferWriter.cs`, ported from
+  `src/libraries/System.Memory/src`, adapted to the csharpc corelib; the file keeps the upstream license header.
+  (`System.Text.Json` and `System.Text.Encodings.Web`, ported here until issue 286, now come from the shared
+  framework's IL and are no longer part of this repository.)
 - **What:** `ConcurrentDictionary` and `ConcurrentStack` in `src/Csharpc/corelib/Concurrent/`, ported
   from `src/libraries/System.Private.CoreLib/src/System/Collections/Concurrent/ConcurrentDictionary.cs`
   and `src/libraries/System.Collections.Concurrent/src/System/Collections/Concurrent/ConcurrentStack.cs`,
@@ -70,18 +70,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
-
-System.Text.Json files (all under `src/Csharpc/corelib/Json/`):
-
-| File | Upstream sources |
-|---|---|
-| `JsonCore.cs` | `System.Text.Json`: `JsonException`, `JsonConstants`, `BitStack`, resource strings |
-| `UnicodeRanges.g.cs`, `Encoders.cs` | `System.Text.Encodings.Web`: `UnicodeRanges`, `TextEncoderSettings`, `OptimizedInboxTextEncoder`, `DefaultJavaScriptEncoder`; Unicode defined-characters data |
-| `JsonWriter.cs`, `ArrayBufferWriter.cs` | `System.Text.Json`: `Utf8JsonWriter*`, `JsonWriterHelper*`, `JsonEncodedText`, `JsonWriterOptions`; `System.Memory`: `ArrayBufferWriter<T>` |
-| `JsonReader.cs`, `JsonReaderSupport.cs` | `System.Text.Json`: `Utf8JsonReader*`, `JsonReaderHelper*`, `JsonHelpers.Date`, `ThrowHelper`; `System.Private.CoreLib`: `Number.NumberToDecimal` (via `Utf8Parser`) |
-| `JsonDocument.cs` | `System.Text.Json`: `JsonDocument*`, `JsonElement*`, `JsonProperty`, `MetadataDb` |
-| `JsonNodes.cs` | `System.Text.Json`: `JsonNode`, `JsonObject`, `JsonArray`, `JsonValue*` |
-| `SerializerOptions.cs`, `SerializerMetadata.cs`, `SerializerConverters.cs`, `SerializerObjects.cs`, `Serializer.cs` | `System.Text.Json`: `JsonSerializer*`, `JsonSerializerOptions`, `JsonSerializerContext`, `JsonTypeInfo*`, `JsonPropertyInfo*`, `JsonMetadataServices*`, `PolymorphicTypeResolver`, `JsonNamingPolicy` (`JsonSeparatorNamingPolicy`), the value, enum, object and collection converters, `ThrowHelper.Serialization` |
 
 ## TechEmpower Framework Benchmarks (TechEmpower/FrameworkBenchmarks)
 

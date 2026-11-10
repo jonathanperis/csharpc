@@ -227,6 +227,22 @@ public static partial class CoreLibAssembly
             }
     }
 
+    private static (Compilation Compilation, List<ShadowDeclaration> Shadows)? s_sourceShadows;
+
+    /// <summary>
+    /// The [Shadows]/[ShadowMembers] declarations of a corelib bound from its sources (--corelib source, CSHARPC_CHECK_CORELIB): those of
+    /// <see cref="Current"/> when the corelib is an assembly, else read from the compilation's syntax trees.
+    /// </summary>
+    public static IReadOnlyList<ShadowDeclaration> ShadowsOf(Compilation compilation)
+    {
+        if (Current is { } built) return built.Shadows;
+        if (s_sourceShadows is { } cached && ReferenceEquals(cached.Compilation, compilation)) return cached.Shadows;
+        var shadows = new List<ShadowDeclaration>();
+        foreach (var tree in compilation.SyntaxTrees) ScanShadows(tree.GetRoot(), "", shadows);
+        s_sourceShadows = (compilation, shadows);
+        return shadows;
+    }
+
     /// <summary>[Shadows]/[ShadowMembers] declarations, from syntax (CodeGen/CoreLib.cs reads the same for source corelibs).</summary>
     public static void ScanShadows(SyntaxNode node, string prefix, List<ShadowDeclaration> into)
     {

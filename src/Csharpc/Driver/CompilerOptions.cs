@@ -135,7 +135,7 @@ public sealed record CompilerOptions
                                  'none' turns off the automatic choice (assemblies the program uses that
                                  csharpc's corelib does not implement)
           --il-first <names>     Opt-in: drop the corelib's shadows of these shared-framework assemblies (comma-separated;
-                                 also $CSHARPC_IL_FIRST) so they compile from the framework's IL, e.g. System.Text.Json
+                                 also $CSHARPC_IL_FIRST) so they compile from the framework's IL (to measure a library before its shadow goes)
           --framework <name>     Also reference this shared framework, like <FrameworkReference> in a project
                                  (Microsoft.AspNetCore.App); its assemblies are compiled from IL
           --corelib <il|source>  Lower the corelib from its precompiled IL (cached) or bind its C# sources
