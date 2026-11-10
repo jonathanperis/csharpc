@@ -5,3 +5,6 @@ System.Collections.Generic.List`1
 System.Collections.Generic.Dictionary`2
 System.Collections.Generic.HashSet`1
 System.Runtime.InteropServices.CollectionsMarshal
+System.Threading.SpinLock
+System.Threading.ReaderWriterLockSlim
+System.Threading.ThreadLocal`1

@@ -189,6 +189,9 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Environment")]
     internal static class EnvironmentVersionMembers
     {
+        /// <summary>Environment.IsSingleProcessor (internal upstream; ReaderWriterLockSlim and the spin waits read it).</summary>
+        public static bool IsSingleProcessor => Environment.ProcessorCount == 1;
+
         private static Version s_version;
 
         /// <summary>The runtime's major.minor.build ("11.0.0" for 11.0.0-rc.2.*), as .NET reports Environment.Version.</summary>

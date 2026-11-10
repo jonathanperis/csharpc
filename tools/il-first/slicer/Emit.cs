@@ -19,7 +19,9 @@ sealed class Emitter
 
     static readonly HashSet<string> CopiedAttributes = ["System.Runtime.CompilerServices.IsByRefLikeAttribute", "System.Runtime.CompilerServices.ExtensionAttribute",
         "System.Reflection.DefaultMemberAttribute", "System.Runtime.CompilerServices.IsReadOnlyAttribute", "System.Runtime.CompilerServices.InlineArrayAttribute",
-        "System.FlagsAttribute", "System.Diagnostics.StackTraceHiddenAttribute"];
+        "System.FlagsAttribute", "System.Diagnostics.StackTraceHiddenAttribute",
+        // [ThreadStatic] is the field's semantics: one copy per thread (ThreadLocal<T>'s slot arrays); dropping it shares the field across threads.
+        "System.ThreadStaticAttribute"];
 
     public Emitter(Slice s, Cli cli)
     {
@@ -154,6 +156,8 @@ sealed class Emitter
             if (f.HasLayoutInfo) nf.Offset = f.Offset;
             if (f.HasMarshalInfo) nf.MarshalInfo = f.MarshalInfo;
             if (f.InitialValue is { Length: > 0 } init) nf.InitialValue = init;
+            foreach (var a in f.CustomAttributes.Where(a => CopiedAttributes.Contains(a.AttributeType.FullName)))
+                nf.CustomAttributes.Add(new CustomAttribute(MethodRef(a.Constructor), a.GetBlob()));
             n.Fields.Add(nf);
             _fields[f] = nf;
         }
