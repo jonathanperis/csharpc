@@ -46,7 +46,9 @@ namespace CsharpcCoreLib
 
         private static void Memmove(void* destination, void* source, ulong byteCount)
         {
-            if (byteCount != 0) Libc.memmove(destination, source, (nuint)byteCount);
+            // (Unsafe.CopyBlockUnaligned lowers to an inline move for short copies; it takes a uint count)
+            if (byteCount <= uint.MaxValue) System.Runtime.CompilerServices.Unsafe.CopyBlockUnaligned(destination, source, (uint)byteCount);
+            else Libc.memmove(destination, source, (nuint)byteCount);
         }
 
         public static int ByteLength(Array array)
