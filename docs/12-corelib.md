@@ -314,7 +314,8 @@ System.Memory type) remains there. The JSON source generator still runs for the 
   and the framework's own code throws its own `InvalidOperationException` ("Reflection-based serialization has been disabled for this
   application..."). What the program states explicitly gets what .NET evaluates for it: `JsonSerializerIsReflectionEnabledByDefault` (a
   project property, `#:property` or the runtimeconfig option) always wins, and an explicit `PublishAot=false` leaves reflection on (.NET leaves
-  the switch unset then). File-based apps already got the PublishAot switches (`dotnet run app.cs` sets them too, so the JIT oracle agrees).
+  the switch unset then; a program given as IL has only its runtimeconfig.json, where `PublishAot=false` leaves no trace, so it opts in with the
+  switch itself). File-based apps already got the PublishAot switches (`dotnet run app.cs` sets them too, so the JIT oracle agrees).
   `[FeatureSwitchDefinition]` properties fold to the value the runtime config sets, as ILCompiler folds them, so with the switch off the
   reflection resolver is dead code: a reflection-JSON program that does not opt in compiles in 48 s of cpu and 544 MB of memory instead of
   744 s and 3.3 GB. The other `System.Text.Json.*` feature switches are runtime-config properties the framework reads through `AppContext`.
