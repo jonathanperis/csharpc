@@ -414,7 +414,16 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
             case HandleKind.AssemblyReference:
                 var assemblyName = Reader.GetString(Reader.GetAssemblyReference((AssemblyReferenceHandle)reference.ResolutionScope).Name);
                 if (!_referenced.TryGetValue(assemblyName, out var assembly))
+                {
+                    // The corelib bound from its sources (--corelib source, CSHARPC_CHECK_CORELIB): its types are in the binding compilation, not in an
+                    // assembly of their own. The slice of CoreLib types (UpstreamSupport, the string comparers) calls them.
+                    if (assemblyName == "CsharpcCoreLib" && Compilation.GetTypeByMetadataName(full) is { } fromSource)
+                    {
+                        result = fromSource;
+                        break;
+                    }
                     throw new IlException($"'{full}' is defined in assembly '{assemblyName}', which '{Name}' references but csharpc was not given (pass it with -r)");
+                }
                 result = assembly.GetTypeByMetadataName(full) ?? assembly.ResolveForwardedType(full) ?? Compilation.GetTypeByMetadataName(full);
                 // System.RuntimeType, CoreLib's internal implementation of System.Type: csharpc's Type objects are all of one runtime class,
                 // so framework IL that casts to it or names it in a signature (RuntimeTypeHandle's members) means System.Type.

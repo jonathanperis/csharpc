@@ -140,6 +140,13 @@ sealed class Cli
                     if (args[++i] != "csharpc") throw new ArgumentException("unknown profile " + args[i]);
                     c.Replace["System.SR::InternalGetResourceString"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetResourceString";
                     c.Replace["System.SR::GetUsingResourceKeysSwitchValue"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetUsingResourceKeys";
+                    // The message of a missing key is string.Format(text, key): all of composite formatting, culture data and number formatting for a
+                    // key of any type, in every program that reads a Dictionary.
+                    c.Replace["System.ThrowHelper::GetKeyNotFoundException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetKeyNotFoundException";
+                    // (the generic throw helpers too: for the common key types the text needs no culture or number formatting machinery at all)
+                    c.Replace["System.ThrowHelper::ThrowKeyNotFoundException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::ThrowKeyNotFoundException";
+                    c.Replace["System.ThrowHelper::ThrowAddingDuplicateWithKeyArgumentException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::ThrowAddingDuplicateWithKeyArgumentException";
+                    c.Replace["System.ThrowHelper::GetAddingDuplicateWithKeyArgumentException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetAddingDuplicateWithKeyArgumentException";
                     c.Redirect["System.Collections.Generic.NonRandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer";
                     c.Redirect["System.Collections.Generic.IInternalStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamInternalStringEqualityComparer";
                     c.Redirect["System.Collections.Generic.RandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer";
