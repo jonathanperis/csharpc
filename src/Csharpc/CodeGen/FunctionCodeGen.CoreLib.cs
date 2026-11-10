@@ -146,7 +146,7 @@ public sealed partial class FunctionCodeGen
             "LibraryFrames" => LibraryFrames(args[0], inv, preset: true),
             "AppendLibraryFrames" => LibraryFrames(args[0], inv, preset: false),
             "ThrowWithStackTrace" => ThrowWithStackTrace(args[0], args[1]),
-            "ResourceStrings" => _m.ResourceStringsBlob(),
+            "ResourceStrings" => _b.Load(L.Ptr, _m.ResourceStringsSlot()),
             "IsCoroutineIterator" => CallRuntime("csrt_is_iterator", L.I1, [L.Ptr], args[0]),
             "RuntimeConfig" => _m.AppContextBlob(),
             "LoadableAssemblies" => _m.LoadableAssembliesBlob(),

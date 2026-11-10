@@ -204,6 +204,12 @@ public sealed partial class ModuleCodeGen
                 throw new CompileError("CSLLVM0001", $"not supported by csharpc yet: {e.Message} [in '{method}' ({assembly.Name}.dll)]", location);
             }
             finally { Stats.IlDecodeTicks += System.Diagnostics.Stopwatch.GetTimestamp() - decodeStart; }
+            if (!assembly.IsCoreLib && SrGetterText(assembly, method, body) is { } text)
+            {
+                EmitStringConstant(method, text);
+                return;
+            }
+            NoteSrLookup(assembly, method);
             if (IlDump is { } dump)
             {
                 dump.WriteLine($"=== IL {method.ToDisplayString()}  [{Mangler.Method(method)}]");
