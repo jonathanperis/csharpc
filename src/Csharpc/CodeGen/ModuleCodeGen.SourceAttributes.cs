@@ -288,9 +288,10 @@ public sealed partial class ModuleCodeGen
 
     private AttributeSet SourceMethodAttributes(IMethodSymbol definition)
     {
+        if (definition.ContainingType.IsAnonymousType) return AnonymousTypeSet();
         var synthesized = new List<AttributeInstance?>();
         // [NullableContext] comes first (before [CompilerGenerated] and [Extension]).
-        if (NullableMethodAttributes(definition) is { } nullableContext) synthesized.AddRange(nullableContext);
+        if ((FrameworkMethodNullable(definition) ?? NullableMethodAttributes(definition)) is { } nullableContext) synthesized.AddRange(nullableContext);
         // The accessors csc synthesizes for a field-like event, and an auto-property's, are [CompilerGenerated]; the
         // metadata lists that before the attributes the source gives them.
         if (definition is { MethodKind: MethodKind.EventAdd or MethodKind.EventRemove, IsImplicitlyDeclared: true }
@@ -310,8 +311,9 @@ public sealed partial class ModuleCodeGen
 
     private AttributeSet SourceFieldAttributes(IFieldSymbol definition)
     {
+        if (definition.ContainingType.IsAnonymousType) return AnonymousTypeSet();
         var synthesized = new List<AttributeInstance?>();
-        if (NullableFieldAttributes(definition) is { } nullableField) synthesized.AddRange(nullableField);
+        if ((FrameworkFieldNullable(definition) ?? NullableFieldAttributes(definition)) is { } nullableField) synthesized.AddRange(nullableField);
         // An auto-property's backing field: the attributes the compiler emits on it, before the property's [field: ...] ones.
         if (definition.IsImplicitlyDeclared && definition.AssociatedSymbol is IPropertySymbol)
         {
@@ -334,8 +336,8 @@ public sealed partial class ModuleCodeGen
         a.AttributeClass?.ToDisplayString() is AllowNullName or DisallowNullName or MaybeNullName or NotNullName;
 
     private AttributeSet SourcePropertyAttributes(IPropertySymbol definition) =>
-        WithExplicitNullable(BuildAttributeSet(definition.GetAttributes().Where(a => !IsForwardedToAccessor(a)).ToList(),
-            [.. NullablePropertyAttributes(definition) ?? [], .. definition.IsRequired && RequiredMemberInstance() is { } requiredProperty ? new[] { requiredProperty } : []], PropertyHasUnlistedAttributes(definition)),
+        definition.ContainingType.IsAnonymousType ? AnonymousTypeSet() : WithExplicitNullable(BuildAttributeSet(definition.GetAttributes().Where(a => !IsForwardedToAccessor(a)).ToList(),
+            [.. FrameworkPropertyNullable(definition) ?? NullablePropertyAttributes(definition) ?? [], .. definition.IsRequired && RequiredMemberInstance() is { } requiredProperty ? new[] { requiredProperty } : []], PropertyHasUnlistedAttributes(definition)),
             definition, info => info.Slots.GetValueOrDefault(definition.OriginalDefinition));
 
     /// <summary>
@@ -344,8 +346,9 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     private AttributeSet SourceReturnAttributes(IMethodSymbol definition)
     {
+        if (definition.ContainingType.IsAnonymousType) return AnonymousTypeSet();
         var synthesized = new List<AttributeInstance?>();
-        if (NullableReturnAttributes(definition) is { } nullableReturn) synthesized.AddRange(nullableReturn);
+        if ((FrameworkParameterNullable(definition, 0) ?? NullableReturnAttributes(definition)) is { } nullableReturn) synthesized.AddRange(nullableReturn);
         var declared = definition.GetReturnTypeAttributes().ToList();
         if (definition is { MethodKind: MethodKind.PropertyGet, AssociatedSymbol: IPropertySymbol property })
             declared.AddRange(property.GetAttributes().Where(a => a.AttributeClass?.ToDisplayString() is MaybeNullName or NotNullName));
@@ -362,10 +365,12 @@ public sealed partial class ModuleCodeGen
 
     private AttributeSet SourceParameterAttributes(IParameterSymbol p)
     {
+        if (p.ContainingType is { IsAnonymousType: true }) return AnonymousTypeSet();
         // [ParamArray] comes first (csc emits it before the source's attributes).
         var synthesized = new List<AttributeInstance?>();
         if (p.IsParams && p.Type is IArrayTypeSymbol) synthesized.Add(PseudoAttribute("System.ParamArrayAttribute"));
-        if (NullableParameterAttributes(p) is { } nullableParameter) synthesized.AddRange(nullableParameter);
+        var frameworkParameter = p.ContainingSymbol is IMethodSymbol frameworkOwner ? FrameworkParameterNullable(frameworkOwner, p.Ordinal + 1) : null;
+        if ((frameworkParameter ?? NullableParameterAttributes(p)) is { } nullableParameter) synthesized.AddRange(nullableParameter);
         IEnumerable<AttributeData> declared = p.GetAttributes();
         // A setter's value parameter takes the property's [AllowNull] / [DisallowNull].
         if (p.ContainingSymbol is IMethodSymbol { MethodKind: MethodKind.PropertySet, AssociatedSymbol: IPropertySymbol setterProperty } setter && p.Ordinal == setter.Parameters.Length - 1)
