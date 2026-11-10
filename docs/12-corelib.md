@@ -155,8 +155,8 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   ported `DateTimeFormat`/`DateTimeParse` with the offset, the local zone from libc like `DateTime`; binary
   serialization is not implemented).
 * **`System.Buffers`:** `ArrayPool<T>` (keeps returned arrays as .NET's shared pool does: one per size bucket per
-  thread, then 32 per bucket shared, up to 1 Mi elements), `MemoryPool<T>` (port of System.Memory's `ArrayMemoryPool`, buffers from
-  `ArrayPool<T>.Shared`, so sizes are .NET's), `IMemoryOwner<T>`.
+  thread, then 32 per bucket shared, up to 1 Mi elements), `IMemoryOwner<T>`. System.Memory (`MemoryPool<T>`,
+  `ReadOnlySequence<T>`, `SequenceReader<T>`, `ArrayBufferWriter<T>`, `EncodingExtensions`) comes from the framework's IL (ADR 0023).
 * **`MemoryExtensions`:** searches and comparisons compare integers, chars, bools and enums byte-wise in the
   runtime and every other element type with `EqualityComparer<T>.Default` semantics (`SpanEquality.cs`), plus the
   `IEqualityComparer<T>` overloads.
@@ -292,8 +292,8 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
 
 System.Text.Json and System.Text.Encodings.Web are compiled from the shared framework's IL ([ADR 0023](adr/0023-framework-il-first.md),
 issue 286); the hand-written port that used to live in `src/Csharpc/corelib/Json/` (16.6k lines) is gone, and so is the front end that
-synthesized `[JsonSerializable]` contexts for reflection-style calls. Only `ArrayBufferWriter<T>` (`corelib/Json/ArrayBufferWriter.cs`, a
-System.Memory type) remains there. The JSON source generator still runs for the program's own `[JsonSerializable]` contexts.
+synthesized `[JsonSerializable]` contexts for reflection-style calls. The JSON source generator still runs for the program's own
+`[JsonSerializable]` contexts.
 
 * **Reflection-based calls.** `JsonSerializer`'s reflection path is the framework's own code, which reads the program's types through
   `System.Reflection`. csharpc keeps reflection metadata only for the types a program roots, as NativeAOT does, so the framework's calls are

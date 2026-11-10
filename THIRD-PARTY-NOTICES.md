@@ -25,20 +25,11 @@ those parts of csharpc.
   policy, Insert/Remove/Replace, AppendFormat and the chunk enumerator), adapted to the csharpc corelib.
 - **Source:** <https://github.com/dotnet/runtime>, release/11.0, commit
   `bc123d0bd173a538addc07e0f8fa38a90f0925c1`.
-- **What:** `ArrayBufferWriter<T>` in `src/Csharpc/corelib/Json/ArrayBufferWriter.cs`, ported from
-  `src/libraries/System.Memory/src`, adapted to the csharpc corelib; the file keeps the upstream license header.
-  (`System.Text.Json` and `System.Text.Encodings.Web`, ported here until issue 286, now come from the shared
-  framework's IL and are no longer part of this repository.)
 - **What:** `ConcurrentDictionary` and `ConcurrentStack` in `src/Csharpc/corelib/Concurrent/`, ported
   from `src/libraries/System.Private.CoreLib/src/System/Collections/Concurrent/ConcurrentDictionary.cs`
   and `src/libraries/System.Collections.Concurrent/src/System/Collections/Concurrent/ConcurrentStack.cs`,
   with the non-randomized string hashing of `System.Private.CoreLib/src/System/String.Comparison.cs`;
   `ConcurrentBag` follows `ConcurrentBag.cs`. Each ported file keeps the upstream license header.
-- **What:** `ReadOnlySequence<T>`, `SequenceReader<T>`, `BuffersExtensions` and the sequence types in
-  `src/Csharpc/corelib/Buffers/ReadOnlySequence.cs`, ported from `src/libraries/System.Memory/src/System/Buffers/`
-  (`ReadOnlySequence.cs`, `ReadOnlySequence.Helpers.cs`, `SequenceReader.cs`, `SequenceReader.Search.cs`,
-  `BuffersExtensions.cs`) and `System.Private.CoreLib`'s `ReadOnlySequenceSegment.cs` and `SequencePosition.cs`;
-  the file keeps the upstream license header.
 - **What:** `System.Text.Rune` in `src/Csharpc/corelib/Rune.cs`, ported from
   `src/libraries/System.Private.CoreLib/src/System/Text/Rune.cs` (decoding, encoding, validation); the file keeps
   the upstream license header.
