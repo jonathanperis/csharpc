@@ -147,14 +147,8 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   bucket+entries+free-list design (iteration order after removals, prime sizes, FastMod), `PriorityQueue`'s
   4-ary heap (dequeue order of equal priorities), the introsort port (order of equal keys in `List.Sort` /
   `Array.Sort`), stable `OrderBy`, `GroupBy` first-appearance order, exception types and messages.
-* **LINQ** (`System.Linq.Enumerable`): Where/Select (+index), SelectMany (3 forms), Take/Skip/TakeWhile/
-  SkipWhile/TakeLast/SkipLast, Concat/Append/Prepend/Reverse, Zip (2 forms), Chunk, DefaultIfEmpty,
-  Distinct/DistinctBy/Union/Intersect/Except, OrderBy/ThenBy (+Descending, comparers), Order/OrderDescending,
-  GroupBy (4 forms), ToLookup, CountBy, Join/GroupJoin, ToList/ToArray/ToDictionary/ToHashSet, Range/Repeat/
-  Empty, Count/LongCount/Any/All/Contains/SequenceEqual, First/Last/Single(+OrDefault, +default values),
-  ElementAt(+OrDefault), Sum/Average/Min/Max (int/long/double/float, selectors, generic), MinBy/MaxBy,
-  Aggregate (3), Cast/OfType, Index; query syntax (via `ITranslatedQueryOperation`). Lazy operators are
-  hand-written iterator classes with .NET's deferred-execution semantics.
+* **LINQ:** not in the corelib. `System.Linq` is the framework's own IL (ADR 0023, #267), with `Vector<T>` served as 16-byte LLVM vectors
+  (`FunctionCodeGen.Simd.cs`) for its vectorized `Sum`/`Min`/`Max`; query syntax is Roslyn's (`ITranslatedQueryOperation`).
 * **Value types:** `Guid` (port of .NET's `Guid.cs`: same field layout, so `ToByteArray`/`TryWriteBytes`,
   hashing and ordering match; every parse format and its compat forms with .NET's exception types and
   messages; `NewGuid` from OS entropy as on Unix; `CreateVersion7()`, also from a `DateTimeOffset`),

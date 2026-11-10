@@ -159,7 +159,9 @@ public static partial class FrameworkIl
         bool Named(string ns) => ns.Split('.').All(identifiers.Contains);
         var owners = index.Values.SelectMany(a => a.Types.Keys).GroupBy(n => n, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
         // In a namespace several assemblies share (System.Linq), an extension method only one of them defines
-        // still names it: AsParallel is System.Linq.Parallel's, while Select is everybody's.
+        // still names it: AsParallel is System.Linq.Parallel's, while Select is everybody's (System.Linq.Queryable's on
+        // IQueryable, System.Linq.Parallel's on ParallelQuery). A name several define counts for the assembly named like the
+        // namespace, the base one: it is the one every plain collection reaches (Select on an IEnumerable<T> is System.Linq's).
         var methodOwners = index.Values.SelectMany(a => a.Extensions.SelectMany(n => n.Value.Distinct(StringComparer.Ordinal).Select(m => n.Key + "." + m)))
             .GroupBy(m => m, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
         foreach (var a in index.Values.Where(a => a.Ineligible is null).OrderBy(a => a.Name, StringComparer.Ordinal))
@@ -167,7 +169,8 @@ public static partial class FrameworkIl
             var use = a.Types.Where(n => Named(n.Key)).SelectMany(n => n.Value.Where(identifiers.Contains).Select(t => n.Key + "." + t))
                 .Concat(a.Extensions.Where(n => Named(n.Key))
                     .SelectMany(n => n.Value.Where(m => identifiers.Contains(m)
-                            && (owners.GetValueOrDefault(n.Key) == 1 || methodOwners.GetValueOrDefault(n.Key + "." + m) == 1))
+                            && (owners.GetValueOrDefault(n.Key) == 1 || methodOwners.GetValueOrDefault(n.Key + "." + m) == 1
+                                || string.Equals(a.Name, n.Key, StringComparison.OrdinalIgnoreCase)))
                         .Select(m => n.Key + "." + m + "()")))
                 .OrderBy(u => u, StringComparer.Ordinal).FirstOrDefault();
             if (use is null) continue;
@@ -231,6 +234,10 @@ public static partial class FrameworkIl
         return [.. md.AssemblyReferences.Select(h => md.GetString(md.GetAssemblyReference(h).Name))];
     }
 
+    /// <summary>What a query expression calls: it ends with `select` or `group`, and the other clauses are these methods (`from int x in xs` is Cast).</summary>
+    private static readonly string[] QueryMethods =
+        ["Select", "SelectMany", "Where", "OrderBy", "OrderByDescending", "ThenBy", "ThenByDescending", "GroupBy", "Join", "GroupJoin", "Cast"];
+
     /// <summary>Identifiers of the program's sources (and global usings), comments and strings included: a superset of the names it binds to.</summary>
     private static HashSet<string> SourceIdentifiers(FrontendSettings settings)
     {
@@ -253,6 +260,9 @@ public static partial class FrameworkIl
         if (settings.GlobalUsings is { } usings) Scan(usings);
         foreach (var project in settings.Projects)
             if (project.GlobalUsings is { } projectUsings) Scan(projectUsings);
+        // Query expressions name no method: `from x in xs where x > 1 select x` is Where and Select (System.Linq) to the compiler.
+        if (identifiers.Contains("select") || identifiers.Contains("group"))
+            foreach (var method in QueryMethods) identifiers.Add(method);
         return identifiers;
     }
 

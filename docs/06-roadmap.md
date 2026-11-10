@@ -79,7 +79,7 @@ of the milestone below says where it is tracked.
 | Object/collection initializers, collection expressions (incl. spreads) | ✅ | |
 | Interpolation with alignment/format, composite formatting | ✅ | current culture or provider; `FormattableString` |
 | C# 14 extension members | ✅ | |
-| Query expressions / LINQ | ✅ | shadow corelib |
+| Query expressions / LINQ | ✅ | Roslyn's query lowering over the framework's `System.Linq` IL |
 | Expression trees | ✅ | System.Linq.Expressions from IL, interpreted as under NativeAOT; lambdas lowered as Roslyn does ([18](18-compatibility.md#expression-trees)) |
 
 ### Semantics and runtime
@@ -103,7 +103,7 @@ of the milestone below says where it is tracked.
 | `System.MathF`, `float`/`double` generic-math statics (`Sin`, `Hypot`, `Lerp`, `SinPi`, ...) | ✅ | all public `MathF` members and `IFloatingPointIeee754<T>` for `float`/`double`, bit for bit against .NET on the same libm ([12-corelib.md](12-corelib.md), samples 1226-1229; `ReciprocalEstimate` is the exact quotient) |
 | Parsing/formatting numbers | ✅ | standard + custom format strings |
 | `System.Collections.Generic` (`List`, `Dictionary`, `HashSet`, ...), concurrent collections, `BlockingCollection`, `Partitioner` | ✅ | shadow corelib in C# |
-| `System.Linq` | ✅ | shadow corelib in C# |
+| `System.Linq` | ✅ | the framework's IL (ADR 0023) |
 | `System.Text.RegularExpressions` | ✅ | the framework's IL (all engines, `[GeneratedRegex]` by the SDK's generator), [12-corelib.md](12-corelib.md#regular-expressions) |
 | `System.Text.Json` | ✅ | writer, reader, DOM, nodes, `JsonSchemaExporter`; serializer over source-generated metadata, reflection-style calls included ([12-corelib.md](12-corelib.md#systemtextjson)); gaps in #89, #100 |
 | `Task`, `TaskFactory`, `EventSource`/`EventListener` | ✅ | [10-async.md](10-async.md), [12-corelib.md](12-corelib.md) |
