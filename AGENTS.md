@@ -33,8 +33,8 @@ possible bug; an explicit "not supported by csharpc yet" diagnostic is always pr
 
 ## Setup
 
-- Linux x86-64/ARM64, macOS ARM64 or Windows x64, .NET 11 SDK (pinned exactly in `global.json`:
-  .NET 11 GA, SDK 11.0.100, no roll-forward; patches come as deliberate re-pin PRs), LLVM 18 (`libLLVM-18.so`, Homebrew `llvm@18` on macOS, LLVM-MinGW's
+- Linux x86-64/ARM64, macOS ARM64 or Windows x64, .NET 11 SDK (`global.json`: .NET 11 GA,
+  SDK 11.0.100 rolling forward to the latest 11.0.1xx patch; CI installs that patch, prereleases never), LLVM 18 (`libLLVM-18.so`, Homebrew `llvm@18` on macOS, LLVM-MinGW's
   `libLLVM-18.dll` on Windows, or set `CSHARPC_LIBLLVM`) and `clang` (linker driver, runtime
   compiler; on macOS Homebrew's clang 18, plus the Xcode Command Line Tools for the SDK and linker;
   on Windows LLVM-MinGW's clang, with the test scripts run from Git Bash).
