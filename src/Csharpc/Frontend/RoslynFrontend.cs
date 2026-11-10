@@ -281,12 +281,14 @@ public static class RoslynFrontend
         if (settings.IlReferences.Count == 0) return all;
         var replaced = settings.IlReferences.OfType<PortableExecutableReference>()
             .Select(r => Path.GetFileNameWithoutExtension(r.FilePath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return all.Where(r => r is not PortableExecutableReference pe || !replaced.Contains(Path.GetFileNameWithoutExtension(pe.FilePath)));
+        // An implementation that also forwards types to CoreLib (System.Collections) brings a renamed copy of its twin for those (TwinReference.cs).
+        return all.Where(r => r is not PortableExecutableReference pe || !replaced.Contains(Path.GetFileNameWithoutExtension(pe.FilePath)))
+            .Concat(TwinReference.For(settings.IlReferences, ReferenceAssemblies()));
     }
 
     /// <summary>The System.Private.* facades (CoreLibFacade.cs) for implementation assemblies IL references name.</summary>
     private static IEnumerable<MetadataReference> CoreLibFacadeFor(FrontendSettings settings) =>
-        settings.IlReferences.Count > 0 ? CoreLibFacade.For(settings.IlReferences, ReferenceAssemblies()) : [];
+        settings.IlReferences.Count > 0 ? CoreLibFacade.For(settings.IlReferences, FrameworkReferences(settings).ToList()) : [];
 
     private static readonly Dictionary<string, ImmutableArray<MetadataReference>> s_frameworkReferences = new(StringComparer.OrdinalIgnoreCase);
 

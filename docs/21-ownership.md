@@ -356,12 +356,12 @@ compiler, beyond #221/#223/#269: boxed `Index`/`Range` method tables (the framew
 `IEnumerable` stored its `KeyValuePair` with a 16-byte-aligned move at an address that was only 8-aligned); `Comparer<Int128>.Default` (the corelib threw
 `InvalidOperationException`); and the IL front-end folding `typeof(A) == typeof(B)` branches in generic methods (the `if (typeof(T) == typeof(string)) ...
 else general-path` shape is all over the framework; without it the general path was lowered for every instantiation). Contract members: the string
-comparer family (`UpstreamWrappedDefaultStringComparer` is what a `Dictionary<string, V>` with the default comparer holds, so alternate lookups work,
-`Comparer` hands the default back, and the default-comparer type guard recognizes it), and the throw helpers whose message is `string.Format(text, key)`:
+comparer family (`UpstreamNonRandomizedStringEqualityComparer` is what a `Dictionary<string, V>` with the default, Ordinal or OrdinalIgnoreCase comparer holds, as in .NET: alternate lookups work,
+`Comparer` hands the original back, the default-comparer type guard recognizes the default one, and after more than 100 collisions the collection switches to
+`UpstreamRandomizedStringEqualityComparer`, whose hash is `string.GetHashCode()`: Marvin, seeded per process from the OS random number generator, runtime/strings.c; hash flooding, #285), and the throw helpers whose message is `string.Format(text, key)`:
 for `string`, `int`, `long`, `uint`, `ulong` and `char` keys the text is built directly, so a program that reads a Dictionary does not carry composite
 formatting, culture data and every number formatter for an exception message (that was +17 KB; the generic replacement is a slicer feature: a forwarded
-method may be generic). Not done: the randomized string comparer upstream switches to after many collisions (hash-flooding mitigation; the shadows never
-had it either, so it is not a regression, but it is the first thing to add when the string comparers are flipped).
+method may be generic).
 
 ### Proposed boundary, and the order
 

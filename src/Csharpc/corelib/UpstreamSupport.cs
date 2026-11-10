@@ -8,8 +8,9 @@ namespace CsharpcCoreLib
 {
     /// <summary>
     /// IInternalStringEqualityComparer / NonRandomizedStringEqualityComparer, the internal comparer family Dictionary and HashSet
-    /// consult for string keys (randomized hashing after many collisions; Marvin, OrdinalIgnoreCase casing over ICU). csharpc's
-    /// string keys use the default comparer, which hashes the same characters every run, so the contract is "no special comparer".
+    /// consult for string keys: the fast unseeded hash first, the Marvin-seeded one (string.GetHashCode) after many collisions, so that
+    /// colliding keys chosen by an attacker cost a rehash, not a linear scan per insert. csharpc serves the family itself because upstream's
+    /// reaches Marvin's OrdinalIgnoreCase casing through ICU and GenericEqualityComparer, which csharpc's EqualityComparer does not have.
     /// </summary>
     public interface UpstreamInternalStringEqualityComparer
     {
@@ -20,35 +21,120 @@ namespace CsharpcCoreLib
     }
 
     /// <summary>
-    /// What Dictionary and HashSet hold for string keys and the default comparer (.NET's WrappedAroundDefaultComparer): the same ordinal
-    /// comparison, plus the alternate-key (ReadOnlySpan&lt;char&gt;) side that AlternateLookup requires of the collection's comparer.
-    /// The collections' Comparer property gives the default comparer back. A singleton, so the default-comparer type guard in the code
-    /// generator (FunctionCodeGen.DefaultComparers) can recognize it and compare strings inline.
+    /// What Dictionary and HashSet hold for string keys with the default, Ordinal or OrdinalIgnoreCase comparer (.NET's
+    /// NonRandomizedStringEqualityComparer): the same comparison, the fast unseeded hash until an operation sees too many collisions, and the
+    /// alternate-key (ReadOnlySpan&lt;char&gt;) side that AlternateLookup requires of the collection's comparer. The collections' Comparer property
+    /// gives the comparer they were created with back. The wrapper of the default comparer is a singleton, so the default-comparer type guard in the
+    /// code generator (FunctionCodeGen.DefaultComparers) can recognize it and compare and hash strings inline. The Ordinal and OrdinalIgnoreCase
+    /// wrappers are made by those comparers (StringComparerImpl.CreateNonRandomizedWrapper): a program that never creates them does not carry them.
     /// </summary>
-    public sealed class UpstreamWrappedDefaultStringComparer : System.Collections.Generic.IEqualityComparer<string>,
+    public class UpstreamNonRandomizedStringEqualityComparer : System.Collections.Generic.IEqualityComparer<string>,
         System.Collections.Generic.IAlternateEqualityComparer<ReadOnlySpan<char>, string>, UpstreamInternalStringEqualityComparer
     {
-        public static readonly UpstreamWrappedDefaultStringComparer Instance = new();
+        private readonly System.Collections.Generic.IEqualityComparer<string> _underlying;
 
-        public bool Equals(string x, string y) => string.Equals(x, y);
-        public int GetHashCode(string obj) => obj is null ? 0 : obj.GetHashCode();
-        public bool Equals(ReadOnlySpan<char> alternate, string other) => other != null && alternate.SequenceEqual(other.AsSpan());
-        public int GetHashCode(ReadOnlySpan<char> alternate) => new string(alternate).GetHashCode();
+        private UpstreamNonRandomizedStringEqualityComparer(System.Collections.Generic.IEqualityComparer<string> underlying) { _underlying = underlying; }
+
+        private static UpstreamNonRandomizedStringEqualityComparer s_default;
+
+        internal static UpstreamNonRandomizedStringEqualityComparer ForOrdinal(System.Collections.Generic.IEqualityComparer<string> ordinal) => new(ordinal);
+        internal static UpstreamNonRandomizedStringEqualityComparer ForOrdinalIgnoreCase(System.Collections.Generic.IEqualityComparer<string> ordinalIgnoreCase) =>
+            new IgnoreCase(ordinalIgnoreCase);
+
+        /// <summary>The guard's operand: the wrapper of the default comparer, as an object.</summary>
+        public static object WrappedDefault() => s_default ??= new(System.Collections.Generic.EqualityComparer<string>.Default);
+
+        /// <summary>
+        /// string.GetNonRandomizedHashCode (dotnet/runtime String.Comparison.cs), for the guard's inline path and the wrapper: two lanes over the chars
+        /// two at a time. An odd tail reads a zero where upstream reads the terminator, which csharpc's strings do not guarantee.
+        /// </summary>
+        public static unsafe int HashDefault(string value)
+        {
+            fixed (char* chars = CoreIntrinsics.StringChars(value))
+            {
+                uint hash1 = (5381 << 16) + 5381;
+                uint hash2 = hash1;
+                uint* pair = (uint*)chars;
+                int length = value.Length;
+                while (length >= 4)
+                {
+                    hash1 = (((hash1 << 5) | (hash1 >> 27)) + hash1) ^ System.Runtime.CompilerServices.Unsafe.ReadUnaligned<uint>(pair);
+                    hash2 = (((hash2 << 5) | (hash2 >> 27)) + hash2) ^ System.Runtime.CompilerServices.Unsafe.ReadUnaligned<uint>(pair + 1);
+                    pair += 2;
+                    length -= 4;
+                }
+                if (length == 3)
+                {
+                    hash1 = (((hash1 << 5) | (hash1 >> 27)) + hash1) ^ System.Runtime.CompilerServices.Unsafe.ReadUnaligned<uint>(pair);
+                    hash2 = (((hash2 << 5) | (hash2 >> 27)) + hash2) ^ chars[value.Length - 1];
+                }
+                else if (length > 0)
+                {
+                    uint last = length == 2 ? System.Runtime.CompilerServices.Unsafe.ReadUnaligned<uint>(pair) : chars[value.Length - 1];
+                    hash2 = (((hash2 << 5) | (hash2 >> 27)) + hash2) ^ last;
+                }
+                return (int)(hash1 + hash2 * 1566083941);
+            }
+        }
+
+        // NonRandomizedStringEqualityComparer.GetStringComparer
+        public static System.Collections.Generic.IEqualityComparer<string> GetStringComparer(object comparer) =>
+            ReferenceEquals(comparer, System.Collections.Generic.EqualityComparer<string>.Default) ? (UpstreamNonRandomizedStringEqualityComparer)WrappedDefault()
+            : (comparer as StringComparerImpl)?.CreateNonRandomizedWrapper();
+
+        public virtual bool Equals(string x, string y) => string.Equals(x, y);
+        public virtual int GetHashCode(string obj) => HashDefault(obj);
+
+        // Span keys hash as the string with those chars, so either finds the other's entries.
+        public virtual bool Equals(ReadOnlySpan<char> alternate, string other) => other != null && alternate.SequenceEqual(other.AsSpan());
+        public virtual int GetHashCode(ReadOnlySpan<char> alternate) => NonRandomizedStringComparer.Hash(alternate);
         public string Create(ReadOnlySpan<char> alternate) => new string(alternate);
-        public System.Collections.Generic.IEqualityComparer<string> GetUnderlyingEqualityComparer() => System.Collections.Generic.EqualityComparer<string>.Default;
-        // The guard's operand: the singleton, as an object.
-        public static object Wrapped() => Instance;
+
+        public System.Collections.Generic.IEqualityComparer<string> GetUnderlyingEqualityComparer() => _underlying;
+
+        /// <summary>After too many collisions: the same equality with the seeded hash (string.GetHashCode is Marvin with a per-process random seed).</summary>
+        public UpstreamRandomizedStringEqualityComparer GetRandomizedEqualityComparer() => new(_underlying);
+
+        private sealed class IgnoreCase(System.Collections.Generic.IEqualityComparer<string> underlying) : UpstreamNonRandomizedStringEqualityComparer(underlying)
+        {
+            public override bool Equals(string x, string y) => string.Equals(x, y, StringComparison.OrdinalIgnoreCase);
+            public override int GetHashCode(string obj) => NonRandomizedStringComparer.HashOrdinalIgnoreCase(obj);
+            public override bool Equals(ReadOnlySpan<char> alternate, string other) => other != null && alternate.Equals(other.AsSpan(), StringComparison.OrdinalIgnoreCase);
+            public override int GetHashCode(ReadOnlySpan<char> alternate) => NonRandomizedStringComparer.HashOrdinalIgnoreCase(alternate);
+        }
     }
 
-    public sealed class UpstreamNonRandomizedStringEqualityComparer
+    /// <summary>
+    /// RandomizedStringEqualityComparer: the equality of the comparer it replaces (default, Ordinal or OrdinalIgnoreCase) with a hash no input
+    /// can be prepared against: the comparer's own hash, which for strings is Marvin, seeded from the OS random number generator when the process
+    /// starts (runtime/strings.c; OrdinalIgnoreCase hashes the upper-cased string).
+    /// </summary>
+    public sealed class UpstreamRandomizedStringEqualityComparer : System.Collections.Generic.IEqualityComparer<string>,
+        System.Collections.Generic.IAlternateEqualityComparer<ReadOnlySpan<char>, string>, UpstreamInternalStringEqualityComparer
     {
-        // Only the default comparer is wrapped; StringComparer.Ordinal / OrdinalIgnoreCase already take span keys, and the randomized
-        // fallback after many collisions upstream is not used (hash flooding stays as it is with the corelib's collections today).
-        public static System.Collections.Generic.IEqualityComparer<string> GetStringComparer(object comparer) =>
-            comparer == (object)System.Collections.Generic.EqualityComparer<string>.Default ? UpstreamWrappedDefaultStringComparer.Instance : null;
-        // Upstream returns RandomizedStringEqualityComparer, redirected to this class as well (never created: GetStringComparer is null).
-        public UpstreamNonRandomizedStringEqualityComparer GetRandomizedEqualityComparer() => null;
-        public static UpstreamNonRandomizedStringEqualityComparer Create(System.Collections.Generic.IEqualityComparer<string> underlyingComparer, bool ignoreCase) => null;
+        private readonly System.Collections.Generic.IEqualityComparer<string> _underlying;
+        private readonly System.Collections.Generic.IAlternateEqualityComparer<ReadOnlySpan<char>, string> _alternate;
+
+        internal UpstreamRandomizedStringEqualityComparer(System.Collections.Generic.IEqualityComparer<string> underlying)
+        {
+            _underlying = underlying;
+            _alternate = underlying as System.Collections.Generic.IAlternateEqualityComparer<ReadOnlySpan<char>, string>;
+        }
+
+        public static UpstreamRandomizedStringEqualityComparer Create(System.Collections.Generic.IEqualityComparer<string> underlyingComparer, bool ignoreCase) =>
+            new(underlyingComparer);
+
+        public bool Equals(string x, string y) => _underlying.Equals(x, y);
+        public int GetHashCode(string obj) => _underlying.GetHashCode(obj);
+
+        // (the default comparer takes no span keys: it is the ordinal comparison and the string's own hash)
+        public bool Equals(ReadOnlySpan<char> alternate, string other) =>
+            _alternate is not null ? _alternate.Equals(alternate, other) : other != null && alternate.SequenceEqual(other.AsSpan());
+        public int GetHashCode(ReadOnlySpan<char> alternate) =>
+            _alternate is not null ? _alternate.GetHashCode(alternate) : new string(alternate).GetHashCode();
+        public string Create(ReadOnlySpan<char> alternate) => new string(alternate);
+
+        public System.Collections.Generic.IEqualityComparer<string> GetUnderlyingEqualityComparer() => _underlying;
     }
 
     public static class UpstreamSupport
