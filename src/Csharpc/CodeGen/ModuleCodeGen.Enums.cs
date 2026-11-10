@@ -150,7 +150,7 @@ public sealed partial class ModuleCodeGen
     {
         var fields = enumType.GetMembers().OfType<IFieldSymbol>().Where(f => f.HasConstantValue).ToList();
         if (enumType.ContainingType is null && enumType.ContainingAssembly is { } assembly && enumType.Locations.All(l => l.IsInMetadata)
-            && Frontend.SharedFramework.FieldOrder(assembly.Name, enumType.ContainingNamespace.ToDisplayString(), enumType.MetadataName) is { } order)
+            && Frontend.SharedFramework.FieldOrder(Frontend.TwinReference.OriginalName(assembly.Name), enumType.ContainingNamespace.ToDisplayString(), enumType.MetadataName) is { } order)
         {
             var rank = order.Select((n, i) => (n, i)).ToDictionary(p => p.n, p => p.i, StringComparer.Ordinal);
             if (fields.All(f => rank.ContainsKey(f.Name))) return fields.OrderBy(f => rank[f.Name]);
