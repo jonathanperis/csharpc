@@ -134,9 +134,13 @@ barrier shows up there as wrong output or a crash ([ADR 0004](adr/0004-memory-ma
 
 The informational workflows (`GC concurrent`, `GC nursery`, `Program as IL`, `Bootstrap`, `Benchmarks`)
 each have a `concurrency` group per workflow and ref with `cancel-in-progress`, so a burst of merges to
-`main` leaves only the newest commit's run, queued or running, and none of them gates a merge. Branch
-pushes start `Benchmarks` only on `ci/perf*`, `ci/bench*` and `ci/m7-*` (the measurement branches);
-any other `ci/**` branch, such as a flake hunt, leaves the benchmark runners alone.
+`main` leaves only the newest commit's run, queued or running, and none of them gates a merge.
+`Benchmarks`, `GC concurrent` and `GC nursery` do not run on a push to `main`: a merge used to start
+two 120-minute benchmark jobs and two more suites that competed with every open PR's merge-bar jobs for
+the hosted runners. They run weekly (Mondays 06:00, 08:00 and 09:00 UTC, with `TechEmpower` at 07:00),
+on demand, and on their measurement branches: `ci/perf*`, `ci/bench*` and `ci/m7-*` for `Benchmarks`,
+`ci/gc-*` and `ci/m7-gc-concurrent*` for `GC concurrent`, `ci/nursery*` for `GC nursery`. Any other
+`ci/**` branch, such as a flake hunt, leaves those runners alone.
 
 Failure output shows the compile errors (including `CSLLVM0001` "not supported yet" diagnostics) or
 the first lines of a unified diff between the expected and actual stdout.
