@@ -40,8 +40,9 @@ internal static class TwinReference
         var result = new List<PortableExecutableReference>();
         foreach (var il in ilReferences.OfType<PortableExecutableReference>())
         {
-            if (il.FilePath is not { } implementation || !ForwardsToPrivate(implementation)) continue;
+            if (il.FilePath is not { } implementation) continue;
             var name = Path.GetFileNameWithoutExtension(implementation);
+            if (!Supported(name) || !ForwardsToPrivate(implementation)) continue;
             var twin = referencePack.OfType<PortableExecutableReference>().FirstOrDefault(r =>
                 r.FilePath is { } p && Path.GetFileNameWithoutExtension(p).Equals(name, StringComparison.OrdinalIgnoreCase));
             if (twin?.FilePath is { } twinPath && name.Contains('.') && Copy(twinPath, name, ForwardedToPrivate(implementation)) is { } copy)
