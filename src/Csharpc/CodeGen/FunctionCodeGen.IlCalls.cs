@@ -66,6 +66,16 @@ public sealed partial class FunctionCodeGen
             IlConstructorCall(method, receiver!, args);
             return;
         }
+        // `box T; callvirt IFace::M` once T is known (the framework's AppendFormattedWithTempSpace<T>: ((ISpanFormattable)value).TryFormat): the
+        // target is T's implementation, called as `constrained. T callvirt` would, not a look-up of the boxed value's interface table.
+        if (op == ILOpCode.Callvirt && constrained is null && receiver is { Kind: IlKind.Ref, Unboxed: { Type: { } boxedType } boxedEntry } && !boxedEntry.Value.IsNull
+            && method.ContainingType.TypeKind == TypeKind.Interface && S(boxedType) is { IsValueType: true } boxedValue && !TypeMapper.IsNullable(boxedValue)
+            && boxedValue.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, S(method.ContainingType))))
+        {
+            var home = Spill(IlTyped(boxedEntry, boxedValue));
+            if (IlInvoke(method, new IlEntry(IlKind.ByRef, home, boxedValue), args, isVirtual: true, boxedValue) is { } direct) stack.Push(direct);
+            return;
+        }
         if (IlInvoke(method, receiver, args, isVirtual: op == ILOpCode.Callvirt, constrained) is { } result) stack.Push(result);
     }
 

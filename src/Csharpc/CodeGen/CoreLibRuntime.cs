@@ -19,10 +19,10 @@ internal static class CoreLibRuntime
         ["csrt_string_compare_culture"] = ("CultureStrings", "CompareCulture"),
         ["csrt_string_compare_with"] = ("CultureStrings", "CompareWith"),
         // System.Text.StringBuilder (records' and anonymous types' synthesized ToString use these)
-        ["csrt_sb_new"] = ("StringBuilderImpl", "RtNew"),
-        ["csrt_sb_append_string"] = ("StringBuilderImpl", "RtAppend"),
-        ["csrt_sb_to_string"] = ("StringBuilderImpl", "RtToString"),
-        ["csrt_sb_append_aligned"] = ("StringBuilderImpl", "RtAppendAligned"),
+        ["csrt_sb_new"] = ("StringBuilderRuntime", "RtNew"),
+        ["csrt_sb_append_string"] = ("StringBuilderRuntime", "RtAppend"),
+        ["csrt_sb_to_string"] = ("StringBuilderRuntime", "RtToString"),
+        ["csrt_sb_append_aligned"] = ("StringBuilderRuntime", "RtAppendAligned"),
         // integer -> string (ToString(), interpolation, concatenation)
         ["csrt_string_from_i32"] = ("Number", "Int32ToDecStr"),
         ["csrt_string_from_i64"] = ("Number", "Int64ToDecStr"),
