@@ -279,6 +279,11 @@ public sealed partial class ModuleCodeGen
         {
             if (typeofArgument(i) is not { } type) continue;
             var kinds = DamKindsOf(method.OriginalDefinition.Parameters[i].GetAttributes());
+            // A property's [DynamicallyAccessedMembers] covers its setter's value, as ILLink applies it
+            // (`info.BoxType = typeof(Box)`, later Activator.CreateInstance(info.BoxType)).
+            if (kinds == 0 && i == method.Parameters.Length - 1
+                && method.OriginalDefinition is { MethodKind: MethodKind.PropertySet, AssociatedSymbol: IPropertySymbol property })
+                kinds = DamKindsOf(property.GetAttributes());
             if (type is INamedTypeSymbol { IsGenericType: true } open && (open.IsUnboundGenericType || open.IsDefinition))
             {
                 if (kinds != 0 && openAnnotated is null) openAnnotated = (open.OriginalDefinition, kinds);
