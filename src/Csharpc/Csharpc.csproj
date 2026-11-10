@@ -13,6 +13,10 @@
     <!-- The SDK's regex generator looks a culture up by name ([GeneratedRegex(..., "tr-TR")]) to pick its case behaviour,
          which only needs the name; without this, invariant mode throws ArgumentException("cultureName") for any name. -->
     <PredefinedCulturesOnly>false</PredefinedCulturesOnly>
+    <!-- csharpc's own native build (tools/bootstrap/selfhost.sh) takes System.Linq's size-optimized path: the speed-optimized
+         one's per-shape iterators, instantiated for every element type csharpc uses, make the self-compile exceed the CI
+         runner's memory. User programs default to the speed path (ADR 0023, Linq row). -->
+    <UseSizeOptimizedLinq>true</UseSizeOptimizedLinq>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
 
     <!-- `dotnet pack` => a .NET tool: dotnet tool install -g csharpc -->

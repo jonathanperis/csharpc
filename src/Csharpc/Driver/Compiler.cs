@@ -135,11 +135,6 @@ public sealed class Compiler(CompilerOptions options)
                 AssemblyInfo = options.Inputs.Count > 0 ? ProjectLoader.FileBasedAssemblyInfo(options.Inputs[0], options.Configuration) : null,
             };
         }
-        // NativeAOT's default (Microsoft.NETCore.Native.targets: UseSizeOptimizedLinq=true unless the project sets it): System.Linq without the
-        // per-source-type iterator specializations. Without it a large program instantiates each Iterator<T> class's every virtual method per
-        // element type (csharpc's own compile: 165 000 of its 410 000 functions).
-        if (!settings.RuntimeConfig.Any(kv => kv.Key == "System.Linq.Enumerable.IsSizeOptimized"))
-            settings = settings with { RuntimeConfig = [.. settings.RuntimeConfig, new("System.Linq.Enumerable.IsSizeOptimized", "true")] };
         if (UsesSystemResourceKeys(settings.RuntimeConfig))
             return Fail(UseSystemResourceKeysUnsupported);
         if (options.SharedFrameworks.Count > 0)

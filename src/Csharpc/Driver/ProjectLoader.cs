@@ -123,7 +123,9 @@ public static class ProjectLoader
         var path = Path.GetFullPath(entryFile);
         yield return new("EntryPointFilePath", path);
         yield return new("EntryPointFileDirectoryPath", Path.GetDirectoryName(path)!);
-        string[] enabled = ["Microsoft.Extensions.DependencyInjection.VerifyOpenGenericServiceTrimmability", "System.Linq.Enumerable.IsSizeOptimized"];
+        // System.Linq.Enumerable.IsSizeOptimized is not among them: the SDK sets it for file-based apps (NativeAOT's UseSizeOptimizedLinq=true),
+        // but csharpc's default is the speed-optimized LINQ (ADR 0023, Linq row: speed before size); `#:property UseSizeOptimizedLinq=true` asks for it.
+        string[] enabled = ["Microsoft.Extensions.DependencyInjection.VerifyOpenGenericServiceTrimmability"];
         string[] disabled =
         [
             "System.ComponentModel.DefaultValueAttribute.IsSupported", "System.ComponentModel.Design.IDesignerHost.IsSupported",

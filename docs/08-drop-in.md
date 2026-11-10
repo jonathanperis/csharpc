@@ -145,6 +145,18 @@ unless `NO_COLOR` is set. Exit codes:
 | 2 | bad command line |
 | 70 | internal compiler error |
 
+### Defaults that differ from NativeAOT
+
+Where NativeAOT's default trades speed for size, csharpc keeps speed (the project's priority order: speed, security,
+size). Output is identical either way, and the project's own setting is honoured both ways.
+
+- **LINQ.** NativeAOT sets `UseSizeOptimizedLinq=true` (`Microsoft.NETCore.Native.targets`; the SDK also sets it for
+  file-based apps), which compiles `System.Linq.Enumerable.IsSizeOptimized` to true. csharpc leaves it false unless
+  `UseSizeOptimizedLinq` (project property or `#:property`) or the runtimeconfig switch asks for it. On the LINQ
+  throughput program the speed-optimized path takes 0.79 s against 1.80 s of user CPU, and the binary is 1 369 against
+  969 KB stripped ([ADR 0023](adr/0023-framework-il-first.md), Linq row). csharpc's own build sets
+  `UseSizeOptimizedLinq=true`, because its self-compile needs it to fit in the CI runner's memory.
+
 ## Tests
 
 `tests/projects.sh` builds `tests/projects/HelloProject` four ways and compares each against
