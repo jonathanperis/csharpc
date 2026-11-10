@@ -390,6 +390,13 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         }
     }
 
+    private static readonly Dictionary<string, string> CoreLibInternalTypes = new(StringComparer.Ordinal)
+    {
+        ["System.Collections.Generic.NonRandomizedStringEqualityComparer"] = "CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer",
+        ["System.Collections.Generic.RandomizedStringEqualityComparer"] = "CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer",
+        ["System.Collections.Generic.IInternalStringEqualityComparer"] = "CsharpcCoreLib.UpstreamInternalStringEqualityComparer",
+    };
+
     private INamedTypeSymbol ResolveTypeReference(TypeReferenceHandle handle)
     {
         if (_typeRefs.TryGetValue(handle, out var cached)) return cached;
@@ -421,6 +428,10 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                 // System.RuntimeType, CoreLib's internal implementation of System.Type: csharpc's Type objects are all of one runtime class,
                 // so framework IL that casts to it or names it in a signature (RuntimeTypeHandle's members) means System.Type.
                 if (result is null && full == "System.RuntimeType" && assemblyName == "System.Private.CoreLib") result = Compilation.GetTypeByMetadataName("System.Type");
+                // CoreLib's internal comparer family for string keys (OrderedDictionary, SortedSet... name it): csharpc's own types of the same shape,
+                // as the slicer's profile redirects them (tools/il-first/slicer, "no special comparer").
+                if (result is null && assemblyName == "System.Private.CoreLib" && CoreLibInternalTypes.TryGetValue(full, out var internalType))
+                    result = Compilation.GetTypeByMetadataName(internalType);
                 break;
             case HandleKind.ModuleDefinition:
                 result = Symbol.GetTypeByMetadataName(full);

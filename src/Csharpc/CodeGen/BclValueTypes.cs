@@ -1020,6 +1020,11 @@ internal static partial class BclValueTypes
 
         BclHandler reverse = (g, m, _, a, at) =>
         {
+            if (m.TypeArguments.Length == 0 && ArrayElementOf(g, at, 0) is null && IsSystemArray(g, at, 0))
+            {
+                Rt(g, "csrt_array_reverse_untyped", g.Llvm.Void, (a[0], g.Llvm.Ptr), (I64(g, 0), g.Llvm.I64), (I64(g, long.MinValue), g.Llvm.I64));
+                return default;
+            }
             var e = ElementOrThrow(g, m, at, 0);
             Rt(g, "csrt_array_reverse", g.Llvm.Void, (a[0], g.Llvm.Ptr), (I64(g, 0), g.Llvm.I64), (I64(g, long.MinValue), g.Llvm.I64), (size(g, e), g.Llvm.I64));
             return default;
@@ -1027,6 +1032,11 @@ internal static partial class BclValueTypes
         t[$"{A}.Reverse(T[])"] = t[$"{A}.Reverse({A})"] = reverse;
         t[$"{A}.Reverse({A}, int, int)"] = t[$"{A}.Reverse(T[], int, int)"] = (g, m, _, a, at) =>
         {
+            if (m.TypeArguments.Length == 0 && ArrayElementOf(g, at, 0) is null && IsSystemArray(g, at, 0))
+            {
+                Rt(g, "csrt_array_reverse_untyped", g.Llvm.Void, (a[0], g.Llvm.Ptr), (ToI64(g, a[1]), g.Llvm.I64), (ToI64(g, a[2]), g.Llvm.I64));
+                return default;
+            }
             var e = ElementOrThrow(g, m, at, 0);
             Rt(g, "csrt_array_reverse", g.Llvm.Void, (a[0], g.Llvm.Ptr), (ToI64(g, a[1]), g.Llvm.I64), (ToI64(g, a[2]), g.Llvm.I64), (size(g, e), g.Llvm.I64));
             return default;

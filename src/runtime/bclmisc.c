@@ -71,6 +71,13 @@ void csrt_array_reverse(csrt_Array* a, int64_t index, int64_t length, int64_t el
     }
 }
 
+/// Array.Reverse(Array, index, length) on an array whose element type is known only at run time (ICollection.CopyTo(Array, int) of a
+/// framework collection): the element size is in the array type's method table.
+void csrt_array_reverse_untyped(csrt_Array* a, int64_t index, int64_t length) {
+    need_array(a, "array");
+    csrt_array_reverse(a, index, length, (int64_t)a->mt->reserved);
+}
+
 void csrt_array_clear(csrt_Array* a, int64_t index, int64_t length, int64_t elem) {
     need_array(a, "array");
     if (length < 0) { index = 0; length = a->length; }
