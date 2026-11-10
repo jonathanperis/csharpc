@@ -96,6 +96,9 @@ namespace CsharpcCoreLib
         /// <summary>The internal SocketException(SocketError) that System.Net.Primitives (IPAddressParser) throws.</summary>
         internal SocketExceptionImpl(SocketError errorCode) : this((int)errorCode) { }
 
+        /// <summary>The internal SocketException(SocketError, string) of System.Net.Primitives (IPAddressParser, IPNetwork).</summary>
+        internal SocketExceptionImpl(SocketError errorCode, string message) : this((int)errorCode, message) { }
+
         public SocketExceptionImpl(int errorCode, string message)
             : base(NativeFor((SocketError)errorCode), message) { _errorCode = (SocketError)errorCode; }
 
