@@ -14,8 +14,8 @@ linux-x86_64 exceptions 37888
 linux-x86_64 hello 32768
 linux-x86_64 linq 261120
 linux-x86_64 numbers 133120
-linux-x86_64 regex 851968
-linux-x86_64 regexoptions 2004992
+linux-x86_64 regex 904192
+linux-x86_64 regexoptions 2071552
 linux-x86_64 typeinfo 44032
 linux-aarch64 async 152576
 linux-aarch64 collections 144384
