@@ -12,14 +12,14 @@
 # program that formats a number carries the real Resize/Remove/enumerator code and its tables); hello, exceptions and typeinfo unchanged. The other platforms' async,
 # collections, linq and numbers budgets moved by the same number of bytes until the CI rounds of that PR give their own measurements.
 # json and jsonwriter are the framework's own System.Text.Json compiled from IL (ADR 0023, #286): the owner accepted that growth for exactness and speed
-# (shadow before the flip: json 369 432 B, jsonwriter 275 352 B); measured 6 555 416 and 906 048 B on linux-x86_64, the only platform with budgets for them so far.
+# (shadow before the flip: json 369 432 B, jsonwriter 275 352 B); measured 6 656 792 and 953 456 B on linux-x86_64 (on top of the Linq and Dictionary/HashSet flips), the only platform with budgets for them so far.
 # Lower a budget when a change makes a program smaller; raising one needs a reason in the commit.
 linux-x86_64 async 183296
 linux-x86_64 collections 167936
 linux-x86_64 exceptions 37888
 linux-x86_64 hello 32768
-linux-x86_64 json 6752256
-linux-x86_64 jsonwriter 933888
+linux-x86_64 json 6856704
+linux-x86_64 jsonwriter 983040
 linux-x86_64 linq 285696
 linux-x86_64 numbers 148480
 linux-x86_64 regex 902144
