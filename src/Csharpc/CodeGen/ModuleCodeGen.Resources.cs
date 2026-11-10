@@ -26,7 +26,10 @@ public sealed partial class ModuleCodeGen
     internal LLVMValueRef ResourceStringsBlob()
     {
         // Resources an ILLink substitution removes under the program's feature switches stay out (ModuleCodeGen.IlSubstitutions.cs).
-        _resourceBlob ??= Encode(Il.Assemblies.SelectMany(a => a.ReadStringResources().Where(e => !IsResourceRemoved(a, e.BaseName + ".resources")))
+        // The texts of a library's SR getters are literals in the getters (ModuleCodeGen.ResourceLiterals.cs); its table is kept only when a lowered
+        // method looks texts up by a key it computes.
+        _resourceBlob ??= Encode(Il.Assemblies.SelectMany(a => a.ReadStringResources().Where(e => !IsResourceRemoved(a, e.BaseName + ".resources")
+                && (_srTablesNeeded || a.IsCoreLib || !IsSrBaseName(e.BaseName))))
             .Concat(ProgramResources.SelectMany(r => Csharpc.Frontend.Il.IlAssembly.StringResources(r.Name, r.Bytes, r.Assembly)))
             .SelectMany(e => new[] { e.BaseName, e.Key, e.Value }));
         return StringLiteral(_resourceBlob);
