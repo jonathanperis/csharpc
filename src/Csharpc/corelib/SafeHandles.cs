@@ -271,4 +271,24 @@ namespace CsharpcCoreLib
             _pointer = null;
         }
     }
+
+    /// <summary>SafeHandle P/Invoke parameters (ModuleCodeGen.PInvoke.cs), as .NET's marshaller passes them.</summary>
+    internal static class SafeHandleMarshalling
+    {
+        /// <summary>Every SafeHandle argument, before the call is marshalled: .NET's exceptions for null and closed handles.</summary>
+        public static void Check(System.Runtime.InteropServices.SafeHandle handle)
+        {
+            if (handle == null) throw new ArgumentNullException("pHandle", "SafeHandle cannot be null.");
+            if (handle.IsClosed) throw new ObjectDisposedException(handle.GetType().FullName);
+        }
+
+        public static IntPtr AddRef(System.Runtime.InteropServices.SafeHandle handle)
+        {
+            bool success = false;
+            handle.DangerousAddRef(ref success);
+            return handle.DangerousGetHandle();
+        }
+
+        public static void Release(System.Runtime.InteropServices.SafeHandle handle) => handle.DangerousRelease();
+    }
 }

@@ -1,0 +1,11 @@
+invalid False closed False
+read 0 lseek 0
+add-ref after calls True
+ArgumentNullException: SafeHandle cannot be null. (Parameter 'pHandle')
+closed True released 1
+ObjectDisposedException: Cannot access a disposed object.
+Object name: 'FdHandle'.
+ArgumentNullException: SafeHandle cannot be null. (Parameter 'pHandle')
+first closed True released 2
+missing invalid True
+released 2
