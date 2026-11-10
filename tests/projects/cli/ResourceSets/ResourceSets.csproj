@@ -12,7 +12,7 @@
     <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
   </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="System.Resources.Extensions" Version="10.0.0" />
+    <PackageReference Include="System.Resources.Extensions" Version="10.0.15" />
     <EmbeddedResource Include="Blobs.resources" LogicalName="Repro.Blobs.resources" />
     <None Include="GenerateBlobs.cs.txt" />
   </ItemGroup>
