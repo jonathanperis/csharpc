@@ -64,6 +64,13 @@ namespace CsharpcCoreLib
         public string MemberName { get; }
     }
 
+    [Shadows("System.Diagnostics.CodeAnalysis.ExcludeFromCodeCoverageAttribute")]
+    public sealed class ExcludeFromCodeCoverageAttributeImpl : Attribute
+    {
+        public ExcludeFromCodeCoverageAttributeImpl() { }
+        public string Justification { get; set; }
+    }
+
     [Shadows("System.Runtime.CompilerServices.ScopedRefAttribute")]
     public sealed class ScopedRefAttributeImpl : Attribute { public ScopedRefAttributeImpl() { } }
 
@@ -205,7 +212,8 @@ namespace CsharpcCoreLib
     }
 
     // The attributes of framework types a program can list (TypeDescriptor.GetAttributes, Type.GetCustomAttributes on a library type):
-    // [Serializable] is the pseudo-attribute CoreCLR adds, [TypeForwardedFrom] is on the types that moved between assemblies.
+    // [Serializable] is the pseudo-attribute CoreCLR adds, [TypeForwardedFrom] is on the types that moved between assemblies; the others are
+    // BCL attribute classes user and framework types carry (reflection creates them as GetCustomAttributes does).
     [Shadows("System.SerializableAttribute")]
     public sealed class SerializableAttributeImpl : Attribute
     {

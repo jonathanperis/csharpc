@@ -76,7 +76,7 @@ public sealed partial class FunctionCodeGen
                 try
                 {
                     if (IlAssembly.ResolveMember(previous.Token, IlBody.Context) is not IMethodSymbol m) return null;
-                    return IlTypeEqualityConstant(block, index - 1, m) ?? FeatureSwitchValue(m);
+                    return IlTypeEqualityConstant(block, index - 1, m) ?? IlTypeQueryConstant(block, index - 1, m) ?? FeatureSwitchValue(m);
                 }
                 catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { return null; }
             default: return null;
@@ -106,6 +106,21 @@ public sealed partial class FunctionCodeGen
         if (left is ITypeParameterSymbol || right is ITypeParameterSymbol) return null;
         var same = SymbolEqualityComparer.Default.Equals(left, right);
         return equality.Name == "op_Equality" ? same : !same;
+    }
+
+    /// <summary>`typeof(T).IsEnum` / `.IsValueType` (ldtoken, GetTypeFromHandle, callvirt) for a known T: a constant, like <see cref="IlTypeEqualityConstant"/>.</summary>
+    private bool? IlTypeQueryConstant(IlBlock block, int callIndex, IMethodSymbol query)
+    {
+        if (query is not { Name: "get_IsEnum" or "get_IsValueType", ContainingType: { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } }
+            || callIndex - 2 < block.First) return null;
+        var instructions = IlBody.Instructions;
+        if (instructions[callIndex - 2].OpCode != ILOpCode.Ldtoken || instructions[callIndex - 1].OpCode != ILOpCode.Call) return null;
+        var handle = System.Reflection.Metadata.Ecma335.MetadataTokens.EntityHandle(instructions[callIndex - 2].Token);
+        if (handle.Kind is not (HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification)) return null;
+        if (IlAssembly.ResolveMember(instructions[callIndex - 1].Token, IlBody.Context) is not IMethodSymbol { Name: "GetTypeFromHandle", ContainingType.Name: "Type" }) return null;
+        var type = S(ResolveIlType(instructions[callIndex - 2].Token));
+        if (type is ITypeParameterSymbol) return null;
+        return query.Name == "get_IsEnum" ? type.TypeKind == TypeKind.Enum : type.IsValueType;
     }
 
     /// <summary>
