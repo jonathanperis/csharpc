@@ -146,6 +146,8 @@ namespace CsharpcCoreLib
         /// </summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object TypeConverterHook(Type type);
         /// <summary>csrt_task_try_fault_async: faults a pending task, or cancels it for an OperationCanceledException.</summary>
+        /// <summary>csrt_os_random (runtime/strings.c): OS entropy, or the program stops.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe void csrt_os_random(void* buffer, nuint count);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool TryFaultAsyncTask(System.Threading.Tasks.Task task, Exception exception);
         /// <summary>An enum's underlying value as .NET's EnumConverter keys it: sign-extended, then reinterpreted as ulong.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern ulong EnumToUInt64<T>(T value);

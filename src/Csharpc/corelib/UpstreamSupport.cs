@@ -137,8 +137,17 @@ namespace CsharpcCoreLib
         public System.Collections.Generic.IEqualityComparer<string> GetUnderlyingEqualityComparer() => _underlying;
     }
 
-    public static class UpstreamSupport
+    public static unsafe class UpstreamSupport
     {
+        /// <summary>
+        /// Interop.GetRandomBytes, Random's default seed: OS entropy (getentropy, rand_s, WASI random_get) through the runtime's csrt_os_random,
+        /// the same source string hashing is seeded from; the program stops if the OS cannot provide it, as CoreCLR fails fast.
+        /// </summary>
+        public static void GetRandomBytes(byte* buffer, int length)
+        {
+            if (length > 0) CoreIntrinsics.csrt_os_random(buffer, (nuint)length);
+        }
+
         private static ResourceManager s_strings;
 
         /// <summary>

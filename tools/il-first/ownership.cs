@@ -357,10 +357,6 @@ static class Rules
         Add("ThreadApartment.cs", F("thread", ClContract, "keep", "Thread.GetApartmentState & co.", "THREAD"));
         Add("ValueBuilders.cs", ported);
         Add("Random/CoreDebug.cs", ported);
-        Add("Random/Random.CompatImpl.cs", Random);
-        Add("Random/Random.ImplBase.cs", Random);
-        Add("Random/Random.Xoshiro256StarStarImpl.cs", Random);
-        Add("Random/Random.cs", Random);
         Add("Reflection/MemberLookup.cs", Reflection);
         Add("Reflection/ObjectArrayDelegates.cs", F("reflection", ClContract, "keep", "NativeAOT's DynamicDelegateAugments for System.Linq.Expressions (ModuleCodeGen.ObjectArrayDelegates.cs)", "REFLECT"));
         Add("UnicodeData.g.cs", F("unicode-data", ClData, "keep", "generated Unicode category table (tools/unicode) behind Char.GetUnicodeCategory/IsLetter...; goes when Char and CharUnicodeInfo come from IL with their own embedded data", "NONE"));
@@ -411,7 +407,6 @@ static class Rules
         Add("Net/UriRelative.cs", Above("uri", "System.Uri's relative-URI half, ported from upstream", "ICU,RES"));
         Add("Json/SerializerConvertersExtra.cs", Above("json", "System.Text.Json converters", "AB187,NEWTYPES,REFLECT,SRCGEN"));
         Add("Json/SerializerObjects.cs", Above("json", "System.Text.Json object converters", "AB187,NEWTYPES,REFLECT,SRCGEN"));
-        Add("Random/Random.cs", Random);
         return d;
     }
 
