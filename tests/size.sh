@@ -27,7 +27,7 @@ failed=0; checked=0; exes=()
 for src in "$ROOT"/tests/size/*.cs; do
   name="$(basename "$src" .cs)"
   exe="$OUT/$name$EXE_SUFFIX"
-  if ! "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$src" -o "$exe" > "$OUT/$name.log" 2>&1; then
+  if ! ${CSHARPC[@]+"${CSHARPC[@]}"} ${TARGET_FLAGS[@]+"${TARGET_FLAGS[@]}"} "$src" -o "$exe" > "$OUT/$name.log" 2>&1; then
     echo "FAIL $name: compile error"; cat "$OUT/$name.log"; failed=1; continue
   fi
   exes+=("$exe")
@@ -44,6 +44,6 @@ done
 [[ $PRINT == 1 ]] && exit 0
 echo "$checked budgets checked on $PLATFORM"
 if [[ $TARGET_OS == linux && ${#exes[@]} -gt 0 ]]; then
-  "$ROOT/tools/checksec.sh" --check "${exes[@]}" || failed=1
+  "$ROOT/tools/checksec.sh" --check ${exes[@]+"${exes[@]}"} || failed=1
 fi
 exit $failed

@@ -41,7 +41,7 @@ for app in HelloProject; do
 
   # 2. dotnet build -p:UseCsharpc=true
   common=(-p:UseCsharpc=true "-p:CustomAfterMicrosoftCommonTargets=$TARGETS" "-p:CsharpcCompilerPath=$CSHARPC_DLL")
-  if "$DOTNET" build "$proj" -c Release "${common[@]}" > "$WORK/log" 2>&1; then
+  if "$DOTNET" build "$proj" -c Release ${common[@]+"${common[@]}"} > "$WORK/log" 2>&1; then
     exe="$WORK/samples/$app/bin/Release/net11.0/$app$EXE_SUFFIX"
     if file "$exe" | grep -qE "ELF|Mach-O|PE32\+" && ! grep -aq "You must install or update .NET" "$exe"; then
       "$exe" > "$WORK/actual" 2>&1; check "$app: dotnet build -p:UseCsharpc=true" "$WORK/expected" "$WORK/actual"
@@ -49,7 +49,7 @@ for app in HelloProject; do
   else echo "FAIL $app: dotnet build"; grep -E "error" "$WORK/log" | head | sed 's/^/     /'; fail=$((fail+1)); fi
 
   # 3. dotnet run -p:UseCsharpc=true
-  (cd "$WORK/samples/$app" && "$DOTNET" run -c Release "${common[@]}" -v quiet 2>/dev/null) > "$WORK/actual"
+  (cd "$WORK/samples/$app" && "$DOTNET" run -c Release ${common[@]+"${common[@]}"} -v quiet 2>/dev/null) > "$WORK/actual"
   check "$app: dotnet run -p:UseCsharpc=true" "$WORK/expected" "$WORK/actual"
 
   # 4. NuGet package from a local feed + dotnet publish -p:PublishCsharpc=true
@@ -113,7 +113,7 @@ else
   native="$WORK/native"; rm -rf "$native"; mkdir -p "$native"; cp -r "$ROOT/tests/projects/native/DirectPInvoke" "$native/app"
   shared=libnativeadd.so; shared_flags=(-shared -fPIC); [[ $HOST_OS == macos ]] && { shared=libnativeadd.dylib; shared_flags=(-dynamiclib); }
   if clang -c -fPIC -O1 "$native/app/nativeadd.c" -o "$native/nativeadd.o" && ar rcs "$native/libnativeadd.a" "$native/nativeadd.o" \
-     && clang "${shared_flags[@]}" "$native/nativeadd.o" -o "$native/$shared"; then
+     && clang ${shared_flags[@]+"${shared_flags[@]}"} "$native/nativeadd.o" -o "$native/$shared"; then
     (cd "$native/app" && "$DOTNET" run -v quiet -p:NativeShared="$native/$shared" 2>/dev/null) > "$WORK/expected" || { echo "FAIL DirectPInvoke: dotnet run failed"; fail=$((fail+1)); }
     rm -rf "$native/app/bin" "$native/app/obj"
     # Project items: <DirectPInvoke Include="nativeadd" /> and <NativeLibrary Include="libnativeadd.a" />.
