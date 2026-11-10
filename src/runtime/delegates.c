@@ -94,6 +94,12 @@ Delegate* csrt_delegate_remove(Delegate* source, Delegate* value) {
     return source;
 }
 
+/// Delegate.HasSingleTarget: the delegate calls exactly one method (a null delegate is a null reference, as an instance member).
+bool csrt_delegate_has_single_target(Delegate* d) {
+    if (!d) csrt_throw_null_reference();
+    return count_of(d) == 1;
+}
+
 /// Delegate.GetInvocationList(): a Delegate[] of the single-cast entries, in invocation order.
 csrt_Array* csrt_delegate_get_invocation_list(Delegate* d) {
     if (!d) csrt_throw_null_reference();
