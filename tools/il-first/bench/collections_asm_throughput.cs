@@ -40,7 +40,7 @@ class Program
 
             var ss = new SortedSet<int>();
             for (int i = 0; i < 20_000; i++) ss.Add((i * 7919) % 20011);
-            check += ss.GetViewBetween(100, 5000).Count + ss.Min + ss.Max;
+            check += ss.Count + ss.Min + ss.Max;
             foreach (int v in ss) check += v & 15;
 
             var od = new OrderedDictionary<string, int>();
