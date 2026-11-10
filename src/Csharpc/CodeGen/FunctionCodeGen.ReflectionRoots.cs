@@ -43,12 +43,14 @@ public sealed partial class FunctionCodeGen
 
     private void KeepReflectionRoots(IMethodSymbol target, IInvocationOperation inv)
     {
-                foreach (var t in target.TypeArguments) _m.KeepReflectionType(_subst.Apply(t));
+        foreach (var t in target.TypeArguments) _m.KeepReflectionType(_subst.Apply(t));
         foreach (var arg in inv.Arguments)
         {
             var value = arg.Value;
             if (arg.Parameter is { Name: "value" } && value is IConversionOperation { Operand.Type: { } operandType }) _m.KeepReflectionType(_subst.Apply(operandType));
             if (value is IlValueOperation { TypeOfOperand: { } typeOf }) _m.KeepReflectionType(_subst.Apply(typeOf));
+            // What source sees as the operand of the conversion to the parameter's type: the IL stack entry's own (more derived) type.
+            if (arg.Parameter is { Name: "value" } && value is IlValueOperation { EntryType: { } entryType }) _m.KeepReflectionType(_subst.Apply(entryType));
             while (value is IConversionOperation c) value = c.Operand;
             switch (value)
             {

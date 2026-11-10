@@ -1492,7 +1492,7 @@ public sealed partial class ModuleCodeGen
             return ParseSerialized(name, ref position, nested: false);
         }
 
-        private ITypeSymbol? ParseSerialized(string s, ref int pos, bool nested)
+        private ITypeSymbol? ParseSerialized(string s, ref int pos, bool nested, bool bare = false)
         {
             var start = pos;
             while (pos < s.Length && s[pos] != '[' && s[pos] != ',' && s[pos] != ']') pos++;
@@ -1518,16 +1518,30 @@ public sealed partial class ModuleCodeGen
                     if (pos >= s.Length || s[pos] != ']') return null;
                     pos++;
                 }
-                else
+                else if (pos + 1 < s.Length && (s[pos + 1] == ',' || s[pos + 1] == ']' || s[pos + 1] == '*'))
                 {
                     var close = s.IndexOf(']', pos);
                     if (close < 0) return null;
                     ranks.Add(s[pos..close].Count(c => c == ',') + 1);
                     pos = close + 1;
                 }
+                else
+                {
+                    // Type arguments of the attribute's own assembly or the core library, written without assembly names: "Gen`1[A,B`1[C]]".
+                    pos++;
+                    while (true)
+                    {
+                        if (ParseSerialized(s, ref pos, nested: true, bare: true) is not { } argument) return null;
+                        arguments.Add(argument);
+                        if (pos < s.Length && s[pos] == ',') { pos++; continue; }
+                        break;
+                    }
+                    if (pos >= s.Length || s[pos] != ']') return null;
+                    pos++;
+                }
             }
             // ", Assembly, Version=..., Culture=..., PublicKeyToken=...": not needed to find the type
-            if (pos < s.Length && s[pos] == ',')
+            if (!bare && pos < s.Length && s[pos] == ',')
                 while (pos < s.Length && (!nested || s[pos] != ']')) pos++;
             if ((m.Compilation.GetTypeByMetadataName(typeName) ?? il.Compilation.GetTypeByMetadataName(typeName)) is not { } definition) return null;
             ITypeSymbol type = definition;

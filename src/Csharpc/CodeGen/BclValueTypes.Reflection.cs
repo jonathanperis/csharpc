@@ -190,7 +190,9 @@ internal static partial class BclValueTypes
         t["System.Exception.get_Data()"] = (g, _, self, _, _) => g.CallCoreLib("ExceptionData", "Get", self);
         t["System.Exception.get_HelpLink()"] = (g, _, self, _, _) => g.CallCoreLib("ExceptionData", "GetHelpLink", self);
         t["System.Exception.set_HelpLink(string)"] = (g, _, self, a, _) => { g.CallCoreLib("ExceptionData", "SetHelpLink", self, a[0]); return default; };
-        t["System.Exception.get_Source()"] = (g, _, self, _, _) => g.CallCoreLib("ExceptionData", "GetSource", self);
+        // The framework's own IL (System.Text.Json compares it to its rethrow token) gets null for a thrown exception whose Source was never set;
+        // the program's own read keeps the explicit error, since it would see the throwing assembly's name.
+        t["System.Exception.get_Source()"] = (g, _, self, _, _) => g.CallCoreLib("ExceptionData", g.InFrameworkIl ? "GetSourceFramework" : "GetSource", self);
         t["System.Exception.set_Source(string)"] = (g, _, self, a, _) => { g.CallCoreLib("ExceptionData", "SetSource", self, a[0]); return default; };
         // The base implementation: a call that dispatches virtually to a user override is emitted by FunctionCodeGen.Exceptions.cs.
         t["System.Exception.GetObjectData(System.Runtime.Serialization.SerializationInfo, System.Runtime.Serialization.StreamingContext)"] =
