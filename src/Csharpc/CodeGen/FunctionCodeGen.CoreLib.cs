@@ -181,7 +181,6 @@ public sealed partial class FunctionCodeGen
             "JsonConfigureHook" => ProgramHook("JsonConfigure", target, args),
             "JsonBuiltInHook" => ProgramHook("JsonBuiltIn", target, args),
             "ResourceObjectHook" => ProgramHook("ResourceObject", target, args),
-            "TypeConverterHook" => ProgramHook("TypeConverterFor", target, args),
             "EventSourceAttribute" => _b.Call(_m.EventSourceAttributeFunction().Type, _m.EventSourceAttributeFunction().Fn, [args[0], args[1]]),
             // A CancellationToken is its source object (null: None), so these are reinterpretations.
             "TokenSource" or "SourceToken" => args[0],

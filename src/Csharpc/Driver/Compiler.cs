@@ -189,8 +189,8 @@ public sealed class Compiler(CompilerOptions options)
             // program's internals as the program itself does (JsonReflectionContexts.Il.cs); before any binding.
             var jsonFromIl = programIl is not null && !IlFirst.Assemblies.Contains("System.Text.Json", StringComparer.OrdinalIgnoreCase) && settings.JsonReflectionEnabled == true && JsonReflectionContexts.ReferencesJsonSerializer(programIl.Reader)
                 && JsonReflectionContexts.GrantInternalsAccess(programIl.Reference, settings.AssemblyName!);
-            // Converter hooks for the program's resources and GetConverter calls are generated like the JSON contexts: before any binding.
-            var convertersFromIl = programIl is not null && (settings.ResourceTypes.Count > 0 || ResourceConverters.CallsGetConverter(programIl.Reader))
+            // Converter hooks for the program's resources are generated like the JSON contexts: before any binding.
+            var convertersFromIl = programIl is not null && settings.ResourceTypes.Count > 0
                 && JsonReflectionContexts.GrantInternalsAccess(programIl.Reference, settings.AssemblyName!);
             settings = settings with { IlReferences = il.References, IlSet = il, ProgramIl = programIl, JsonFromIl = jsonFromIl, ConvertersFromIl = convertersFromIl };
             Phase($"load {il.Assemblies.Count} IL assembl{(il.Assemblies.Count == 1 ? "y" : "ies")}");

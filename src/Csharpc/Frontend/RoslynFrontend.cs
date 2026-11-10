@@ -90,15 +90,15 @@ public static class RoslynFrontend
         List<Diagnostic> jsonDiagnostics = [];
         compilation = JsonReflectionContexts.Add(compilation, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath))],
             settings.JsonReflectionEnabled, jsonDiagnostics, out _, settings.IlSet, settings.JsonFromIl ? settings.ProgramIl : null);
-        // ResourceManager.GetObject of preserialized TypeConverter strings (System.Drawing.Point from a .resx), TypeDescriptor.GetConverter(typeof(X)).
-        if (settings.ProgramIl is null) compilation = ResourceConverters.Add(compilation, settings.ResourceTypes, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath))],
+        // ResourceManager.GetObject of preserialized TypeConverter strings (System.Drawing.Point from a .resx).
+        if (settings.ProgramIl is null) compilation = ResourceConverters.Add(compilation, settings.ResourceTypes,
             compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions);
-        // The same for an IL program: its resources' types, and its ldtokens next to a GetConverter call (internals visible, as for JSON).
-        if (settings.ProgramIl is { } converterProgram && settings.ConvertersFromIl && settings.IlSet is { } converterSet)
+        // The same for an IL program: its resources' types (internals visible, as for JSON).
+        if (settings.ProgramIl is not null && settings.ConvertersFromIl && settings.IlSet is { } converterSet)
         {
             var symbols = compilation.WithOptions(compilation.Options.WithMetadataImportOptions(MetadataImportOptions.All));
             converterSet.Bind(symbols);
-            compilation = ResourceConverters.AddFromIl(compilation, symbols, settings.ResourceTypes, converterProgram,
+            compilation = ResourceConverters.AddFromIl(compilation, symbols, settings.ResourceTypes,
                 compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions);
         }
         // Dynamic call sites in IL bind at a position of their own (IlDynamicBinding).
