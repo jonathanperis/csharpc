@@ -8,8 +8,16 @@ name: Bootstrap
 #     native compiler compiling samples exactly as the managed one does;
 #   - native-suite: the differential suite (tests/run.sh --all-opts, 8 shards) run with each native compiler
 #     in place of the managed one (CSHARPC_NATIVE), so a miscompiled csharpc shows as a failing sample.
-# The first two report compile time and peak memory. Informational: not one of the `test (<platform>)` merge-bar jobs.
+# The first two report compile time and peak memory.
+#
+# On a pull request that touches src/** (or the files named below) only the first two run: "Roslyn hosted from
+# IL" and "csharpc compiles csharpc (-O0 / -O2)". They are part of the merge bar for such a PR (AGENTS.md,
+# docs/05-testing.md): the five `test (<platform>)` jobs do not compile Roslyn or csharpc itself, and Bootstrap
+# went red on main twice in two days (the Regex flip, Vector128) while every PR gate was green. The native-suite
+# shards (16 jobs, the long part) run on pushes to main and ci/m6-** branches only.
 on:
+  pull_request:
+    paths: ['src/**', 'tests/projects/il/IlRoslynHostApp/**', 'tests/il.sh', 'tools/bootstrap/**', '.github/workflows/bootstrap.yml']
   push:
     branches: [main, "ci/m6-**"]
     paths: ['src/**', 'tests/projects/il/IlRoslynHostApp/**', 'tests/il.sh', 'tools/bootstrap/**', '.github/workflows/bootstrap.yml']
@@ -113,7 +121,7 @@ jobs:
   native-suite:
     name: native csharpc (${{ matrix.native }}) on the differential suite, shard ${{ matrix.shard }}/8
     needs: selfhost
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
     strategy:
       fail-fast: false
       matrix:
