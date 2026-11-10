@@ -1364,7 +1364,7 @@ public sealed partial class ModuleCodeGen
         if (il is null || ilParameters is null)
         {
             // Reference-assembly methods (the BCL): Roslyn hides the attributes the compiler decodes, so the list is not known.
-            if (!method.OriginalDefinition.Locations.Any(l => l.IsInSource)) return FrameworkParameterSet(method.OriginalDefinition, 0) ?? new AttributeSet([], 0, true);
+            if (!method.OriginalDefinition.Locations.Any(l => l.IsInSource)) return FrameworkParameterNullable(method.OriginalDefinition, 0) is { } returnNullable ? FrameworkNullableSet(returnNullable) : new AttributeSet([], 0, true);
             return SourceReturnAttributes(method.OriginalDefinition);
         }
         if (!ilParameters.TryGetValue(0, out var row)) return new AttributeSet([], 0, false);

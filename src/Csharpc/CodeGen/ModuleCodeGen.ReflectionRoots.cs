@@ -102,6 +102,14 @@ public sealed partial class ModuleCodeGen
         SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, Compilation.Assembly) && !CoreLib.IsCoreLib(type)
         || Il.OwnerOf(type.OriginalDefinition) is { IsFramework: false, IsCoreLib: false };
 
+    /// <summary>The type, a type argument of it or an element type is the program's or a package's (not the shared framework's, not CoreLib's).</summary>
+    internal bool MentionsProgramOrPackageType(ITypeSymbol type) => type switch
+    {
+        IArrayTypeSymbol array => MentionsProgramOrPackageType(array.ElementType),
+        INamedTypeSymbol named => IsProgramOrPackageType(named) || named.TypeArguments.Any(MentionsProgramOrPackageType),
+        _ => false,
+    };
+
     /// <summary>`typeof(G&lt;,&gt;).MakeGenericType(...)` was lowered: G is instantiated over the roots.</summary>
     internal void NoteMakeGenericDefinition(INamedTypeSymbol definition)
     {

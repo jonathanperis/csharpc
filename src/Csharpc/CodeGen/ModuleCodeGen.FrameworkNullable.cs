@@ -137,42 +137,38 @@ public sealed partial class ModuleCodeGen
     private (FrameworkAssembly Assembly, TypeDefinitionHandle Type)? FrameworkOwner(ISymbol member) =>
         member.ContainingType is { } type && IsFrameworkReferenceType(type) ? FrameworkTypeDefinition(type) : null;
 
-    /// <summary>A BCL method's, constructor's or accessor's [NullableContext]; null where unknown.</summary>
-    private AttributeSet? FrameworkMethodSet(IMethodSymbol method)
+    /// <summary>A BCL method's, constructor's or accessor's [NullableContext]; null where unknown. The rest of its list stays what the reference assembly shows.</summary>
+    private List<AttributeInstance>? FrameworkMethodNullable(IMethodSymbol method)
     {
-        if (method.ContainingType.IsAnonymousType) return AnonymousTypeSet();
         if (FrameworkOwner(method) is not { } owner || FrameworkMethod(owner, method.OriginalDefinition) is not { } handle) return null;
         var reader = owner.Assembly.Reader;
-        return FrameworkNullableSet(NullableAttributesOf(reader, reader.GetMethodDefinition(handle).GetCustomAttributes()));
+        return NullableAttributesOf(reader, reader.GetMethodDefinition(handle).GetCustomAttributes());
     }
 
     /// <summary>The attributes of a BCL method's return value (sequence 0) or parameter.</summary>
-    private AttributeSet? FrameworkParameterSet(IMethodSymbol method, int sequence)
+    private List<AttributeInstance>? FrameworkParameterNullable(IMethodSymbol method, int sequence)
     {
-        if (method.ContainingType.IsAnonymousType) return AnonymousTypeSet();
         if (FrameworkOwner(method) is not { } owner || FrameworkMethod(owner, method.OriginalDefinition) is not { } handle) return null;
         var reader = owner.Assembly.Reader;
         foreach (var parameter in reader.GetMethodDefinition(handle).GetParameters())
             if (reader.GetParameter(parameter).SequenceNumber == sequence)
-                return FrameworkNullableSet(NullableAttributesOf(reader, reader.GetParameter(parameter).GetCustomAttributes()));
-        return FrameworkNullableSet([]);
+                return NullableAttributesOf(reader, reader.GetParameter(parameter).GetCustomAttributes());
+        return [];
     }
 
-    private AttributeSet? FrameworkPropertySet(IPropertySymbol property)
+    private List<AttributeInstance>? FrameworkPropertyNullable(IPropertySymbol property)
     {
-        if (property.ContainingType.IsAnonymousType) return AnonymousTypeSet();
         if (FrameworkOwner(property) is not { } owner) return null;
         var reader = owner.Assembly.Reader;
         var matches = reader.GetTypeDefinition(owner.Type).GetProperties().Where(h => reader.GetString(reader.GetPropertyDefinition(h).Name) == property.MetadataName).ToList();
-        return matches.Count == 1 ? FrameworkNullableSet(NullableAttributesOf(reader, reader.GetPropertyDefinition(matches[0]).GetCustomAttributes())) : null;
+        return matches.Count == 1 ? NullableAttributesOf(reader, reader.GetPropertyDefinition(matches[0]).GetCustomAttributes()) : null;
     }
 
-    private AttributeSet? FrameworkFieldSet(IFieldSymbol field)
+    private List<AttributeInstance>? FrameworkFieldNullable(IFieldSymbol field)
     {
-        if (field.ContainingType.IsAnonymousType) return AnonymousTypeSet();
         if (FrameworkOwner(field) is not { } owner) return null;
         var reader = owner.Assembly.Reader;
         var matches = reader.GetTypeDefinition(owner.Type).GetFields().Where(h => reader.GetString(reader.GetFieldDefinition(h).Name) == field.MetadataName).ToList();
-        return matches.Count == 1 ? FrameworkNullableSet(NullableAttributesOf(reader, reader.GetFieldDefinition(matches[0]).GetCustomAttributes())) : null;
+        return matches.Count == 1 ? NullableAttributesOf(reader, reader.GetFieldDefinition(matches[0]).GetCustomAttributes()) : null;
     }
 }

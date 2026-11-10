@@ -43,21 +43,31 @@ public sealed partial class FunctionCodeGen
 
     private void KeepReflectionRoots(IMethodSymbol target, IInvocationOperation inv)
     {
-        foreach (var t in target.TypeArguments) _m.KeepReflectionType(_subst.Apply(t));
+        if (Environment.GetEnvironmentVariable("CSHARPC_TRACE_REFLECTION") == "1") Console.Error.WriteLine($"[csharpc] rooting call {target} from {_method}");
+        // The framework's own IL calling a [RequiresUnreferencedCode] method (DiagnosticSource.Write<WebApplicationBuilder>, ConfigurationBinder.GetValue<bool>)
+        // roots what mentions the program: the framework's use of its own types is its business, and a public entry point the program called
+        // (HttpClient.GetFromJsonAsync<T> is [RequiresUnreferencedCode] itself) has rooted the types the program gave it already.
+        // Rooting them all would keep every constructor of those types, and lower whatever the constructors reach (Server.IIS).
+        void Root(ITypeSymbol type)
+        {
+            if (InFrameworkIl && !_m.MentionsProgramOrPackageType(type)) return;
+            _m.KeepReflectionType(type);
+        }
+        foreach (var t in target.TypeArguments) Root(_subst.Apply(t));
         foreach (var arg in inv.Arguments)
         {
             var value = arg.Value;
-            if (arg.Parameter is { Name: "value" } && value is IConversionOperation { Operand.Type: { } operandType }) _m.KeepReflectionType(_subst.Apply(operandType));
-            if (value is IlValueOperation { TypeOfOperand: { } typeOf }) _m.KeepReflectionType(_subst.Apply(typeOf));
+            if (arg.Parameter is { Name: "value" } && value is IConversionOperation { Operand.Type: { } operandType }) Root(_subst.Apply(operandType));
+            if (value is IlValueOperation { TypeOfOperand: { } typeOf }) Root(_subst.Apply(typeOf));
             // What source sees as the operand of the conversion to the parameter's type: the IL stack entry's own (more derived) type.
-            if (arg.Parameter is { Name: "value" } && value is IlValueOperation { EntryType: { } entryType }) _m.KeepReflectionType(_subst.Apply(entryType));
+            if (arg.Parameter is { Name: "value" } && value is IlValueOperation { EntryType: { } entryType }) Root(_subst.Apply(entryType));
             while (value is IConversionOperation c) value = c.Operand;
             switch (value)
             {
-                case ITypeOfOperation typeOfOperation: _m.KeepReflectionType(_subst.Apply(typeOfOperation.TypeOperand)); break;
-                case IInvocationOperation { TargetMethod.Name: "GetType", Instance.Type: { } instanceType }: _m.KeepReflectionType(_subst.Apply(instanceType)); break;
+                case ITypeOfOperation typeOfOperation: Root(_subst.Apply(typeOfOperation.TypeOperand)); break;
+                case IInvocationOperation { TargetMethod.Name: "GetType", Instance.Type: { } instanceType }: Root(_subst.Apply(instanceType)); break;
             }
-            if (arg.Parameter is { Name: "value" } && value.Type is { } valueType) _m.KeepReflectionType(_subst.Apply(valueType));
+            if (arg.Parameter is { Name: "value" } && value.Type is { } valueType) Root(_subst.Apply(valueType));
         }
     }
 
