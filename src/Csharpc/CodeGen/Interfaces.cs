@@ -169,6 +169,7 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef EmitInterfaceCall(IMethodSymbol target, IOperation receiver, ImmutableArray<IArgumentOperation> arguments,
         LLVMValueRef[] extra, IInvocationOperation? invocation)
     {
+        if (TryGuardedDefaultComparer(target, receiver, arguments, extra, invocation) is { } guarded) return guarded;
         var concrete = ConcreteReceiver(receiver);
         var staticType = TypeOf(concrete);
 
