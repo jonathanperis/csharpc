@@ -4,7 +4,7 @@
 #   tests/slicer.sh [-O0|-O2] [sample-name-filter ...]
 #
 # Slices System.Guid and System.Number out of the shared framework's System.Private.CoreLib (List, Dictionary, HashSet and StringBuilder
-# are served from it by default, src/Csharpc/upstream-types.txt, so every sample here runs with them; the
+# are served from it by default, src/Csharpc/upstream-types/, so every sample here runs with them; the
 # primitives' implementations of CoreLib-internal interfaces such as IUtfChar<T> and IBinaryIntegerParseAndFormatInfo<T>
 # travel in the slice, issue #221; boxed primitives dispatch ISpanFormattable), compiles each sample with
 # CSHARPC_UPSTREAM_MAP pointing at the slice, runs it and compares stdout and the exit code with the recording made on real

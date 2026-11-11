@@ -1,0 +1,2 @@
+# The CoreLib types the System.Net.Primitives flip serves from IL (ADR 0023, #326; docs/il-first/System.Net.Primitives.md).
+System.MemoryExtensions/TryWriteInterpolatedStringHandler

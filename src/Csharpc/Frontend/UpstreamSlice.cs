@@ -2,7 +2,7 @@ namespace Csharpc.Frontend;
 
 /// <summary>
 /// The System.Private.CoreLib types served from the framework's own IL (ADR 0023, docs/21-ownership.md Part B). The build cuts what the types
-/// listed in src/Csharpc/upstream-types.txt need out of the shared framework's CoreLib (tools/il-first/slicer) into CsharpcUpstream.dll and writes
+/// listed in src/Csharpc/upstream-types/ need out of the shared framework's CoreLib (tools/il-first/slicer) into CsharpcUpstream.dll and writes
 /// CsharpcUpstream.map next to it; both ship beside the compiler and every compilation reads the map: a line <c>real=slice</c> says that the
 /// CoreLib type <c>real</c> (metadata name, nested with '+') is served by the slice's type <c>slice</c> instead of by a corelib shadow, which must
 /// not exist. <c>CSHARPC_UPSTREAM_MAP=a.map[,b.map]</c> adds maps of slices cut by tools/il-first/slicer/slice.sh (<c>-r slice.dll</c>) for

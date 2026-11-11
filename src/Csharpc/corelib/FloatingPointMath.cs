@@ -1118,6 +1118,21 @@ namespace CsharpcCoreLib
         private static bool OddInt(long value) => (value & 1) != 0;
         private static bool EvenInt(long value) => (value & 1) == 0;
 
+        /// <summary>
+        /// double.ConvertToIntegerNative: the platform's own conversion instruction. In range it truncates toward zero on every platform (as
+        /// here); for NaN and out-of-range values the instruction decides (x64: the minimum value, Arm64: saturation), so csharpc stops with an
+        /// explicit error instead of picking one.
+        /// </summary>
+        public static TInteger ConvertToIntegerNative<TInteger>(double value) where TInteger : System.Numerics.IBinaryInteger<TInteger>
+        {
+            if (!double.IsNaN(value))
+            {
+                try { return TInteger.CreateChecked(value); }
+                catch (OverflowException) { }
+            }
+            throw new NotSupportedException("double.ConvertToIntegerNative of NaN or of a value outside the integer type's range is not supported by csharpc yet (the result is the platform instruction's).");
+        }
+
         // ---- forwarded to Math ----
         public static double Acos(double x) => Math.Acos(x);
         public static double Acosh(double x) => Math.Acosh(x);

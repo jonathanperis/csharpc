@@ -1,0 +1,32 @@
+String System.String String Box`1 Box`1[System.String] True
+True True False System.String[] System.Collections.Generic.List`1[System.String] Box`1[System.String]
+Box<String>(text)
+InvalidCastException
+from String
+at Box`1.Throw()
+Customer Customer Customer Box`1 Box`1[Customer] True
+True False False Customer[] System.Collections.Generic.List`1[Customer] Box`1[Customer]
+Box<Customer>(customer)
+InvalidCastException
+from Customer
+at Box`1.Throw()
+Order Order Order Box`1 Box`1[Order] True
+True False True Order[] System.Collections.Generic.List`1[Order] Box`1[Order]
+Box<Order>(Order)
+from Order
+at Box`1.Throw()
+Object System.Object null Box`1 Box`1[System.Object] True
+False True True System.Object[] System.Collections.Generic.List`1[System.Object] Box`1[System.Object]
+Box<Object>()
+from Object
+at Box`1.Throw()
+Int32 System.Int32 Int32 Box`1 Box`1[System.Int32] False
+True False False System.Int32[] System.Collections.Generic.List`1[System.Int32] Box`1[System.Int32]
+Box<Int32>(42)
+InvalidCastException
+from Int32
+at Box`1.Throw()
+System.String Customer System.Collections.Generic.List`1[Customer] System.Int32
+String/Customer String/Customer Order/Int32 Order/Int32
+customer System.Collections.Generic.List`1[System.String]
+System.Collections.Generic.Dictionary`2[System.String,Customer] [customer, v]

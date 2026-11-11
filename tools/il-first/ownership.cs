@@ -1,7 +1,7 @@
 // Ownership map of the corelib (issue #191, docs/21-ownership.md): for every file under src/Csharpc/corelib, what it
 // shadows, which shared-framework assembly defines each target, and whether it stays csharpc's or is upstream's.
 //
-//   tools/il-first/ownership.sh                 writes tools/il-first/ownership.tsv
+//   tools/il-first/ownership.sh                 writes tools/il-first/ownership.tsv (generated on demand, git-ignored)
 //   tools/il-first/ownership.sh --summary       prints the summary tables (Markdown) from the same data
 //   tools/il-first/ownership.sh --contract      prints the FCall / QCall / native-shim surface of the framework assemblies
 //   tools/il-first/ownership.sh --unmatched     CoreLib targets that fell through to the default rule (to refine the rules)
@@ -357,10 +357,6 @@ static class Rules
         Add("ThreadApartment.cs", F("thread", ClContract, "keep", "Thread.GetApartmentState & co.", "THREAD"));
         Add("ValueBuilders.cs", ported);
         Add("Random/CoreDebug.cs", ported);
-        Add("Random/Random.CompatImpl.cs", Random);
-        Add("Random/Random.ImplBase.cs", Random);
-        Add("Random/Random.Xoshiro256StarStarImpl.cs", Random);
-        Add("Random/Random.cs", Random);
         Add("Reflection/MemberLookup.cs", Reflection);
         Add("Reflection/ObjectArrayDelegates.cs", F("reflection", ClContract, "keep", "NativeAOT's DynamicDelegateAugments for System.Linq.Expressions (ModuleCodeGen.ObjectArrayDelegates.cs)", "REFLECT"));
         Add("UnicodeData.g.cs", F("unicode-data", ClData, "keep", "generated Unicode category table (tools/unicode) behind Char.GetUnicodeCategory/IsLetter...; goes when Char and CharUnicodeInfo come from IL with their own embedded data", "NONE"));
@@ -409,7 +405,6 @@ static class Rules
         Add("Net/SocketEngine.cs", osGlue);
         Add("Net/SocketAddressPal.cs", osGlue);
         Add("Net/UriRelative.cs", Above("uri", "System.Uri's relative-URI half, ported from upstream", "ICU,RES"));
-        Add("Random/Random.cs", Random);
         return d;
     }
 

@@ -286,7 +286,7 @@ jobs:
       - name: Install LLVM-MinGW (Windows)
         if: matrix.os == 'windows'
         run: |
-          curl -sSLf -o "$RUNNER_TEMP/llvm-mingw.zip" https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-x86_64.zip
+          curl -sSLf --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/llvm-mingw.zip" https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-x86_64.zip
           echo "810703594a7e3eea03385b5329c7ea3bd65f5e496b44cf1b68c17ff436d265e7  $RUNNER_TEMP/llvm-mingw.zip" | sha256sum -c -
           unzip -q "$RUNNER_TEMP/llvm-mingw.zip" -d "$RUNNER_TEMP"
           bin="$(cygpath -w "$RUNNER_TEMP/llvm-mingw-20240619-ucrt-x86_64/bin")"
@@ -296,7 +296,7 @@ jobs:
       - name: Install .NET 11 SDK
         if: matrix.os != 'windows'
         run: |
-          curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+          curl -sSLf --retry 5 --retry-all-errors --retry-delay 5 https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
           bash dotnet-install.sh --channel 11.0.1xx --install-dir "$HOME/.dotnet11"
           echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
           echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"
@@ -305,7 +305,7 @@ jobs:
         if: matrix.os == 'windows'
         shell: pwsh
         run: |
-          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+          Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1 -MaximumRetryCount 5 -RetryIntervalSec 5
           ./dotnet-install.ps1 -Channel 11.0.1xx -InstallDir "$env:USERPROFILE\.dotnet11"
           "$env:USERPROFILE\.dotnet11" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
           "DOTNET_ROOT=$env:USERPROFILE\.dotnet11" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
@@ -383,7 +383,7 @@ jobs:
       - name: Install LLVM-MinGW clang only (Windows)
         if: matrix.os == 'windows'
         run: |
-          curl -sSLf -o "$RUNNER_TEMP/llvm-mingw.zip" https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-x86_64.zip
+          curl -sSLf --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/llvm-mingw.zip" https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-x86_64.zip
           echo "810703594a7e3eea03385b5329c7ea3bd65f5e496b44cf1b68c17ff436d265e7  $RUNNER_TEMP/llvm-mingw.zip" | sha256sum -c -
           unzip -q "$RUNNER_TEMP/llvm-mingw.zip" -d "$RUNNER_TEMP"
           bin="$(cygpath -w "$RUNNER_TEMP/llvm-mingw-20240619-ucrt-x86_64/bin")"
@@ -429,7 +429,7 @@ jobs:
 
       - name: Install .NET 11 SDK
         run: |
-          curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+          curl -sSLf --retry 5 --retry-all-errors --retry-delay 5 https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
           bash dotnet-install.sh --channel 11.0.1xx --install-dir "$HOME/.dotnet11"
           echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
           echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"

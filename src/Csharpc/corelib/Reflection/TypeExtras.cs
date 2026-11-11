@@ -125,6 +125,21 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Numerics.BitOperations")]
     internal static class BitOperationsMembers
     {
+        // BitOperations.Log2Ceiling, as upstream: Log2 of the value rounded up to a power of two (0 gives 1: Log2(0) is 0 and PopCount(0) != 1).
+        public static int Log2Ceiling(uint value)
+        {
+            int result = System.Numerics.BitOperations.Log2(value);
+            if (System.Numerics.BitOperations.PopCount(value) != 1) result++;
+            return result;
+        }
+
+        public static int Log2Ceiling(ulong value)
+        {
+            int result = System.Numerics.BitOperations.Log2(value);
+            if (System.Numerics.BitOperations.PopCount(value) != 1) result++;
+            return result;
+        }
+
         public static uint RoundUpToPowerOf2(uint value)
         {
             --value;

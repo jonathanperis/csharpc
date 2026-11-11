@@ -1,0 +1,5 @@
+linux-x86_64 hello 32768
+linux-aarch64 hello 32768
+macos-arm64 hello 73728
+windows-x86_64 hello 44032
+wasi-wasm32 hello 52224

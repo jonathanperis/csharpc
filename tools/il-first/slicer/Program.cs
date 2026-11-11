@@ -132,8 +132,15 @@ sealed class Cli
                 case "--stop": c.Stop.AddRange(args[++i].Replace('!', '`').Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)); break;
                 case "--roots-file":
                     // One CoreLib type per line (metadata name, '!' or '`' for the arity), '#' starts a comment: the build's list of types served from IL.
-                    foreach (var line in File.ReadAllLines(args[++i]))
-                        if (line.Split('#')[0].Trim() is { Length: > 0 } root) c.Roots.Add(root.Replace('!', '`'));
+                    // A directory stands for all its *.txt files in ordinal order (src/Csharpc/upstream-types/: one file per library, so flips of
+                    // different libraries never edit the same file).
+                    var rootsPath = args[++i];
+                    var rootFiles = Directory.Exists(rootsPath)
+                        ? Directory.GetFiles(rootsPath, "*.txt").Order(StringComparer.Ordinal).ToArray()
+                        : [rootsPath];
+                    foreach (var file in rootFiles)
+                        foreach (var line in File.ReadAllLines(file))
+                            if (line.Split('#')[0].Trim() is { Length: > 0 } root) c.Roots.Add(root.Replace('!', '`'));
                     break;
                 case "--profile":
                     // The contract choices of the shipped slice (docs/21-ownership.md Part B), the same for the build and for tools/il-first/slicer/slice.sh.
@@ -147,6 +154,8 @@ sealed class Cli
                     c.Replace["System.ThrowHelper::ThrowKeyNotFoundException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::ThrowKeyNotFoundException";
                     c.Replace["System.ThrowHelper::ThrowAddingDuplicateWithKeyArgumentException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::ThrowAddingDuplicateWithKeyArgumentException";
                     c.Replace["System.ThrowHelper::GetAddingDuplicateWithKeyArgumentException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetAddingDuplicateWithKeyArgumentException";
+                    // Random's default seed: the OS RNG the runtime seeds string hashing with (csrt_os_random), where CoreLib calls libSystem.Native.
+                    c.Replace["Interop::GetRandomBytes"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetRandomBytes";
                     c.Redirect["System.Collections.Generic.NonRandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer";
                     c.Redirect["System.Collections.Generic.IInternalStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamInternalStringEqualityComparer";
                     c.Redirect["System.Collections.Generic.RandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamRandomizedStringEqualityComparer";
@@ -385,7 +394,7 @@ sealed class Slice
         if (element.DeclaringType is ArrayType) return;
         var def = element as MethodDefinition ?? SafeResolve(element);
         if (def is null || def.Module != Core) return;
-        if (IsStop(def.DeclaringType)) { NoteMember(def); NoteUsed(def); return; }
+        if (IsStop(def.DeclaringType)) { if (Cli.Replacement(def) is null) { NoteMember(def); NoteUsed(def); } return; }
         Enqueue(def);
     }
 
