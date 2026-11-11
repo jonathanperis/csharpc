@@ -133,6 +133,8 @@ namespace CsharpcCoreLib
         /// </summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object[] ResourceObjectHook(string type, string text);
         /// <summary>csrt_task_try_fault_async: faults a pending task, or cancels it for an OperationCanceledException.</summary>
+        /// <summary>csrt_os_random (runtime/strings.c): OS entropy, or the program stops.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe void csrt_os_random(void* buffer, nuint count);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool TryFaultAsyncTask(System.Threading.Tasks.Task task, Exception exception);
         /// <summary>Type.IsInstanceOfType: obj's class, a base class or an implemented interface is `type`.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsInstanceOfType(Type type, object obj);

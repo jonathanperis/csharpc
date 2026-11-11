@@ -463,10 +463,25 @@ sealed class Emitter
             return n;
         }
         if (mr is MethodDefinition md && _methods.TryGetValue(md, out var copied)) return copied;
+        // A static member of a type that stays outside the slice with a replacement (Interop.GetRandomBytes): the call goes to csharpc's own.
+        if (!mr.HasThis && !mr.HasGenericParameters && (mr as MethodDefinition ?? SafeResolve(mr)) is { } stopped && _cli.Replacement(stopped) is { } forward)
+        {
+            var colon = forward.IndexOf(':'); var sep = forward.IndexOf("::", StringComparison.Ordinal);
+            var typeName = forward[(colon + 1)..sep]; var dot = typeName.LastIndexOf('.');
+            var scope = AsmRef(new AssemblyNameReference(forward[..colon], new Version(1, 0, 0, 0)));
+            var call = new MethodReference(forward[(sep + 2)..], Type(mr.ReturnType), new TypeReference(typeName[..dot], typeName[(dot + 1)..], _m, scope, false));
+            foreach (var p in mr.Parameters) call.Parameters.Add(new ParameterDefinition(Type(p.ParameterType)));
+            return call;
+        }
         var r = new MethodReference(mr.Name, Type(mr.ReturnType), Type(mr.DeclaringType)) { HasThis = mr.HasThis, ExplicitThis = mr.ExplicitThis, CallingConvention = mr.CallingConvention };
         foreach (var p in mr.Parameters) r.Parameters.Add(new ParameterDefinition(Type(p.ParameterType)));
         for (int i = 0; i < mr.GenericParameters.Count; i++) r.GenericParameters.Add(new GenericParameter("M" + i, r));
         return r;
+    }
+
+    static MethodDefinition SafeResolve(MethodReference r)
+    {
+        try { return r.Resolve(); } catch (AssemblyResolutionException) { return null; }
     }
 
     FieldReference FieldRef(FieldReference fr)
