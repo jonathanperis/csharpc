@@ -139,7 +139,8 @@ each have a `concurrency` group per workflow and ref with `cancel-in-progress`, 
 two 120-minute benchmark jobs and two more suites that competed with every open PR's merge-bar jobs for
 the hosted runners. They run weekly (Mondays 06:00, 08:00 and 09:00 UTC, with `TechEmpower` at 07:00),
 on demand, and on their measurement branches: `ci/perf*`, `ci/bench*` and `ci/m7-*` for `Benchmarks`,
-`ci/gc-*` and `ci/m7-gc-concurrent*` for `GC concurrent`, `ci/nursery*` for `GC nursery`. Any other
+`ci/gc-*` and `ci/m7-gc-concurrent*` for `GC concurrent`, `ci/nursery*` for `GC nursery`, and `ci/m7-*` or
+`ci/techempower*` for `TechEmpower` (a feature branch that merges `main` must not start the load tests). Any other
 `ci/**` branch, such as a flake hunt, leaves those runners alone.
 
 Failure output shows the compile errors (including `CSLLVM0001` "not supported yet" diagnostics) or
