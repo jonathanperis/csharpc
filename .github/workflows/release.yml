@@ -297,7 +297,7 @@ jobs:
         if: matrix.os != 'windows'
         run: |
           curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
-          bash dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet11"
+          bash dotnet-install.sh --channel 11.0.1xx --install-dir "$HOME/.dotnet11"
           echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
           echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"
 
@@ -306,7 +306,7 @@ jobs:
         shell: pwsh
         run: |
           Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
-          ./dotnet-install.ps1 -JsonFile global.json -InstallDir "$env:USERPROFILE\.dotnet11"
+          ./dotnet-install.ps1 -Channel 11.0.1xx -InstallDir "$env:USERPROFILE\.dotnet11"
           "$env:USERPROFILE\.dotnet11" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
           "DOTNET_ROOT=$env:USERPROFILE\.dotnet11" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
 
@@ -430,7 +430,7 @@ jobs:
       - name: Install .NET 11 SDK
         run: |
           curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
-          bash dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet11"
+          bash dotnet-install.sh --channel 11.0.1xx --install-dir "$HOME/.dotnet11"
           echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
           echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"
 

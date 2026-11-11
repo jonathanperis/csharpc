@@ -355,6 +355,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef NullablePatternTest(LLVMValueRef value, ITypeSymbol inputType, IPatternOperation pattern)
     {
         var underlying = TypeMapper.NullableUnderlying(inputType);
+        bool IsUnderlyingOrSelf(ITypeSymbol? matched) => matched is null || SymbolEqualityComparer.Default.Equals(S(matched), underlying) || SymbolEqualityComparer.Default.Equals(S(matched), inputType);
         var has = NullableHas(value);
         switch (pattern)
         {
@@ -365,11 +366,13 @@ public sealed partial class FunctionCodeGen
             case IDeclarationPatternOperation { MatchesNull: true, DeclaredSymbol: ILocalSymbol whole }:
                 StoreValue(ToStorage(Coerce(value, inputType, whole.Type), whole.Type), LocalSlot(whole));
                 return L.True;
-            case IDeclarationPatternOperation declaration:
+            // `x is int n` / `x is int` on an int?: the value is there. A pattern of another type (`v is IFormattable f` in generic code with T = int?)
+            // tests and converts the payload like any value of the underlying type (default).
+            case IDeclarationPatternOperation declaration when IsUnderlyingOrSelf(declaration.MatchedType):
                 if (declaration.DeclaredSymbol is ILocalSymbol local)
                     StoreValue(ToStorage(Coerce(NullablePayload(value, underlying), underlying, local.Type), local.Type), LocalSlot(local));
                 return has;
-            case ITypePatternOperation:
+            case ITypePatternOperation typePattern when IsUnderlyingOrSelf(typePattern.MatchedType):
                 return has;
             case INegatedPatternOperation negated:
                 return _b.Not(NullablePatternTest(value, inputType, negated.Pattern));

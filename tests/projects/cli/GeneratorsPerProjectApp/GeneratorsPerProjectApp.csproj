@@ -4,6 +4,8 @@
     <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- Shipment is serialized without a context: reflection-based JSON, off by default under NativeAOT (and csharpc). -->
+    <JsonSerializerIsReflectionEnabledByDefault>true</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../GeneratorsPerProjectLib/GeneratorsPerProjectLib.csproj" />

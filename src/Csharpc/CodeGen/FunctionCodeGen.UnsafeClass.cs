@@ -148,11 +148,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef UnsafeByteOffset(LLVMValueRef origin, LLVMValueRef target, LLVMTypeRef type) =>
         _b.BinOp(LLVMOpcode.Sub, _b.Cast(LLVMOpcode.PtrToInt, target, type), _b.Cast(LLVMOpcode.PtrToInt, origin, type));
 
-    private void UnsafeCopyBlock(LLVMValueRef destination, LLVMValueRef source, LLVMValueRef bytes64)
-    {
-        var f = _m.Intrinsic("llvm.memmove.p0.p0.i64", L.Void, L.Ptr, L.Ptr, L.I64, L.I1);
-        _m.Facts.NoReferences(_b.Call(f.Type, f.Fn, [destination, source, bytes64, L.False]));
-    }
+    private void UnsafeCopyBlock(LLVMValueRef destination, LLVMValueRef source, LLVMValueRef bytes64) => MemMove(destination, source, bytes64, noReferences: true);
 
     private void UnsafeInitBlock(LLVMValueRef destination, LLVMValueRef value, LLVMValueRef bytes64)
     {

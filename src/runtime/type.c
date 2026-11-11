@@ -313,6 +313,24 @@ bool csrt_type_flag(TypeObject* t, const csrt_TypeInfoTable* table, uint64_t mas
     return info && (info->flags & mask) != 0;
 }
 
+/// Type.Attributes (System.Reflection.TypeAttributes) from the flags the compiler records: the visibility, interface/abstract/sealed, and the
+/// sequential layout of structs. Bits csharpc does not track (BeforeFieldInit, Serializable, SpecialName, string format) are 0.
+int32_t csrt_type_attributes(TypeObject* t, const csrt_TypeInfoTable* table) {
+    const csrt_TypeInfo* info = info_of(t, table);
+    if (!info) return 0;
+    uint64_t f = info->flags;
+    int32_t a = 0;
+    if (f & CSRT_TI_NESTED) {
+        a = (f & CSRT_TI_NESTED_PUBLIC) ? 2 : (f & CSRT_TI_NESTED_PRIVATE) ? 3 : (f & CSRT_TI_NESTED_FAMILY) ? 4 : (f & CSRT_TI_NESTED_ASSEMBLY) ? 5
+          : (f & CSRT_TI_NESTED_FAM_AND_ASSEM) ? 6 : (f & CSRT_TI_NESTED_FAM_OR_ASSEM) ? 7 : 3;
+    } else if (f & CSRT_TI_PUBLIC) a = 1;
+    if (f & CSRT_TI_INTERFACE) a |= 0x20 | 0x80;
+    if (f & CSRT_TI_ABSTRACT) a |= 0x80;
+    if (f & CSRT_TI_SEALED) a |= 0x100;
+    if ((f & CSRT_TI_VALUE_TYPE) && !(f & CSRT_TI_ENUM)) a |= 0x8;
+    return a;
+}
+
 /// NULL (after throwing) when the base type and interfaces of `info` are not described.
 static const csrt_TypeInfo* with_hierarchy(const csrt_TypeInfo* info, const char* what) {
     if (info && (info->flags & CSRT_TI_NO_HIERARCHY)) { throw_unsupported(info->mt, what); return NULL; }

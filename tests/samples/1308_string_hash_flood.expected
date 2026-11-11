@@ -1,0 +1,19 @@
+400 keys, 400 distinct
+400 inserts
+found 400, missing False False
+after removal 200: enumerated 200, sum 40000
+re-added 200, count 400, comparer True
+alternate: True 3 True False
+400 inserts
+found 400, missing False False
+after removal 200: enumerated 200, sum 40000
+re-added 200, count 400, comparer True
+alternate: True 3 True False
+400 inserts
+found 400, missing False False
+after removal 200: enumerated 200, sum 40000
+re-added 200, count 400, comparer True
+alternate: True 3 True False
+set 400: contained 400, remove True False, count 399, add again True
+set comparer is default: True
+flood: 200000 200000 19900200
