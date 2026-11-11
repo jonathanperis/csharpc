@@ -1,0 +1,4 @@
+# Dictionary<TKey,TValue>, HashSet<T> and CollectionsMarshal (ADR 0023, #274; docs/il-first/System.Collections.Generic.Dictionary.md).
+System.Collections.Generic.Dictionary`2
+System.Collections.Generic.HashSet`1
+System.Runtime.InteropServices.CollectionsMarshal

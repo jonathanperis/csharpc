@@ -1,5 +1,5 @@
 // Entry points for compiler-synthesized code (records' and anonymous types' ToString, interpolation), over the framework's own StringBuilder
-// (served from System.Private.CoreLib's IL, src/Csharpc/upstream-types.txt; CoreLibRuntime.cs maps the csrt_sb_* names here).
+// (served from System.Private.CoreLib's IL, src/Csharpc/upstream-types/System.Text.StringBuilder.txt; CoreLibRuntime.cs maps the csrt_sb_* names here).
 #nullable disable
 using System.Text;
 

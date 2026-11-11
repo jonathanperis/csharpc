@@ -1,7 +1,7 @@
 // Ownership map of the corelib (issue #191, docs/21-ownership.md): for every file under src/Csharpc/corelib, what it
 // shadows, which shared-framework assembly defines each target, and whether it stays csharpc's or is upstream's.
 //
-//   tools/il-first/ownership.sh                 writes tools/il-first/ownership.tsv
+//   tools/il-first/ownership.sh                 writes tools/il-first/ownership.tsv (generated on demand, git-ignored)
 //   tools/il-first/ownership.sh --summary       prints the summary tables (Markdown) from the same data
 //   tools/il-first/ownership.sh --contract      prints the FCall / QCall / native-shim surface of the framework assemblies
 //   tools/il-first/ownership.sh --unmatched     CoreLib targets that fell through to the default rule (to refine the rules)

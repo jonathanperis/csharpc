@@ -447,7 +447,7 @@ internal static class Intrinsics
         // System.Char classification/casing: src/Csharpc/corelib/StringOps.cs (CharOps).
         // Numeric Parse/TryParse: corelib NumberParsingMembers.cs (culture-aware, Number.Parsing.Culture.cs).
 
-        // System.Text.StringBuilder: the framework's own IL (src/Csharpc/upstream-types.txt); StringBuilderRuntime.cs has the entry points of synthesized code.
+        // System.Text.StringBuilder: the framework's own IL (src/Csharpc/upstream-types/System.Text.StringBuilder.txt); StringBuilderRuntime.cs has the entry points of synthesized code.
 
         // ---- System.Math -----------------------------------------------------------------------
         foreach (var (name, llvm) in new[] { ("Sqrt", "llvm.sqrt"), ("Floor", "llvm.floor"), ("Ceiling", "llvm.ceil"),

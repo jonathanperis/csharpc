@@ -1,0 +1,3 @@
+# net (#326) is System.Net.Primitives from the framework's IL (IPAddress, IPEndPoint, IPNetwork): linux-x86_64 measured 255 976 B (the shadows gave 171 480,
+# NativeAOT 1 365 832); budget = measured + max(4 KiB, 3 %). Only linux-x86_64 has a budget so far; other platforms print the size.
+linux-x86_64 net 264192
