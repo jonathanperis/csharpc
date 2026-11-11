@@ -18,27 +18,18 @@
 # inotify delivery and its timing.
 609_filesystemwatcher
 
-# Programs that reach the framework's reflection-based System.Text.Json serializer (ADR 0023, #286): one compile peaks at about 3 GB
+# Programs that opt in to the framework's reflection-based System.Text.Json serializer (ADR 0023, #286, #320): one compile peaks at about 3 GB
 # (316 and 319 natively at -O0: 3.0 and 2.8 GB, about 3 minutes), so several at once exhaust a CI runner's memory (the wasm32 shard was killed).
+315_json_node
 316_json_serialize
 317_json_deserialize
 318_json_options
 319_json_converters
 320_json_polymorphism
 321_json_references
-322_json_source_gen
 323_json_anonymous_and_file_local
 325_json_types
-326_json_generation_modes
-482_datetimeoffset_json
-663_json_guid
 740_json_internal_types
-965_json_more_converters
-966_attribute_generic_type_argument
-968_json_schema_exporter
-971_json_schema_more_converters
-972_uri_rooted_path_unix
-1009_httpclient_json
 1160_json_private_nested_types
 1250_json_culture_real
 1251_json_culture_synthetic

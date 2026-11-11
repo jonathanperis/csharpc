@@ -1,4 +1,4 @@
-#:property PublishAot=false
+#:property JsonSerializerIsReflectionEnabledByDefault=true
 // System.Text.Json.Nodes: parsing, navigation, mutation, paths, conversions, DeepClone/DeepEquals,
 // ToJsonString/ToString and the node API's exceptions.
 using System.Linq;
