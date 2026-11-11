@@ -17,10 +17,10 @@ name: Bootstrap
 # shards (16 jobs, the long part) run on pushes to main and ci/m6-** branches only.
 on:
   pull_request:
-    paths: ['src/**', 'tests/projects/il/IlRoslynHostApp/**', 'tests/il.sh', 'tools/bootstrap/**', '.github/workflows/bootstrap.yml']
+    paths: ['src/**', 'global.json', 'tests/projects/il/IlRoslynHostApp/**', 'tests/il.sh', 'tools/bootstrap/**', '.github/workflows/bootstrap.yml']
   push:
     branches: [main, "ci/m6-**"]
-    paths: ['src/**', 'tests/projects/il/IlRoslynHostApp/**', 'tests/il.sh', 'tools/bootstrap/**', '.github/workflows/bootstrap.yml']
+    paths: ['src/**', 'global.json', 'tests/projects/il/IlRoslynHostApp/**', 'tests/il.sh', 'tools/bootstrap/**', '.github/workflows/bootstrap.yml']
   workflow_dispatch:
 
 permissions:

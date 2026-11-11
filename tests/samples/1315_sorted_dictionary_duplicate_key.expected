@@ -1,0 +1,5 @@
+ArgumentException: An item with the same key has already been added. Key: [a, 2]
+ArgumentException: An item with the same key has already been added. Key: [3, again]
+5
+ArgumentException: An item with the same key has already been added. Key: b (Parameter 'key')
+ArgumentException: An item with the same key has already been added. Key: c
