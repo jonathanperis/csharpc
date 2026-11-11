@@ -1,0 +1,14 @@
+# linq and async use System.Linq (async: results.Sum()) from the framework's own IL since the Linq flip (ADR 0023, #267): linq grew from
+# 170 424 to 253 288 B, async from 156 096 to 157 248 B on linux-x86_64; the other platforms come from the first CI round of the PR (measured: linux-aarch64 linq 228 608; windows-x86_64 async 165 376, linq 263 168; macos-arm64 linq 252 760; wasi-wasm32 async 152 185, linq 262 629 B).
+# Dictionary<TKey,TValue>, HashSet<T> and CollectionsMarshal come from the framework's IL too (ADR 0023, #274). linux-x86_64 measured on top of the Linq flip: async 177 600,
+# collections 163 032 (+13.7 %), linq 277 048, numbers 143 912 (+11.5 %), regex 875 072, regexoptions 2 097 888 (the corelib's culture caches are Dictionary<string, ...>, so every
+# program that formats a number carries the real Resize/Remove/enumerator code and its tables); hello, exceptions and typeinfo unchanged. The other platforms' async,
+# collections, linq and numbers budgets moved by the same number of bytes until the CI rounds of that PR give their own measurements.
+# linux-aarch64 async measured 173 592 on the first CI round of #285.
+# #290 (ComponentModel from IL; [FeatureSwitchDefinition] folding makes single files' System.Linq.Enumerable.IsSizeOptimized=true take effect): linux-x86_64 measured
+# linq 233 096 (budget lowered from 285 696), async 177 808, collections 167 336, regex 926 032, regexoptions 2 162 536 (+4.5 KB with the hash-flooding merge, over its old budget).
+linux-x86_64 async 183296
+linux-aarch64 async 179200
+macos-arm64 async 196608
+windows-x86_64 async 191488
+wasi-wasm32 async 178176

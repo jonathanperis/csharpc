@@ -1,0 +1,7 @@
+# json and jsonwriter are the framework's own System.Text.Json compiled from IL (ADR 0023, #286): the owner accepted that growth for exactness and speed
+# (shadow before the flip: json 369 432 B, jsonwriter 275 352 B); measured 6 656 792 and 953 456 B on linux-x86_64 (on top of the Linq and Dictionary/HashSet flips), the only platform with budgets for them so far.
+# jsonwriter: linux-x86_64 measured 1 007 016 B on #290's CI round (74414b4b), 23 976 B over 983 040: the System.Memory flip (#318) plus ComponentModel from IL;
+# other platforms printed windows-x86_64 1 007 616, macos-arm64 965 048, linux-aarch64 941 648, wasi-wasm32 1 059 094 B (no budgets yet).
+# SR getters as string literals (#272): linux-x86_64 measured json 1 567 872 (main's CI: 1 769 784), jsonwriter 801 560 (1 015 400), regex 818 312 (925 312),
+# regexoptions 2 046 216 (2 153 144); those four budgets lowered to measured + max(4 KiB, 3 %).
+linux-x86_64 jsonwriter 826368

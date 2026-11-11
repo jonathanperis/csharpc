@@ -1,5 +1,5 @@
 // MemoryExtensions.TryWrite(Span<char>, ref TryWriteInterpolatedStringHandler, out int): the handler is CoreLib's own (the upstream slice,
-// src/Csharpc/upstream-types.txt); TryWrite reads the two fields it sets, as upstream's does.
+// src/Csharpc/upstream-types/System.Net.Primitives.txt); TryWrite reads the two fields it sets, as upstream's does.
 #nullable disable
 using System;
 using System.Runtime.CompilerServices;

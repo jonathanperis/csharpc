@@ -67,7 +67,9 @@ whether the flipped libraries still beat NativeAOT.
    size-optimized 1.80 s and 969 KB; closing that gap belongs to the compiler milestone, not to a different default.
    csharpc's own self-compile sets size-optimized explicitly to fit the CI runner.
 6. **Process:** the shared files that every flip edits (`tests/size/budgets.txt`, the ADR 0023 table, `ownership.tsv`) are
-   split per library, so parallel PRs stop conflicting and re-running hours of CI. The Bootstrap PR checks ("Roslyn hosted
+   split per library, so parallel PRs stop conflicting and re-running hours of CI. Done (#333): `tests/size/budgets/<program>.txt`,
+   `docs/il-first/<library>.md` (`tools/il-first/table.sh` prints the whole table), `src/Csharpc/upstream-types/<library>.txt`, and
+   `ownership.tsv` generated on demand and no longer committed; docs/12-corelib.md says where a flip writes. The Bootstrap PR checks ("Roslyn hosted
    from IL", "csharpc compiles csharpc") are part of the merge bar for `src/**` changes (#303).
 
 ## Open question for the owner
