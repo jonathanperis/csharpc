@@ -201,7 +201,7 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
     /// </summary>
     public IMethodSymbol? ShareAs(IMethodSymbol method)
     {
-        if (Canon is null || method.IsStatic || method.IsGenericMethod || method.ContainingType is not { TypeKind: TypeKind.Class } owner
+        if (Canon is null || ObservesFrames || method.IsStatic || method.IsGenericMethod || method.ContainingType is not { TypeKind: TypeKind.Class } owner
             || !IsSharedType(owner) || ExactReason(method.OriginalDefinition) is not null || !SameSignature(method)) return null;
         return Canonicalize(method);
     }
@@ -240,9 +240,11 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
         foreach (var type in definition.Parameters.Select(p => p.Type).Append(definition.ReturnType))
             if (MentionsTypeParameter(type) && type is not ITypeParameterSymbol && !type.IsReferenceType) return "signature " + type.ToDisplayString();
         if (definition.Parameters.Any(p => p.RefKind != RefKind.None && MentionsTypeParameter(p.Type))) return "by-ref over T";
+        if (Calls(definition, dependentOnly: false).FirstOrDefault(IsMethodObserver) is { } observer)
+            return "observes its own method: " + observer.ContainingType.Name + "." + observer.Name;
         if (SlotKeys(definition) is not { } keys) return "body not readable";
         if (keys.Count > 0) return "needs dictionary: " + keys.OrderBy(k => k, StringComparer.Ordinal).First();
-        foreach (var callee in Callees(definition))
+        foreach (var callee in Calls(definition, dependentOnly: true))
         {
             if (callee.ContainingType.TypeKind == TypeKind.Interface) return "interface over T: " + callee.ContainingType.ToDisplayString();
             if (callee.IsGenericMethod || callee.IsStatic) return "calls " + callee.ToDisplayString();
@@ -255,8 +257,52 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
     private static string MetadataNameOf(INamedTypeSymbol type) =>
         (type.ContainingNamespace is { IsGlobalNamespace: false } ns ? Frontend.UpstreamSlice.RealNamespace(ns.ToDisplayString()) + "." : "") + type.MetadataName;
 
-    /// <summary>The methods of type-parameter-dependent types (or with dependent type arguments) a definition's body calls.</summary>
-    private List<IMethodSymbol> Callees(IMethodSymbol definition)
+    /// <summary>
+    /// MethodBase.GetCurrentMethod() reports the method it is called from, exactly (`Holder`1[System.String].Get`); a shared body would report
+    /// its canonical form, so a method that calls it stays exact (ADR 0026: __Canon is never observable).
+    /// </summary>
+    private static bool IsMethodObserver(IMethodSymbol method) =>
+        method is { Name: "GetCurrentMethod", ContainingType: { Name: "MethodBase", ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } } };
+
+    private bool? _observesFrames;
+
+    /// <summary>
+    /// Does the program read the methods of stack frames (StackFrame.GetMethod, StackTrace.GetFrame(s))? Any frame of shared code would then
+    /// report its canonical form, so with --shared-generics such a program shares nothing (until frames carry their exact instantiation).
+    /// </summary>
+    public bool ObservesFrames => _observesFrames ??= ComputeObservesFrames();
+
+    private bool ComputeObservesFrames()
+    {
+        static bool IsFrameApi(string type, string member) =>
+            (type == "StackFrame" && member == "GetMethod") || (type == "StackTrace" && member is "GetFrame" or "GetFrames");
+        if (il is not null)
+            foreach (var assembly in il.Assemblies)
+            {
+                var reader = assembly.Reader;
+                foreach (var handle in reader.MemberReferences)
+                {
+                    var reference = reader.GetMemberReference(handle);
+                    if (reference.Parent.Kind != HandleKind.TypeReference) continue;
+                    var type = reader.GetString(reader.GetTypeReference((TypeReferenceHandle)reference.Parent).Name);
+                    if (IsFrameApi(type, reader.GetString(reference.Name))) return true;
+                }
+            }
+        foreach (var tree in compilation.SyntaxTrees)
+        {
+            var text = tree.ToString();
+            if (!text.Contains("StackFrame", StringComparison.Ordinal) && !text.Contains("StackTrace", StringComparison.Ordinal)) continue;
+            var model = compilation.GetSemanticModel(tree);
+            foreach (var node in tree.GetRoot().DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.InvocationExpressionSyntax>())
+                if (model.GetSymbolInfo(node).Symbol is IMethodSymbol { ContainingType.ContainingNamespace: { Name: "Diagnostics", ContainingNamespace.Name: "System" } } m
+                    && IsFrameApi(m.ContainingType.Name, m.Name))
+                    return true;
+        }
+        return false;
+    }
+
+    /// <summary>The methods a definition's body calls (dependentOnly: only those of type-parameter-dependent types or with dependent type arguments).</summary>
+    private List<IMethodSymbol> Calls(IMethodSymbol definition, bool dependentOnly)
     {
         var callees = new List<IMethodSymbol>();
         if (il?.OwnerOf(definition) is { } owner && owner.Body(definition) is { } body)
@@ -267,7 +313,7 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
                 if (instruction.OpCode is not (ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj or ILOpCode.Ldftn or ILOpCode.Ldvirtftn)) continue;
                 try
                 {
-                    if (owner.ResolveMember(instruction.Token, context) is IMethodSymbol m && CallsDependent(m)) callees.Add(m);
+                    if (owner.ResolveMember(instruction.Token, context) is IMethodSymbol m && (!dependentOnly || CallsDependent(m))) callees.Add(m);
                 }
                 catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { }
             }
@@ -285,7 +331,7 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
                     IMethodReferenceOperation r => r.Method,
                     _ => null,
                 };
-                if (target is not null && CallsDependent(target)) callees.Add(target);
+                if (target is not null && (!dependentOnly || CallsDependent(target))) callees.Add(target);
             }
         }
         return callees;
