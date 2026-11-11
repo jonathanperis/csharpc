@@ -49,4 +49,11 @@ public sealed partial class ModuleCodeGen
                 + $"\t{shared.DictionarySlots(method)}\t{name}");
         }
     }
+
+    /// <summary>The dictionary slot of a shared generic class (ADR 0026, step 2c): appended to its own vtable section.</summary>
+    private static void AddDictionarySlot(ClassLayout layout, INamedTypeSymbol type)
+    {
+        layout.DictionarySlots[type.OriginalDefinition] = layout.VTable.Count;
+        layout.VTable.Add(null);
+    }
 }

@@ -176,6 +176,15 @@ public sealed class ClassLayout
     /// <summary>Root virtual method (the original "virtual" declaration) -> slot.</summary>
     public Dictionary<IMethodSymbol, int> SlotOf { get; } = new(SymbolEqualityComparer.Default);
 
+    /// <summary>
+    /// --shared-generics (ADR 0026): the vtable slot that holds each generic class's dictionary, keyed by the class's generic definition,
+    /// for this class and the generic classes it derives from. The slot sits in the generic class's own vtable section, right after the
+    /// virtual methods it introduces, so it has the same index in every instantiation of the class and in every class derived from one:
+    /// shared code reads `this->MT->vtable[k]`. Nothing else reads it (the runtime's fixed slots are the System.Object and Exception ones,
+    /// which come first). Empty with the flag off.
+    /// </summary>
+    public Dictionary<INamedTypeSymbol, int> DictionarySlots { get; } = new(SymbolEqualityComparer.Default);
+
     public LLVMTypeRef MethodTableType { get; set; }
     public LLVMValueRef MethodTable { get; set; }
     public ulong InstanceSize { get; set; }
