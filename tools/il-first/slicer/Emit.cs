@@ -45,8 +45,8 @@ sealed class Emitter
     {
         var order = _s.Types.OrderBy(t => t.FullName, StringComparer.Ordinal).ToList();
         // 1. type shells, outer before nested, then members, then bodies
-        foreach (var t in order.Where(t => t.DeclaringType is null)) Shell(t);
-        foreach (var t in order.Where(t => t.DeclaringType is not null).OrderBy(t => Depth(t))) Shell(t);
+        foreach (var t in order.Where(t => t.DeclaringType is null || Hoisted(t))) Shell(t);
+        foreach (var t in order.Where(t => t.DeclaringType is not null && !Hoisted(t)).OrderBy(t => Depth(t))) Shell(t);
         foreach (var t in order) Declare(t);
         var hosted = DeclareHosted();
         foreach (var t in order) Bodies(t);
@@ -111,10 +111,22 @@ sealed class Emitter
 
     static int Depth(TypeDefinition t) { int d = 0; for (var x = t.DeclaringType; x is not null; x = x.DeclaringType) d++; return d; }
 
+    /// <summary>
+    /// A nested type whose declaring type stays outside the slice (MemoryExtensions.TryWriteInterpolatedStringHandler: MemoryExtensions is
+    /// csharpc's own): it becomes a top-level type of the slice named Outer_Name, and the .map names its real nested name.
+    /// </summary>
+    bool Hoisted(TypeDefinition t) => t.DeclaringType is { } outer && !_s.Types.Contains(outer);
+
+    static string HoistedName(TypeDefinition t) => t.DeclaringType is { } outer ? HoistedName(outer) + "_" + t.Name : t.Name;
+
+    static TypeDefinition Outermost(TypeDefinition t) { while (t.DeclaringType is not null) t = t.DeclaringType; return t; }
+
     void Shell(TypeDefinition t)
     {
-        var n = new TypeDefinition(Prefixed(t), t.Name, t.Attributes);
-        if (t.DeclaringType is null) _m.Types.Add(n); else _types[t.DeclaringType].NestedTypes.Add(n);
+        var hoisted = Hoisted(t);
+        var attributes = hoisted ? (t.Attributes & ~TypeAttributes.VisibilityMask) | (t.IsNestedPublic ? TypeAttributes.Public : TypeAttributes.NotPublic) : t.Attributes;
+        var n = new TypeDefinition(Prefixed(t), hoisted ? HoistedName(t) : t.Name, attributes);
+        if (t.DeclaringType is null || hoisted) _m.Types.Add(n); else _types[t.DeclaringType].NestedTypes.Add(n);
         foreach (var gp in t.GenericParameters) n.GenericParameters.Add(new GenericParameter(gp.Name, n) { Attributes = gp.Attributes });
         if (t.HasLayoutInfo || t.IsExplicitLayout || t.IsSequentialLayout) { n.PackingSize = t.PackingSize; n.ClassSize = t.ClassSize; }
         _types[t] = n;
@@ -124,12 +136,14 @@ sealed class Emitter
     /// name, and are "corelib" code to the compiler (policies; names in reflection and stack traces through the .map written below).</summary>
     string Prefixed(TypeDefinition t)
     {
+        if (Hoisted(t)) return Outermost(t).Namespace.Length == 0 ? _cli.Prefix : _cli.Prefix + "." + Outermost(t).Namespace;
         if (t.DeclaringType is not null || t.Name.StartsWith('<') || t.FullName == "System.Private.CoreLib.Strings") return t.Namespace;
         return t.Namespace.Length == 0 ? _cli.Prefix : _cli.Prefix + "." + t.Namespace;
     }
 
     string MetadataName(TypeDefinition t, bool prefixed)
     {
+        if (prefixed && Hoisted(t)) return Prefixed(t) + "." + HoistedName(t);
         string Plain(TypeDefinition x, bool withPrefix) =>
             x.DeclaringType is null
                 ? (withPrefix ? Prefixed(x) : x.Namespace) is { Length: > 0 } ns ? ns + "." + x.Name : x.Name

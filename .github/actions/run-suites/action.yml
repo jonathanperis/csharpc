@@ -51,6 +51,12 @@ runs:
       shell: bash
       run: tests/toolchain.sh
 
+    # string.GetHashCode is Marvin with a per-process random seed (hash flooding, #285); no recorded output can show it.
+    - name: String hash seed
+      if: ${{ (success() || failure()) && inputs.os != 'wasm' }}
+      shell: bash
+      run: tests/hashseed.sh
+
     - name: IL front-end (libraries consumed as DLLs and NuGet packages)
       if: ${{ (success() || failure()) && inputs.os != 'wasm' }}
       shell: bash

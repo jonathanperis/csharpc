@@ -1,0 +1,92 @@
+[1.2.3.4] -> 1.2.3.4 InterNetwork
+[ 1.2.3.4] -> invalid
+[1.2.3.4 ] -> invalid
+[1.2.3.04] -> 1.2.3.4 InterNetwork
+[1.2.3.08] -> invalid
+[0x100.1] -> invalid
+[0xff.0xffffff] -> 255.255.255.255 InterNetwork
+[4294967295] -> 255.255.255.255 InterNetwork
+[4294967296] -> invalid
+[1.16777215] -> 1.255.255.255 InterNetwork
+[1.16777216] -> invalid
+[1.2.65535] -> 1.2.255.255 InterNetwork
+[1.2.65536] -> invalid
+[1..2] -> invalid
+[1.2.3.] -> invalid
+[.1.2.3] -> invalid
+[0x] -> invalid
+[00] -> 0.0.0.0 InterNetwork
+[1.2.3.4.5] -> invalid
+[::] -> :: InterNetworkV6 scope 0
+[::1] -> ::1 InterNetworkV6 scope 0
+[1::] -> 1:: InterNetworkV6 scope 0
+[1:2:3:4:5:6:7:8] -> 1:2:3:4:5:6:7:8 InterNetworkV6 scope 0
+[1:2:3:4:5:6:7::] -> 1:2:3:4:5:6:7:0 InterNetworkV6 scope 0
+[::1:2:3:4:5:6:7] -> 0:1:2:3:4:5:6:7 InterNetworkV6 scope 0
+[1:2:3:4:5:6:7:8:9] -> invalid
+[1::2::3] -> invalid
+[:1::2] -> invalid
+[1::2:] -> invalid
+[12345::1] -> invalid
+[g::1] -> invalid
+[2001:DB8::ABCD] -> 2001:db8::abcd InterNetworkV6 scope 0
+[0:0:0:0:0:0:0:1] -> ::1 InterNetworkV6 scope 0
+[::0.0.0.1] -> ::1 InterNetworkV6 scope 0
+[::1.2.3.4] -> ::1.2.3.4 InterNetworkV6 scope 0
+[::ffff:1.2.3.4] -> ::ffff:1.2.3.4 InterNetworkV6 scope 0
+[::ffff:0:1.2.3.4] -> ::ffff:0:1.2.3.4 InterNetworkV6 scope 0
+[1:2:3:4:5:6:1.2.3.4] -> 1:2:3:4:5:6:102:304 InterNetworkV6 scope 0
+[1::1.2.3] -> invalid
+[1::1.2.3.256] -> invalid
+[::5efe:1.2.3.4] -> ::5efe:1.2.3.4 InterNetworkV6 scope 0
+[64:ff9b::1.2.3.4] -> 64:ff9b::102:304 InterNetworkV6 scope 0
+[fe80::1%2] -> fe80::1%2 InterNetworkV6 scope 2
+[fe80::1%2%3] -> fe80::1 InterNetworkV6 scope 0
+[fe80::1%] -> fe80::1 InterNetworkV6 scope 0
+[fe80::1%nosuchif0] -> fe80::1 InterNetworkV6 scope 0
+[fe80::1%4294967295] -> fe80::1%4294967295 InterNetworkV6 scope 4294967295
+[fe80::1%4294967296] -> fe80::1 InterNetworkV6 scope 0
+[fe80::1%-1] -> fe80::1 InterNetworkV6 scope 0
+[::ffff:1.2.3.4%7] -> ::ffff:1.2.3.4%7 InterNetworkV6 scope 7
+[[::1]] -> ::1 InterNetworkV6 scope 0
+[[::1]:80] -> ::1 InterNetworkV6 scope 0
+[[::1]x] -> invalid
+[[::1] -> invalid
+[::1]] -> invalid
+[[1.2.3.4]] -> invalid
+[] -> invalid
+[ ] -> invalid
+FormatException: An invalid IP address was specified.
+ArgumentNullException: ipString
+[1.2.3.4:80] -> 1.2.3.4:80
+[1.2.3.4:] -> invalid
+[1.2.3.4:65535] -> 1.2.3.4:65535
+[1.2.3.4:65536] -> invalid
+[1.2.3.4:+80] -> invalid
+[1.2.3.4: 80] -> invalid
+[1.2.3.4:080] -> 1.2.3.4:80
+[[::1]:443] -> [::1]:443
+[[::1]] -> [::1]:0
+[::1] -> [::1]:0
+[::1:80] -> [::0.1.0.128]:0
+[[::1]:] -> invalid
+[1.2.3.4:-1] -> invalid
+[host:80] -> invalid
+FormatException: An invalid IPEndPoint was specified.
+[10.0.0.0/8] -> 10.0.0.0/8
+[10.1.2.3/8] -> 10.0.0.0/8
+[10.0.0.0/08] -> 10.0.0.0/8
+[10.0.0.0/ 8] -> invalid
+[10.0.0.0/+8] -> invalid
+[10.0.0.0/33] -> invalid
+[10.0.0.0/-1] -> invalid
+[::/0] -> ::/0
+[2001:db8::/129] -> invalid
+[2001:db8::1/64] -> 2001:db8::/64
+[10.0.0.0] -> invalid
+[/8] -> invalid
+[10.0.0.0/8/8] -> invalid
+True 2001:db8::abcd%5 False 0
+True 2001:db8::abcd%5
+True 192.168.0.0/16 False 0
+True True False

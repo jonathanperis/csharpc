@@ -1085,6 +1085,13 @@ namespace CsharpcCoreLib
         public abstract bool Equals(string x, string y);
         public abstract int GetHashCode(string obj);
 
+        /// <summary>
+        /// The wrapper Dictionary and HashSet hold for string keys (.NET's NonRandomizedStringEqualityComparer.GetStringComparer) when this is
+        /// the Ordinal or OrdinalIgnoreCase comparer, else null. Asked of the comparer, so that a program that never creates these comparers does not
+        /// carry the code of their wrappers (UpstreamSupport.cs).
+        /// </summary>
+        internal virtual UpstreamNonRandomizedStringEqualityComparer CreateNonRandomizedWrapper() => null;
+
         public int Compare(object x, object y) => x == y ? 0 : x == null ? -1 : y == null ? 1 : Compare((string)x, (string)y);
         public new bool Equals(object x, object y) => x == y || (x is string a && y is string b && Equals(a, b));
         public int GetHashCode(object obj) => obj is string s ? GetHashCode(s) : obj.GetHashCode();
@@ -1097,6 +1104,15 @@ namespace CsharpcCoreLib
             // (through the base type: in Standard itself this overload would win over GetHashCode(string), as string converts to a span)
             public int GetHashCode(ReadOnlySpan<char> alternate) => ((StringComparerImpl)this).GetHashCode(new string(alternate));
             public string Create(ReadOnlySpan<char> alternate) => new string(alternate);
+
+            private UpstreamNonRandomizedStringEqualityComparer _nonRandomizedWrapper;
+            internal override UpstreamNonRandomizedStringEqualityComparer CreateNonRandomizedWrapper() =>
+                comparison switch
+                {
+                    StringComparison.Ordinal => _nonRandomizedWrapper ??= UpstreamNonRandomizedStringEqualityComparer.ForOrdinal(this),
+                    StringComparison.OrdinalIgnoreCase => _nonRandomizedWrapper ??= UpstreamNonRandomizedStringEqualityComparer.ForOrdinalIgnoreCase(this),
+                    _ => null,
+                };
 
             private bool IgnoreCase => comparison is StringComparison.OrdinalIgnoreCase or StringComparison.InvariantCultureIgnoreCase
                 or StringComparison.CurrentCultureIgnoreCase;

@@ -83,6 +83,12 @@ public sealed partial class ModuleCodeGen
     }
     private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _enumMethodTables = new(SymbolEqualityComparer.Default);
 
+    /// <summary>Boxed enums whose interface map gets ISpanFormattable once the program names the interface (EnumMethodTable).</summary>
+    private readonly List<Action> _enumsAwaitingSpanFormattable = [];
+
+    private bool HasInterfaceMethodTable(string metadataName) =>
+        Compilation.GetTypeByMetadataName(metadataName) is { } itf && _interfaceTables.ContainsKey(itf);
+
     /// <summary>
     /// Method table for boxed enums: { csrt_Object_MT, "Ns.Color", 8 + size, 0, IFormattable + IComparable + IConvertible map, [ToString, Equals, GetHashCode] }.
     /// ToString formats the payload by name (EnumFormatter); equality is bytewise, the hash is the underlying integer's.
@@ -148,17 +154,36 @@ public sealed partial class ModuleCodeGen
         // dispatches that member (a builtin slot table, ModuleCodeGen.CoreLib.cs).
         var convertible = Compilation.GetTypeByMetadataName("System.IConvertible")!;
         var convertibleSlots = BuiltinSlotTable(convertible, Mangler.TypeSymbol(enumType, "BoxICNV"), LLVMLinkage.Internal, BoxedConvertibleMember);
-        var mapInit = LlvmContext.ConstArray(entryType, Entry(formattable, formatThunk, "BoxITBL"), Entry(comparable, compareThunk, "BoxICMP"),
-            LlvmContext.ConstNamedStruct(entryType, InterfaceMethodTable(convertible), convertibleSlots));
-        var map = Module.AddGlobal(Mangler.TypeSymbol(enumType, "BoxIMAP"), Native.LLVMTypeOf(mapInit), mapInit, constant: true, linkage: LLVMLinkage.Internal);
-        Native.LLVMSetInitializer(global, Llvm.ConstStruct(
-            ExternalGlobal("csrt_Object_MT"),
-            CString(Mangler.MetadataName(enumType)),
-            Llvm.ConstInt(Llvm.I32, 8 + (long)Types.Target.SizeOf(valueType)),
-            Llvm.ConstInt(Llvm.I32, 64 | 128 /* CSRT_MT_VALUE_TYPE | CSRT_MT_ENUM */),
-            map, Llvm.ConstInt(Llvm.I32, 3), Llvm.ConstInt(Llvm.I32, ElementKind(underlying)),
-            LlvmContext.ConstArray(Llvm.Ptr, thunk, Runtime("csrt_valuetype_equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn,
-                hashThunk)));
+        var baseEntries = new[] { Entry(formattable, formatThunk, "BoxITBL"), Entry(comparable, compareThunk, "BoxICMP"),
+            LlvmContext.ConstNamedStruct(entryType, InterfaceMethodTable(convertible), convertibleSlots) };
+        void SetMap(LLVMValueRef[] entries)
+        {
+            var mapInit = LlvmContext.ConstArray(entryType, entries);
+            var map = Module.AddGlobal(Mangler.TypeSymbol(enumType, entries.Length == baseEntries.Length ? "BoxIMAP" : "BoxIMAPS"), Native.LLVMTypeOf(mapInit), mapInit,
+                constant: true, linkage: LLVMLinkage.Internal);
+            Native.LLVMSetInitializer(global, Llvm.ConstStruct(
+                ExternalGlobal("csrt_Object_MT"),
+                CString(Mangler.MetadataName(enumType)),
+                Llvm.ConstInt(Llvm.I32, 8 + (long)Types.Target.SizeOf(valueType)),
+                Llvm.ConstInt(Llvm.I32, 64 | 128 /* CSRT_MT_VALUE_TYPE | CSRT_MT_ENUM */),
+                map, Llvm.ConstInt(Llvm.I32, entries.Length), Llvm.ConstInt(Llvm.I32, ElementKind(underlying)),
+                LlvmContext.ConstArray(Llvm.Ptr, thunk, Runtime("csrt_valuetype_equals", Llvm.I1, Llvm.Ptr, Llvm.Ptr).Fn,
+                    hashThunk)));
+        }
+        // ISpanFormattable, as System.Enum's (the framework's interpolation handlers and string.Format format a boxed T through it):
+        // corelib's BoxedEnumSpanFormattable writes the IFormattable text. Pay for play: only once the program names ISpanFormattable at all,
+        // since the interface's existence makes every boxed primitive register its span formatter (the formatting code of all of them).
+        void AddSpanFormattable()
+        {
+            var spanFormattable = Compilation.GetTypeByMetadataName("System.ISpanFormattable")!;
+            var slots = BuiltinSlotTable(spanFormattable, Mangler.TypeSymbol(enumType, "BoxISPF"), LLVMLinkage.Internal, member =>
+                Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".BoxedEnumSpanFormattable")?.GetMembers(member.Name).OfType<IMethodSymbol>()
+                    .SingleOrDefault(m => m.Parameters.Length == member.Parameters.Length + 1));
+            SetMap([.. baseEntries, LlvmContext.ConstNamedStruct(entryType, InterfaceMethodTable(spanFormattable), slots)]);
+        }
+        SetMap(baseEntries);
+        if (HasInterfaceMethodTable("System.ISpanFormattable")) AddSpanFormattable();
+        else _enumsAwaitingSpanFormattable.Add(AddSpanFormattable);
         return global;
     }
 
@@ -368,6 +393,9 @@ public sealed partial class ModuleCodeGen
                 or SpecialType.System_IntPtr or SpecialType.System_UIntPtr:
                 return Builtin($"csrt_Boxed_{type.MetadataName}_MT");
         }
+        // Memory<T> and ReadOnlyMemory<T>: the table their boxes carry is the one typeof names (GetType() == typeof(...), IsInstanceOfType).
+        if (type is INamedTypeSymbol memoryType && TypeMapper.IsMemory(memoryType) && !TypeSubstitution.IsOpen(memoryType) && !memoryType.IsUnboundGenericType)
+            return MemoryMethodTable(memoryType);
         // A type parameter of a generic type (the declared type of a member of an open definition): the Type object of that parameter.
         if (type is ITypeParameterSymbol { TypeParameterKind: TypeParameterKind.Type, ContainingSymbol: INamedTypeSymbol parameterOwner } typeParameter)
         {

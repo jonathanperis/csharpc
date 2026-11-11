@@ -1,4 +1,4 @@
-#:property PublishAot=false
+#:property JsonSerializerIsReflectionEnabledByDefault=true
 // A reflection-based serializer lists the public constructors of DateOnly and TimeOnly, among them overloads the corelib's
 // shadows do not have (DateOnly(y, m, d, Calendar)); listing must not turn into an invalid-IR compiler error.
 using System;

@@ -102,6 +102,12 @@ namespace CsharpcCoreLib
         public static bool TryParse(ReadOnlySpan<char> s, out short result) => TryParse(s.ToString(), DefaultStyle, null, out result);
         public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, out short result) => TryParse(s.ToString(), DefaultStyle, provider, out result);
         public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out short result) => TryParse(s.ToString(), (int)style, provider, out result);
+        // UTF-8 text (IUtf8SpanParsable): the same parser over the decoded characters (anything that isn't ASCII fails either way).
+        public static short Parse(ReadOnlySpan<byte> utf8Text, NumberStyles style = NumberStyles.Integer, IFormatProvider provider = null) => Parse(System.Text.Encoding.UTF8.GetString(utf8Text), (int)style, provider);
+        public static short Parse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider) => Parse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, provider);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, NumberStyles style, IFormatProvider provider, out short result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), (int)style, provider, out result);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider, out short result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, provider, out result);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, out short result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, null, out result);
     }
 
     [ShadowMembers("System.SByte")]
@@ -130,6 +136,12 @@ namespace CsharpcCoreLib
         public static bool TryParse(ReadOnlySpan<char> s, out sbyte result) => TryParse(s.ToString(), DefaultStyle, null, out result);
         public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, out sbyte result) => TryParse(s.ToString(), DefaultStyle, provider, out result);
         public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out sbyte result) => TryParse(s.ToString(), (int)style, provider, out result);
+        // UTF-8 text (IUtf8SpanParsable): the same parser over the decoded characters (anything that isn't ASCII fails either way).
+        public static sbyte Parse(ReadOnlySpan<byte> utf8Text, NumberStyles style = NumberStyles.Integer, IFormatProvider provider = null) => Parse(System.Text.Encoding.UTF8.GetString(utf8Text), (int)style, provider);
+        public static sbyte Parse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider) => Parse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, provider);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, NumberStyles style, IFormatProvider provider, out sbyte result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), (int)style, provider, out result);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider, out sbyte result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, provider, out result);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, out sbyte result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, null, out result);
     }
 
     [ShadowMembers("System.Byte")]
@@ -158,6 +170,12 @@ namespace CsharpcCoreLib
         public static bool TryParse(ReadOnlySpan<char> s, out byte result) => TryParse(s.ToString(), DefaultStyle, null, out result);
         public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, out byte result) => TryParse(s.ToString(), DefaultStyle, provider, out result);
         public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out byte result) => TryParse(s.ToString(), (int)style, provider, out result);
+        // UTF-8 text (IUtf8SpanParsable): the same parser over the decoded characters (anything that isn't ASCII fails either way).
+        public static byte Parse(ReadOnlySpan<byte> utf8Text, NumberStyles style = NumberStyles.Integer, IFormatProvider provider = null) => Parse(System.Text.Encoding.UTF8.GetString(utf8Text), (int)style, provider);
+        public static byte Parse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider) => Parse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, provider);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, NumberStyles style, IFormatProvider provider, out byte result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), (int)style, provider, out result);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider, out byte result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, provider, out result);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, out byte result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, null, out result);
     }
 
     [ShadowMembers("System.UInt16")]
@@ -186,6 +204,12 @@ namespace CsharpcCoreLib
         public static bool TryParse(ReadOnlySpan<char> s, out ushort result) => TryParse(s.ToString(), DefaultStyle, null, out result);
         public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, out ushort result) => TryParse(s.ToString(), DefaultStyle, provider, out result);
         public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out ushort result) => TryParse(s.ToString(), (int)style, provider, out result);
+        // UTF-8 text (IUtf8SpanParsable): the same parser over the decoded characters (anything that isn't ASCII fails either way).
+        public static ushort Parse(ReadOnlySpan<byte> utf8Text, NumberStyles style = NumberStyles.Integer, IFormatProvider provider = null) => Parse(System.Text.Encoding.UTF8.GetString(utf8Text), (int)style, provider);
+        public static ushort Parse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider) => Parse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, provider);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, NumberStyles style, IFormatProvider provider, out ushort result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), (int)style, provider, out result);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider, out ushort result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, provider, out result);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, out ushort result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, null, out result);
     }
 
     [ShadowMembers("System.UInt32")]
@@ -214,6 +238,12 @@ namespace CsharpcCoreLib
         public static bool TryParse(ReadOnlySpan<char> s, out uint result) => TryParse(s.ToString(), DefaultStyle, null, out result);
         public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, out uint result) => TryParse(s.ToString(), DefaultStyle, provider, out result);
         public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out uint result) => TryParse(s.ToString(), (int)style, provider, out result);
+        // UTF-8 text (IUtf8SpanParsable): the same parser over the decoded characters (anything that isn't ASCII fails either way).
+        public static uint Parse(ReadOnlySpan<byte> utf8Text, NumberStyles style = NumberStyles.Integer, IFormatProvider provider = null) => Parse(System.Text.Encoding.UTF8.GetString(utf8Text), (int)style, provider);
+        public static uint Parse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider) => Parse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, provider);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, NumberStyles style, IFormatProvider provider, out uint result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), (int)style, provider, out result);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider, out uint result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, provider, out result);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, out uint result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, null, out result);
     }
 
     [ShadowMembers("System.UInt64")]
@@ -242,6 +272,12 @@ namespace CsharpcCoreLib
         public static bool TryParse(ReadOnlySpan<char> s, out ulong result) => TryParse(s.ToString(), DefaultStyle, null, out result);
         public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, out ulong result) => TryParse(s.ToString(), DefaultStyle, provider, out result);
         public static bool TryParse(ReadOnlySpan<char> s, NumberStyles style, IFormatProvider provider, out ulong result) => TryParse(s.ToString(), (int)style, provider, out result);
+        // UTF-8 text (IUtf8SpanParsable): the same parser over the decoded characters (anything that isn't ASCII fails either way).
+        public static ulong Parse(ReadOnlySpan<byte> utf8Text, NumberStyles style = NumberStyles.Integer, IFormatProvider provider = null) => Parse(System.Text.Encoding.UTF8.GetString(utf8Text), (int)style, provider);
+        public static ulong Parse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider) => Parse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, provider);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, NumberStyles style, IFormatProvider provider, out ulong result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), (int)style, provider, out result);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, IFormatProvider provider, out ulong result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, provider, out result);
+        public static bool TryParse(ReadOnlySpan<byte> utf8Text, out ulong result) => TryParse(System.Text.Encoding.UTF8.GetString(utf8Text), DefaultStyle, null, out result);
     }
 
     [ShadowMembers("System.Double")]

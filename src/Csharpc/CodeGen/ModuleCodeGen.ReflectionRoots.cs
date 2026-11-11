@@ -41,6 +41,9 @@ public sealed partial class ModuleCodeGen
     internal void NoteProgramInstantiation(ITypeSymbol type)
     {
         if (type is ITypeParameterSymbol || TypeSubstitution.IsOpen(type) || type is INamedTypeSymbol { IsGenericType: false }) return;
+        // The collections and arrays of the BCL: a value of one of those is what an object-typed member holds. A library's own generic helper types
+        // (what a JSON source generator's code builds) and the program's own generics are not values to serialize.
+        if (type is INamedTypeSymbol named && (IsProgramOrPackageType(named) || CoreLib.TryMap(named) is null)) return;
         _programInstantiated.Add(type);
     }
 
@@ -57,10 +60,15 @@ public sealed partial class ModuleCodeGen
         // own) are roots by themselves, not descended into.
         if (named.SpecialType != SpecialType.None || !IsProgramOrPackageType(named))
         {
-            // A BCL type of the graph (string, DateTime, List<T>...): the resolver asks it for its public constructors. Primitives have
+            // A BCL type of the graph (string, DateTime, List<T>...): the resolver asks it for its constructors. Primitives have
             // none, and the runtime answers that without a description.
             if (named.SpecialType is SpecialType.None or SpecialType.System_String or SpecialType.System_Decimal or SpecialType.System_DateTime)
-                MarkDynamicallyAccessed(named, ModuleCodeGen.DamPublicConstructors);
+                MarkDynamicallyAccessed(named, ModuleCodeGen.DamConstructors);
+            // A generic struct or tuple of the BCL (KeyValuePair<,>, ValueTuple<,>, Tuple<,>) is serialized as an object: its properties and fields are read.
+            if (named is { IsGenericType: true, SpecialType: SpecialType.None } && !TypeMapper.IsSpan(named) && !TypeMapper.IsNullable(named)
+                && (named.IsValueType || named.Name == "Tuple") && !IsProgramOrPackageType(named) && named.ContainingNamespace?.ToDisplayString() == "System"
+                || named is { Name: "KeyValuePair", IsGenericType: true })
+                MarkDynamicallyAccessed(named, ModuleCodeGen.DamProperties | ModuleCodeGen.DamFields);
             return;
         }
         MarkDynamicallyAccessed(named, ModuleCodeGen.DamConstructors | ModuleCodeGen.DamMethods | ModuleCodeGen.DamProperties | ModuleCodeGen.DamFields | ModuleCodeGen.DamEvents);
@@ -91,14 +99,23 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>A type of the program: its sources, or an IL assembly that is neither the shared framework's nor System.Private.CoreLib.</summary>
     internal bool IsProgramOrPackageType(INamedTypeSymbol type) =>
-        SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, Compilation.Assembly)
+        SymbolEqualityComparer.Default.Equals(type.ContainingAssembly, Compilation.Assembly) && !CoreLib.IsCoreLib(type)
         || Il.OwnerOf(type.OriginalDefinition) is { IsFramework: false, IsCoreLib: false };
+
+    /// <summary>The type, a type argument of it or an element type is the program's or a package's (not the shared framework's, not CoreLib's).</summary>
+    internal bool MentionsProgramOrPackageType(ITypeSymbol type) => type switch
+    {
+        IArrayTypeSymbol array => MentionsProgramOrPackageType(array.ElementType),
+        INamedTypeSymbol named => IsProgramOrPackageType(named) || named.TypeArguments.Any(MentionsProgramOrPackageType),
+        _ => false,
+    };
 
     /// <summary>`typeof(G&lt;,&gt;).MakeGenericType(...)` was lowered: G is instantiated over the roots.</summary>
     internal void NoteMakeGenericDefinition(INamedTypeSymbol definition)
     {
         definition = definition.OriginalDefinition;
         if (!definition.IsGenericType || !_makeGenericDefinitions.Add(definition)) return;
+        if (s_traceDam) Console.Error.WriteLine($"[csharpc] makegeneric {definition}");
         _makeGenericOrder.Add(definition);
         _rootedRootsScanned = 0;
     }
@@ -108,6 +125,7 @@ public sealed partial class ModuleCodeGen
     {
         if (type is ITypeParameterSymbol || TypeSubstitution.IsOpen(type) || type.TypeKind == TypeKind.Error || !_reflectionRoots.Add(type)) return;
         if (type.SpecialType == SpecialType.System_Object) _objectRooted = true;
+        if (s_traceDam) Console.Error.WriteLine($"[csharpc] root {type}");
         _reflectionRootOrder.Add(type);
         _rootedDefinitionsScanned = 0;
     }
@@ -143,6 +161,7 @@ public sealed partial class ModuleCodeGen
         try
         {
             var closed = definition.Construct([.. arguments]);
+            if (s_traceDam) Console.Error.WriteLine($"[csharpc] instantiate {closed}");
             _speculativeInstances.Add(closed);
             TypeMethodTable(closed, null!);
             MarkDynamicallyAccessed(closed, DamConstructors);
@@ -167,8 +186,7 @@ public sealed partial class ModuleCodeGen
                 yield return [nullable.TypeArguments[0]];
             else if (root is IArrayTypeSymbol) yield return [root];
             // The element of a one-argument generic or an array (Memory<float> -> a converter for float elements).
-            if (root is INamedTypeSymbol { IsGenericType: true, TypeArguments.Length: 1 } wrapper && wrapper.OriginalDefinition.SpecialType != SpecialType.System_Nullable_T) yield return [wrapper.TypeArguments[0]];
-            if (root is IArrayTypeSymbol { IsSZArray: true } elements) yield return [elements.ElementType];
+            if (root is INamedTypeSymbol { IsGenericType: true, IsValueType: true, TypeArguments.Length: 1 } wrapper && wrapper.OriginalDefinition.SpecialType != SpecialType.System_Nullable_T) yield return [wrapper.TypeArguments[0]];
         }
         if (root is INamedTypeSymbol { IsGenericType: true } constructed && arity == 1 + constructed.TypeArguments.Length && arity > 1)
             yield return [root, .. constructed.TypeArguments];
@@ -179,6 +197,11 @@ public sealed partial class ModuleCodeGen
         {
             var parameters = constructor.Parameters;
             if (parameters.Length == 0 || parameters.Length > arity - 1) continue;
+            // A library type is built by its constructor only when it takes its own type arguments in order (a tuple, a KeyValuePair); the
+            // collections' constructors (capacity, comparer, source) are not how a serializer makes them.
+            if (!IsProgramOrPackageType(type) && !(type.IsGenericType && parameters.Length == type.TypeArguments.Length
+                && parameters.Select(parameter => parameter.Type).SequenceEqual(type.TypeArguments, SymbolEqualityComparer.Default)))
+                continue;
             var arguments = ImmutableArray.CreateBuilder<ITypeSymbol>(arity);
             arguments.Add(root);
             foreach (var parameter in parameters) arguments.Add(parameter.Type);
