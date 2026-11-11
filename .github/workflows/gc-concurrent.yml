@@ -7,10 +7,14 @@ name: GC concurrent
 # so the suite's small programs mark concurrently too. A missed barrier, frame rescan or race frees a
 # live object, which shows up as wrong output or a crash. Then the threaded and collection-heavy
 # samples several times each (the races are timing-dependent). Informational: not one of the
-# `test (<platform>)` merge-bar jobs. Runs on ci/m7-gc-concurrent* pushes, on main and on demand.
+# `test (<platform>)` merge-bar jobs. Runs weekly (Mondays, after the benchmarks), on ci/gc-* and
+# ci/m7-gc-concurrent* pushes and on demand; not on every push to main, where it competed with the
+# merge-bar jobs of every open PR for runners.
 on:
+  schedule:
+    - cron: "0 8 * * 1" # Mondays 08:00 UTC
   push:
-    branches: [main, "ci/m7-gc-concurrent*"]
+    branches: ["ci/gc-*", "ci/m7-gc-concurrent*"]
     paths: ['src/**', 'tests/**', '.github/workflows/gc-concurrent.yml', '.github/actions/**']
   workflow_dispatch:
 

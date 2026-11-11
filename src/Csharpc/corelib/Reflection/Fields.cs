@@ -159,6 +159,19 @@ namespace CsharpcCoreLib
         public static FieldInfo[] GetFieldsAll(Type type) => GetFields(type, BindingFlags.Public | BindingFlags.Instance | BindingFlags.Static);
         public static FieldInfo[] GetFieldsFlags(Type type, BindingFlags flags) => GetFields(type, flags);
 
+        /// <summary>
+        /// Type.GetFields called from the framework's own IL (System.Text.Json lists every instance field and keeps the ones with
+        /// [JsonInclude]): a BCL type's non-public fields are hidden by its reference assembly, and the framework's caller gets the
+        /// rest. The program's own call keeps the explicit NotSupportedException.
+        /// </summary>
+        public static FieldInfo[] FrameworkGetFields(Type type, BindingFlags flags)
+        {
+            byte* info = ReflectionRuntime.Info(type, "fields");
+            if (info != null && (ReflectionRecords.InfoDescribed(info) & 8192) != 0 && (ReflectionRecords.InfoDescribed(info) & 512) == 0)
+                flags &= ~BindingFlags.NonPublic;
+            return GetFields(type, flags);
+        }
+
         internal static FieldInfo[] GetFields(Type type, BindingFlags flags)
         {
             byte* info = ReflectionRuntime.Info(type, "fields");

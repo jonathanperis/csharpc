@@ -31,6 +31,9 @@ namespace CsharpcCoreLib
             throw new NotSupportedException("Exception.Source of an exception that was thrown is not supported by csharpc yet (it names the assembly of the throwing method).");
         }
 
+        /// <summary>Exception.Source read by the framework's own IL: what was set, else null (never the throwing assembly's name, which is not known).</summary>
+        public static string GetSourceFramework(Exception exception) => s_source.TryGetValue(exception, out StringBox box) ? box.Value : null;
+
         public static void SetSource(Exception exception, string value) => s_source.GetOrCreateValue(exception).Value = value;
 
         public static IDictionary Get(Exception exception)

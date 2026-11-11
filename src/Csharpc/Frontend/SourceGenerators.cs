@@ -93,28 +93,6 @@ public static class SourceGenerators
         return (CSharpCompilation)updated;
     }
 
-    /// <summary>
-    /// With several projects each project's generators have run on its own compilation (RoslynFrontend.BuildProjects).
-    /// What no project owns is the metadata for the JSON contexts csharpc synthesizes for the merged program's
-    /// reflection-style System.Text.Json calls: the JSON generator runs once more over the merged compilation, with the
-    /// root project's options, and only the output for those synthesized contexts is kept (the projects' own contexts
-    /// already have theirs).
-    /// </summary>
-    public static IReadOnlyList<SyntaxTree> RunSynthesizedJsonContexts(CSharpCompilation compilation, GeneratorInputs? inputs, out IReadOnlyList<Diagnostic> diagnostics)
-    {
-        diagnostics = [];
-        if (!compilation.SyntaxTrees.Any(JsonReflectionContexts.IsSynthesizedTree)) return [];
-        var jsonOnly = (inputs ?? new GeneratorInputs()) with
-        {
-            Analyzers = [.. (inputs?.Analyzers ?? []).Where(a => Path.GetFileName(a).Equals(JsonGeneratorAssembly, StringComparison.OrdinalIgnoreCase))],
-            AdditionalFiles = [],
-        };
-        var updated = Run(compilation, [], jsonOnly, out var found);
-        // Findings about the projects' own contexts are the per-project runs' to report.
-        diagnostics = [.. found.Where(d => d.Severity == DiagnosticSeverity.Error && d.Location == Location.None)];
-        return [.. updated.SyntaxTrees.Except(compilation.SyntaxTrees).Where(t => JsonReflectionContexts.IsSynthesizedContextFile(t.FilePath))];
-    }
-
     private static List<ISourceGenerator> DefaultGenerators(IEnumerable<SyntaxTree> userTrees)
     {
         var text = string.Concat(userTrees.Select(t => t.GetText().ToString()));
@@ -171,11 +149,6 @@ public static class SourceGenerators
     {
         List<ISourceGenerator> generators = [];
         var analyzers = inputs.Analyzers.ToList();
-        // csharpc's reflection-based System.Text.Json support synthesizes [JsonSerializable] contexts
-        // (JsonReflectionContexts) that the JSON generator must turn into metadata, whatever the project's analyzers.
-        if (!analyzers.Any(a => Path.GetFileName(a).Equals(JsonGeneratorAssembly, StringComparison.OrdinalIgnoreCase))
-            && compilation.SyntaxTrees.Any(JsonReflectionContexts.IsSynthesizedTree))
-            generators.Add(LinkedGenerator(JsonGeneratorAssembly)!);
         foreach (var path in analyzers)
         {
             if (!File.Exists(path))
