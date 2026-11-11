@@ -23,8 +23,6 @@ public sealed record ProjectInfo
     /// System.Globalization.Invariant / PredefinedCulturesOnly, compiled into the program (null: not set).</summary>
     public bool? InvariantGlobalization { get; init; }
     public bool? PredefinedCulturesOnly { get; init; }
-    /// <summary>JsonSerializerIsReflectionEnabledByDefault (false in trimmed and AOT-published projects).</summary>
-    public bool JsonReflectionEnabled { get; init; } = true;
     /// <summary>The assembly's version as the SDK stamps it (FrontendSettings.AssemblyVersion).</summary>
     public string? AssemblyVersion { get; init; } = "1.0.0.0";
     /// <summary>The SDK-generated AssemblyInfo (`[assembly: ...]` lines of the AssemblyAttribute items), null when none.</summary>
@@ -174,6 +172,7 @@ public static class ProjectLoader
         ("EventSourceSupport", "System.Diagnostics.Tracing.EventSource.IsSupported"),
         ("UseSystemResourceKeys", "System.Resources.UseSystemResourceKeys"),
         ("JsonSerializerIsReflectionEnabledByDefault", "System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault"),
+        ("UseSizeOptimizedLinq", "System.Linq.Enumerable.IsSizeOptimized"),
     ];
 
     /// <summary>
@@ -426,7 +425,6 @@ public static class ProjectLoader
             StartupObject = Prop("StartupObject"),
             InvariantGlobalization = Switch(Prop("InvariantGlobalization")),
             PredefinedCulturesOnly = Switch(Prop("PredefinedCulturesOnly")),
-            JsonReflectionEnabled = !string.Equals(Prop("JsonSerializerIsReflectionEnabledByDefault"), "false", StringComparison.OrdinalIgnoreCase),
             AssemblyVersion = AssemblyVersionOf(Prop),
             // csc gets /optimize from Optimize, and writes a PDB (which gives stack traces their
             // " in file:line N") for any DebugType but none; DebugSymbols (false in Release) only
@@ -668,7 +666,6 @@ public static class ProjectLoader
             SharedFrameworks = [.. all.SelectMany(p => p.FrameworkReferences).Distinct(StringComparer.OrdinalIgnoreCase)],
             RuntimeConfig = root.RuntimeConfig,
             EmbeddedResources = [.. all.SelectMany(p => p.EmbeddedResources.Select(r => new ProgramResource(p.AssemblyName, r.Name, r.Path)))],
-            JsonReflectionEnabled = root.JsonReflectionEnabled,
             Symbols = root.Symbols,
             Generators = generators,
             Projects = all.Count > 1 ? [.. all.Select(p => new ProjectUnit

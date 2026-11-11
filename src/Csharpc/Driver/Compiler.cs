@@ -112,7 +112,6 @@ public sealed class Compiler(CompilerOptions options)
                 CoreLibDefines = [.. coreLibDefines, .. ProjectLoader.GlobalizationDefines(
                     mainProgram.Switch("System.Globalization.Invariant"), mainProgram.Switch("System.Globalization.PredefinedCulturesOnly"))],
                 RuntimeConfig = mainProgram.RuntimeConfig,
-                JsonReflectionEnabled = mainProgram.Switch("System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault") ?? true,
                 // The Roslyn compilation only binds; its name must not clash with the program assembly's.
                 AssemblyName = mainProgram.Name + ".csharpc",
                 AssemblyVersion = null,
@@ -179,20 +178,16 @@ public sealed class Compiler(CompilerOptions options)
             Phase("corelib assembly");
         }
         IlAssemblySet il;
-        try { il = IlAssemblySet.Load(ilPaths, settings.JsonReflectionEnabled == true ? mainProgram?.Path : null); }
+        try { il = IlAssemblySet.Load(ilPaths); }
         catch (Exception e) when (e is InvalidOperationException or IOException or BadImageFormatException) { return Fail(e.Message); }
         using var ilScope = il;
         if (!il.IsEmpty)
         {
             var programIl = mainProgram is null ? null : il.Assemblies.First(a => string.Equals(a.Path, Path.GetFullPath(mainProgram.Path), StringComparison.Ordinal));
-            // Reflection-based JSON metadata is generated in the binding compilation, which must see the
-            // program's internals as the program itself does (JsonReflectionContexts.Il.cs); before any binding.
-            var jsonFromIl = programIl is not null && !IlFirst.Assemblies.Contains("System.Text.Json", StringComparer.OrdinalIgnoreCase) && settings.JsonReflectionEnabled == true && JsonReflectionContexts.ReferencesJsonSerializer(programIl.Reader)
-                && JsonReflectionContexts.GrantInternalsAccess(programIl.Reference, settings.AssemblyName!);
-            // Converter hooks for the program's resources and GetConverter calls are generated like the JSON contexts: before any binding.
-            var convertersFromIl = programIl is not null && (settings.ResourceTypes.Count > 0 || ResourceConverters.CallsGetConverter(programIl.Reader))
-                && JsonReflectionContexts.GrantInternalsAccess(programIl.Reference, settings.AssemblyName!);
-            settings = settings with { IlReferences = il.References, IlSet = il, ProgramIl = programIl, JsonFromIl = jsonFromIl, ConvertersFromIl = convertersFromIl };
+            // Converter hooks for the program's resources are generated in the binding compilation, which must see the program's internals: before any binding.
+            var convertersFromIl = programIl is not null && settings.ResourceTypes.Count > 0
+                && IlInternals.GrantInternalsAccess(programIl.Reference, settings.AssemblyName!);
+            settings = settings with { IlReferences = il.References, IlSet = il, ProgramIl = programIl, ConvertersFromIl = convertersFromIl };
             Phase($"load {il.Assemblies.Count} IL assembl{(il.Assemblies.Count == 1 ? "y" : "ies")}");
         }
         // Nullable analysis only produces warnings, never different code. Lowering uses a compilation

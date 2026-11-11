@@ -542,6 +542,14 @@ namespace CsharpcCoreLib
         void IDisposable.Dispose() { }
     }
 
+    // The CoreLib-internal member the framework's StringBuilder.Append(Rune) calls (the reference pack does not declare it).
+    [ShadowMembers("System.Text.Rune")]
+    internal static class RuneInternals
+    {
+        [ShadowInstance]
+        public static ReadOnlySpan<char> AsSpan(in System.Text.Rune rune, Span<char> buffer) => buffer.Slice(0, rune.EncodeToUtf16(buffer));
+    }
+
     [ShadowMembers("System.String")]
     internal static class StringRunes
     {

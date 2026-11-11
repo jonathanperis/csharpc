@@ -33,7 +33,7 @@ public sealed partial class ModuleCodeGen
         {
             if (owner.Body(method) is { } body && body.GetILBytes() is [0x28, var t0, var t1, var t2, var t3, 0x2A]
                 && owner.ResolveMember(t0 | t1 << 8 | t2 << 16 | t3 << 24, IlGenericContext.For(method)) is IMethodSymbol target)
-                value = FunctionCodeGen.KnownFeatureSwitch(target) ?? SubstitutedSwitch(target) ?? ForwardingFeatureSwitch(target, depth + 1);
+                value = FunctionCodeGen.KnownFeatureSwitch(target) ?? SubstitutedSwitch(target) ?? FeatureSwitchDefinitionValue(target) ?? ForwardingFeatureSwitch(target, depth + 1);
         }
         catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { }
         _forwardingSwitches[method.OriginalDefinition] = value;

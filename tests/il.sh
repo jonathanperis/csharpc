@@ -189,7 +189,7 @@ if [[ -z "$FILTER" || "framework-il" == *"$FILTER"* ]]; then
   }
   metadata="$WORK/il/IlMetadataApp/Program.cs"
   expect_failure "--framework-il none" "'System.Reflection.PortableExecutable.PEReader" "$metadata" --framework-il none
-  expect_failure "--framework-il System.ComponentModel" "--framework-il: 'System.ComponentModel' can't be compiled from IL: csharpc implements its type" "$metadata" --framework-il System.ComponentModel
+  expect_failure "--framework-il System.Runtime.Numerics" "--framework-il: 'System.Runtime.Numerics' can't be compiled from IL: csharpc implements its type" "$metadata" --framework-il System.Runtime.Numerics
   # (native shims on Unix, its csharpc intrinsics on Windows, where it calls kernel32 directly)
   expect_failure "--framework-il System.Console" "--framework-il: 'System.Console' can't be compiled from IL" "$metadata" --framework-il System.Console
   expect_failure "--framework-il NoSuchAssembly" "--framework-il: 'NoSuchAssembly' is not an assembly of the shared framework" "$metadata" --framework-il NoSuchAssembly
