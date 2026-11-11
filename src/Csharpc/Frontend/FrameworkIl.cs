@@ -53,9 +53,10 @@ public static partial class FrameworkIl
     /// Assemblies with some types csharpc implements itself (corelib shadows) and the rest portable IL:
     /// eligible anyway. Every member of a shadowed type is redirected to its shadow (the IL of those types
     /// is never lowered, so the native calls in them are not either), and the other types are compiled
-    /// from IL. System.Net.Primitives: IPAddress, IPEndPoint and EndPoint are shadows (their IL calls
-    /// libSystem.Native's socket-address shims); Cookie, CookieContainer, CredentialCache,
-    /// NetworkCredential, DnsEndPoint and HttpVersion are plain C#. System.Net.NetworkInformation: NetworkInterface and its
+    /// from IL. System.Net.Primitives: SocketException is a shadow (its native error number and text come
+    /// from the socket engine's OS layer, where the IL calls libSystem.Native); IPAddress, IPEndPoint, IPNetwork,
+    /// Cookie, CredentialCache and the rest come from IL (SocketAddress's IL calls libSystem.Native's socket-address
+    /// shims, which are not linked: DllNotFoundException at the call). System.Net.NetworkInformation: NetworkInterface and its
     /// property types are shadows (getifaddrs / GetAdaptersAddresses in the corelib); PhysicalAddress, NetworkInformationException
     /// and the rest the program may name (a List&lt;PhysicalAddress&gt; in ASP.NET Core) come from IL.
     /// </summary>
@@ -193,11 +194,11 @@ public static partial class FrameworkIl
             if (index.TryGetValue(dependency, out var needed) && needed.Ineligible is null && Unusable(needed) is null)
                 Add(needed, "the corelib uses its types");
 
-        // The corelib's sockets (shadows) take and test types of System.Net.Primitives that are plain IL there
-        // (DnsEndPoint, for Socket.Connect(EndPoint)): a program that names System.Net.Sockets needs them, even
-        // when it never names System.Net.
-        if (Named("System.Net.Sockets") && index.TryGetValue("System.Net.Primitives", out var primitives) && primitives.Ineligible is null)
-            Add(primitives, "the corelib's sockets use its DnsEndPoint");
+        // The corelib's networking shadows (Socket, Dns, NetworkInterface, SslStream) take and return types of
+        // System.Net.Primitives, which come from its IL (IPAddress, IPEndPoint, DnsEndPoint): a program that names any
+        // System.Net namespace needs them, even when it never names one of those types (Dns.GetHostAddresses).
+        if (Named("System.Net") && index.TryGetValue("System.Net.Primitives", out var primitives) && primitives.Ineligible is null)
+            Add(primitives, "the corelib's networking types use its IPAddress and EndPoint types");
 
         // Closure: what the IL assemblies (the program's and the chosen framework ones) reference.
         var queue = new Queue<(string Name, string[] References)>();

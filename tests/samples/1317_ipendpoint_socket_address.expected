@@ -1,0 +1,13 @@
+InterNetwork:16:{31,144,10,1,2,3,0,0,0,0,0,0,0,0} InterNetwork 16 31 144 10 3
+10.1.2.3:8080 True
+InterNetworkV6:28:{1,187,0,0,0,0,254,128,0,0,0,0,0,0,0,0,0,0,0,0,0,1,3,0,0,0} InterNetworkV6 28
+[fe80::1%3]:443 3 True
+InterNetwork:16:{1,187,127,0,0,1,0,0,0,0,0,0,0,0} 127.0.0.1:443
+True True False
+16 28 64
+InterNetworkV6:28:{0,1,0,0,0,0,0,0,0,0,0,0,0,0,0,0,255,255,192,168,1,1,0,0,0,0} [::ffff:192.168.1.1]:1
+ArgumentException: The supplied System.Net.SocketAddress is an invalid size for the System.Net.IPEndPoint end point. (Parameter 'socketAddress')
+ArgumentOutOfRangeException: size ('1') must be greater than or equal to '2'. (Parameter 'size')
+Actual value was 1.
+IndexOutOfRangeException
+NotImplementedException

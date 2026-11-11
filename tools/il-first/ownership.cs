@@ -298,7 +298,7 @@ static class Rules
         ["System.Security.Cryptography"] = Above("crypto", "System.Security.Cryptography: managed algorithms plus the OpenSSL shim upstream; csharpc ports the managed layers over libcrypto", "OPENSSL,RES"),
         ["System.Net.Security"] = Above("net", "System.Net.Security (SslStream, TLS): managed upstream over libSystem.Net.Security.Native and OpenSSL", "OPENSSL,SYSNATIVE"),
         ["System.Net.Sockets"] = Above("net", "System.Net.Sockets: managed upstream over libSystem.Native (epoll, sockaddr shims)", "SYSNATIVE,THREAD"),
-        ["System.Net.Primitives"] = Above("net", "System.Net.Primitives: mixed assembly already (IPAddress/EndPoint shadows, the rest IL; ADR 0013)", "SYSNATIVE"),
+        ["System.Net.Primitives"] = Above("net", "System.Net.Primitives: from IL (ADR 0023, #326); SocketException and the sockaddr/interface-name shims stay with the socket engine", "SYSNATIVE"),
         ["System.Net.NetworkInformation"] = Above("net", "System.Net.NetworkInformation: managed upstream over libSystem.Native", "SYSNATIVE"),
         ["System.Net.NameResolution"] = Above("net", "System.Net.NameResolution: managed upstream over libSystem.Native", "SYSNATIVE"),
         ["System.Net.Quic"] = Above("net", "System.Net.Quic: msquic binding; csharpc has a throwing stub", "SYSNATIVE"),
@@ -407,6 +407,7 @@ static class Rules
         Add("Crypto/OpenSsl.cs", cryptoGlue);
         Add("Net/NetNative.cs", osGlue);
         Add("Net/SocketEngine.cs", osGlue);
+        Add("Net/SocketAddressPal.cs", osGlue);
         Add("Net/UriRelative.cs", Above("uri", "System.Uri's relative-URI half, ported from upstream", "ICU,RES"));
         Add("Random/Random.cs", Random);
         return d;
