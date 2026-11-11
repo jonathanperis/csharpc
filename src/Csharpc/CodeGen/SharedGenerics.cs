@@ -46,6 +46,10 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
         return method.IsGenericMethod ? inOwner.ConstructedFrom.Construct([.. method.TypeArguments.Select(Canonicalize)]) : inOwner;
     }
 
+    /// <summary>Is this class (or a containing class) a generic instantiation whose canonical form is shared code?</summary>
+    public bool IsSharedType(INamedTypeSymbol type) =>
+        Canon is not null && type.TypeKind == TypeKind.Class && (type.IsGenericType || type.ContainingType is not null) && MentionsCanon(CanonicalizeArguments(type));
+
     /// <summary>Is this method's canonical form shared code, i.e. does it stand for more than its own exact instantiation?</summary>
     public bool IsShared(IMethodSymbol canonical) => Canon is not null && MentionsCanon(canonical);
 

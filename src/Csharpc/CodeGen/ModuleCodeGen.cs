@@ -1041,6 +1041,7 @@ public sealed partial class ModuleCodeGen
             layout.VTable.AddRange(baseLayout.VTable);
             foreach (var (root, slot) in baseLayout.SlotOf) layout.SlotOf[root] = slot;
             foreach (var (slot, fn) in baseLayout.RuntimeSlots) layout.RuntimeSlots[slot] = fn;
+            foreach (var (definition, slot) in baseLayout.DictionarySlots) layout.DictionarySlots[definition] = slot;
         }
         else AddObjectSlots(layout);
         foreach (var m in type.GetMembers().OfType<IMethodSymbol>())
@@ -1063,6 +1064,9 @@ public sealed partial class ModuleCodeGen
                 layout.VTable.Add(m.IsAbstract ? null : m);
             }
         }
+        // --shared-generics (ADR 0026, step 2c): a generic class whose canonical form is shared code gets its dictionary slot after the
+        // virtuals it introduces; it stays null until step 2d emits the dictionaries.
+        if (SharedGenerics && SharedGenericsInfo.IsSharedType(type)) AddDictionarySlot(layout, type);
         EmitMethodTable(layout);
         return layout;
     }
