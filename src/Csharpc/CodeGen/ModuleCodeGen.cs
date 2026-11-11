@@ -227,7 +227,7 @@ public sealed partial class ModuleCodeGen
             FinishPInvokeResolver();
             ResolveTaskMethodTables();
         }
-        finally { Timed("IL failure reachability", ReportIlFailures); ReportWhyLowered(); }
+        finally { Timed("IL failure reachability", ReportIlFailures); ReportWhyLowered(); WriteGenericReport(); }
         // Every call site is known now: the stack-trace tables main registers.
         if (StackTraces is { } traces && !_traceTables.IsNull)
             Native.LLVMSetInitializer(_traceTables, traces.EmitTables(this));
@@ -298,6 +298,7 @@ public sealed partial class ModuleCodeGen
     private void Guard(ISymbol symbol, Action action)
     {
         if (s_trace) Console.Error.WriteLine($"[csharpc] lowering {symbol.ToDisplayString()}");
+        NoteGenericLowered(symbol);
         var outerCaller = _currentCaller;
         // The function being lowered, for the IL front-end's reachability (a type: its class initializer).
         _currentCaller = symbol switch { IMethodSymbol m => m, INamedTypeSymbol t => t.StaticConstructors.FirstOrDefault(), _ => null };
