@@ -14,7 +14,10 @@ namespace CsharpcCoreLib
             where T : ISpanFormattable
         {
             if (typeof(T) == typeof(char)) return CharTryFormat.TryFormat((char)self, destination, out charsWritten, format, provider);
-            if (typeof(T) == typeof(Int128) || typeof(T) == typeof(UInt128)) return TryFormat(self, destination, out charsWritten, format, provider);
+            // Not through TryFormat(object, ...): its switch reaches every formatter (decimal, DateTime with the calendars...), which a
+            // program that only boxes a UInt128 (System.Net.IPNetwork) would carry.
+            if (typeof(T) == typeof(Int128)) return Int128TryFormat((Int128)self, destination, out charsWritten, format, provider);
+            if (typeof(T) == typeof(UInt128)) return UInt128TryFormat((UInt128)self, destination, out charsWritten, format, provider);
             return CoreIntrinsics.Unbox<T>(self).TryFormat(destination, out charsWritten, format, provider);
         }
 
@@ -43,11 +46,17 @@ namespace CsharpcCoreLib
                 case decimal v: return v.TryFormat(destination, out charsWritten, format, provider);
                 case DateTime v: return v.TryFormat(destination, out charsWritten, format, provider);
                 case TimeSpan v: return v.TryFormat(destination, out charsWritten, format, provider);
-                case Int128 v: return format.Length == 0 ? NumberTryFormat.Copy(v.ToString(provider), destination, out charsWritten) : throw new NotSupportedException("Int128.TryFormat with a format string is not supported by csharpc yet.");
-                case UInt128 v: return format.Length == 0 ? NumberTryFormat.Copy(v.ToString(provider), destination, out charsWritten) : throw new NotSupportedException("UInt128.TryFormat with a format string is not supported by csharpc yet.");
+                case Int128 v: return Int128TryFormat(v, destination, out charsWritten, format, provider);
+                case UInt128 v: return UInt128TryFormat(v, destination, out charsWritten, format, provider);
             }
             throw new InvalidCastException();
         }
+
+        private static bool Int128TryFormat(Int128 v, Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider provider) =>
+            format.Length == 0 ? NumberTryFormat.Copy(v.ToString(provider), destination, out charsWritten) : throw new NotSupportedException("Int128.TryFormat with a format string is not supported by csharpc yet.");
+
+        private static bool UInt128TryFormat(UInt128 v, Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider provider) =>
+            format.Length == 0 ? NumberTryFormat.Copy(v.ToString(provider), destination, out charsWritten) : throw new NotSupportedException("UInt128.TryFormat with a format string is not supported by csharpc yet.");
 
         public static bool TryFormat(object self, Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format, IFormatProvider provider)
         {
