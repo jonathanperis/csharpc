@@ -62,8 +62,10 @@ A shared body cannot name `T`; whatever depends on the exact `T` comes from a ge
 - **Method tables** stay one per exact instantiation (type identity, `GetType()`, `is List<string>`, variance registration and reflection
   are unchanged), plus the dictionary field in the header; their vtables and interface maps point at the shared code. `csrt.h`,
   `TypeMapper.MethodTableHeader` and `ModuleCodeGen.EmitMethodTable` change together (the shared-ABI rule).
-- **The GC needs no generic type information from frames.** The collector is conservative and non-moving (ADR 0004): it scans stacks,
-  registers and TLS for anything that looks like a pointer and never asks a frame what its slots hold. A shared frame holding `T` values
+- **The GC needs no generic type information from frames.** The collector is conservative and non-moving (ADR 0004;
+  `src/runtime/gc.c`, header comment: "Roots are scanned conservatively: the main thread's stack (with callee-saved registers spilled by
+  setjmp) and the writable segments", and `scan_range`, which reads every word of a range): it scans stacks, registers and TLS for
+  anything that looks like a pointer and never asks a frame what its slots hold; no frame maps exist to extend. A shared frame holding `T` values
   as pointers is scanned like any other frame, and dictionaries are constant data in the image, not heap objects. On wasm32 the roots are
   spilled to the shadow stack (ADR 0011); a `__Canon` value is a pointer and is spilled like any reference. (ILC needs per-frame generic
   context reporting because its GC is precise; that work does not exist here.)
@@ -72,8 +74,9 @@ A shared body cannot name `T`; whatever depends on the exact `T` comes from a ge
   constant landing-pad clause, so it becomes a catch-all clause followed by a type test against the dictionary's slot and a rethrow when
   it fails, the shape csharpc already uses for filters.
 - **Stack traces** (ADR 0012) take the method index from a per-site descriptor. .NET prints generic frames with their definitions'
-  parameters (``at Repo`1.Save(T item)``), not with the exact arguments, so the canonical method's index prints the same text: no change in
-  output. Debug info gets one DWARF subprogram per shared body, named by its canonical form, as ILC's are.
+  type parameters, not with the exact arguments: checked against .NET 11 (the oracle), `Repo<string>.Save("a")` and
+  `Repo<Customer>.Save(c)` both print ``at Repo`1.Save(T item)``, and `Repo<int>.Make<string>("s")` prints ``at Repo`1.Make[U](U u)``.
+  The canonical method's index therefore prints the same text: no change in output. Debug info gets one DWARF subprogram per shared body, named by its canonical form, as ILC's are.
 
 ### 4. Statics and class initializers
 
