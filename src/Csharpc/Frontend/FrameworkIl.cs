@@ -59,13 +59,7 @@ public static partial class FrameworkIl
     /// property types are shadows (getifaddrs / GetAdaptersAddresses in the corelib); PhysicalAddress, NetworkInformationException
     /// and the rest the program may name (a List&lt;PhysicalAddress&gt; in ASP.NET Core) come from IL.
     /// </summary>
-    private static readonly string[] MixedWithShadows = ["System.Net.Primitives", "System.ComponentModel.TypeConverter", "System.Net.NetworkInformation"];
-
-    /// <summary>
-    /// Mixed assemblies that are taken for the types csharpc doesn't implement only: naming a shadowed type (System.ComponentModel's
-    /// TypeConverter) is served by the corelib alone.
-    /// </summary>
-    private static readonly string[] UsedOnlyForOtherTypes = ["System.ComponentModel.TypeConverter"];
+    private static readonly string[] MixedWithShadows = ["System.Net.Primitives", "System.Net.NetworkInformation"];
 
     /// <summary>
     /// The references of an assembly that are followed when it is chosen, where not all are: System.ComponentModel.TypeConverter
@@ -77,7 +71,7 @@ public static partial class FrameworkIl
         ["System.ComponentModel.TypeConverter"] = ["System.ComponentModel.Primitives", "System.Collections.NonGeneric", "System.Collections.Specialized", "System.Drawing.Primitives"],
     };
 
-    private static readonly string[] CorelibDependencies = ["System.Collections.NonGeneric", "System.Collections", "System.Collections.Concurrent"];
+    private static readonly string[] CorelibDependencies = ["System.Collections.NonGeneric", "System.Collections", "System.Collections.Concurrent", "System.ComponentModel.TypeConverter"];
 
     private static string[] Followed(Assembly a) =>
         FollowedReferences.TryGetValue(a.Name, out var followed) ? [.. a.References.Where(r => followed.Contains(r, StringComparer.OrdinalIgnoreCase))] : a.References;
@@ -183,6 +177,10 @@ public static partial class FrameworkIl
         // Their converters are System.ComponentModel.TypeConverter's (PointConverter, ColorConverter, EnumConverter ...).
         if (settings.ResourceTypes.Count > 0 && index.TryGetValue("System.ComponentModel.TypeConverter", out var converters) && Unusable(converters) is null)
             Add(converters, $"a resource of type {settings.ResourceTypes[0]} is created by its TypeConverter");
+
+        // [DefaultValue(typeof(T), "text")]: the corelib's DefaultValueAttribute converts the text with TypeDescriptor.GetConverter.
+        if (identifiers.Contains("DefaultValue") && Named("System.ComponentModel") && index.TryGetValue("System.ComponentModel.TypeConverter", out var defaultValueConverters) && Unusable(defaultValueConverters) is null)
+            Add(defaultValueConverters, "the program uses DefaultValueAttribute, which converts its text with TypeDescriptor");
 
         // TypeDescriptor.GetConverter(typeof(X)) in the sources: the converters it gives (ResourceConverters) are that assembly's.
         if (identifiers.Contains("GetConverter") && Named("System.ComponentModel") && index.TryGetValue("System.ComponentModel.TypeConverter", out var described) && Unusable(described) is null)
@@ -365,11 +363,6 @@ public static partial class FrameworkIl
         foreach (var (ns, list) in extensions) a.Extensions[ns] = [.. list.Distinct(StringComparer.Ordinal)];
 
         var known = KnownTypes();
-        // Naming TypeConverter or TypeDescriptor (the shadows Configuration.Binder and friends use) must not take the
-        // whole assembly: only a program that names one of the rest (PointConverter, EnumConverter, ITypeDescriptorContext ...)
-        // does, so programs that only convert strings compile as before.
-        if (UsedOnlyForOtherTypes.Contains(a.Name, StringComparer.OrdinalIgnoreCase))
-            foreach (var ns in a.Types.Keys.ToList()) a.Types[ns] = [.. a.Types[ns].Where(n => !known.Contains(ns + "." + n))];
         // Native code of the .NET runtime it calls: the shims csharpc links from the NativeAOT pack are
         // recorded (eligible where that works), any other (QCalls, libSystem.Native ...) rules it out.
         var shims = new List<string>();

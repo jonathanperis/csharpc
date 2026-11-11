@@ -132,12 +132,6 @@ namespace CsharpcCoreLib
         /// type (Frontend/ResourceConverters.cs generates one for the types its .resources files hold).
         /// </summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object[] ResourceObjectHook(string type, string text);
-        /// <summary>
-        /// The program's CsharpcCoreLib.ProgramHooks.TypeConverterFor(type) if it has one: the converter TypeDescriptor.GetConverter gives a type
-        /// the corelib doesn't know (a [TypeConverter] attribute, enums, BCL types), or null (Frontend/ResourceConverters.cs generates it for
-        /// the types the sources name in `typeof` where they call GetConverter).
-        /// </summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object TypeConverterHook(Type type);
         /// <summary>csrt_task_try_fault_async: faults a pending task, or cancels it for an OperationCanceledException.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool TryFaultAsyncTask(System.Threading.Tasks.Task task, Exception exception);
         /// <summary>Type.IsInstanceOfType: obj's class, a base class or an implemented interface is `type`.</summary>
