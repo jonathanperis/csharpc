@@ -376,6 +376,11 @@ public sealed partial class ModuleCodeGen
         // otherwise inlines every internal function with a single call site, however big.
         if ((method.MethodImplementationFlags & System.Reflection.MethodImplAttributes.NoInlining) != 0)
             Llvm.AddFunctionAttribute(fn, "noinline");
+        // [MethodImpl(AggressiveInlining)]: inlined wherever it is called, as NativeAOT does (the framework marks its small hot helpers so;
+        // LLVM's cost model alone leaves Random.Next's argument check and the like as calls). LLVM still refuses recursive or
+        // otherwise uninlinable bodies.
+        else if ((method.MethodImplementationFlags & System.Reflection.MethodImplAttributes.AggressiveInlining) != 0)
+            Llvm.AddFunctionAttribute(fn, "alwaysinline");
         if (CoreLib.IsCoreLib(method) && OptimizeForSize(method.ContainingType))
         {
             Llvm.AddFunctionAttribute(fn, "optsize");
