@@ -81,25 +81,22 @@ public sealed partial class ModuleCodeGen
     {
         if (!method.IsStatic || !method.Parameters.IsEmpty || method.IsGenericMethod || method.ReturnType.SpecialType != SpecialType.System_Boolean
             || Il.OwnerOf(method) is not { } owner) return null;
-        if (SubstitutionsOf(owner).BoolStubs.TryGetValue((method.ContainingType.ToDisplayString(), method.Name), out var value)) return value;
-        return FeatureSwitchDefinitionValue(method);
+        return SubstitutionsOf(owner).BoolStubs.TryGetValue((method.ContainingType.ToDisplayString(), method.Name), out var value) ? value : null;
     }
 
     /// <summary>
-    /// A static bool property marked [FeatureSwitchDefinition("Name")] whose switch the program's runtime config sets: its getter folds
-    /// to that value, as NativeAOT's ILCompiler folds it (JsonSerializer.IsReflectionEnabledByDefault, which a PublishAot build sets
-    /// false, makes the reflection-based resolver dead code). Unset switches stay run-time reads.
+    /// A static bool property marked [FeatureSwitchDefinition("name")] whose switch the program's runtime configuration sets: its value, as
+    /// ILCompiler substitutes it (System.Linq.Enumerable.IsSizeOptimized, which NativeAOT's targets set to true). Null otherwise; the getter
+    /// then runs and reads the same configuration through AppContext.
     /// </summary>
-    private bool? FeatureSwitchDefinitionValue(IMethodSymbol getter)
+    internal bool? FeatureSwitchDefinitionValue(IMethodSymbol method)
     {
-        if (getter is not { MethodKind: MethodKind.PropertyGet, AssociatedSymbol: IPropertySymbol property }) return null;
+        if (method is not { IsStatic: true, MethodKind: MethodKind.PropertyGet, Parameters.IsEmpty: true, ReturnType.SpecialType: SpecialType.System_Boolean }
+            || method.AssociatedSymbol is not IPropertySymbol property) return null;
         foreach (var attribute in property.GetAttributes())
-        {
-            if (attribute.AttributeClass is not { Name: "FeatureSwitchDefinitionAttribute", ContainingNamespace: { Name: "CodeAnalysis", ContainingNamespace.Name: "Diagnostics" } }
-                || attribute.ConstructorArguments is not [{ Value: string name }]) continue;
-            foreach (var (key, value) in RuntimeConfig)
-                if (key == name) return bool.TryParse(value, out var flag) ? flag : null;
-        }
+            if (attribute.AttributeClass is { Name: "FeatureSwitchDefinitionAttribute" } && attribute.ConstructorArguments is [{ Value: string name }])
+                foreach (var (key, value) in RuntimeConfig)
+                    if (key == name && bool.TryParse(value, out var configured)) return configured;
         return null;
     }
 

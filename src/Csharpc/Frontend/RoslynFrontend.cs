@@ -86,15 +86,15 @@ public static class RoslynFrontend
 
         var name = settings.AssemblyName ?? (settings.Files.Count > 0 ? Path.GetFileNameWithoutExtension(settings.Files[0]) : "program");
         var compilation = CSharpCompilation.Create(name, trees, [.. FrameworkReferences(settings), .. settings.IlReferences, .. CoreLibFacadeFor(settings)], options);
-        // ResourceManager.GetObject of preserialized TypeConverter strings (System.Drawing.Point from a .resx), TypeDescriptor.GetConverter(typeof(X)).
-        if (settings.ProgramIl is null) compilation = ResourceConverters.Add(compilation, settings.ResourceTypes, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath))],
+        // ResourceManager.GetObject of preserialized TypeConverter strings (System.Drawing.Point from a .resx).
+        if (settings.ProgramIl is null) compilation = ResourceConverters.Add(compilation, settings.ResourceTypes,
             compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions);
-        // The same for an IL program: its resources' types, and its ldtokens next to a GetConverter call (internals visible).
-        if (settings.ProgramIl is { } converterProgram && settings.ConvertersFromIl && settings.IlSet is { } converterSet)
+        // The same for an IL program: its resources' types (internals visible).
+        if (settings.ProgramIl is not null && settings.ConvertersFromIl && settings.IlSet is { } converterSet)
         {
             var symbols = compilation.WithOptions(compilation.Options.WithMetadataImportOptions(MetadataImportOptions.All));
             converterSet.Bind(symbols);
-            compilation = ResourceConverters.AddFromIl(compilation, symbols, settings.ResourceTypes, converterProgram,
+            compilation = ResourceConverters.AddFromIl(compilation, symbols, settings.ResourceTypes,
                 compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions);
         }
         // Dynamic call sites in IL bind at a position of their own (IlDynamicBinding).

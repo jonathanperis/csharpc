@@ -1,7 +1,7 @@
 // System.Collections.ArrayList, after dotnet/runtime's ArrayList.cs: an object[] grown like List<T>
 // (0, then 4, then doubling), .NET's argument checks and messages, version-checked enumeration, and
 // sorting with the ported introsort and Comparer.Default's semantics (ObjectComparison). The wrapper
-// factories (Adapter, FixedSize, ReadOnly, Synchronized) are not implemented (CSLLVM0002).
+// factories (FixedSize, ReadOnly, Synchronized) are not implemented (CSLLVM0002); Adapter is in ArrayListAdapter.cs.
 #nullable disable
 using System;
 using System.Collections;
@@ -10,7 +10,7 @@ using System.Collections.Generic;
 namespace CsharpcCoreLib
 {
     [Shadows("System.Collections.ArrayList")]
-    public class ArrayListImpl : IList, ICloneable
+    public partial class ArrayListImpl : IList, ICloneable
     {
         private object[] _items;
         private int _size;
