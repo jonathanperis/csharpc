@@ -56,4 +56,39 @@ public sealed partial class ModuleCodeGen
         layout.DictionarySlots[type.OriginalDefinition] = layout.VTable.Count;
         layout.VTable.Add(null);
     }
+
+    private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _genericDictionaries = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// The generic dictionary a method table's slot <paramref name="slot"/> holds (ADR 0026, step 2d), or null when the slot is not a
+    /// dictionary slot: the dictionary of the exact instantiation, in this class's hierarchy, of the generic class that owns the slot.
+    /// </summary>
+    private LLVMValueRef? DictionaryForSlot(ClassLayout layout, int slot)
+    {
+        if (layout.DictionarySlots.Count == 0) return null;
+        foreach (var (definition, index) in layout.DictionarySlots)
+        {
+            if (index != slot) continue;
+            for (var owner = layout; owner is not null; owner = owner.Base)
+                if (SymbolEqualityComparer.Default.Equals(owner.Type.OriginalDefinition, definition)) return GenericDictionary(owner);
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// One constant per exact instantiation of a shared generic class: [its own method table, then one slot per type-parameter-dependent
+    /// symbol the canonical class's instance methods name]. Only slot 0 is filled for now; the others are laid out and stay null until
+    /// step 3 reads them, so filling them cannot pull in code nothing uses.
+    /// </summary>
+    private LLVMValueRef GenericDictionary(ClassLayout exact)
+    {
+        if (_genericDictionaries.TryGetValue(exact.Type, out var existing)) return existing;
+        var count = 1 + SharedGenericsInfo.ClassDictionarySlots(exact.Type.OriginalDefinition);
+        var entries = new LLVMValueRef[count];
+        entries[0] = exact.MethodTable;
+        for (var i = 1; i < count; i++) entries[i] = LlvmContext.Null(Llvm.Ptr);
+        var init = LlvmContext.ConstArray(Llvm.Ptr, entries);
+        var global = Module.AddGlobal(Mangler.TypeSymbol(exact.Type, "GDICT"), Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Internal);
+        return _genericDictionaries[exact.Type] = global;
+    }
 }
