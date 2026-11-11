@@ -21,6 +21,8 @@
 # other platforms printed windows-x86_64 1 007 616, macos-arm64 965 048, linux-aarch64 941 648, wasi-wasm32 1 059 094 B (no budgets yet).
 # SR getters as string literals (#272): linux-x86_64 measured json 1 567 872 (main's CI: 1 769 784), jsonwriter 801 560 (1 015 400), regex 818 312 (925 312),
 # regexoptions 2 046 216 (2 153 144); those four budgets lowered to measured + max(4 KiB, 3 %).
+# net (#326) is System.Net.Primitives from the framework's IL (IPAddress, IPEndPoint, IPNetwork): linux-x86_64 measured 255 976 B (the shadows gave 171 480,
+# NativeAOT 1 365 832); budget = measured + max(4 KiB, 3 %). Only linux-x86_64 has a budget so far; other platforms print the size.
 # Lower a budget when a change makes a program smaller; raising one needs a reason in the commit.
 linux-x86_64 async 183296
 linux-x86_64 collections 173056
@@ -29,6 +31,7 @@ linux-x86_64 hello 32768
 linux-x86_64 json 1615872
 linux-x86_64 jsonwriter 826368
 linux-x86_64 linq 240640
+linux-x86_64 net 264192
 linux-x86_64 numbers 148480
 linux-x86_64 regex 843776
 linux-x86_64 regexoptions 2108416

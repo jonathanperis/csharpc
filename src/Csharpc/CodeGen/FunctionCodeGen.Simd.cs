@@ -258,6 +258,44 @@ public sealed partial class FunctionCodeGen
                     Native.LLVMSetAlignment(_b.Store(value, address), 1);
                 return default;
             }
+            case "Create" or "CopyTo" when target.Parameters.Any(p => p.Type is IArrayTypeSymbol):
+            {
+                // Create(T[] values[, int index]) and CopyTo(T[] destination[, int startIndex]), with .NET's checks and messages.
+                var create = name == "Create";
+                var arrayAt = target.Parameters.ToList().FindIndex(p => p.Type is IArrayTypeSymbol);
+                var array = a[arrayAt];
+                var vector = create ? default : target.IsStatic ? a[0] : instance;
+                NullCheck(array);
+                var length = LoadArrayLength(array);
+                var index = a.Length > arrayAt + 1 ? _b.Cast(LLVMOpcode.SExt, a[arrayAt + 1], L.I64) : L.ConstInt(L.I64, 0);
+                var hasIndex = a.Length > arrayAt + 1;
+                var count = L.ConstInt(L.I64, e.Count);
+                void Throw(LLVMValueRef bad, string type, string message)
+                {
+                    var fail = NewBlock("simd.array.bad");
+                    var ok = NewBlock("simd.array.ok");
+                    _b.CondBr(bad, fail, ok);
+                    _b.PositionAtEnd(fail);
+                    ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName(type)!, message);
+                    _b.PositionAtEnd(ok);
+                }
+                var room = _b.BinOp(LLVMOpcode.Sub, length, index);
+                if (create)
+                    Throw(hasIndex ? _b.BinOp(LLVMOpcode.Or, _b.ICmp(LLVMIntPredicate.SLT, index, L.ConstInt(L.I64, 0)), _b.ICmp(LLVMIntPredicate.SLT, room, count))
+                        : _b.ICmp(LLVMIntPredicate.SLT, length, count),
+                        "System.ArgumentOutOfRangeException", "Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'index')");
+                else
+                {
+                    if (hasIndex)
+                        Throw(_b.ICmp(LLVMIntPredicate.UGE, index, length), "System.ArgumentOutOfRangeException",
+                            "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'startIndex')");
+                    Throw(_b.ICmp(LLVMIntPredicate.SLT, room, count), "System.ArgumentException", "Destination is too short. (Parameter 'destination')");
+                }
+                var start = Offset(_b.StructGep(T.ArrayHeader(L.I8), array, 2), index, e);
+                if (create) return Load128(start);
+                Native.LLVMSetAlignment(_b.Store(vector, start), 1);
+                return default;
+            }
             case "Sum" when a.Length == 1:
             {
                 // Lanes added pairwise ((a0 + a1) + (a2 + a3)), as the hardware's horizontal add does: the order is only visible for floats.
@@ -266,15 +304,16 @@ public sealed partial class FunctionCodeGen
                     lanes = [.. Enumerable.Range(0, lanes.Count / 2).Select(i => _b.BinOp(e.IsFloat ? LLVMOpcode.FAdd : LLVMOpcode.Add, lanes[2 * i], lanes[2 * i + 1]))];
                 return lanes[0];
             }
-            case "CopyTo" when a.Length == 1 && a[0].Type.Kind == LLVMTypeKind.Struct: // CopyTo(Span<T> destination)
+            case "CopyTo" when a.Length == (target.IsStatic ? 2 : 1) && a[^1].Type.Kind == LLVMTypeKind.Struct: // CopyTo(Span<T> destination), as an instance (Vector<T>) or an extension (Vector128)
             {
+                var (vectorValue, destination) = target.IsStatic ? (a[0], a[1]) : (instance, a[0]);
                 var tooShort = NewBlock("simd.copy.short");
                 var ok = NewBlock("simd.copy.ok");
-                _b.CondBr(_b.ICmp(LLVMIntPredicate.SLT, SpanLength(a[0]), L.ConstInt(L.I32, e.Count)), tooShort, ok);
+                _b.CondBr(_b.ICmp(LLVMIntPredicate.SLT, SpanLength(destination), L.ConstInt(L.I32, e.Count)), tooShort, ok);
                 _b.PositionAtEnd(tooShort);
                 ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.ArgumentException")!, "Destination is too short. (Parameter 'destination')");
                 _b.PositionAtEnd(ok);
-                Native.LLVMSetAlignment(_b.Store(instance, SpanPointer(a[0])), 1);
+                Native.LLVMSetAlignment(_b.Store(vectorValue, SpanPointer(destination)), 1);
                 return default;
             }
             case "Create" or "CreateScalarUnsafe" or "CreateScalar" when a.Length == 1 && a[0].Type == e.Llvm:
