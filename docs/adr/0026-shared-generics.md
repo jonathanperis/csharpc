@@ -1,6 +1,6 @@
 # ADR 0026 — Shared generic code for reference-type instantiations
 
-- **Status:** Proposed (2026-11-10). Design note before any code: ADR 0025, Phase 2, first item. Issue
+- **Status:** Accepted (2026-11-11): implements ADR 0025 Phase 2, item 1. Design note before any code. Issue
   [#314](https://github.com/jonathanperis/csharpc/issues/314).
 - **Context:** [03-lowering.md "Generics (monomorphization)"](../03-lowering.md#generics-monomorphization),
   [ADR 0025](0025-optimizer-before-flips.md) (the compiler catches up before flips resume),
