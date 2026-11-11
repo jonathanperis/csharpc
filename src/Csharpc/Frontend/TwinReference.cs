@@ -20,7 +20,7 @@ namespace Csharpc.Frontend;
 internal static class TwinReference
 {
     /// <summary>The assemblies taken as IL with a renamed twin. Others that forward twin types stay facades until they are measured the same way.</summary>
-    private static readonly string[] SupportedAssemblies = ["System.Collections", "System.Collections.Concurrent"];
+    private static readonly string[] SupportedAssemblies = ["System.Collections", "System.Collections.Concurrent", "System.Memory"];
 
     public static bool Supported(string assemblyName) => SupportedAssemblies.Contains(assemblyName, StringComparer.OrdinalIgnoreCase);
 

@@ -194,9 +194,40 @@ namespace CsharpcCoreLib
         public static void Copy(void* source, void* destination, nuint byteCount) => Libc.memmove(destination, source, byteCount);
     }
 
+    /// <summary>
+    /// COM: a csharpc program creates no COM objects (no runtime-callable wrappers, no ComWrappers instances, as Type.IsCOMObject
+    /// answers), so the questions System.ComponentModel asks of an object have their negative answers, as on any platform without COM.
+    /// </summary>
+    [ShadowMembers("System.Runtime.InteropServices.ComWrappers")]
+    internal static class ComWrappersMembers
+    {
+        public static bool TryGetComInstance(object obj, out IntPtr unknown)
+        {
+            ArgumentNullException.ThrowIfNull(obj);
+            unknown = IntPtr.Zero;
+            return false;
+        }
+
+        public static bool TryGetObject(IntPtr unknown, out object obj)
+        {
+            if (unknown == IntPtr.Zero) throw new ArgumentNullException("unknown");
+            obj = null;
+            return false;
+        }
+    }
+
     [Shadows("System.Runtime.InteropServices.Marshal")]
     internal static unsafe class MarshalImpl
     {
+        public static int Release(IntPtr pUnk) =>
+            throw new PlatformNotSupportedException("COM interop is not supported by csharpc: no COM object exists in a csharpc program.");
+
+        public static bool IsComObject(object o)
+        {
+            ArgumentNullException.ThrowIfNull(o); // no COM objects exist (see ComWrappersMembers)
+            return false;
+        }
+
         public static int GetLastPInvokeError() => Libc.csrt_get_last_pinvoke_error();
         public static void SetLastPInvokeError(int error) => Libc.csrt_set_last_pinvoke_error(error);
         public static int GetLastWin32Error() => Libc.csrt_get_last_pinvoke_error();

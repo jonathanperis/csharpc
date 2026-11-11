@@ -184,8 +184,8 @@ public sealed class Compiler(CompilerOptions options)
         if (!il.IsEmpty)
         {
             var programIl = mainProgram is null ? null : il.Assemblies.First(a => string.Equals(a.Path, Path.GetFullPath(mainProgram.Path), StringComparison.Ordinal));
-            // Converter hooks for the program's resources and GetConverter calls are generated in the binding compilation, which must see the program's internals: before any binding.
-            var convertersFromIl = programIl is not null && (settings.ResourceTypes.Count > 0 || ResourceConverters.CallsGetConverter(programIl.Reader))
+            // Converter hooks for the program's resources are generated in the binding compilation, which must see the program's internals: before any binding.
+            var convertersFromIl = programIl is not null && settings.ResourceTypes.Count > 0
                 && IlInternals.GrantInternalsAccess(programIl.Reference, settings.AssemblyName!);
             settings = settings with { IlReferences = il.References, IlSet = il, ProgramIl = programIl, ConvertersFromIl = convertersFromIl };
             Phase($"load {il.Assemblies.Count} IL assembl{(il.Assemblies.Count == 1 ? "y" : "ies")}");

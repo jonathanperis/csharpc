@@ -549,11 +549,39 @@ public sealed partial class ModuleCodeGen
     private static bool DescribesOwnAttributes(INamedTypeSymbol type) =>
         type.TypeKind is TypeKind.Class or TypeKind.Struct or TypeKind.Interface or TypeKind.Enum or TypeKind.Delegate && !type.IsAnonymousType && !type.IsTupleType;
 
+    /// <summary>
+    /// A Type argument of an attribute whose constructor parameter is [DynamicallyAccessedMembers] keeps the members that annotation names, as
+    /// NativeAOT roots them: `[TypeConverter(typeof(PointConverter))]` on a type keeps PointConverter's constructor for the TypeDescriptor
+    /// that creates it from the attribute's type name.
+    /// </summary>
+    private void KeepAttributeArguments(List<AttributeInstance> attributes)
+    {
+        foreach (var attribute in attributes)
+        {
+            // TypeConverterAttribute(string typeName): System.Drawing.Primitives names its converters this way ("System.Drawing.PointConverter,
+            // System.Drawing, ..."), which TypeDescriptor resolves by name and creates. The type is looked up by its name alone (the assembly
+            // part is the one the type was forwarded from) and kept as the Type overload keeps it.
+            if (attribute.Constructor.ContainingType is { Name: "TypeConverterAttribute", ContainingNamespace: { Name: "ComponentModel", ContainingNamespace.Name: "System" } }
+                && attribute.Fixed is [{ Value: string converterName }]
+                && Compilation.GetTypeByMetadataName(converterName.Split(',')[0].Trim()) is { } converter)
+                MarkDynamicallyAccessed(converter, DamConstructors);
+            var parameters = attribute.Constructor.OriginalDefinition.Parameters;
+            for (var i = 0; i < attribute.Fixed.Length && i < parameters.Length; i++)
+                if (attribute.Fixed[i].Value is ITypeSymbol type && DamKindsOf(parameters[i].GetAttributes()) is var kinds and not 0)
+                    MarkDynamicallyAccessed(type, kinds);
+        }
+    }
+
     private void SetTypeAttributes(ReflectionEntry entry, List<AttributeInstance>? attributes, bool synthesizedUnknown = false)
     {
         if (attributes is null) entry.Described |= RiAttributesUnknown;
         else
         {
+            // Only for the types reflection is expected to look into (the program's, those kept for [DynamicallyAccessedMembers]): every IL library
+            // type's attributes are described once the program asks for any, and rooting what their arguments name (each [DebuggerTypeProxy]'s
+            // proxy with all its members) made csharpc's own compile run out of memory.
+            if (entry.Type is INamedTypeSymbol described && (IsProgramType(described) || _damMarks.ContainsKey(described) || _damMarks.ContainsKey(described.OriginalDefinition)))
+                KeepAttributeArguments(attributes);
             // The declared attributes are exact; the list's count word says csc synthesizes more (Nullable, ...), which
             // makes the untyped queries and those for System attributes throw while a program's own attributes stay exact.
             entry.Attributes = synthesizedUnknown ? Attributes(new AttributeSet(attributes, 0, true)) : Attributes(attributes);
@@ -602,9 +630,18 @@ public sealed partial class ModuleCodeGen
         var il = definition.MetadataToken != 0 ? Il.OwnerOf(definition) : null;
         if (il is not null)
         {
-            // [Serializable] and [ComImport] are pseudo-attributes CoreCLR adds to the list.
-            if ((il.AttributesOf(definition) & (System.Reflection.TypeAttributes.Serializable | System.Reflection.TypeAttributes.Import)) != 0) return null;
-            return DecodeAttributes(il, il.TypeDefinitionOf(definition).GetCustomAttributes(), IlGenericContext.For(definition)).ToList();
+            // [ComImport] is a pseudo-attribute CoreCLR adds to the list that csharpc does not model. [Serializable] is one too, after the
+            // declared attributes (typeof(Point).GetCustomAttributes(): TypeForwardedFrom, TypeConverter, Serializable).
+            var flags = il.AttributesOf(definition);
+            if ((flags & System.Reflection.TypeAttributes.Import) != 0) return null;
+            var listed = DecodeAttributes(il, il.TypeDefinitionOf(definition).GetCustomAttributes(), IlGenericContext.For(definition)).ToList();
+            if ((flags & System.Reflection.TypeAttributes.Serializable) != 0)
+            {
+                var serializable = Compilation.GetTypeByMetadataName("System.SerializableAttribute")?.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty);
+                if (serializable is null) return null;
+                listed.Add(new AttributeInstance(serializable, [], []));
+            }
+            return listed;
         }
         // Reference-assembly types (the BCL): Roslyn hides the attributes the compiler decodes, and reference
         // assemblies differ from the implementation .NET loads.

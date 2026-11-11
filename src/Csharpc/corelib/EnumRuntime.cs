@@ -65,6 +65,43 @@ namespace CsharpcCoreLib
             return *(int*)(entry + 3 * IntPtr.Size + 12) != 0;
         }
 
+        /// <summary>
+        /// Enum.GetValuesAsUnderlyingType(Type) with a Type known only at run time (EnumConverter): the values in ascending order, as an array of
+        /// the underlying type.
+        /// </summary>
+        public static unsafe Array GetValuesAsUnderlyingType(Type enumType)
+        {
+            ArgumentNullException.ThrowIfNull(enumType);
+            if (!enumType.IsEnum) throw new ArgumentException("Type provided must be an Enum.", "enumType");
+            byte* entry = Entry(enumType, out int count);
+            if (entry == null)
+                throw new NotSupportedException("Enum.GetValues of '" + enumType + "' (a Type known only at run time) is not supported by csharpc yet.");
+            int p = IntPtr.Size;
+            ulong* values = (ulong*)*(nint*)(entry + p);
+            int bits = *(int*)(entry + 3 * p + 4);
+            bool signed = *(int*)(entry + 3 * p + 8) != 0;
+            // Each value as a sign- or zero-extended 64-bit number, so that one ordering sorts them.
+            long[] raw = new long[count];
+            for (int i = 0; i < count; i++)
+            {
+                ulong v = bits >= 64 ? values[i] : values[i] & ((1UL << bits) - 1);
+                raw[i] = signed && bits < 64 && (v & (1UL << (bits - 1))) != 0 ? (long)(v | (ulong.MaxValue << bits)) : (long)v;
+            }
+            if (signed) Array.Sort(raw);
+            else { ulong[] unsignedValues = new ulong[count]; for (int i = 0; i < count; i++) unsignedValues[i] = (ulong)raw[i]; Array.Sort(unsignedValues); for (int i = 0; i < count; i++) raw[i] = (long)unsignedValues[i]; }
+            Type underlying = Enum.GetUnderlyingType(enumType);
+            if (underlying == typeof(int)) { var a = new int[count]; for (int i = 0; i < count; i++) a[i] = (int)raw[i]; return a; }
+            if (underlying == typeof(uint)) { var a = new uint[count]; for (int i = 0; i < count; i++) a[i] = (uint)raw[i]; return a; }
+            if (underlying == typeof(long)) { var a = new long[count]; for (int i = 0; i < count; i++) a[i] = raw[i]; return a; }
+            if (underlying == typeof(ulong)) { var a = new ulong[count]; for (int i = 0; i < count; i++) a[i] = (ulong)raw[i]; return a; }
+            if (underlying == typeof(short)) { var a = new short[count]; for (int i = 0; i < count; i++) a[i] = (short)raw[i]; return a; }
+            if (underlying == typeof(ushort)) { var a = new ushort[count]; for (int i = 0; i < count; i++) a[i] = (ushort)raw[i]; return a; }
+            if (underlying == typeof(sbyte)) { var a = new sbyte[count]; for (int i = 0; i < count; i++) a[i] = (sbyte)raw[i]; return a; }
+            var bytes = new byte[count];
+            for (int i = 0; i < count; i++) bytes[i] = (byte)raw[i];
+            return bytes;
+        }
+
         /// <summary>Enum.IsDefined(Type, object) with a Type known only at run time: a name (string) or a value of the enum or its underlying type.</summary>
         public static unsafe bool IsDefined(Type enumType, object value)
         {

@@ -172,6 +172,7 @@ public static class ProjectLoader
         ("EventSourceSupport", "System.Diagnostics.Tracing.EventSource.IsSupported"),
         ("UseSystemResourceKeys", "System.Resources.UseSystemResourceKeys"),
         ("JsonSerializerIsReflectionEnabledByDefault", "System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault"),
+        ("UseSizeOptimizedLinq", "System.Linq.Enumerable.IsSizeOptimized"),
     ];
 
     /// <summary>

@@ -11,23 +11,22 @@ namespace Csharpc.Frontend;
 
 /// <summary>
 /// Run-time TypeConverter creation in a closed world: the objects `ResourceManager.GetObject` creates from a preserialized
-/// .resources file's converter strings, and the converters `TypeDescriptor.GetConverter(typeof(X))` returns for types
-/// whose converter isn't one the corelib creates itself.
+/// .resources file's converter strings.
 ///
 /// A WinForms-style .resx with `GenerateResourceUsePreserializedResources` holds
 /// `&lt;data name="Location" type="System.Drawing.Point, System.Drawing"&gt;&lt;value&gt;10, 20&lt;/value&gt;`. .NET's
 /// DeserializingResourceReader finds the type by name at run time and calls
 /// `TypeDescriptor.GetConverter(type).ConvertFromInvariantString(text)`. csharpc has no run-time type lookup by name,
-/// but the types a program can get this way are known when it is compiled: the ones its own .resources files name, and the
-/// ones its sources name in `typeof(...)` where they call GetConverter. For each, the front end resolves the type and its
-/// converter (the [TypeConverter] attribute, as TypeDescriptor does, or the intrinsic converter of a BCL type) and generates
+/// but the types a program can get this way are known when it is compiled: the ones its own .resources files name. For each,
+/// the front end resolves the type and its converter (the [TypeConverter] attribute, as TypeDescriptor does, or the intrinsic
+/// converter of a BCL type) and generates
 ///
 ///     CsharpcCoreLib.ProgramHooks.ResourceObject(string type, string text)       a switch over the type names
-///     CsharpcCoreLib.ProgramHooks.TypeConverterFor(Type type)                    a chain of type tests
 ///
-/// which the corelib calls (corelib/Resources.cs, corelib/ComponentModel/TypeConverter.cs). The converters are the
-/// framework's own code (System.ComponentModel.TypeConverter's IL, kept by being named here) or the program's. A type that
-/// can't be resolved, or whose converter has no accessible constructor, has no case and is reported by name at run time.
+/// which the corelib calls (corelib/Resources.cs). The converters are the framework's own code (System.ComponentModel.TypeConverter's
+/// IL, kept by being named here) or the program's. A type that can't be resolved, or whose converter has no accessible
+/// constructor, has no case and is reported by name at run time. (`TypeDescriptor.GetConverter(typeof(X))` itself is the framework's
+/// code: it finds the [TypeConverter] attribute and creates the converter through the kept constructor.)
 /// </summary>
 public static class ResourceConverters
 {
@@ -55,7 +54,7 @@ public static class ResourceConverters
         ["System.Numerics.BigInteger"] = "System.ComponentModel.BigIntegerConverter",
     };
 
-    /// <summary>BCL types whose converters the corelib's TypeDescriptor creates itself (corelib/ComponentModel/TypeConverter.cs).</summary>
+    /// <summary>BCL types whose converters ResourceManager.GetObject creates itself (corelib/Resources.cs).</summary>
     private static readonly HashSet<string> s_corelibConverters = new(StringComparer.Ordinal)
     {
         "System.Guid", "System.TimeSpan", "System.Version",
@@ -78,55 +77,36 @@ public static class ResourceConverters
         return [.. names];
     }
 
-    /// <summary>
-    /// Generates the hooks: ResourceObject for the .resources types <paramref name="typeNames"/>, and TypeConverterFor(Type) for the
-    /// types the sources name in `typeof(...)` when they call GetConverter (TypeDescriptor.GetConverter(typeof(Point))).
-    /// </summary>
-    public static CSharpCompilation Add(CSharpCompilation compilation, IReadOnlyList<string> typeNames, IReadOnlyList<SyntaxTree> userTrees, CSharpParseOptions parseOptions) =>
-        Add(compilation, compilation, typeNames, TypeofTypes(compilation, userTrees), parseOptions);
+    /// <summary>Generates the ResourceObject hook for the .resources types <paramref name="typeNames"/>.</summary>
+    public static CSharpCompilation Add(CSharpCompilation compilation, IReadOnlyList<string> typeNames, CSharpParseOptions parseOptions) =>
+        Add(compilation, compilation, typeNames, parseOptions);
 
-    /// <summary>The same for an IL program: its `ldtoken` types stand for the `typeof`s, resolved in <paramref name="symbols"/> (the compilation that imports its internals).</summary>
-    public static CSharpCompilation AddFromIl(CSharpCompilation compilation, CSharpCompilation symbols, IReadOnlyList<string> typeNames, IlAssembly program, CSharpParseOptions parseOptions) =>
-        Add(compilation, symbols, typeNames, CallsGetConverter(program.Reader) ? IlTypeofTypes(program) : [], parseOptions);
+    /// <summary>The same for an IL program, resolved in <paramref name="symbols"/> (the compilation that imports its internals).</summary>
+    public static CSharpCompilation AddFromIl(CSharpCompilation compilation, CSharpCompilation symbols, IReadOnlyList<string> typeNames, CSharpParseOptions parseOptions) =>
+        Add(compilation, symbols, typeNames, parseOptions);
 
-    private static CSharpCompilation Add(CSharpCompilation target, CSharpCompilation compilation, IReadOnlyList<string> typeNames, IEnumerable<ITypeSymbol> typeofTypes, CSharpParseOptions parseOptions)
+    private static CSharpCompilation Add(CSharpCompilation target, CSharpCompilation compilation, IReadOnlyList<string> typeNames, CSharpParseOptions parseOptions)
     {
         var resourceCases = new StringBuilder();
         foreach (var name in typeNames)
             if (!name.Contains('`') && compilation.GetTypeByMetadataName(name) is { } type && Creation(compilation, type) is { } creation)
                 resourceCases.AppendLine($"                case {Literal(name)}: return new object[] {{ {creation}.ConvertFromInvariantString(text) }};");
 
-        var converterCases = new StringBuilder();
-        foreach (var type in typeofTypes)
-            if (Creation(compilation, type) is { } creation)
-                converterCases.AppendLine($"            if (type == typeof({TypeName(type)})) return {creation};");
-
-        if (resourceCases.Length == 0 && converterCases.Length == 0) return target;
+        if (resourceCases.Length == 0) return target;
         var source = new StringBuilder();
         source.AppendLine("#pragma warning disable CS0612, CS0618, CS0619");
         source.AppendLine("namespace CsharpcCoreLib");
         source.AppendLine("{");
         source.AppendLine("    internal static partial class ProgramHooks");
         source.AppendLine("    {");
-        if (resourceCases.Length > 0)
-        {
-            source.AppendLine("        internal static object[] ResourceObject(string type, string text)");
-            source.AppendLine("        {");
-            source.AppendLine("            switch (type)");
-            source.AppendLine("            {");
-            source.Append(resourceCases);
-            source.AppendLine("            }");
-            source.AppendLine("            return null;");
-            source.AppendLine("        }");
-        }
-        if (converterCases.Length > 0)
-        {
-            source.AppendLine("        internal static object TypeConverterFor(global::System.Type type)");
-            source.AppendLine("        {");
-            source.Append(converterCases);
-            source.AppendLine("            return null;");
-            source.AppendLine("        }");
-        }
+        source.AppendLine("        internal static object[] ResourceObject(string type, string text)");
+        source.AppendLine("        {");
+        source.AppendLine("            switch (type)");
+        source.AppendLine("            {");
+        source.Append(resourceCases);
+        source.AppendLine("            }");
+        source.AppendLine("            return null;");
+        source.AppendLine("        }");
         source.AppendLine("    }");
         source.AppendLine("}");
         return target.AddSyntaxTrees(CSharpSyntaxTree.ParseText(source.ToString(), parseOptions, path: TreePath));
@@ -158,63 +138,6 @@ public static class ResourceConverters
             catch (Exception e) when (e is InvalidDataException or EndOfStreamException or IOException or ArgumentException or FormatException or BadImageFormatException) { }
         }
         return [.. names];
-    }
-
-    /// <summary>Does the IL assembly reference TypeDescriptor.GetConverter?</summary>
-    public static bool CallsGetConverter(MetadataReader reader)
-    {
-        foreach (var handle in reader.MemberReferences)
-        {
-            var member = reader.GetMemberReference(handle);
-            if (!reader.StringComparer.Equals(member.Name, "GetConverter") || member.Parent.Kind != HandleKind.TypeReference) continue;
-            if (reader.StringComparer.Equals(reader.GetTypeReference((TypeReferenceHandle)member.Parent).Name, "TypeDescriptor")) return true;
-        }
-        return false;
-    }
-
-    /// <summary>Every type the program's IL loads with `ldtoken` (what `typeof` compiles to): the types a GetConverter(Type) call can be handed.</summary>
-    private static IEnumerable<ITypeSymbol> IlTypeofTypes(IlAssembly program)
-    {
-        var seen = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
-        var reader = program.Reader;
-        foreach (var typeHandle in reader.TypeDefinitions)
-            foreach (var methodHandle in reader.GetTypeDefinition(typeHandle).GetMethods())
-            {
-                if (program.Definition(methodHandle) is not IMethodSymbol method) continue;
-                IlMethodBody body;
-                try
-                {
-                    if (program.Body(method) is not { } block) continue;
-                    body = IlMethodBody.Decode(program, method, block);
-                }
-                catch (Exception e) when (e is IlException or BadImageFormatException) { continue; }
-                foreach (var instruction in body.Instructions)
-                {
-                    if (instruction.OpCode != ILOpCode.Ldtoken) continue;
-                    ITypeSymbol? type;
-                    try { type = program.ResolveType(MetadataTokens.EntityHandle(instruction.Token), body.Context) is { IsByRef: false } t ? t.Type : null; }
-                    catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { continue; }
-                    if (type is { TypeKind: not (TypeKind.TypeParameter or TypeKind.Error or TypeKind.Pointer or TypeKind.FunctionPointer) }
-                        and not INamedTypeSymbol { IsUnboundGenericType: true } && seen.Add(type))
-                        yield return type;
-                }
-            }
-    }
-
-    /// <summary>The types of `typeof(X)` expressions in sources that call GetConverter (the types a GetConverter(Type) call can be handed).</summary>
-    private static IEnumerable<ITypeSymbol> TypeofTypes(CSharpCompilation compilation, IReadOnlyList<SyntaxTree> userTrees)
-    {
-        var seen = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
-        foreach (var tree in userTrees)
-        {
-            if (!tree.GetText().ToString().Contains("GetConverter", StringComparison.Ordinal)) continue;
-            var model = compilation.GetSemanticModel(tree);
-            foreach (var expression in tree.GetRoot().DescendantNodes().OfType<TypeOfExpressionSyntax>())
-                if (model.GetTypeInfo(expression.Type).Type is { } type
-                    && type.TypeKind is not (TypeKind.TypeParameter or TypeKind.Error or TypeKind.Pointer or TypeKind.FunctionPointer)
-                    && type is not INamedTypeSymbol { IsUnboundGenericType: true } && seen.Add(type))
-                    yield return type;
-        }
     }
 
     private static string TypeName(ITypeSymbol type) =>

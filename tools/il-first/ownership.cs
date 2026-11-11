@@ -284,7 +284,7 @@ static class Rules
         ["System.Text.Encodings.Web"] = Above("json", "System.Text.Encodings.Web: from IL (ADR 0023, #286)", "NONE"),
         ["System.Text.RegularExpressions"] = Above("regex", "System.Text.RegularExpressions: engine correct from IL (20/22 samples, #188); size is the cost", "AB187,SRCGEN,SIMD"),
         ["System.Linq"] = Above("linq", "System.Linq: managed upstream; hand-written iterator classes and span fast paths today", "SIMD,EQCMP"),
-        ["System.Memory"] = Above("memory", "System.Memory (ReadOnlySequence, SequenceReader, ArrayBufferWriter, MemoryPool): managed upstream; csharpc's Memory<T> does not record its array, MemoryManager or string", "MEMORY"),
+        ["System.Memory"] = Above("memory", "System.Memory: from IL (ADR 0023, #306)", "NONE"),
         ["System.Runtime.Numerics"] = Above("numerics", "System.Runtime.Numerics (BigInteger): managed upstream", "GENMATH"),
         ["System.Collections"] = Above("collections-asm", "System.Collections (Stack, LinkedList, SortedSet, PriorityQueue, OrderedDictionary...): managed upstream", "EQCMP"),
         ["System.Collections.Concurrent"] = Above("concurrent", "System.Collections.Concurrent: managed upstream over Interlocked/Monitor", "THREAD,EQCMP"),

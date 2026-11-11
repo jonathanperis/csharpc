@@ -145,6 +145,20 @@ unless `NO_COLOR` is set. Exit codes:
 | 2 | bad command line |
 | 70 | internal compiler error |
 
+### Feature-switch defaults
+
+csharpc compiles in the feature switches .NET would set for the same kind of program, because programs observe them
+(`AppContext.TryGetSwitch`, and code paths the switches select). A single file gets what `dotnet run app.cs` writes (a
+file-based app defaults to `PublishAot=true` and its AOT switches); a project gets the `RuntimeHostConfigurationOption`
+items of its MSBuild evaluation; an explicit property, runtimeconfig value or `#:property` always wins.
+
+- **LINQ.** `System.Linq.Enumerable.IsSizeOptimized` is true for single files and for projects with `PublishAot=true`
+  (`UseSizeOptimizedLinq=true` in `Microsoft.NETCore.Native.targets`), false for other projects. It changes observable
+  results such as `TryGetNonEnumeratedCount`. For information, on the LINQ throughput program the speed-optimized path
+  takes 0.79 s against 1.80 s of user CPU, and the binary is 1 369 against 969 KB stripped
+  ([ADR 0023](adr/0023-framework-il-first.md), Linq row); `UseSizeOptimizedLinq=false` picks it. csharpc's own build
+  sets `UseSizeOptimizedLinq=true`, because its self-compile needs it to fit in the CI runner's memory.
+
 ## Tests
 
 `tests/projects.sh` builds `tests/projects/HelloProject` four ways and compares each against
