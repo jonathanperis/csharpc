@@ -222,6 +222,7 @@ public sealed partial class ModuleCodeGen
             Guard(entryPoint, FinishObjectArrayThunks);
             Timed("finish type metadata", () => Guard(entryPoint, FinishTypeMetadata));
             FinishEnumParseTable();
+            FinishResourceStrings();
             FinishEventSourceAttributes();
             FinishPInvokeResolver();
             ResolveTaskMethodTables();
