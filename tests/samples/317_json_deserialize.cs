@@ -1,4 +1,4 @@
-#:property PublishAot=false
+#:property JsonSerializerIsReflectionEnabledByDefault=true
 // JsonSerializer.Deserialize without a JsonSerializerContext: objects, records and constructors,
 // collections, dictionaries, nullables, enums, case-insensitivity, comments, trailing commas,
 // unmapped members, required properties, and the exact JsonException messages and paths.

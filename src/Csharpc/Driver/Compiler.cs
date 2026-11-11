@@ -136,6 +136,7 @@ public sealed class Compiler(CompilerOptions options)
         }
         if (UsesSystemResourceKeys(settings.RuntimeConfig))
             return Fail(UseSystemResourceKeysUnsupported);
+        settings = settings with { RuntimeConfig = WithAotFeatureDefaults(settings.RuntimeConfig) };
         if (options.SharedFrameworks.Count > 0)
             settings = settings with { SharedFrameworks = [.. settings.SharedFrameworks.Concat(options.SharedFrameworks).Distinct(StringComparer.OrdinalIgnoreCase)] };
         // Assemblies without sources: bound against like any reference, compiled from IL (ADR 0010).
@@ -504,6 +505,19 @@ public sealed class Compiler(CompilerOptions options)
     /// full text, so every message they produce would differ: refused rather than printed differently. The value
     /// is "true" exactly when bool.TryParse reads true (ProjectLoader and IlProgram normalize booleans).
     /// </summary>
+    /// <summary>
+    /// The feature switches a PublishAot build sets when the program leaves them alone: csharpc is the program's AOT compiler, so a project
+    /// or an IL program whose runtimeconfig doesn't say gets what NativeAOT gives it. Reflection-based System.Text.Json is off, and the
+    /// framework's own code throws its own InvalidOperationException. What the program states explicitly gets what .NET evaluates for it:
+    /// `JsonSerializerIsReflectionEnabledByDefault` (a project property, `#:property` or the runtimeconfig option) always wins, and an explicit
+    /// `PublishAot=false` leaves reflection on (ProjectLoader). File-based apps get the full PublishAot set from ProjectLoader already.
+    /// </summary>
+    private static IReadOnlyList<KeyValuePair<string, string>> WithAotFeatureDefaults(IReadOnlyList<KeyValuePair<string, string>> runtimeConfig)
+    {
+        const string JsonReflection = ProjectLoader.JsonReflectionSwitch;
+        return runtimeConfig.Any(kv => kv.Key == JsonReflection) ? runtimeConfig : [.. runtimeConfig, new(JsonReflection, "false")];
+    }
+
     internal static bool UsesSystemResourceKeys(IEnumerable<KeyValuePair<string, string>> runtimeConfig) =>
         runtimeConfig.LastOrDefault(kv => kv.Key == "System.Resources.UseSystemResourceKeys").Value is { } value
         && bool.TryParse(value, out var on) && on;
