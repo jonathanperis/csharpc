@@ -36,9 +36,12 @@ public static class SharedFramework
     private static string? s_productVersion;
 
     /// <summary>
-    /// The runtime's product version: System.Private.CoreLib's [AssemblyInformationalVersion] up to the
-    /// commit ("11.0.0-rc.2.26504.105+abc" → "11.0.0-rc.2.26504.105"), which .NET compiles into
-    /// Environment.Version and RuntimeInformation.FrameworkDescription; null without a shared framework.
+    /// The runtime's public product version, as .NET reports it (RuntimeInformation.FrameworkDescription,
+    /// Environment.Version) and as NuGet versions the matching runtime packs: the shared framework directory's
+    /// name ("11.0.0", "11.0.0-rc.2.26504.105"). Not System.Private.CoreLib's [AssemblyInformationalVersion]:
+    /// for a stable release that carries the internal build label ("11.0.0-rtm.26529.118+commit"), which .NET
+    /// does not show and NuGet does not publish (the NativeAOT pack 11.0.0 could not be restored under that
+    /// name). The attribute is the fallback only for a framework directory not named after its version.
     /// </summary>
     public static string? ProductVersion
     {
@@ -47,32 +50,36 @@ public static class SharedFramework
             lock (s_lock)
                 if (s_productVersion is not null) return s_productVersion;
             if (Directory is not { } dir) return null;
-            string? version = null;
-            try
-            {
-                using var pe = new PEReader(File.OpenRead(Path.Combine(dir, "System.Private.CoreLib.dll")));
-                var md = pe.GetMetadataReader();
-                foreach (var h in md.GetAssemblyDefinition().GetCustomAttributes())
-                {
-                    var attribute = md.GetCustomAttribute(h);
-                    var type = attribute.Constructor.Kind switch
-                    {
-                        HandleKind.MethodDefinition => md.GetString(md.GetTypeDefinition(md.GetMethodDefinition((MethodDefinitionHandle)attribute.Constructor).GetDeclaringType()).Name),
-                        HandleKind.MemberReference when md.GetMemberReference((MemberReferenceHandle)attribute.Constructor).Parent is { Kind: HandleKind.TypeReference } parent
-                            => md.GetString(md.GetTypeReference((TypeReferenceHandle)parent).Name),
-                        _ => null,
-                    };
-                    if (type != "AssemblyInformationalVersionAttribute") continue;
-                    var blob = md.GetBlobReader(attribute.Value);
-                    if (blob.ReadUInt16() == 1) version = blob.ReadSerializedString(); // after the prolog
-                }
-            }
-            catch (Exception e) when (e is IOException or UnauthorizedAccessException or BadImageFormatException) { }
-            // Fallback: the framework directory is named after the version.
-            version ??= Path.GetFileName(Path.TrimEndingDirectorySeparator(dir));
+            string version = Path.GetFileName(Path.TrimEndingDirectorySeparator(dir));
+            if (version.Length == 0 || !char.IsAsciiDigit(version[0])) version = InformationalVersion(dir) ?? version;
             if (version.IndexOf('+') is var plus and >= 0) version = version[..plus];
             lock (s_lock) return s_productVersion = version;
         }
+    }
+
+    private static string? InformationalVersion(string dir)
+    {
+        try
+        {
+            using var pe = new PEReader(File.OpenRead(Path.Combine(dir, "System.Private.CoreLib.dll")));
+            var md = pe.GetMetadataReader();
+            foreach (var h in md.GetAssemblyDefinition().GetCustomAttributes())
+            {
+                var attribute = md.GetCustomAttribute(h);
+                var type = attribute.Constructor.Kind switch
+                {
+                    HandleKind.MethodDefinition => md.GetString(md.GetTypeDefinition(md.GetMethodDefinition((MethodDefinitionHandle)attribute.Constructor).GetDeclaringType()).Name),
+                    HandleKind.MemberReference when md.GetMemberReference((MemberReferenceHandle)attribute.Constructor).Parent is { Kind: HandleKind.TypeReference } parent
+                        => md.GetString(md.GetTypeReference((TypeReferenceHandle)parent).Name),
+                    _ => null,
+                };
+                if (type != "AssemblyInformationalVersionAttribute") continue;
+                var blob = md.GetBlobReader(attribute.Value);
+                if (blob.ReadUInt16() == 1) return blob.ReadSerializedString(); // after the prolog
+            }
+        }
+        catch (Exception e) when (e is IOException or UnauthorizedAccessException or BadImageFormatException) { }
+        return null;
     }
 
     /// <summary>

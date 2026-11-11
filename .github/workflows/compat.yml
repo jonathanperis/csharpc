@@ -39,7 +39,7 @@ jobs:
       - name: Install .NET 11 SDK
         run: |
           curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
-          bash dotnet-install.sh --jsonfile global.json --install-dir "$HOME/.dotnet11"
+          bash dotnet-install.sh --channel 11.0.1xx --install-dir "$HOME/.dotnet11"
           echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
 
       - name: Run the corpus

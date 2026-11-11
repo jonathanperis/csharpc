@@ -109,6 +109,17 @@ types the implementation does not forward are made non-public in the copy, and t
 `List<T>` for the program, the implementation and every other IL assembly. Nothing in it is library-specific; the list of assemblies that use it
 (`TwinReference.Supported`) is a validation list, as `MixedWithShadows` is.
 
+**The texts of an IL library's exceptions as literals (#272).** Each shared-framework library has an internal `SR` class whose getters read its embedded
+string resources (`internal static string Arg_X => GetResourceString("Arg_X");`). The framework-IL route used to compile every library's whole
+`FxResources.X.SR` table into the binary (for a `CollectionBase` program 440 KB of the 707 KB: ResourceManager, culture and formatting code, plus the
+strings; `System.ComponentModel.TypeConverter`'s table alone is 30 KB). A getter of exactly that IL shape (`ldstr key; (ldnull | ldstr default); call
+SR.GetResourceString; ret`) is now lowered as `ret "<the text>"` (`ModuleCodeGen.ResourceLiterals.cs`), so a program carries the texts of the getters it
+reaches (the slicer does the same for CoreLib: +12 KB instead of +120 KB), and the tables are compiled in only when a lowered method looks a text up by a key
+it computes (a call of `SR.GetResourceString` that is not such a getter). Measured, stripped -O2: `tests/size` regex 891 472 to 817 080 B,
+regexoptions 2 127 976 to 2 053 672 B (on the Dictionary/HashSet flip's main); the `CollectionBase` sample 707 to 269 KB (shadow 251), `ObservableCollection` 824 to 617 KB (shadow 253),
+`TypeConverter` 3 700 to 2 546 KB (shadow 679), `Collections` exceptions 232 to 175 KB (shadow 223). The texts are the neutral-culture ones, as
+before (csharpc is invariant); `ResourceManager` over the program's own resources is unchanged.
+
 A/B of 2026-11-09 (round 2, `tools/il-first/ab.sh --runs 3`, -O2, loaded 4-core VPS, stripped), 8 programs both routes pass byte-identical to real .NET: the writer, reader,
 document and node samples, two reflection-serializer samples (BCL-typed members, DateOnly/TimeOnly), the converters sample and the throughput program.
 Sums IL / shadow: binary 26 953 / 8 102 KB (3.33x: 0.89 to 0.97 MB against 0.62 to 0.70 for writer/reader/document, 4.2 to 8.4 MB against 1.2 to 1.7 for

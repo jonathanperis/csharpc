@@ -134,7 +134,7 @@ public sealed partial class FunctionCodeGen
             "LibraryFrames" => LibraryFrames(args[0], inv, preset: true),
             "AppendLibraryFrames" => LibraryFrames(args[0], inv, preset: false),
             "ThrowWithStackTrace" => ThrowWithStackTrace(args[0], args[1]),
-            "ResourceStrings" => _m.ResourceStringsBlob(),
+            "ResourceStrings" => _b.Load(L.Ptr, _m.ResourceStringsSlot()),
             "IsCoroutineIterator" => CallRuntime("csrt_is_iterator", L.I1, [L.Ptr], args[0]),
             "RuntimeConfig" => _m.AppContextBlob(),
             "LoadableAssemblies" => _m.LoadableAssembliesBlob(),
@@ -144,7 +144,7 @@ public sealed partial class FunctionCodeGen
             "AssemblyTypeNames" => _m.AssemblyTypeNamesBlob(),
             "AssemblyTypeTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.AssemblyTypeTable(), T.NativeInt),
             "ManifestResourceData" => _m.ManifestResourceData(),
-            // The shared framework the program was compiled against ("11.0.0-rc.2.26504.105"), as NativeAOT
+            // The shared framework the program was compiled against ("11.0.0"; "11.0.0-rc.2.26504.105" for an RC), as NativeAOT
             // bakes in its System.Private.CoreLib's version.
             "TargetArchitecture" => L.ConstInt(L.I32, _m.Types.Target.Triple.StartsWith("x86_64") ? 1 : _m.Types.Target.Triple.StartsWith("wasm32") ? 5
                 : _m.Types.Target.Triple.StartsWith("aarch64") || _m.Types.Target.Triple.StartsWith("arm64") ? 3 : 1),
