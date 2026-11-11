@@ -155,8 +155,8 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   ported `DateTimeFormat`/`DateTimeParse` with the offset, the local zone from libc like `DateTime`; binary
   serialization is not implemented).
 * **`System.Buffers`:** `ArrayPool<T>` (keeps returned arrays as .NET's shared pool does: one per size bucket per
-  thread, then 32 per bucket shared, up to 1 Mi elements), `MemoryPool<T>` (port of System.Memory's `ArrayMemoryPool`, buffers from
-  `ArrayPool<T>.Shared`, so sizes are .NET's), `IMemoryOwner<T>`.
+  thread, then 32 per bucket shared, up to 1 Mi elements), `IMemoryOwner<T>`. System.Memory (`MemoryPool<T>`,
+  `ReadOnlySequence<T>`, `SequenceReader<T>`, `ArrayBufferWriter<T>`, `EncodingExtensions`) comes from the framework's IL (ADR 0023).
 * **`MemoryExtensions`:** searches and comparisons compare integers, chars, bools and enums byte-wise in the
   runtime and every other element type with `EqualityComparer<T>.Default` semantics (`SpanEquality.cs`), plus the
   `IEqualityComparer<T>` overloads.
@@ -194,17 +194,16 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   [10-async.md](10-async.md#async-state-machines-compiled-from-il)); `ResourceManager` over the IL
   assemblies' embedded string resources and `AppContext` over runtimeconfig data (`Resources.cs`; both
   read constants codegen builds through the `ResourceStrings()`/`RuntimeConfig()` core intrinsics).
-* **`TypeConverter` / `TypeDescriptor`** (`corelib/ComponentModel/TypeConverter.cs`, `EnumConverter.cs`):
-  `TypeConverter` (and `EnumConverter`) are shadows with dotnet/runtime's full virtual surface, so the other converters
-  (`PointConverter`, `SizeConverter`, `RectangleConverter`, `ColorConverter`, `DateTimeConverter`, `UriTypeConverter` ...)
-  come from `System.ComponentModel.TypeConverter`'s IL (a "mixed" assembly, [ADR 0013](adr/0013-framework-il.md)).
-  `TypeDescriptor.GetConverter(Type)` creates the primitives itself and asks a hook for the rest: the front end
-  (`Frontend/ResourceConverters.cs`) generates `ProgramHooks.TypeConverterFor` for the types the sources name in `typeof(...)`
-  (the IL front-end: every `ldtoken`) when they call `GetConverter`, and `ProgramHooks.ResourceObject` for the types a
-  program's preserialized `.resources` name, which `ResourceManager.GetObject` creates with `ConvertFromInvariantString`
-  as `DeserializingResourceReader` does. A type the closed world can't resolve, `InstanceDescriptor`, `Enum[]`
-  conversions, `GetStandardValues` of an enum, and resources stored as BinaryFormatter data, byte arrays or activator
-  streams (`Bitmap`, `Icon`, `ResXFileRef`) are explicit `NotSupportedException`s naming the type.
+* **`TypeConverter` / `TypeDescriptor`**: not in the corelib. System.ComponentModel, System.ComponentModel.Primitives and
+  System.ComponentModel.TypeConverter come from the framework's IL (ADR 0023, #276); the corelib serves what that code asks of the
+  runtime: the attributes of framework types (`Type.GetCustomAttributes` over the IL assemblies' metadata, the `[Serializable]`
+  pseudo-attribute, a `[TypeConverter(string)]` type named in it kept for creation), `Type.Attributes`, `Enum.Format(Type, ...)`
+  and `Enum.GetValuesAsUnderlyingType` for run-time Types, `ArrayList.Adapter`, and the negative answers of COM
+  (`Marshal.IsComObject`, `ComWrappers.TryGetComInstance`; `Marshal.Release` is a `PlatformNotSupportedException`: no COM object
+  exists). The front end (`Frontend/ResourceConverters.cs`) still generates `ProgramHooks.ResourceObject` for the types a program's
+  preserialized `.resources` name, which `ResourceManager.GetObject` creates with `ConvertFromInvariantString` as
+  `DeserializingResourceReader` does. Resources stored as BinaryFormatter data, byte arrays or activator streams (`Bitmap`, `Icon`,
+  `ResXFileRef`) are explicit `NotSupportedException`s naming the type.
 * **`ResourceSet`, `GetResourceSet` and `GetStream`** (`corelib/ResourceSets.cs`, `Resources.cs`): `ResourceManager` keeps
   the neutral culture's set (`RuntimeResourceSet`) as .NET's does, so `GetString`/`GetObject` and `GetResourceSet` share it
   (closing it closes it for the manager until `ReleaseAllResources`). A culture other than the invariant one gets the
@@ -292,8 +291,8 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
 
 System.Text.Json and System.Text.Encodings.Web are compiled from the shared framework's IL ([ADR 0023](adr/0023-framework-il-first.md),
 issue 286); the hand-written port that used to live in `src/Csharpc/corelib/Json/` (16.6k lines) is gone, and so is the front end that
-synthesized `[JsonSerializable]` contexts for reflection-style calls. Only `ArrayBufferWriter<T>` (`corelib/Json/ArrayBufferWriter.cs`, a
-System.Memory type) remains there. The JSON source generator still runs for the program's own `[JsonSerializable]` contexts.
+synthesized `[JsonSerializable]` contexts for reflection-style calls. The JSON source generator still runs for the program's own
+`[JsonSerializable]` contexts.
 
 * **Reflection-based calls.** `JsonSerializer`'s reflection path is the framework's own code, which reads the program's types through
   `System.Reflection`. csharpc keeps reflection metadata only for the types a program roots, as NativeAOT does, so the framework's calls are

@@ -27,6 +27,7 @@ internal static partial class BclValueTypes
                      "IsCOMObject", "IsContextful", "IsMarshalByRef", "IsSignatureType" })
             t[$"{Type}.get_{property}()"] = (g, _, self, _, _) => { g.NullCheck(self); return g.Llvm.False; };
 
+        t[$"{Type}.get_Attributes()"] = (g, _, self, _, _) => Rt(g, "csrt_type_attributes", g.Llvm.I32, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
         t[$"{Type}.get_BaseType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_base", self);
         t[$"{Type}.GetElementType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_element", self);
         t[$"{Type}.GetEnumUnderlyingType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_enum_underlying", self);
