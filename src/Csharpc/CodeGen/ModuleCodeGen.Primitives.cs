@@ -98,6 +98,13 @@ public sealed partial class ModuleCodeGen
             .SingleOrDefault(m => m.Parameters.Length == member.Parameters.Length + 1 && SymbolEqualityComparer.Default.Equals(
                 ((INamedTypeSymbol)m.Parameters[1].Type).TypeArguments[0], ((INamedTypeSymbol)member.Parameters[0].Type).TypeArguments[0]));
 
+    /// <summary>BoxedSpanFormattable.TryFormatOf&lt;primitive&gt; for the overload of the interface's member: one type's formatter per slot.</summary>
+    private IMethodSymbol? BoxedSpanFormattableOf(IMethodSymbol member, ITypeSymbol primitive) =>
+        Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".BoxedSpanFormattable")?.GetMembers("TryFormatOf").OfType<IMethodSymbol>()
+            .SingleOrDefault(m => m.Parameters.Length == member.Parameters.Length + 1 && SymbolEqualityComparer.Default.Equals(
+                ((INamedTypeSymbol)m.Parameters[1].Type).TypeArguments[0], ((INamedTypeSymbol)member.Parameters[0].Type).TypeArguments[0]))
+            ?.Construct(primitive);
+
     private LLVMValueRef PrimitiveSlot(ITypeSymbol primitive, INamedTypeSymbol itf, IMethodSymbol member)
     {
         switch (itf.Name, member.Name)
@@ -112,7 +119,7 @@ public sealed partial class ModuleCodeGen
             case ("ISpanFormattable" or "IUtf8SpanFormattable", "TryFormat") when PrimitiveSlotSupported(primitive, itf, member):
             {
                 // BoxedSpanFormattable.TryFormat(object self, args...): the box is the slot's receiver, its first argument.
-                var target = BoxedSpanFormattableMember(member)!;
+                var target = BoxedSpanFormattableOf(member, primitive) ?? BoxedSpanFormattableMember(member)!;
                 NoteReference(target, virtualCall: false);
                 return GetFunction(target).Fn;
             }

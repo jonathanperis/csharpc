@@ -1,4 +1,4 @@
-#:property PublishAot=false
+#:property JsonSerializerIsReflectionEnabledByDefault=true
 #nullable enable
 // Reflection-based System.Text.Json builds its converters with MakeGenericType from the types the call names: types with a parameterized
 // constructor (up to four parameters, and more), enums, nullable values, collections of records, and values of any type held as object.

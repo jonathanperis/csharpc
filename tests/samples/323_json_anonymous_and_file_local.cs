@@ -1,4 +1,4 @@
-#:property PublishAot=false
+#:property JsonSerializerIsReflectionEnabledByDefault=true
 using System.Text.Json;
 
 // Reflection-based JsonSerializer over types no generated metadata can name: anonymous types (their constructor is the compiler's,

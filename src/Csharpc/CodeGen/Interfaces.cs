@@ -45,7 +45,14 @@ public sealed partial class ModuleCodeGen
         g = Module.AddGlobal(Mangler.TypeSymbol(itf, "IMT"), Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Internal);
         Native.LLVMSetAlignment(g, 8);
         NoteInterfaceInstantiation(itf);
-        return _interfaceTables[itf] = g;
+        _interfaceTables[itf] = g;
+        if (_enumsAwaitingSpanFormattable.Count > 0 && itf is { Name: "ISpanFormattable", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } })
+        {
+            var waiting = _enumsAwaitingSpanFormattable.ToArray();
+            _enumsAwaitingSpanFormattable.Clear();
+            foreach (var add in waiting) add();
+        }
+        return g;
     }
 
     private readonly HashSet<INamedTypeSymbol> _interfaceBasesListed = new(SymbolEqualityComparer.Default);

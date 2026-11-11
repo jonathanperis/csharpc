@@ -11,7 +11,7 @@ using System.Globalization;
 namespace CsharpcCoreLib
 {
     [Shadows("System.Half")]
-    public readonly unsafe struct HalfImpl : IComparable, IComparable<Half>, IEquatable<Half>, IFormattable, ISpanFormattable
+    public readonly unsafe struct HalfImpl : IComparable, IComparable<Half>, IEquatable<Half>, IFormattable, ISpanFormattable, IUtf8SpanFormattable
     {
         internal const ushort SignMask = 0x8000;
         internal const ushort PositiveInfinityBits = 0x7C00;
