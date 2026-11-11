@@ -1,3 +1,6 @@
 # net (#326) is System.Net.Primitives from the framework's IL (IPAddress, IPEndPoint, IPNetwork): linux-x86_64 measured 255 976 B (the shadows gave 171 480,
 # NativeAOT 1 365 832); budget = measured + max(4 KiB, 3 %). Only linux-x86_64 has a budget so far; other platforms print the size.
-linux-x86_64 net 264192
+# The shortest round-trip digits of double and float come from CoreLib's Grisu3/Dragon4 (the framework's IL, #348), a measured speed gain paid in size:
+# the StringBuilder throughput program runs in 1 299 ms where it took 3 721 (NativeAOT 1 761); net 255 704 to 267 992 B on linux-x86_64 (+12 288: Dragon4's
+# big-integer code and power tables, reached by every program that formats a number). Budget = measured + 3 %.
+linux-x86_64 net 276480

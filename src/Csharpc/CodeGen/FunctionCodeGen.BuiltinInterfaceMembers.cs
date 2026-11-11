@@ -24,9 +24,13 @@ public sealed partial class FunctionCodeGen
         if (Frontend.UpstreamSlice.MemberClasses.TryGetValue(real, out var classes))
             foreach (var className in classes)
             {
-                if (_m.Compilation.GetTypeByMetadataName(className) is not { } holder) continue;
-                foreach (var candidate in holder.GetMembers(expected).OfType<IMethodSymbol>())
-                    if (candidate.IsStatic && SameSignature(candidate, target)) return candidate;
+                // Two slices in one compilation (the shipped one and a CSHARPC_UPSTREAM_MAP one) each carry a class of this name, with the
+                // members for their own copy of the interface: the one of the interface's assembly first.
+                var interfaceAssembly = target.ContainingType.ContainingAssembly;
+                foreach (var holder in _m.Compilation.GetTypesByMetadataName(className)
+                             .OrderBy(h => SymbolEqualityComparer.Default.Equals(h.ContainingAssembly, interfaceAssembly) ? 0 : 1))
+                    foreach (var candidate in holder.GetMembers(expected).OfType<IMethodSymbol>())
+                        if (candidate.IsStatic && SameSignature(candidate, target)) return candidate;
             }
         return ShadowStaticMember(concrete, target)
             ?? throw CompileError.Unsupported($"no implementation of the static abstract member '{target.ContainingType.OriginalDefinition}.{target.Name}' for the built-in type '{concrete}' "

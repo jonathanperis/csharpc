@@ -9,6 +9,18 @@
 > CoreLib type, the type names in a new `src/Csharpc/upstream-types/<library>.txt` (same name as the doc); for a size program it
 > moves, that program's `tests/size/budgets/<program>.txt` (its lines and the reason, as a comment). `tools/il-first/ownership.tsv`
 > is generated on demand (`tools/il-first/ownership.sh`) and not committed; ownership.cs overrides of deleted files can stay.
+>
+> **The contract layer** between the corelib and the CoreLib types sliced from the framework's IL (`tools/il-first/slicer`,
+> `CsharpcUpstream.dll`; chosen by the slicer's `csharpc` profile) is kept thin, and every member of it is listed here:
+> * `corelib/UpstreamSupport.cs`: the members the slice calls into the corelib for: SR texts, the string-comparer family,
+>   the throw helpers.
+> * `CsharpcCoreLib.Upstream.NumberBridge` (emitted by the slicer, `Emit.EmitNumberBridge`), the other direction: the corelib's
+>   double/float formatting calls the framework's own shortest round-trip digit generation (`Number.Grisu3`, then
+>   `Number.Dragon4`; `src/Csharpc/upstream-types/System.Number.txt` roots just those methods) through one signature,
+>   `int ShortestDigits(double|float value, Span<byte> digits, out int scale)`: span in (at least 17 bytes, 9 for float), the
+>   significant digits as ASCII out, their count returned, the value being `0.d1d2...dn x 10^scale`. The corelib reaches it with
+>   `[UnsafeAccessor(StaticMethod)]` and `[UnsafeAccessorType]` (`corelib/Number.Formatting.cs`). The bridge is deleted when
+>   number formatting itself flips (ADR 0025, Phase 3).
 
 csharpc's route to drop-in BCL coverage: library types re-implemented **in C#**, compiled by csharpc
 together with the user's program (closed world: monomorphized, inlined and optimized by LLVM along with

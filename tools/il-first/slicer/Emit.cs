@@ -52,6 +52,7 @@ sealed class Emitter
         foreach (var t in order) Bodies(t);
         foreach (var t in hosted) Bodies(t);
 
+        if (_cli.NumberBridge) EmitNumberBridge();
         EmbedStrings();
         _m.Assembly.Write(_cli.Out);
         var roots = _s.RootTypes.Concat(_s.RootTypes.SelectMany(Nested)).Distinct().Where(_types.ContainsKey);
@@ -486,6 +487,115 @@ sealed class Emitter
     static MethodDefinition SafeResolve(MethodReference r)
     {
         try { return r.Resolve(); } catch (AssemblyResolutionException) { return null; }
+    }
+
+    /// <summary>
+    /// The contract member the corelib's number formatting calls for the shortest round-trip digits of a double or a float (docs/12-corelib.md,
+    /// "contract members"; deleted when number formatting flips, ADR 0023): CoreLib's own Grisu3, and Dragon4 where Grisu3 gives up, as
+    /// Number.FormatFloat runs them for "R":
+    ///
+    ///   public static class CsharpcCoreLib.Upstream.NumberBridge {
+    ///     // value finite and non-zero; digits at least 17 bytes (9 for a float); returns the digit count, the digits as ASCII ('0'..'9'),
+    ///     // value = 0.d1d2... * 10^scale
+    ///     public static int ShortestDigits(double value, Span&lt;byte&gt; digits, out int scale);
+    ///     public static int ShortestDigits(float value, Span&lt;byte&gt; digits, out int scale);
+    ///   }
+    ///
+    /// Written in IL because NumberBuffer is a CoreLib-internal ref struct no C# outside CoreLib can name. Emitted only when the slice holds
+    /// the members (src/Csharpc/upstream-types/System.Number.txt roots them).
+    /// </summary>
+    void EmitNumberBridge()
+    {
+        var number = _types.Keys.FirstOrDefault(t => t.FullName == "System.Number");
+        var grisu = _types.Keys.FirstOrDefault(t => t.FullName == "System.Number/Grisu3");
+        var buffer = _types.Keys.FirstOrDefault(t => t.FullName == "System.Number/NumberBuffer");
+        var kind = buffer?.Module.GetType("System.Number/NumberBufferKind");
+        var tryRun = grisu?.Methods.FirstOrDefault(m => m.Name == "TryRun" && m.HasGenericParameters && m.Parameters.Count == 3);
+        var dragon4 = number?.Methods.FirstOrDefault(m => m.Name == "Dragon4" && m.HasGenericParameters && m.Parameters.Count == 4);
+        // NumberBuffer over a pointer and a length: Dragon4 writes up to the buffer's length, so the work buffer is CoreLib's 769 bytes
+        // (DoubleNumberBufferLength), on the stack; the digits are copied to the caller's span after.
+        var ctor = buffer?.Methods.FirstOrDefault(m => m.IsConstructor && m.Parameters.Count == 3 && m.Parameters[1].ParameterType.IsPointer);
+        var spanCtor = buffer?.Methods.FirstOrDefault(m => m.IsConstructor && m.Parameters.Count == 2 && m.Parameters[1].ParameterType.Name == "Span`1");
+        if (tryRun is null || dragon4 is null || ctor is null || spanCtor is null || kind is null
+            || !_methods.ContainsKey(tryRun) || !_methods.ContainsKey(dragon4) || !_methods.ContainsKey(ctor)) return;
+        const int WorkBufferLength = 769;
+        var floatingPoint = (byte)kind.Fields.First(f => f.Name == "FloatingPoint").Constant;
+        var scaleField = buffer.Fields.First(f => f.Name == "Scale");
+        var spanOfByte = (GenericInstanceType)Type(spanCtor.Parameters[1].ParameterType);
+        var spanDefinition = spanOfByte.ElementType;
+        if (spanDefinition.GenericParameters.Count == 0) spanDefinition.GenericParameters.Add(new GenericParameter("T", spanDefinition));
+        var getItem = new MethodReference("get_Item", new ByReferenceType(spanDefinition.GenericParameters[0]), spanOfByte) { HasThis = true };
+        getItem.Parameters.Add(new ParameterDefinition(_m.TypeSystem.Int32));
+
+        var bridge = new TypeDefinition(_cli.Prefix, "NumberBridge", TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit,
+            _m.TypeSystem.Object);
+        _m.Types.Add(bridge);
+        foreach (var valueType in new[] { _m.TypeSystem.Double, _m.TypeSystem.Single })
+        {
+            var method = new MethodDefinition("ShortestDigits", MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, _m.TypeSystem.Int32);
+            method.Parameters.Add(new ParameterDefinition("value", ParameterAttributes.None, valueType));
+            method.Parameters.Add(new ParameterDefinition("digits", ParameterAttributes.None, spanOfByte));
+            method.Parameters.Add(new ParameterDefinition("scale", ParameterAttributes.Out, new ByReferenceType(_m.TypeSystem.Int32)));
+            var digitBuffer = new VariableDefinition(_types[buffer]);
+            var work = new VariableDefinition(new PointerType(_m.TypeSystem.Byte));
+            var index = new VariableDefinition(_m.TypeSystem.Int32);
+            foreach (var v in new[] { digitBuffer, work, index }) method.Body.Variables.Add(v);
+            method.Body.InitLocals = false; // the work buffer needs no zeroing: the algorithms write before they read
+            var il = method.Body.GetILProcessor();
+            var tryRunOf = new GenericInstanceMethod(_methods[tryRun]); tryRunOf.GenericArguments.Add(valueType);
+            var dragon4Of = new GenericInstanceMethod(_methods[dragon4]); dragon4Of.GenericArguments.Add(valueType);
+            var done = Instruction.Create(OpCodes.Ldarg_2);
+            var loop = Instruction.Create(OpCodes.Ldloc, work);
+            var end = Instruction.Create(OpCodes.Ldloc, index);
+            il.Emit(OpCodes.Ldc_I4, WorkBufferLength);
+            il.Emit(OpCodes.Conv_U);
+            il.Emit(OpCodes.Localloc);
+            il.Emit(OpCodes.Stloc, work);
+            il.Emit(OpCodes.Ldloca, digitBuffer);
+            il.Emit(OpCodes.Ldc_I4, (int)floatingPoint);
+            il.Emit(OpCodes.Ldloc, work);
+            il.Emit(OpCodes.Ldc_I4, WorkBufferLength);
+            il.Emit(OpCodes.Call, _methods[ctor]);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldc_I4_M1);                 // requested digits: -1, the shortest that round-trips ("R")
+            il.Emit(OpCodes.Ldloca, digitBuffer);
+            il.Emit(OpCodes.Call, tryRunOf);
+            il.Emit(OpCodes.Brtrue, done);
+            il.Emit(OpCodes.Ldarg_0);
+            il.Emit(OpCodes.Ldc_I4_M1);
+            il.Emit(OpCodes.Ldc_I4_1);                 // isSignificantDigits
+            il.Emit(OpCodes.Ldloca, digitBuffer);
+            il.Emit(OpCodes.Call, dragon4Of);
+            il.Append(done);                           // scale = number.Scale
+            il.Emit(OpCodes.Ldloca, digitBuffer);
+            il.Emit(OpCodes.Ldfld, _fields[scaleField]);
+            il.Emit(OpCodes.Stind_I4);
+            il.Emit(OpCodes.Ldc_I4_0);
+            il.Emit(OpCodes.Stloc, index);
+            // The digits are NUL-terminated (both algorithms end them so; DigitsCount is the caller's to set):
+            // while (work[index] != 0) { digits[index] = work[index]; index++; } return index;
+            il.Append(loop);
+            il.Emit(OpCodes.Ldloc, index);
+            il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Ldind_U1);
+            il.Emit(OpCodes.Brfalse, end);
+            il.Emit(OpCodes.Ldarga, method.Parameters[1]);
+            il.Emit(OpCodes.Ldloc, index);
+            il.Emit(OpCodes.Call, getItem);
+            il.Emit(OpCodes.Ldloc, work);
+            il.Emit(OpCodes.Ldloc, index);
+            il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Ldind_U1);
+            il.Emit(OpCodes.Stind_I1);
+            il.Emit(OpCodes.Ldloc, index);
+            il.Emit(OpCodes.Ldc_I4_1);
+            il.Emit(OpCodes.Add);
+            il.Emit(OpCodes.Stloc, index);
+            il.Emit(OpCodes.Br, loop);
+            il.Append(end);
+            il.Emit(OpCodes.Ret);
+            bridge.Methods.Add(method);
+        }
     }
 
     FieldReference FieldRef(FieldReference fr)

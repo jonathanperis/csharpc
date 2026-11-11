@@ -33,6 +33,19 @@ public sealed partial class FunctionCodeGen
         // the framework's way to reach an assembly it must not reference (X509ResourceClient's certificate downloads over HttpClient,
         // inside a try/catch that gives up when the type can't be loaded). The target is resolved at run time there, and csharpc binds
         // accessors at compile time, so the call throws what .NET throws for a missing member and the caller's own fallback applies.
+        // A static method of a type named by string that this compilation knows (a public type of an IL assembly it compiles, such as the
+        // upstream slice's NumberBridge contract member): bound at compile time, a direct call without the first (type-naming) argument.
+        if (kind == 2 && target.Parameters.Length > 0 && AccessorTypeName(target.Parameters[0].GetAttributes()) is { } typeName
+            && !target.Parameters.Skip(1).Any(p => HasAccessorTypeName(p.GetAttributes())) && !HasAccessorTypeName(target.GetReturnTypeAttributes())
+            && ResolveAccessorType(typeName) is { } namedOwner)
+        {
+            var parameters = target.Parameters.Skip(1).ToArray();
+            var method = namedOwner.GetMembers(name).OfType<IMethodSymbol>().FirstOrDefault(m => m.IsStatic && m.Parameters.Length == parameters.Length
+                    && m.Parameters.Zip(parameters).All(x => x.First.RefKind == x.Second.RefKind && SymbolEqualityComparer.Default.Equals(S(x.First.Type), S(x.Second.Type)))
+                    && SymbolEqualityComparer.Default.Equals(S(m.ReturnType), S(target.ReturnType)))
+                ?? throw CompileError.Unsupported($"[UnsafeAccessor] static method '{name}' not found on '{namedOwner}'", inv);
+            return DirectCall(method, [.. args.Skip(1).Select(a => EmitArgument(a, target))]);
+        }
         if (kind is 0 or 1 or 2 && (HasAccessorTypeName(target.GetReturnTypeAttributes()) || target.Parameters.Any(p => HasAccessorTypeName(p.GetAttributes())))
             && !(kind == 2 && name == "CreateObjectArrayDelegate"))
         {
@@ -83,6 +96,21 @@ public sealed partial class FunctionCodeGen
             default:
                 throw CompileError.Unsupported($"[UnsafeAccessor] of kind {kind}", inv);
         }
+    }
+
+    private static string? AccessorTypeName(IEnumerable<AttributeData> attributes) =>
+        attributes.FirstOrDefault(a => a.AttributeClass?.Name == "UnsafeAccessorTypeAttribute")?.ConstructorArguments is [{ Value: string named }] ? named : null;
+
+    /// <summary>"Namespace.Type, Assembly": the type of that name in that assembly of this compilation, or null (resolved at run time by .NET).</summary>
+    private INamedTypeSymbol? ResolveAccessorType(string assemblyQualified)
+    {
+        var comma = assemblyQualified.IndexOf(',');
+        if (comma <= 0) return null;
+        var typeName = assemblyQualified[..comma].Trim();
+        var assembly = assemblyQualified[(comma + 1)..].Split(',')[0].Trim();
+        foreach (var candidate in _m.Compilation.GetTypesByMetadataName(typeName))
+            if (candidate.ContainingAssembly?.Name == assembly && candidate.DeclaredAccessibility == Accessibility.Public) return candidate;
+        return null;
     }
 
     private static bool HasAccessorTypeName(IEnumerable<AttributeData> attributes) =>

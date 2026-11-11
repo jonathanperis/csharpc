@@ -1,0 +1,5 @@
+# The shortest round-trip digits of double and float: CoreLib's Grisu3 and Dragon4 behind the slicer's NumberBridge contract member
+# (tools/il-first/slicer/Emit.cs EmitNumberBridge; ADR 0023, #348; docs/il-first/System.Number.md). Method roots: only what they reach is cut.
+System.Number/Grisu3::TryRun
+System.Number::Dragon4
+System.Number/NumberBuffer::.ctor
