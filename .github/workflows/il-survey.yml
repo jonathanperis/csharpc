@@ -49,7 +49,7 @@ jobs:
 
       - name: Install .NET 11 SDK
         run: |
-          curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+          curl -sSLf --retry 5 --retry-all-errors --retry-delay 5 https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
           bash dotnet-install.sh --channel 11.0.1xx --install-dir "$HOME/.dotnet11"
           echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
           echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"
@@ -112,7 +112,7 @@ jobs:
 
       - name: Install .NET 11 SDK
         run: |
-          curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+          curl -sSLf --retry 5 --retry-all-errors --retry-delay 5 https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
           bash dotnet-install.sh --channel 11.0.1xx --install-dir "$HOME/.dotnet11"
           echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
           echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"
@@ -185,7 +185,7 @@ jobs:
 
       - name: Install .NET 11 SDK
         run: |
-          curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+          curl -sSLf --retry 5 --retry-all-errors --retry-delay 5 https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
           bash dotnet-install.sh --channel 11.0.1xx --install-dir "$HOME/.dotnet11"
           echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
           echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"

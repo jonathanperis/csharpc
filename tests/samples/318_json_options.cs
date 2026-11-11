@@ -1,4 +1,4 @@
-#:property PublishAot=false
+#:property JsonSerializerIsReflectionEnabledByDefault=true
 // JsonSerializerOptions and attributes: naming policies, ignore conditions, fields, ordering,
 // renamed/included members, number handling, extension data, indentation and encoders.
 using System.Collections.Generic;

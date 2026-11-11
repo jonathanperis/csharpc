@@ -43,7 +43,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        curl -sSLf -o "$RUNNER_TEMP/llvm-mingw.zip" https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-x86_64.zip
+        curl -sSLf --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/llvm-mingw.zip" https://github.com/mstorsjo/llvm-mingw/releases/download/20240619/llvm-mingw-20240619-ucrt-x86_64.zip
         echo "810703594a7e3eea03385b5329c7ea3bd65f5e496b44cf1b68c17ff436d265e7  $RUNNER_TEMP/llvm-mingw.zip" | sha256sum -c -
         unzip -q "$RUNNER_TEMP/llvm-mingw.zip" -d "$RUNNER_TEMP"
         bin="$(cygpath -w "$RUNNER_TEMP/llvm-mingw-20240619-ucrt-x86_64/bin")"
@@ -60,7 +60,7 @@ runs:
       run: |
         set -euo pipefail
         pkg=mingw-w64-ucrt-x86_64-openssl-3.6.5-1-any.pkg.tar.zst
-        curl -sSLf -o "$RUNNER_TEMP/$pkg" "https://repo.msys2.org/mingw/ucrt64/$pkg"
+        curl -sSLf --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/$pkg" "https://repo.msys2.org/mingw/ucrt64/$pkg"
         echo "773e021ebad83f14b5c103db467411e8ff064663e1c7e7f730e2be72f4117064  $RUNNER_TEMP/$pkg" | sha256sum -c -
         dest="$RUNNER_TEMP/openssl"
         mkdir -p "$dest"
@@ -89,11 +89,11 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        curl -sSLf -o "$RUNNER_TEMP/wasi-sdk.tar.gz" https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-24/wasi-sdk-24.0-x86_64-linux.tar.gz
+        curl -sSLf --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/wasi-sdk.tar.gz" https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-24/wasi-sdk-24.0-x86_64-linux.tar.gz
         echo "c6c38aab56e5de88adf6c1ebc9c3ae8da72f88ec2b656fb024eda8d4167a0bc5  $RUNNER_TEMP/wasi-sdk.tar.gz" | sha256sum -c -
         tar xf "$RUNNER_TEMP/wasi-sdk.tar.gz" -C "$RUNNER_TEMP"
         echo "WASI_SDK_PATH=$RUNNER_TEMP/wasi-sdk-24.0-x86_64-linux" >> "$GITHUB_ENV"
-        curl -sSLf -o "$RUNNER_TEMP/wasmtime.tar.xz" https://github.com/bytecodealliance/wasmtime/releases/download/v36.0.19/wasmtime-v36.0.19-x86_64-linux.tar.xz
+        curl -sSLf --retry 5 --retry-all-errors --retry-delay 5 -o "$RUNNER_TEMP/wasmtime.tar.xz" https://github.com/bytecodealliance/wasmtime/releases/download/v36.0.19/wasmtime-v36.0.19-x86_64-linux.tar.xz
         echo "c6070b3043023f3b8e8dc3473a4c360c0d6784aa4294f5a6fc803580fcb2c875  $RUNNER_TEMP/wasmtime.tar.xz" | sha256sum -c -
         tar xf "$RUNNER_TEMP/wasmtime.tar.xz" -C "$RUNNER_TEMP"
         echo "$RUNNER_TEMP/wasmtime-v36.0.19-x86_64-linux" >> "$GITHUB_PATH"
@@ -103,7 +103,7 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        curl -sSL https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
+        curl -sSLf --retry 5 --retry-all-errors --retry-delay 5 https://dot.net/v1/dotnet-install.sh -o dotnet-install.sh
         bash dotnet-install.sh --channel 11.0.1xx --install-dir "$HOME/.dotnet11"
         echo "$HOME/.dotnet11" >> "$GITHUB_PATH"
         echo "DOTNET_ROOT=$HOME/.dotnet11" >> "$GITHUB_ENV"
@@ -112,7 +112,7 @@ runs:
       if: inputs.os == 'windows'
       shell: pwsh
       run: |
-        Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1
+        Invoke-WebRequest https://dot.net/v1/dotnet-install.ps1 -OutFile dotnet-install.ps1 -MaximumRetryCount 5 -RetryIntervalSec 5
         ./dotnet-install.ps1 -Channel 11.0.1xx -InstallDir "$env:USERPROFILE\.dotnet11"
         "$env:USERPROFILE\.dotnet11" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
         "DOTNET_ROOT=$env:USERPROFILE\.dotnet11" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV

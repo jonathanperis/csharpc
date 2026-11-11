@@ -1,4 +1,4 @@
-#:property PublishAot=false
+#:property JsonSerializerIsReflectionEnabledByDefault=true
 // Polymorphic serialization: [JsonPolymorphic]/[JsonDerivedType] with string and integer
 // discriminators, custom discriminator names, interfaces, unknown derived types, and
 // deserializing back to the derived type (with its error messages).
