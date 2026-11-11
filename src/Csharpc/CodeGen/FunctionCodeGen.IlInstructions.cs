@@ -421,6 +421,14 @@ public sealed partial class FunctionCodeGen
                     Push(value with { Type = type });
                     return false;
                 }
+                // `box T; castclass I` with T known to implement I: the cast cannot fail, and the entry stays a box of T, so a call through I on it is
+                // T's own (IlCall).
+                if (value is { Kind: IlKind.Ref, Unboxed: { Type: { } castBoxed } } && !value.Value.IsNull && S(castBoxed) is { IsValueType: true } castValue && !TypeMapper.IsNullable(castValue)
+                    && S(type) is INamedTypeSymbol { TypeKind: TypeKind.Interface } castTarget && castValue.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, castTarget)))
+                {
+                    Push(value);
+                    return false;
+                }
                 Push(new IlEntry(IlKind.Ref, IlCastClass(IlRef(value), type, value.Type), type));
                 return false;
             }
@@ -429,6 +437,17 @@ public sealed partial class FunctionCodeGen
                 var type = ResolveIlType(instruction.Token);
                 var value = Pop();
                 var st = S(type);
+                // `box T; isinst I` in generic code (`value is IFormattable` in the framework's AppendFormatted<T>, string.Format ...): once T is known
+                // the answer is a constant, so neither a run-time interface lookup nor a branch on it is left. The boxed value stays as it is.
+                if (value is { Kind: IlKind.Ref, Unboxed: { Type: { } boxedType } } && S(boxedType) is { IsValueType: true } boxedValue && !TypeMapper.IsNullable(boxedValue)
+                    && st is INamedTypeSymbol { TypeKind: TypeKind.Interface or TypeKind.Class } target && !TypeMapper.IsNullable(st))
+                {
+                    var isInstance = SymbolEqualityComparer.Default.Equals(boxedValue, target) || boxedValue.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, target))
+                        || target.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType
+                        || (boxedValue.TypeKind == TypeKind.Enum && target.SpecialType == SpecialType.System_Enum);
+                    Push(isInstance ? value : new IlEntry(IlKind.Ref, LlvmContext.Null(L.Ptr), Special(SpecialType.System_Object)));
+                    return false;
+                }
                 if (st is INamedTypeSymbol { TypeKind: TypeKind.Interface } itf && MayHoldArray(value.Type is null ? null : S(value.Type)))
                     _m.RequestArrayInterface(itf);
                 Push(new IlEntry(IlKind.Ref, IsInst(IlRef(value), TypeMapper.IsNullable(st) ? TypeMapper.NullableUnderlying(st) : st, IlAt()), Special(SpecialType.System_Object)));
@@ -589,8 +608,7 @@ public sealed partial class FunctionCodeGen
                 var size = IlInt(Pop());
                 var source = IlAddress(Pop());
                 var destination = IlAddress(Pop());
-                var f = _m.Intrinsic("llvm.memmove.p0.p0.i64", L.Void, L.Ptr, L.Ptr, L.I64, L.I1);
-                _m.Facts.NoReferences(_b.Call(f.Type, f.Fn, [destination, source, IlToI64(size, signed: false), L.False]));
+                MemMove(destination, source, IlToI64(size, signed: false), noReferences: true); // cpblk copies bytes: no references
                 return false;
             }
 

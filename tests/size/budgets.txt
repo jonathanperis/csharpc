@@ -13,15 +13,23 @@
 # collections, linq and numbers budgets moved by the same number of bytes until the CI rounds of that PR give their own measurements.
 # The randomized string comparers and the Marvin string hash (#285) added about 4 KB to collections (linux-x86_64 measured 167 336); other platforms moved by the same bytes.
 # linux-aarch64 async measured 173 592 on the first CI round of #285.
+# json and jsonwriter are the framework's own System.Text.Json compiled from IL (ADR 0023, #286): the owner accepted that growth for exactness and speed
+# (shadow before the flip: json 369 432 B, jsonwriter 275 352 B); measured 6 656 792 and 953 456 B on linux-x86_64 (on top of the Linq and Dictionary/HashSet flips), the only platform with budgets for them so far.
+# #290 (ComponentModel from IL; [FeatureSwitchDefinition] folding makes single files' System.Linq.Enumerable.IsSizeOptimized=true take effect): linux-x86_64 measured
+# linq 233 096 (budget lowered from 285 696), async 177 808, collections 167 336, regex 926 032, regexoptions 2 162 536 (+4.5 KB with the hash-flooding merge, over its old budget).
+# jsonwriter: linux-x86_64 measured 1 007 016 B on #290's CI round (74414b4b), 23 976 B over 983 040: the System.Memory flip (#318) plus ComponentModel from IL;
+# other platforms printed windows-x86_64 1 007 616, macos-arm64 965 048, linux-aarch64 941 648, wasi-wasm32 1 059 094 B (no budgets yet).
 # Lower a budget when a change makes a program smaller; raising one needs a reason in the commit.
 linux-x86_64 async 183296
 linux-x86_64 collections 173056
 linux-x86_64 exceptions 37888
 linux-x86_64 hello 32768
-linux-x86_64 linq 285696
+linux-x86_64 json 6856704
+linux-x86_64 jsonwriter 1037312
+linux-x86_64 linq 240640
 linux-x86_64 numbers 148480
-linux-x86_64 regex 902144
-linux-x86_64 regexoptions 2161664
+linux-x86_64 regex 950272
+linux-x86_64 regexoptions 2228224
 linux-x86_64 typeinfo 44032
 linux-aarch64 async 179200
 linux-aarch64 collections 172032

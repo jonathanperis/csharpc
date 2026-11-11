@@ -152,6 +152,13 @@ model and the ICU shim (~85 KiB; formatting dates ~210 KiB, all calendars includ
 (mostly Roslyn binding the corelib's culture code), and loading ICU costs ~3.5–5 ms at first use, ~1.7 ms of it
 .NET's search for the newest `libicuuc.so.N` ([19-globalization.md](19-globalization.md)).
 
+Libraries now come from the framework's IL ([ADR 0023](adr/0023-framework-il-first.md)). Upstream IL assumes NativeAOT's
+optimizer (shared generic code for reference types, whole-program devirtualization, inlining hints), which csharpc lacks,
+so flips have cost speed, size and compile time (List.Add +33 %, StringBuilder appends up to 2x, the JSON reflection
+serializer 18x). [ADR 0025](adr/0025-optimizer-before-flips.md) therefore orders the work: finish the flips in flight, then
+a compiler milestone (shared generics, devirtualization, inlining, self-compile memory budget) measured against NativeAOT,
+then the remaining CoreLib flips (culture, numbers, DateTime, text).
+
 ## Milestones
 
 ### M0 — Spike

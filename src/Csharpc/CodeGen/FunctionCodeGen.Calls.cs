@@ -45,11 +45,13 @@ public sealed partial class FunctionCodeGen
             }
             throw CompileError.Unsupported("RuntimeHelpers.RunClassConstructor with a handle that is not typeof(X).TypeHandle", inv);
         }
-        if (target.IsStatic) CheckJsonSerializerRoots(target, inv);
         NoteReflectionRoots(target, inv);
+        if (inv is IlOperation && InFrameworkIl && inv.Instance is { } fieldsReceiver && target is { Name: "GetFields", Parameters: [{ Type.Name: "BindingFlags" }], ContainingType: { Name: "Type", ContainingNamespace.Name: "System" } })
+            return CallCoreLib("FieldReflection", "FrameworkGetFields", [EmitValue(fieldsReceiver), EmitArgumentValue(inv.Arguments[0])]);
         if (TypeObjectMember(inv.TargetMethod, inv.Instance) is { } typeMember) return CallBcl(typeMember, inv.TargetMethod, inv.Instance, inv.Arguments, inv);
         if (inv is IlOperation && InFrameworkIl && inv.Instance is { } attributeReceiver && FrameworkAttributeQuery(inv.TargetMethod) is { } attributeQuery)
             return CallCoreLib("ReflectionRuntime", attributeQuery, [EmitValue(attributeReceiver), .. inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(EmitArgumentValue)]);
+        if (inv is IlOperation && InFrameworkIl && FrameworkStaticAttributeQuery(inv) is { } staticAttributes) return staticAttributes;
         if (!_memberInfoDispatch && (inv is IlOperation || IsSimpleAttributeProviderReceiver(inv.Instance)) && inv.Instance is { } memberInfoReceiver && inv.TargetMethod is { IsStatic: false, IsVirtual: true } or { IsStatic: false, IsAbstract: true }
             && IsMemberInfoReference(memberInfoReceiver) && BclValueTypes.TryGetForType(inv.TargetMethod, out var typeOrMemberInfo))
             return EmitTypeOrMemberInfo(inv.TargetMethod, memberInfoReceiver, inv.Arguments, typeOrMemberInfo, inv, () => EmitInvocation(inv));
@@ -888,6 +890,29 @@ public sealed partial class FunctionCodeGen
             "IsDefined" when parameters is [{ Type.Name: "Type" }, { Type.SpecialType: SpecialType.System_Boolean }] => "FrameworkIsDefined",
             _ => null,
         };
+    }
+
+    /// <summary>
+    /// Attribute.GetCustomAttributes / GetCustomAttribute / IsDefined(MemberInfo, ...) called from the framework's own IL (System.ComponentModel's
+    /// TypeDescriptor reads every type's attributes this way): the same partial answers as the instance queries above.
+    /// </summary>
+    private LLVMValueRef? FrameworkStaticAttributeQuery(IInvocationOperation inv)
+    {
+        var method = inv.TargetMethod;
+        if (!method.IsStatic || method.ContainingType is not { Name: "Attribute", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } }
+            || method.Parameters is not [{ Type.Name: "MemberInfo" }, ..] parameters) return null;
+        var helper = method.Name switch
+        {
+            "GetCustomAttributes" when parameters.Length == 1 || parameters is [_, { Type.SpecialType: SpecialType.System_Boolean }] => "StaticAttributesAll",
+            "GetCustomAttributes" when parameters is [_, { Type.Name: "Type" }] or [_, { Type.Name: "Type" }, { Type.SpecialType: SpecialType.System_Boolean }] => "StaticAttributes",
+            "GetCustomAttribute" when parameters is [_, { Type.Name: "Type" }] or [_, { Type.Name: "Type" }, { Type.SpecialType: SpecialType.System_Boolean }] => "StaticAttribute",
+            "IsDefined" when parameters is [_, { Type.Name: "Type" }] or [_, { Type.Name: "Type" }, { Type.SpecialType: SpecialType.System_Boolean }] => "StaticIsDefined",
+            _ => null,
+        };
+        if (helper is null) return null;
+        var arguments = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(EmitArgumentValue).ToList();
+        if (parameters.Length == 1 || parameters is [_, { Type.Name: "Type" }]) arguments.Add(L.True); // inherit defaults to true
+        return CallCoreLib("ReflectionRuntime", helper, [.. arguments]);
     }
 
     /// <summary>A receiver typed MemberInfo (not Type): at run time it may be one of csharpc's Type objects, which have no MemberInfo vtable.</summary>
