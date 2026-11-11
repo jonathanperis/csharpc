@@ -73,16 +73,33 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
     /// </summary>
     public int DictionarySlots(IMethodSymbol method) => _slots.GetOrAdd(method.OriginalDefinition, CountSlots);
 
-    private int CountSlots(IMethodSymbol definition)
+    private int CountSlots(IMethodSymbol definition) => SlotKeys(definition)?.Count ?? -1;
+
+    /// <summary>The type-parameter-dependent symbols a definition's body names (null: body not readable).</summary>
+    private HashSet<string>? SlotKeys(IMethodSymbol definition)
     {
-        if (il?.OwnerOf(definition) is { } owner && owner.Body(definition) is { } body) return CountIlSlots(owner, definition, body);
+        if (il?.OwnerOf(definition) is { } owner && owner.Body(definition) is { } body) return IlSlotKeys(owner, definition, body);
         if (definition.DeclaringSyntaxReferences.FirstOrDefault() is { } reference
             && compilation.GetSemanticModel(reference.SyntaxTree).GetOperation(reference.GetSyntax()) is { } operation)
-            return CountSourceSlots(operation);
-        return -1;
+            return SourceSlotKeys(operation);
+        return null;
     }
 
-    private static int CountIlSlots(IlAssembly owner, IMethodSymbol definition, MethodBodyBlock body)
+    private readonly ConcurrentDictionary<INamedTypeSymbol, int> _classSlots = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// The class-level dictionary of a generic class definition: the union of what its instance methods' bodies need (the slots a shared
+    /// instance method reaches through `this`). Static and generic methods get dictionaries of their own (ADR 0026, step 4).
+    /// </summary>
+    public int ClassDictionarySlots(INamedTypeSymbol definition) => _classSlots.GetOrAdd(definition.OriginalDefinition, d =>
+    {
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var method in d.GetMembers().OfType<IMethodSymbol>())
+            if (!method.IsStatic && !method.IsGenericMethod && SlotKeys(method) is { } own) keys.UnionWith(own);
+        return keys.Count;
+    });
+
+    private static HashSet<string> IlSlotKeys(IlAssembly owner, IMethodSymbol definition, MethodBodyBlock body)
     {
         var context = IlGenericContext.For(definition);
         var needed = new HashSet<string>(StringComparer.Ordinal);
@@ -100,10 +117,10 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
             catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { continue; }
             if (symbol is not null && Dependent(symbol, instruction.OpCode)) needed.Add(instruction.OpCode + ":" + symbol.ToDisplayString());
         }
-        return needed.Count;
+        return needed;
     }
 
-    private static int CountSourceSlots(IOperation body)
+    private static HashSet<string> SourceSlotKeys(IOperation body)
     {
         var needed = new HashSet<string>(StringComparer.Ordinal);
         foreach (var op in body.DescendantsAndSelf())
@@ -123,7 +140,7 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
             };
             if (symbol is not null && Dependent(symbol, ILOpCode.Nop)) needed.Add(op.Kind + ":" + symbol.ToDisplayString());
         }
-        return needed.Count;
+        return needed;
     }
 
     /// <summary>Does the symbol depend on a type parameter in a way only a dictionary can supply in shared code?</summary>
