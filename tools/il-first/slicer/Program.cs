@@ -154,6 +154,8 @@ sealed class Cli
                     c.Replace["System.ThrowHelper::ThrowKeyNotFoundException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::ThrowKeyNotFoundException";
                     c.Replace["System.ThrowHelper::ThrowAddingDuplicateWithKeyArgumentException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::ThrowAddingDuplicateWithKeyArgumentException";
                     c.Replace["System.ThrowHelper::GetAddingDuplicateWithKeyArgumentException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetAddingDuplicateWithKeyArgumentException";
+                    // Random's default seed: the OS RNG the runtime seeds string hashing with (csrt_os_random), where CoreLib calls libSystem.Native.
+                    c.Replace["Interop::GetRandomBytes"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetRandomBytes";
                     c.Redirect["System.Collections.Generic.NonRandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer";
                     c.Redirect["System.Collections.Generic.IInternalStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamInternalStringEqualityComparer";
                     c.Redirect["System.Collections.Generic.RandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamRandomizedStringEqualityComparer";
@@ -392,7 +394,7 @@ sealed class Slice
         if (element.DeclaringType is ArrayType) return;
         var def = element as MethodDefinition ?? SafeResolve(element);
         if (def is null || def.Module != Core) return;
-        if (IsStop(def.DeclaringType)) { NoteMember(def); NoteUsed(def); return; }
+        if (IsStop(def.DeclaringType)) { if (Cli.Replacement(def) is null) { NoteMember(def); NoteUsed(def); } return; }
         Enqueue(def);
     }
 

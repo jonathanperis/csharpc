@@ -143,6 +143,52 @@ the IL path on every step.
 - Throughput: callgrind instructions and wall time of the benchmark suite and the flipped libraries' hot paths.
 - A step that makes a hot path slower than both the previous step and NativeAOT goes back to the owner before it merges.
 
+## Baseline (step 1, 2026-11-11)
+
+Measured on main `46d0b194` (.NET 11 GA) on the project's build host (4 cores, 15 GB, shared). csharpc: `-O2`, stripped (default), compile
+CPU (user) and peak RSS of the compile, after a warm-up compile that fills the runtime and corelib caches. NativeAOT: `dotnet publish
+-c Release -p:PublishAot=true` of the same file as a file-based app, with the app's build cache (ILC's object) removed before the timed
+publish; size of the stripped executable. Generic functions: lowered functions that are generic instantiations (`CSHARPC_GENERIC_REPORT`);
+canonical forms: the distinct forms with reference-type arguments as `__Canon`; bytes removed: symbol bytes of the copies sharing would drop
+(each canonical group keeps its largest copy; copies LLVM inlined are not counted, so this undercounts). `lops2`, `ops2` and `sbops` are the
+List, Dictionary/HashSet and StringBuilder throughput programs used for the flips' ADR 0023 rows.
+
+| program | csharpc size | csharpc CPU / peak RSS | NativeAOT size | NativeAOT CPU / peak RSS | generic functions | canonical forms | bytes removed (est.) |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| hello | 28 544 | 1.3 s / 203 MB | 1 332 984 | 6.6 s / 216 MB | 0 | 0 | 0 |
+| exceptions | 36 928 | 1.4 s / 199 MB | 1 332 984 | 6.7 s / 216 MB | 0 | 0 | 0 |
+| typeinfo | 43 784 | 1.5 s / 202 MB | 1 332 984 | 7.6 s / 225 MB | 0 | 0 | 0 |
+| numbers | 143 688 | 4.4 s / 233 MB | 1 341 208 | 7.9 s / 225 MB | 39 | 29 | 1 159 |
+| collections | 167 032 | 3.9 s / 236 MB | 1 354 184 | 10.8 s / 227 MB | 149 | 120 | 1 399 |
+| async | 177 472 | 4.3 s / 248 MB | 1 553 128 | 7.1 s / 216 MB | 161 | 102 | 1 418 |
+| sbops (StringBuilder) | 213 304 | 5.3 s / 254 MB | 1 341 192 | 13.4 s / 225 MB | 45 | 35 | 1 178 |
+| lops2 (List) | 229 128 | 7.8 s / 254 MB | 1 383 224 | 8.1 s / 225 MB | 302 | 244 | 1 399 |
+| ops2 (Dictionary/HashSet) | 159 912 | 4.6 s / 237 MB | 1 353 528 | 6.5 s / 217 MB | 95 | 85 | 1 178 |
+| linq | 232 792 | 5.5 s / 251 MB | 1 581 128 | 7.4 s / 216 MB | 323 | 258 | 3 674 |
+| jsonwriter | 801 272 | 17.2 s / 359 MB | 1 567 208 | 6.6 s / 216 MB | 418 | 313 | 4 351 |
+| regex | 818 024 | 17.7 s / 340 MB | 2 301 032 | 19.3 s / 231 MB | 643 | 438 | 7 187 |
+| json | 1 572 032 | 32.5 s / 457 MB | 1 989 368 | 8.4 s / 216 MB | 1 520 | 883 | 26 897 |
+| regexoptions | 2 045 928 | 40.9 s / 520 MB | 2 765 320 | 11.4 s / 269 MB | 2 937 | 1 717 | 34 545 |
+
+**The self-compile** (csharpc compiling `csharpc.dll`), from CI: Bootstrap run 42943454769 on head `f37498d6` (main plus #319), GitHub's
+16 GB Linux runner:
+
+| | wall | peak RSS | lower to LLVM IR | LLVM optimize + codegen |
+|---|---:|---:|---|---|
+| `-O0` | 6:59 | 14.1 GB | 130 s, 6.1 GB | link step at 13.75 GB |
+| `-O2` | 45:44 | 9.7 GB | 247 s, 6.1 GB | 2 464 s, 9.5 GB (8 partitions) |
+
+Its generic instantiations (`CSHARPC_GENERIC_REPORT` on the same tree, from a local run that completed lowering): **305 590 generic
+functions, 76 020 canonical forms: sharing removes 229 570 (75.1 %)**. The largest collapses are the array and iterator helpers
+instantiated per element type: `Enumerable.Iterator<T>.Select` (4 226 of 4 277 instantiations), each `ArrayEnumerator<T>` member (about
+3 740 of 4 350), `ArrayChecks.CopyToUntyped<T>` (3 715 of 4 311), the `SZArrayHelper<T>` array-interface helpers (about 2 250 of 2 840 per
+member).
+
+What the baseline says: on the measured programs csharpc is already smaller than NativeAOT, and sharing removes little of their size
+(at most about 2 %). Where csharpc loses is compile time on generic-heavy programs (json, jsonwriter and regexoptions take 3 to 4 times
+NativeAOT's publish CPU) and the self-compile's memory: the `-O0` peak of 14.1 GB leaves about 2 GB on the CI runner. Three quarters of the
+self-compile's generic functions are copies sharing would remove, which is the reason to do step 2 onwards.
+
 ## Alternatives considered
 
 - **Keep full monomorphization and trim harder** (whole-program devirtualization, dead-method elimination): needed anyway (ADR 0025's
