@@ -74,6 +74,8 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>Stack-trace recording (docs/adr/0012-stack-traces.md); null when the program never looks at one.</summary>
     public StackTraceInfo? StackTraces { get; init; }
+    /// <summary>--shared-generics (ADR 0026): set, but nothing depends on it until the steps that share code land.</summary>
+    public bool SharedGenerics { get; init; }
 
     /// <summary>Emit write barriers and build a nursery-default runtime (--gc-nursery / ADR 0004).</summary>
     public bool GcNursery { get; init; }

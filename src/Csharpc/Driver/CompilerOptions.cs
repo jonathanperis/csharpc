@@ -65,6 +65,11 @@ public sealed record CompilerOptions
     /// (they then appear in the unhandled-exception report on stderr). Otherwise automatic.
     /// </summary>
     public bool StackTraces { get; set; }
+    /// <summary>
+    /// --shared-generics (or CSHARPC_SHARED_GENERICS=1): compile generic code over reference types once per canonical form (ADR 0026).
+    /// Being built in steps; off by default, and nothing in the output depends on it yet.
+    /// </summary>
+    public bool SharedGenerics { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_SHARED_GENERICS") == "1";
     public bool ShowWarnings { get; set; }
     public bool ImplicitUsings { get; set; } = true;
     public HardeningLevel Hardening { get; set; } = HardeningLevel.Default;
@@ -145,6 +150,7 @@ public sealed record CompilerOptions
           --gc-concurrent        Emit the concurrent marker's write barrier (experimental, docs/adr/0020)
           --gc-nursery           Emit heap write barriers and enable the non-moving nursery by default
                                  (also CSHARPC_GC_NURSERY=1; off by default — see docs/adr/0004)
+          --shared-generics      Shared generic code for reference types (ADR 0026; in development, off by default)
           --stack-traces         Record stack traces in every program (default: only programs that print
                                  an exception or read Exception.StackTrace)
           --hardening <level>    none | default (full RELRO, NX, stack probes, hardened runtime) | max (+ CET IBT/SHSTK or BTI/PAC, SLH)
@@ -246,6 +252,7 @@ public sealed record CompilerOptions
                 case "--gc-nursery": o.GcNursery = true; break;
                 case "--gc-concurrent": o.GcConcurrent = true; break;
                 case "--stack-traces": o.StackTraces = true; break;
+                case "--shared-generics": o.SharedGenerics = true; break;
                 case "--hardening": o.Hardening = Driver.Hardening.Parse(Next()); break;
                 case "--sanitize": o.Sanitize = Next(); break;
                 case var _ when a.StartsWith("--sanitize="): o.Sanitize = a["--sanitize=".Length..]; break;

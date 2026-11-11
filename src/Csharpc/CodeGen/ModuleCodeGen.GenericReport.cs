@@ -4,20 +4,26 @@ using Microsoft.CodeAnalysis;
 namespace Csharpc.CodeGen;
 
 /// <summary>
-/// CSHARPC_GENERIC_REPORT=&lt;file&gt;: one line per lowered function that is a generic instantiation (its own type arguments or a containing
-/// type's), with its definition, its exact instantiation and the canonical form shared generic code would compile it as (every reference-type
-/// type argument replaced by __Canon, value types kept: ADR 0026), and the LLVM function's name, so a size table (nm) can be joined to it.
-/// Measurement only (ADR 0026, step 1): it changes nothing in the output.
+/// CSHARPC_GENERIC_REPORT=&lt;file&gt;: one tab-separated line per lowered function that is a generic instantiation (its own type arguments or a
+/// containing type's): its definition, its exact instantiation, the canonical form shared generic code would compile it as (every
+/// reference-type type argument replaced by __Canon, value types kept: ADR 0026), whether that form is shared code, the number of
+/// generic-dictionary slots the canonical body would need (-1: body not readable), and the LLVM function's name, so a size table (nm) can be
+/// joined to it. Measurement only (ADR 0026, steps 1 and 2): it changes nothing in the output, and with the variable unset it costs one test
+/// of a static field per lowered function.
 /// </summary>
 public sealed partial class ModuleCodeGen
 {
     private static readonly string? s_genericReport = Environment.GetEnvironmentVariable("CSHARPC_GENERIC_REPORT");
-    private readonly List<IMethodSymbol> _genericLowered = [];
+    private List<IMethodSymbol>? _genericLowered;
+    private SharedGenerics? _sharedGenerics;
+
+    /// <summary>Canonical forms and dictionary layouts (ADR 0026); created on first use.</summary>
+    internal SharedGenerics SharedGenericsInfo => _sharedGenerics ??= new SharedGenerics(Compilation, Il);
 
     private void NoteGenericLowered(ISymbol symbol)
     {
         if (s_genericReport is null || symbol is not IMethodSymbol method || !IsInstantiation(method)) return;
-        _genericLowered.Add(method);
+        (_genericLowered ??= []).Add(method);
     }
 
     private static bool IsInstantiation(IMethodSymbol method)
@@ -30,33 +36,17 @@ public sealed partial class ModuleCodeGen
 
     private void WriteGenericReport()
     {
-        if (s_genericReport is null) return;
+        if (s_genericReport is null || _genericLowered is null) return;
+        var shared = SharedGenericsInfo;
         using var writer = new StreamWriter(s_genericReport, append: true);
         foreach (var method in _genericLowered)
         {
             var definition = method.OriginalDefinition.ContainingType.OriginalDefinition.ToDisplayString() + "." + method.OriginalDefinition.Name
                 + (method.Arity > 0 ? "`" + method.Arity : "") + "(" + method.OriginalDefinition.Parameters.Length + ")";
-            var exact = method.ToDisplayString();
-            var canonical = Canonical(method);
+            var canonical = shared.Canonicalize(method);
             var name = _functions.TryGetValue(method, out var lowered) ? Native.LLVMGetValueName(lowered.Fn) : "";
-            writer.WriteLine($"{definition}\t{exact}\t{canonical}\t{name}");
+            writer.WriteLine($"{definition}\t{method.ToDisplayString()}\t{canonical.ToDisplayString()}\t{(shared.IsShared(canonical) ? "shared" : "exact")}"
+                + $"\t{shared.DictionarySlots(method)}\t{name}");
         }
-    }
-
-    /// <summary>The canonical form's display text: reference-type type arguments (recursively) are __Canon.</summary>
-    private static string Canonical(IMethodSymbol method)
-    {
-        static string Type(ITypeSymbol type) => type switch
-        {
-            _ when type.IsReferenceType => "__Canon",
-            INamedTypeSymbol { IsGenericType: true } named => named.OriginalDefinition.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat).Split('<')[0]
-                + "<" + string.Join(",", named.TypeArguments.Select(Type)) + ">",
-            _ => type.ToDisplayString(),
-        };
-        static string Owner(INamedTypeSymbol type) =>
-            (type.ContainingType is { } outer ? Owner(outer) + "+" : type.ContainingNamespace.ToDisplayString() + ".") + type.Name
-            + (type.IsGenericType ? "<" + string.Join(",", type.TypeArguments.Select(Type)) + ">" : "");
-        return Owner(method.ContainingType) + "." + method.Name + (method.IsGenericMethod ? "<" + string.Join(",", method.TypeArguments.Select(Type)) + ">" : "")
-            + "(" + method.Parameters.Length + ")";
     }
 }
