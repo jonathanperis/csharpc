@@ -37,6 +37,9 @@ on:
   schedule:
     - cron: "0 7 * * 1" # Mondays 07:00 UTC, after the benchmarks
   push:
+    # Only the M7 measurement branches; a feature branch that merges main would otherwise start the
+    # whole load-test matrix (and hold runners the merge gate needs) whenever main touched these paths.
+    branches: ["ci/m7-*", "ci/techempower*"]
     paths: ["benchmarks/techempower/**", ".github/workflows/techempower.yml"]
 
 permissions:
