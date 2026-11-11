@@ -302,6 +302,7 @@ public sealed class Compiler(CompilerOptions options)
         {
             DirectPInvokes = directPInvokes,
             StackTraces = stackTraces,
+            SharedGenerics = options.SharedGenerics,
             ProgramCompilation = mainIl is null ? compilation : null,
             SourceOptimized = settings.Symbols?.Optimize ?? options.Configuration.Equals("Release", StringComparison.OrdinalIgnoreCase),
             CfgDump = options.DumpCfg ? Console.Out : null,
