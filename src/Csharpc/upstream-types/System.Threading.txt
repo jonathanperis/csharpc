@@ -1,0 +1,4 @@
+# SpinLock, ReaderWriterLockSlim, ThreadLocal<T> (ADR 0023, #312; docs/il-first/System.Threading.md).
+System.Threading.SpinLock
+System.Threading.ReaderWriterLockSlim
+System.Threading.ThreadLocal`1
