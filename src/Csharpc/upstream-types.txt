@@ -7,3 +7,4 @@ System.Collections.Generic.HashSet`1
 System.Runtime.InteropServices.CollectionsMarshal
 System.Text.StringBuilder
 System.MemoryExtensions/TryWriteInterpolatedStringHandler
+System.Random

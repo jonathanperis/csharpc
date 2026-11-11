@@ -17,9 +17,6 @@ those parts of csharpc.
   `System.Private.CoreLib/src/Resources/Strings.resx`. `src/runtime/globalization/` is the native shim
   `src/native/libs/System.Globalization.Native` (with `pal_compiler.h` from `src/native/libs/Common`).
   Each ported file keeps the upstream license header.
-- **What:** `System.Random` in `src/Csharpc/corelib/Random/` is a port of
-  `src/libraries/System.Private.CoreLib/src/System/Random*.cs` (the public API, the legacy seeded
-  generator .NET keeps for `new Random(seed)`, and xoshiro256**), adapted to the csharpc corelib.
 - **What:** `System.Text.StringBuilder` in `src/Csharpc/corelib/StringBuilder.cs` is a port of
   `src/libraries/System.Private.CoreLib/src/System/Text/StringBuilder.cs` (the chunk list, its growth
   policy, Insert/Remove/Replace, AppendFormat and the chunk enumerator), adapted to the csharpc corelib.
