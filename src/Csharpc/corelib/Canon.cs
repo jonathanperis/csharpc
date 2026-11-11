@@ -2,7 +2,7 @@
 // with __Canon in place of every reference-type argument (NativeAOT's System.__Canon). Never instantiated; its representation is object's.
 namespace CsharpcCoreLib
 {
-    public sealed class __Canon
+    internal sealed class __Canon
     {
         private __Canon() { }
     }
