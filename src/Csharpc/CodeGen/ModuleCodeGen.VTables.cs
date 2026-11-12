@@ -211,6 +211,8 @@ public sealed partial class ModuleCodeGen
                     ? RuntimeSlotFunction(runtimeSlot)
                 : i < ClassLayout.ObjectSlotCount
                     ? Runtime(defaults[i], Llvm.Ptr, Llvm.Ptr).Fn
+                : DictionaryForSlot(layout, i) is { } dictionary
+                    ? dictionary
                     : LlvmContext.Null(Llvm.Ptr)).ToArray();
 
             for (var j = 0; j < table.Interfaces.Count; j++)

@@ -20,8 +20,39 @@ sealed class Emitter
     static readonly HashSet<string> CopiedAttributes = ["System.Runtime.CompilerServices.IsByRefLikeAttribute", "System.Runtime.CompilerServices.ExtensionAttribute",
         "System.Reflection.DefaultMemberAttribute", "System.Runtime.CompilerServices.IsReadOnlyAttribute", "System.Runtime.CompilerServices.InlineArrayAttribute",
         "System.FlagsAttribute", "System.Diagnostics.StackTraceHiddenAttribute",
-        // [ThreadStatic] is the field's semantics: one copy per thread (ThreadLocal<T>'s slot arrays); dropping it shares the field across threads.
+        // [ThreadStatic] is the field's semantics: one copy per thread (ThreadLocal<T>'s slot arrays, Random.Shared's t_random); without it the
+        // field is shared across threads.
         "System.ThreadStaticAttribute"];
+
+    /// <summary>
+    /// Attributes that change what a member means at run time or how csharpc lowers it (thread-local storage, fixed buffers, decoded constants,
+    /// native entry points, reflection dataflow, feature switches, state machines). The slicer must copy each one it meets; one it does not copy
+    /// fails the build instead of silently changing behaviour (#342: a dropped [ThreadStatic] shared Random.Shared's state across threads).
+    /// </summary>
+    static readonly HashSet<string> SemanticAttributes = ["System.ThreadStaticAttribute", "System.ContextStaticAttribute",
+        "System.Runtime.CompilerServices.FixedBufferAttribute", "System.Runtime.CompilerServices.DecimalConstantAttribute",
+        "System.Runtime.CompilerServices.DateTimeConstantAttribute", "System.Runtime.InteropServices.UnmanagedCallersOnlyAttribute",
+        "System.Runtime.CompilerServices.ModuleInitializerAttribute", "System.Runtime.CompilerServices.UnsafeAccessorAttribute",
+        "System.Runtime.CompilerServices.UnsafeAccessorTypeAttribute", "System.Runtime.CompilerServices.InlineArrayAttribute",
+        "System.Runtime.CompilerServices.IsByRefLikeAttribute", "System.Runtime.CompilerServices.AsyncMethodBuilderAttribute",
+        "System.Runtime.CompilerServices.AsyncStateMachineAttribute", "System.Runtime.CompilerServices.IteratorStateMachineAttribute",
+        "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute",
+        "System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute", "System.Diagnostics.CodeAnalysis.DynamicDependencyAttribute",
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute", "System.Diagnostics.CodeAnalysis.FeatureSwitchDefinitionAttribute",
+        "System.Diagnostics.CodeAnalysis.FeatureGuardAttribute"];
+
+    readonly List<string> _droppedSemantics = [];
+
+    /// <summary>Copies the attributes the slice keeps; a semantic attribute it does not keep is recorded and fails the build (Emit).</summary>
+    void CopyAttributes(ICustomAttributeProvider from, ICustomAttributeProvider to, string where)
+    {
+        foreach (var a in from.CustomAttributes)
+        {
+            var name = a.AttributeType.FullName;
+            if (CopiedAttributes.Contains(name)) to.CustomAttributes.Add(new CustomAttribute(MethodRef(a.Constructor), a.GetBlob()));
+            else if (SemanticAttributes.Contains(name)) _droppedSemantics.Add($"{where}: [{name}]");
+        }
+    }
 
     public Emitter(Slice s, Cli cli)
     {
@@ -53,6 +84,9 @@ sealed class Emitter
         foreach (var t in hosted) Bodies(t);
 
         EmbedStrings();
+        if (_droppedSemantics.Count > 0)
+            throw new InvalidOperationException("the slice would drop attributes that change what these members mean (copy them: CopiedAttributes):"
+                + Environment.NewLine + string.Join(Environment.NewLine, _droppedSemantics.Select(d => "  " + d)));
         _m.Assembly.Write(_cli.Out);
         var roots = _s.RootTypes.Concat(_s.RootTypes.SelectMany(Nested)).Distinct().Where(_types.ContainsKey);
         File.WriteAllLines(Path.ChangeExtension(_cli.Out, ".map"), roots.OrderBy(t => t.FullName, StringComparer.Ordinal).Select(t => MetadataName(t, false) + "=" + MetadataName(t, true))
@@ -158,8 +192,7 @@ sealed class Emitter
             foreach (var c in g.Constraints) n.GenericParameters[i].Constraints.Add(new GenericParameterConstraint(Type(c.ConstraintType)));
         if (t.BaseType is not null) n.BaseType = Type(t.BaseType);
         if (Environment.GetEnvironmentVariable("SLICER_NOIFACE") is null) foreach (var i in t.Interfaces) n.Interfaces.Add(new InterfaceImplementation(Type(i.InterfaceType)));
-        foreach (var a in t.CustomAttributes.Where(a => CopiedAttributes.Contains(a.AttributeType.FullName)))
-            n.CustomAttributes.Add(new CustomAttribute(MethodRef(a.Constructor), a.GetBlob()));
+        CopyAttributes(t, n, t.FullName);
 
         bool pid = t.Name == "<PrivateImplementationDetails>";
         foreach (var f in t.Fields)
@@ -170,8 +203,7 @@ sealed class Emitter
             if (f.HasLayoutInfo) nf.Offset = f.Offset;
             if (f.HasMarshalInfo) nf.MarshalInfo = f.MarshalInfo;
             if (f.InitialValue is { Length: > 0 } init) nf.InitialValue = init;
-            foreach (var a in f.CustomAttributes.Where(a => CopiedAttributes.Contains(a.AttributeType.FullName)))
-                nf.CustomAttributes.Add(new CustomAttribute(MethodRef(a.Constructor), a.GetBlob()));
+            CopyAttributes(f, nf, $"{t.FullName}::{f.Name}");
             n.Fields.Add(nf);
             _fields[f] = nf;
         }
@@ -203,8 +235,8 @@ sealed class Emitter
                 var module = _m.ModuleReferences.FirstOrDefault(r => r.Name == pi.Module.Name) ?? AddModuleRef(pi.Module.Name);
                 nm.PInvokeInfo = new PInvokeInfo(pi.Attributes, pi.EntryPoint, module);
             }
-            foreach (var a in m.CustomAttributes.Where(a => CopiedAttributes.Contains(a.AttributeType.FullName)))
-                nm.CustomAttributes.Add(new CustomAttribute(MethodRef(a.Constructor), a.GetBlob()));
+            CopyAttributes(m, nm, $"{t.FullName}::{m.Name}");
+            foreach (var (p, i) in m.Parameters.Select((p, i) => (p, i))) CopyAttributes(p, nm.Parameters[i], $"{t.FullName}::{m.Name}({p.Name})");
         }
         foreach (var m in t.Methods.Where(_methods.ContainsKey))
             if (Environment.GetEnvironmentVariable("SLICER_NOOVR") is null) foreach (var o in m.Overrides) _methods[m].Overrides.Add(MethodRef(o));
@@ -215,6 +247,7 @@ sealed class Emitter
             var np = new PropertyDefinition(p.Name, p.Attributes, Type(p.PropertyType));
             if (p.GetMethod is not null && _methods.TryGetValue(p.GetMethod, out var g)) np.GetMethod = g;
             if (p.SetMethod is not null && _methods.TryGetValue(p.SetMethod, out var s)) np.SetMethod = s;
+            CopyAttributes(p, np, $"{t.FullName}::{p.Name}");
             n.Properties.Add(np);
         }
         foreach (var e in t.Events)
