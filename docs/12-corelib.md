@@ -136,6 +136,10 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   `Queue<T>`, `Stack<T>`, `LinkedList<T>`/`LinkedListNode<T>`, `PriorityQueue<TElement,TPriority>`,
   `SortedList<K,V>`, `SortedDictionary<K,V>`, `SortedSet<T>`, `EqualityComparer<T>`, `Comparer<T>`
   (`Default`, `Create`, subclassing), `CollectionExtensions` (`GetValueOrDefault`, `TryAdd`, `Remove`).
+  `List<T>`, `Dictionary`, `HashSet<T>`, `Queue<T>`, `Collection<T>`, `ReadOnlyCollection<T>` and `ReadOnlyDictionary`
+  are the framework's own code, served from System.Private.CoreLib's IL (`src/Csharpc/upstream-types/`, ADR 0023);
+  `Stack<T>`, `LinkedList<T>`, the sorted collections and `PriorityQueue` come from System.Collections.dll's IL.
+  `ArrayList`, `BitArray` and `Hashtable` are still corelib shadows (#372, `docs/il-first/System.Collections.Hashtable.md`).
 * **Concurrent collections** (`corelib/Concurrent/`): `ConcurrentDictionary<TKey,TValue>` is a port of .NET's
   (same striped-lock table, lock count from `Environment.ProcessorCount`, per-lock budget, growth to the next
   prime of twice the size, nodes prepended to their bucket, non-randomized hashing of string keys under the

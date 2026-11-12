@@ -20,15 +20,15 @@
       "automerge": false
     },
     {
-      "description": ".NET SDK pin in global.json (csharpc tracks the newest SDK, previews included)",
+      "description": ".NET SDK pin in global.json: .NET 11 GA only, never prereleases (patch versions roll forward through rollForward latestPatch); reviewed by hand",
       "matchFileNames": [
         "global.json"
       ],
-      "ignoreUnstable": false,
+      "ignoreUnstable": true,
       "automerge": false
     },
     {
-      "description": "GitHub Actions minor/patch updates merge automatically once CI passes",
+      "description": "GitHub Actions updates: Renovate opens the PR (actions stay pinned by commit SHA); a person merges it through the normal gate, since main has no branch protection to enforce CI on an automerge",
       "matchManagers": [
         "github-actions"
       ],
@@ -37,7 +37,7 @@
         "patch",
         "digest"
       ],
-      "automerge": true
+      "automerge": false
     },
     {
       "description": "CI stays on Ubuntu 24.04: csharpc targets LLVM 18-20 through the LLVM C API, and newer Ubuntu releases ship a newer LLVM. Revisit together with the LLVM version.",
@@ -53,5 +53,6 @@
       "enabled": false
     }
   ],
-  "dependencyDashboard": false
+  "dependencyDashboard": false,
+  "pinDigests": true
 }

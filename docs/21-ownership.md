@@ -365,6 +365,13 @@ for `string`, `int`, `long`, `uint`, `ulong` and `char` keys the text is built d
 formatting, culture data and every number formatter for an exception message (that was +17 KB; the generic replacement is a slicer feature: a forwarded
 method may be generic).
 
+**Status (2026-11-12): Queue<T>, Collection<T>, ReadOnlyCollection<T> and ReadOnlyDictionary<TKey,TValue> are served from the framework's IL** (#367):
+`corelib/Queue.cs`, `corelib/Collection.cs`, `corelib/ObjectModel.cs` and `corelib/ReadOnlyDictionary.cs` are gone (580 lines), with no compiler
+change. Queue is 14 % fewer instructions than its shadow; the ObjectModel types are the same speed and size (`docs/il-first/`). The CoreLib
+collections still shadowed: `Hashtable` (from IL it is correct but 30 % larger and 3 % slower, because `Insert`'s duplicate-key `SR.Format` brings in
+composite formatting: #373), `ArrayList` (untyped `Array.IndexOf`/`LastIndexOf`/`Sort(Array, int, int, IComparer)`) and `BitArray` (Vector128/256
+operators from IL): #372.
+
 ### Proposed boundary, and the order
 
 The numbers support boundary A for collections and text, with the contract growing by the internals listed above (12 members so
