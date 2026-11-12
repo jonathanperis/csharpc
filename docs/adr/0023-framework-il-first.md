@@ -89,7 +89,9 @@ recordings made on real .NET; "speed" is a throughput program (`tools/il-first/b
 samples are tiny and start-up dominated.
 
 The per-library table (columns: library (switch); correctness, samples from IL; binary size, IL / shadow; compile cpu, IL / shadow;
-speed, IL / shadow (time); lines removed on a flip; decision) has one file per library or CoreLib type in
+speed, IL / shadow (time); lines removed on a flip; decision; NativeAOT on the same host, csharpc / NativeAOT, measured with
+`tools/il-first/measure-aot.sh` on the library's program from `tools/il-first/bench`: stripped size, compile cpu, run time (median of 7)
+and instructions) has one file per library or CoreLib type in
 [`docs/il-first/`](../il-first/): `docs/il-first/<library>.md` (an assembly name such as `System.Linq.md`, or the CoreLib type's full name
 such as `System.Text.StringBuilder.md`) holds that library's row under the table's header. A flip adds its own file and edits no
 other library's, so flips running in parallel do not conflict (ADR 0025, decision 6). `tools/il-first/table.sh` prints all the

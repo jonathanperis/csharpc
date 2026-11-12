@@ -7,7 +7,8 @@
 > **Where a flip writes** (one file per library, so flips of different libraries run in parallel without conflicts; ADR 0025,
 > decision 6): its row of the ADR 0023 table in a new `docs/il-first/<library>.md` (copy the header from any file there); for a
 > CoreLib type, the type names in a new `src/Csharpc/upstream-types/<library>.txt` (same name as the doc); for a size program it
-> moves, that program's `tests/size/budgets/<program>.txt` (its lines and the reason, as a comment). `tools/il-first/ownership.tsv`
+> moves, that program's `tests/size/budgets/<program>.txt` (its lines and the reason, as a comment). Its NativeAOT column comes from
+> `tools/il-first/measure-aot.sh` on the library's program in `tools/il-first/bench` (add one when the library has none). `tools/il-first/ownership.tsv`
 > is generated on demand (`tools/il-first/ownership.sh`) and not committed; ownership.cs overrides of deleted files can stay.
 
 csharpc's route to drop-in BCL coverage: library types re-implemented **in C#**, compiled by csharpc
