@@ -23,6 +23,9 @@ name: Release
 #   - Push of v* tags: named release, GitHub Packages, GHCR and nuget.org (the only channel that
 #     publishes there; its packages can't be deleted). The tagged commit must be on main and
 #     already have a green full-gate CI run, or the release fails without publishing.
+#   - pull_request touching the packaging (release.yml, tools/pack-release.sh, tools/smoke-release.sh,
+#     the csproj, the driver, SharedFramework.cs, upstream-types/): build+smoke of linux-x64 only;
+#     should_publish is always false, so nothing is released, pushed or attested.
 #   - workflow_dispatch: dry-run by default (build+smoke only; never creates a Release/tag). With
 #     dry_run=false it needs the same green gate, a new version, and never pushes to nuget.org.
 # To exercise release.yml without publishing: workflow_dispatch with dry_run=true (default).
@@ -36,6 +39,17 @@ on:
     branches: [main]
   push:
     tags: ["v*"]
+  # A PR that changes what goes into the bundle builds and smoke-tests it on linux-x64, never publishing
+  # (#375: the Linq flip broke every bundle and nothing ran the smoke before main).
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "tools/pack-release.sh"
+      - "tools/smoke-release.sh"
+      - "src/Csharpc/Csharpc.csproj"
+      - "src/Csharpc/Driver/**"
+      - "src/Csharpc/Frontend/SharedFramework.cs"
+      - "src/Csharpc/upstream-types/**"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -92,6 +106,7 @@ jobs:
       prerelease: ${{ steps.meta.outputs.prerelease }}
       publish_nuget_org: ${{ steps.meta.outputs.publish_nuget_org }}
       sha: ${{ steps.meta.outputs.sha }}
+      matrix: ${{ steps.meta.outputs.matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -147,6 +162,11 @@ jobs:
             release_tag="$REF_NAME"
             if [[ $version == *-* ]]; then prerelease=true; else prerelease=false; fi
             sha="$SHA"
+          elif [[ $EVENT_NAME == pull_request ]]; then
+            # Build and smoke only: never publishes (should_publish stays false), one platform.
+            should_run=true
+            channel=pr
+            version="${csproj_ver}"
           elif [[ $EVENT_NAME == workflow_dispatch && -n $UNLIST ]]; then
             echo "unlist-only dispatch: nothing to build"
           elif [[ $EVENT_NAME == workflow_dispatch ]]; then
@@ -224,7 +244,14 @@ jobs:
             publish_nuget_org=true
           fi
 
+          # The platforms to build and smoke: all four, or linux-x64 alone for a pull request.
+          matrix='{"include":[{"rid":"linux-x64","os":"linux","runner":"ubuntu-24.04"},{"rid":"linux-arm64","os":"linux","runner":"ubuntu-24.04-arm"},{"rid":"osx-arm64","os":"macos","runner":"macos-15"},{"rid":"win-x64","os":"windows","runner":"windows-2025"}]}'
+          if [[ $channel == pr ]]; then
+            matrix='{"include":[{"rid":"linux-x64","os":"linux","runner":"ubuntu-24.04"}]}'
+          fi
+
           {
+            echo "matrix=$matrix"
             echo "should_run=$should_run"
             echo "should_publish=$should_publish"
             echo "version=$version"
@@ -242,20 +269,8 @@ jobs:
     if: needs.setup.outputs.should_run == 'true'
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - rid: linux-x64
-            os: linux
-            runner: ubuntu-24.04
-          - rid: linux-arm64
-            os: linux
-            runner: ubuntu-24.04-arm
-          - rid: osx-arm64
-            os: macos
-            runner: macos-15
-          - rid: win-x64
-            os: windows
-            runner: windows-2025
+      # linux-x64, linux-arm64, osx-arm64, win-x64 (setup: linux-x64 alone for a pull request).
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     defaults:
@@ -331,20 +346,7 @@ jobs:
     if: ${{ !cancelled() && needs.setup.outputs.should_run == 'true' }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - rid: linux-x64
-            os: linux
-            runner: ubuntu-24.04
-          - rid: linux-arm64
-            os: linux
-            runner: ubuntu-24.04-arm
-          - rid: osx-arm64
-            os: macos
-            runner: macos-15
-          - rid: win-x64
-            os: windows
-            runner: windows-2025
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
     defaults:
