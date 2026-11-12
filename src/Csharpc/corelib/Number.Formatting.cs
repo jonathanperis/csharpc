@@ -7,11 +7,12 @@
 //
 //   * double/float digits are exact (BigNum expansion of the binary value) and rounded to nearest,
 //     ties to even, like .NET Core 3.0+ (0.125.ToString("F2") == "0.12"); the shortest round-trip
-//     digits ("R", "G", ToString()) come from Steele & White / Burger & Dybvig free-format generation.
+//     digits ("R", "G", ToString()) are CoreLib's own Grisu3/Dragon4, from the framework's IL.
 //   * custom formats see doubles rounded to 15 significant digits (floats: 7), then round half up.
 //   * integers and decimals round half up, and never print a negative zero.
 #nullable disable
 using System;
+using System.Runtime.CompilerServices;
 using NumberFormatInfo = CsharpcCoreLib.Globalization.NumberFormatInfo;
 
 namespace CsharpcCoreLib
@@ -179,6 +180,23 @@ namespace CsharpcCoreLib
             while (g.N > 0 && g.D[g.N - 1] == (byte)'0') g.N--;
         }
 
+#if CSHARPC_TARGET_WASM32
+        // wasm32 keeps the corelib's own digit generation. The framework's Number.BigInteger (behind Dragon4) is pointer-sized: nuint
+        // blocks, and the slice is cut from the build machine's 64-bit CoreLib, whose IL has 64-bit block widths and a 59-block buffer
+        // baked in. On a 4-byte-pointer target that arithmetic is wrong (garbage digits, or a run off the buffer), so the sliced Number
+        // code must never be reached there. Temporary, until slices are correct on 32-bit targets (#382).
+        private static void ShortestDigits(double value, ref DigitBuffer g)
+        {
+            Decompose(value, out ulong f, out int e, out bool closer);
+            ShortestDigits(f, e, closer, ref g);
+        }
+
+        private static void ShortestDigits(float value, ref DigitBuffer g)
+        {
+            Decompose(value, out ulong f, out int e, out bool closer);
+            ShortestDigits(f, e, closer, ref g);
+        }
+
         /// <summary>
         /// Shortest digits that round-trip to f * 2^e (Steele &amp; White / Burger &amp; Dybvig free-format
         /// algorithm on exact big integers); among equally short candidates, the closest.
@@ -252,6 +270,30 @@ namespace CsharpcCoreLib
             g.Exp10 = k;
             while (g.N > 0 && g.D[g.N - 1] == (byte)'0') g.N--;
         }
+#else
+        // The shortest round-trip digits come from CoreLib's own Grisu3 and Dragon4, served from the framework's IL through the slicer's
+        // NumberBridge contract member (tools/il-first/slicer/Emit.cs; src/Csharpc/upstream-types/System.Number.txt). It writes ASCII digits
+        // with value = 0.d1d2... * 10^scale, the DigitBuffer convention. Deleted when number formatting flips (ADR 0025, Phase 3).
+        [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "ShortestDigits")]
+        private static extern int UpstreamShortestDigits([UnsafeAccessorType("CsharpcCoreLib.Upstream.NumberBridge, CsharpcUpstream")] object bridge,
+            double value, Span<byte> digits, out int scale);
+
+        [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "ShortestDigits")]
+        private static extern int UpstreamShortestDigits([UnsafeAccessorType("CsharpcCoreLib.Upstream.NumberBridge, CsharpcUpstream")] object bridge,
+            float value, Span<byte> digits, out int scale);
+
+        private static void ShortestDigits(double value, ref DigitBuffer g)
+        {
+            g.N = UpstreamShortestDigits(null, value, g.D, out g.Exp10);
+            while (g.N > 0 && g.D[g.N - 1] == (byte)'0') g.N--;
+        }
+
+        private static void ShortestDigits(float value, ref DigitBuffer g)
+        {
+            g.N = UpstreamShortestDigits(null, value, g.D, out g.Exp10);
+            while (g.N > 0 && g.D[g.N - 1] == (byte)'0') g.N--;
+        }
+#endif
 
         /// <summary>
         /// .NET's RoundNumber: keep `pos` digits. Ties go to even when the digits are an exact binary
@@ -343,8 +385,7 @@ namespace CsharpcCoreLib
             if (value == double.NegativeInfinity) { sb.Append(nfi.NegativeInfinitySymbol); return true; }
             if (g.Neg) sb.Append(nfi.NegativeSign);
             if (value == 0) { g.N = 0; g.Exp10 = 0; return false; }
-            Decompose(value, out ulong f, out int e, out bool closer);
-            ShortestDigits(f, e, closer, ref g);
+            ShortestDigits(value, ref g);
             return false;
         }
 
@@ -357,8 +398,7 @@ namespace CsharpcCoreLib
             if (value == float.NegativeInfinity) { sb.Append(nfi.NegativeInfinitySymbol); return true; }
             if (g.Neg) sb.Append(nfi.NegativeSign);
             if (value == 0) { g.N = 0; g.Exp10 = 0; return false; }
-            Decompose(value, out ulong f, out int e, out bool closer);
-            ShortestDigits(f, e, closer, ref g);
+            ShortestDigits(value, ref g);
             return false;
         }
 

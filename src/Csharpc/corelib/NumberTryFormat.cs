@@ -89,6 +89,11 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.UInt64")]
     internal static class UInt64TryFormat
     {
+        // 10^0 .. 10^19 (internal upstream), which the framework's IL reads (Number.BigInteger's power table).
+        public static ReadOnlySpan<ulong> PowersOf10 => [1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000, 10000000000,
+            100000000000, 1000000000000, 10000000000000, 100000000000000, 1000000000000000, 10000000000000000, 100000000000000000,
+            1000000000000000000, 10000000000000000000];
+
         [ShadowInstance] public static bool TryFormat(ulong value, Span<char> destination, out int charsWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null) =>
             format.Length == 0 ? NumberTryFormat.Digits((ulong)value, destination, out charsWritten)
                 : NumberTryFormat.Copy(value.ToString(NumberTryFormat.Format(format), provider), destination, out charsWritten);

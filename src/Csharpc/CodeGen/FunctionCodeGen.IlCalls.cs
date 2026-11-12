@@ -31,6 +31,12 @@ public sealed partial class FunctionCodeGen
             throw new IlException($"'dynamic' in compiled code (the call site of Microsoft.CSharp.RuntimeBinder.Binder.{method.Name}): csharpc binds the call sites csc creates, and this one isn't one of them");
         var args = new IlEntry[method.Parameters.Length];
         for (var i = args.Length - 1; i >= 0; i--) args[i] = stack.Count > 0 ? stack.Pop() : throw new IlException("evaluation stack underflow");
+        // A [ShadowInstance] static standing for an instance method of a value type takes the receiver by value, while the IL
+        // pushed its address (`ldloca; call instance UInt128::get_Lower()`): load it, or an i128/primitive receiver would get the
+        // address converted to an integer.
+        if (method.IsStatic && args.Length > 0 && args[0].Kind == IlKind.ByRef && CoreLib.IsInstanceShadow(method)
+            && method.Parameters[0] is { RefKind: RefKind.None } self && S(self.Type) is { IsValueType: true } selfType)
+            args[0] = IlPush(LoadValue(IlAddress(args[0]), selfType), selfType);
         IlEntry? receiver = null;
         if (op != ILOpCode.Newobj && !method.IsStatic)
             receiver = stack.Count > 0 ? stack.Pop() : throw new IlException("evaluation stack underflow");

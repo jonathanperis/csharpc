@@ -111,6 +111,8 @@ sealed class Cli
     public List<string> Stop = [];
     /// <summary>"Ns.Type::Method" -> "Assembly:Ns.Type::Method": the slice calls the target with the same arguments instead of running the method's IL (the contract).</summary>
     public Dictionary<string, string> Replace = new();
+    /// <summary>Emit csharpc's NumberBridge (Emit.EmitNumberBridge) when the slice holds the shortest-digit members (the csharpc profile).</summary>
+    public bool NumberBridge;
     /// <summary>"Ns.Type`1" -> "Assembly:Ns.Type`1": references to this (stop) type point at csharpc's own type of the same shape instead.</summary>
     public Dictionary<string, string> Redirect = new();
     public string Replacement(Mono.Cecil.MethodDefinition m) => Replace.GetValueOrDefault(m.DeclaringType.FullName + "::" + m.Name);
@@ -145,6 +147,7 @@ sealed class Cli
                 case "--profile":
                     // The contract choices of the shipped slice (docs/21-ownership.md Part B), the same for the build and for tools/il-first/slicer/slice.sh.
                     if (args[++i] != "csharpc") throw new ArgumentException("unknown profile " + args[i]);
+                    c.NumberBridge = true;
                     c.Replace["System.SR::InternalGetResourceString"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetResourceString";
                     c.Replace["System.SR::GetUsingResourceKeysSwitchValue"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetUsingResourceKeys";
                     // The message of a missing key is string.Format(text, key): all of composite formatting, culture data and number formatting for a
@@ -263,8 +266,19 @@ sealed class Slice
 
     public void Run()
     {
+        var methodRoots = new List<MethodDefinition>();
         foreach (var name in Cli.Roots)
         {
+            // "System.Number::Dragon4": a method root, every overload of it; its declaring type is not a root (only what it reaches is cut).
+            if (name.IndexOf("::", StringComparison.Ordinal) is var sep and > 0)
+            {
+                var owner = Core.GetType(name[..sep]) ?? throw new ArgumentException($"{name[..sep]} is not a type of {Cli.CoreLib}");
+                var found = owner.Methods.Where(m => m.Name == name[(sep + 2)..]).ToList();
+                if (found.Count == 0) throw new ArgumentException($"{name} is not a method of {Cli.CoreLib}");
+                UseType(owner, force: true);
+                methodRoots.AddRange(found);
+                continue;
+            }
             var t = Core.GetType(name) ?? throw new ArgumentException($"{name} is not a type of {Cli.CoreLib}");
             RootTypes.Add(t);
             UseType(t, force: true);
@@ -273,6 +287,7 @@ sealed class Slice
         }
         foreach (var t in RootTypes)
             foreach (var m in t.Methods) Enqueue(m);
+        foreach (var m in methodRoots) Enqueue(m);
         do
         {
             while (_queue.Count > 0) Walk(_queue.Dequeue());
