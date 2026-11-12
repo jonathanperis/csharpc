@@ -19,6 +19,22 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.UIntPtr")]
     internal static class UIntPtrMembers
     {
+        // nuint.MaxValue (a property, not a constant: its width is the target's), which the framework's IL reads (Number.BigInteger).
+        public static nuint MaxValue => unchecked((nuint)(nint)(-1));
+        public static nuint LeadingZeroCount(nuint value) => (nuint)System.Numerics.BitOperations.LeadingZeroCount(value);
+        public static nuint BigMul(nuint left, nuint right, out nuint lower)
+        {
+            if (nint.Size == 8)
+            {
+                ulong high = Math.BigMul((ulong)left, (ulong)right, out ulong low);
+                lower = (nuint)low;
+                return (nuint)high;
+            }
+            ulong product = (ulong)(uint)left * (uint)right;
+            lower = (nuint)(uint)product;
+            return (nuint)(uint)(product >> 32);
+        }
+
         [ShadowInstance] public static string ToString(nuint value, string format) => ((ulong)value).ToString(format);
         [ShadowInstance] public static string ToString(nuint value, IFormatProvider provider) => ((ulong)value).ToString(provider);
         [ShadowInstance] public static string ToString(nuint value, string format, IFormatProvider provider) => ((ulong)value).ToString(format, provider);

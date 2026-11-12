@@ -141,6 +141,10 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.UInt128")]
     internal static class UInt128Members
     {
+        // The halves (internal upstream), which the framework's IL reads (Number.BigInteger.Multiply10).
+        [ShadowInstance] public static ulong get_Lower(UInt128 value) => (ulong)value;
+        [ShadowInstance] public static ulong get_Upper(UInt128 value) => (ulong)(value >> 64);
+
         public static string FormatWith(UInt128 value, IFormatProvider provider) => value.ToString();
 
         [ShadowInstance] public static bool TryFormat(UInt128 value, Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null) =>
