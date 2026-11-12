@@ -10,4 +10,6 @@ linux-x86_64 numbers 156672
 linux-aarch64 numbers 152576
 macos-arm64 numbers 181248
 windows-x86_64 numbers 169984
-wasi-wasm32 numbers 161792
+# wasm32 keeps the corelib's own digit generation (the sliced Dragon4 is 64-bit only, #382), so it does not carry Dragon4: measured
+# 146 678 B, budget = measured + 3 %.
+wasi-wasm32 numbers 151552

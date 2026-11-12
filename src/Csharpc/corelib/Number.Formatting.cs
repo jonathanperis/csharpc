@@ -180,6 +180,97 @@ namespace CsharpcCoreLib
             while (g.N > 0 && g.D[g.N - 1] == (byte)'0') g.N--;
         }
 
+#if CSHARPC_TARGET_WASM32
+        // wasm32 keeps the corelib's own digit generation. The framework's Number.BigInteger (behind Dragon4) is pointer-sized: nuint
+        // blocks, and the slice is cut from the build machine's 64-bit CoreLib, whose IL has 64-bit block widths and a 59-block buffer
+        // baked in. On a 4-byte-pointer target that arithmetic is wrong (garbage digits, or a run off the buffer), so the sliced Number
+        // code must never be reached there. Temporary, until slices are correct on 32-bit targets (#382).
+        private static void ShortestDigits(double value, ref DigitBuffer g)
+        {
+            Decompose(value, out ulong f, out int e, out bool closer);
+            ShortestDigits(f, e, closer, ref g);
+        }
+
+        private static void ShortestDigits(float value, ref DigitBuffer g)
+        {
+            Decompose(value, out ulong f, out int e, out bool closer);
+            ShortestDigits(f, e, closer, ref g);
+        }
+
+        /// <summary>
+        /// Shortest digits that round-trip to f * 2^e (Steele &amp; White / Burger &amp; Dybvig free-format
+        /// algorithm on exact big integers); among equally short candidates, the closest.
+        /// </summary>
+        private static void ShortestDigits(ulong f, int e, bool lowerBoundaryCloser, ref DigitBuffer g)
+        {
+            Span<uint> rs = stackalloc uint[48];
+            Span<uint> ss = stackalloc uint[48];
+            Span<uint> ps = stackalloc uint[48];
+            Span<uint> ms = stackalloc uint[48];
+            var r = new BigNum(rs);
+            var s = new BigNum(ss);
+            var mPlus = new BigNum(ps);
+            var mMinus = new BigNum(ms);
+            bool even = (f & 1) == 0;
+            // value = r / s; the rounding interval is (r - mMinus, r + mPlus) / s.
+            r.SetUInt64(f);
+            if (e >= 0)
+            {
+                mPlus.SetUInt64(1); mPlus.ShiftLeft(e);
+                mMinus.SetUInt64(1); mMinus.ShiftLeft(e);
+                if (!lowerBoundaryCloser) { r.ShiftLeft(e + 1); s.SetUInt64(2); }
+                else { r.ShiftLeft(e + 2); s.SetUInt64(4); mPlus.ShiftLeft(1); }
+            }
+            else
+            {
+                mPlus.SetUInt64(1);
+                mMinus.SetUInt64(1);
+                s.SetUInt64(1);
+                if (!lowerBoundaryCloser) { r.ShiftLeft(1); s.ShiftLeft(1 - e); }
+                else { r.ShiftLeft(2); s.ShiftLeft(2 - e); mPlus.SetUInt64(2); }
+            }
+
+            // k = ceil(log10(value)), estimated from the bit length (exact or one too small).
+            int bitLength = 0;
+            for (ulong t = f; t != 0; t >>= 1) bitLength++;
+            int k = (int)Math.Ceiling((e + bitLength - 1) * 0.30102999566398114 - 1e-10);
+            if (k >= 0) s.MulPow10(k);
+            else
+            {
+                r.MulPow10(-k);
+                mPlus.MulPow10(-k);
+                mMinus.MulPow10(-k);
+            }
+            int high = BigNum.CompareSum(in r, in mPlus, in s);
+            if (even ? high >= 0 : high > 0) { s.MulSmall(10); k++; }
+
+            int n = 0;
+            while (true)
+            {
+                r.MulSmall(10);
+                mPlus.MulSmall(10);
+                mMinus.MulSmall(10);
+                uint digit = r.DivRemDigit(in s);
+                int low = BigNum.Compare(in r, in mMinus);
+                high = BigNum.CompareSum(in r, in mPlus, in s);
+                bool tc1 = even ? low <= 0 : low < 0;
+                bool tc2 = even ? high >= 0 : high > 0;
+                if (!tc1 && !tc2) { g.D[n++] = (byte)('0' + digit); continue; }
+                if (tc1 && tc2)
+                {
+                    // Both neighbours round-trip: take the closer one (ties to even).
+                    int half = BigNum.CompareSum(in r, in r, in s);
+                    if (half > 0 || (half == 0 && (digit & 1) == 1)) digit++;
+                }
+                else if (tc2) digit++;
+                g.D[n++] = (byte)('0' + digit);
+                break;
+            }
+            g.N = n;
+            g.Exp10 = k;
+            while (g.N > 0 && g.D[g.N - 1] == (byte)'0') g.N--;
+        }
+#else
         // The shortest round-trip digits come from CoreLib's own Grisu3 and Dragon4, served from the framework's IL through the slicer's
         // NumberBridge contract member (tools/il-first/slicer/Emit.cs; src/Csharpc/upstream-types/System.Number.txt). It writes ASCII digits
         // with value = 0.d1d2... * 10^scale, the DigitBuffer convention. Deleted when number formatting flips (ADR 0025, Phase 3).
@@ -202,6 +293,7 @@ namespace CsharpcCoreLib
             g.N = UpstreamShortestDigits(null, value, g.D, out g.Exp10);
             while (g.N > 0 && g.D[g.N - 1] == (byte)'0') g.N--;
         }
+#endif
 
         /// <summary>
         /// .NET's RoundNumber: keep `pos` digits. Ties go to even when the digits are an exact binary
