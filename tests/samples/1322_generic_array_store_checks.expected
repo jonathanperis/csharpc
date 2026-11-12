@@ -1,0 +1,42 @@
+Slots<object>.Store string into string[]: ok
+Slots<object>.Store int into string[]: ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+Slots<object>.Store object into string[]: ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+Slots<object>.Store null into string[]: ok
+Slots<object>.Store int into object[]: ok
+Slots<object>.Slot of string[]: ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+Slots<object>.Slot of object[]: ok
+Slots<object>.StoreThroughRef string[]: ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+s True
+Slots<Customer>.Store Vip into Vip[]: ok
+Slots<Customer>.Store Customer into Vip[]: ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+Slots<Customer>.Slot of Vip[]: ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+Slots<Customer>.Slot of Customer[]: ok
+Vip(v) True
+Slots<string>.Store: ok
+Slots<string>.Slot: ok
+ab
+Slots<object> { strings }.CopyTo string[]: ok
+ab
+Slots<object> { strings }.CopyToArray string[]: ok
+Slots<object> { strings, int }.CopyTo string[]: InvalidCastException: Unable to cast object of type 'System.Int32' to type 'System.String'.
+Slots<object> { strings, int }.CopyToArray string[]: InvalidCastException: Unable to cast object of type 'System.Int32' to type 'System.String'.
+3
+Slots<object> { strings, int }.CopyTo object[]: ok
+Slots<object>.CopyFrom string[]: ok
+Slots<object>.SetValue string[] int: InvalidCastException: Object cannot be stored in an array of this type.
+Slots<object>.SetValue string[] string: ok
+System.Object[]:x,y,3,
+Vip(a)
+Slots<Customer> { Vip }.CopyTo Vip[]: ok
+Slots<Customer> { Vip, Customer }.CopyTo Vip[]: InvalidCastException: Unable to cast object of type 'Customer' to type 'Vip'.
+Customer(b)
+Slots<Customer> { Vip, Customer }.CopyToArray object[]: ok
+Slots<Customer>.CopyFrom Vip[]: ok
+Customer[]:Vip(z),Customer(b)
+System.Object[] Customer[] System.String[]
+List<object> { int }.CopyTo string[]: InvalidCastException: Unable to cast object of type 'System.Int32' to type 'System.String'.
+s
+List<object> { string }.CopyTo string[]: ok
+List<Customer> { Customer }.CopyTo Vip[]: InvalidCastException: Unable to cast object of type 'Customer' to type 'Vip'.
+Stack<object> { int }.CopyTo string[]: ArrayTypeMismatchException: Attempted to access an element as a type incompatible with the array.
+ICollection List<object> { int }.CopyTo string[]: InvalidCastException: Unable to cast object of type 'System.Int32' to type 'System.String'.
