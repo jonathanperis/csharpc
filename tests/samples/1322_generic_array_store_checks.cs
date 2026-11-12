@@ -53,6 +53,16 @@ class Slots<T>
     public string Describe() => _items.GetType() + ":" + string.Join(",", _items);
 }
 
+// catch (T): the handler tests the exception against the exact T.
+class Catcher<T> where T : Exception
+{
+    public string Run(Action action)
+    {
+        try { action(); return "nothing thrown"; }
+        catch (T e) { return "caught " + e.GetType().Name; }
+    }
+}
+
 static class Program
 {
     static void Try(string what, Action action)
@@ -111,6 +121,13 @@ static class Program
         Console.WriteLine(customers.Describe());
 
         Console.WriteLine(objects.Fill(2, "x").GetType() + " " + customers.Fill(1, null).GetType() + " " + texts.Fill(1, "s").GetType());
+
+        var arguments = new Catcher<ArgumentException>();
+        Try("Catcher<ArgumentException> ArgumentNullException", () => Console.WriteLine(arguments.Run(() => throw new ArgumentNullException("p"))));
+        Try("Catcher<ArgumentException> InvalidOperationException", () => Console.WriteLine(arguments.Run(() => throw new InvalidOperationException("no"))));
+        Try("Catcher<InvalidOperationException> ObjectDisposedException", () => Console.WriteLine(new Catcher<InvalidOperationException>().Run(() => throw new ObjectDisposedException("o"))));
+        Try("Catcher<InvalidOperationException> ArgumentException", () => Console.WriteLine(new Catcher<InvalidOperationException>().Run(() => throw new ArgumentException("a"))));
+        Try("Catcher<Exception> nothing", () => Console.WriteLine(new Catcher<Exception>().Run(() => { })));
 
         // The framework's own collections over a covariant destination.
         Try("List<object> { int }.CopyTo string[]", () => { var l = new List<object> { 1 }; object[] d = new string[1]; l.CopyTo(d); });

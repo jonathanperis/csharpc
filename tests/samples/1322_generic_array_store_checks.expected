@@ -34,6 +34,14 @@ Slots<Customer> { Vip, Customer }.CopyToArray object[]: ok
 Slots<Customer>.CopyFrom Vip[]: ok
 Customer[]:Vip(z),Customer(b)
 System.Object[] Customer[] System.String[]
+caught ArgumentNullException
+Catcher<ArgumentException> ArgumentNullException: ok
+Catcher<ArgumentException> InvalidOperationException: InvalidOperationException: no
+caught ObjectDisposedException
+Catcher<InvalidOperationException> ObjectDisposedException: ok
+Catcher<InvalidOperationException> ArgumentException: ArgumentException: a
+nothing thrown
+Catcher<Exception> nothing: ok
 List<object> { int }.CopyTo string[]: InvalidCastException: Unable to cast object of type 'System.Int32' to type 'System.String'.
 s
 List<object> { string }.CopyTo string[]: ok

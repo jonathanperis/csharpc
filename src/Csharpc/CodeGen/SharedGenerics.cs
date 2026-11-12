@@ -103,6 +103,13 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
     {
         var context = IlGenericContext.For(definition);
         var needed = new HashSet<string>(StringComparer.Ordinal);
+        // `catch (T)`: the handler's type test is against the exact exception type.
+        foreach (var region in body.ExceptionRegions)
+        {
+            if (region.Kind != ExceptionRegionKind.Catch || region.CatchType.IsNil) continue;
+            try { if (MentionsTypeParameter(owner.ResolveType(MetadataTokens.GetToken(region.CatchType), context))) needed.Add("catch"); }
+            catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { needed.Add("catch"); }
+        }
         foreach (var instruction in IlDecoder.Decode(body.GetILReader()))
         {
             if (instruction.Token == 0 || instruction.OpCode is ILOpCode.Ldstr) continue;
@@ -147,6 +154,7 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
                 IDefaultValueOperation d => d.Type,
                 // (an element of an array over T: a store or a writable reference checks the array's exact element type)
                 IArrayElementReferenceOperation { ArrayReference.Type: IArrayTypeSymbol array } => array,
+                ICatchClauseOperation c => c.ExceptionType,
                 _ => null,
             };
             if (symbol is not null && Dependent(symbol, ILOpCode.Nop)) needed.Add(op.Kind + ":" + symbol.ToDisplayString());
