@@ -63,19 +63,22 @@ public static partial class FrameworkIl
     private static readonly string[] MixedWithShadows = ["System.Net.Primitives", "System.Net.NetworkInformation"];
 
     /// <summary>
-    /// The references of an assembly that are followed when it is chosen, where not all are: System.ComponentModel.TypeConverter
-    /// names System.Xml, System.Net.Http ... for a few designer types that no converter reaches, and the closure must not
-    /// load (and link the native shims of) them for a program that creates a PointConverter.
+    /// References of an assembly that are not followed when it is chosen: System.ComponentModel.TypeConverter names
+    /// System.Net.Security (the native crypto shims), System.Xml.XDocument, System.Resources.Writer and the binary formatter
+    /// for designer and serialization types no converter reaches, and the closure must not load (and link the native
+    /// shims of) them for a program that creates a PointConverter. A list of what is left out, not of what is kept: a
+    /// reference the list misses costs compile time, while one an allow-list misses fails to compile code that is
+    /// reached (ColorConverter's static constructor sorts its colors with System.Linq's OrderBy, #376).
     /// </summary>
-    private static readonly Dictionary<string, string[]> FollowedReferences = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, string[]> SkippedReferences = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["System.ComponentModel.TypeConverter"] = ["System.ComponentModel.Primitives", "System.Collections.NonGeneric", "System.Collections.Specialized", "System.Drawing.Primitives"],
+        ["System.ComponentModel.TypeConverter"] = ["System.Net.Security", "System.Xml.XDocument", "System.Resources.Writer", "System.Runtime.Serialization.Formatters"],
     };
 
     private static readonly string[] CorelibDependencies = ["System.Collections.NonGeneric", "System.Collections", "System.Collections.Concurrent", "System.ComponentModel.TypeConverter"];
 
     private static string[] Followed(Assembly a) =>
-        FollowedReferences.TryGetValue(a.Name, out var followed) ? [.. a.References.Where(r => followed.Contains(r, StringComparer.OrdinalIgnoreCase))] : a.References;
+        SkippedReferences.TryGetValue(a.Name, out var skipped) ? [.. a.References.Where(r => !skipped.Contains(r, StringComparer.OrdinalIgnoreCase))] : a.References;
 
     /// <summary>
     /// Assemblies the program uses that were not compiled from IL, and why (the NativeAOT runtime pack could not be restored, a shim
