@@ -355,6 +355,10 @@ public static class SharedFramework
         if (runtimeDir.Length > 0 && File.Exists(Path.Combine(runtimeDir, "System.Private.CoreLib.dll"))
             && Path.GetFileName(Path.TrimEndingDirectorySeparator(runtimeDir)).StartsWith("11.", StringComparison.Ordinal))
             return runtimeDir;
+        // A release bundle (NativeAOT csharpc) carries the framework's managed assemblies next to the executable
+        // (Csharpc.csproj, CsharpcBundleSharedFramework): the version its CsharpcUpstream.dll was cut from, so it wins over an
+        // installed .NET of any version, and it is what a machine without one compiles from (#375).
+        if (Newest11(AppContext.BaseDirectory) is { } bundled) return bundled;
         IEnumerable<string?> roots =
         [
             Environment.GetEnvironmentVariable("DOTNET_ROOT"),
@@ -363,12 +367,16 @@ public static class SharedFramework
             "/usr/share/dotnet", "/usr/lib/dotnet", "/usr/local/share/dotnet",
             Environment.GetEnvironmentVariable("ProgramFiles") is { } pf ? Path.Combine(pf, "dotnet") : null,
         ];
-        return roots.Where(r => r is not null && System.IO.Directory.Exists(Path.Combine(r, "shared", "Microsoft.NETCore.App")))
+        return Newest11([.. roots]);
+    }
+
+    /// <summary>The newest shared/Microsoft.NETCore.App/11.* with a System.Private.CoreLib.dll under any of these roots.</summary>
+    private static string? Newest11(params string?[] roots) =>
+        roots.Where(r => r is not null && System.IO.Directory.Exists(Path.Combine(r, "shared", "Microsoft.NETCore.App")))
             .SelectMany(r => System.IO.Directory.EnumerateDirectories(Path.Combine(r!, "shared", "Microsoft.NETCore.App")))
             .Where(d => Path.GetFileName(d).StartsWith("11.", StringComparison.Ordinal) && File.Exists(Path.Combine(d, "System.Private.CoreLib.dll")))
             .OrderByDescending(d => Path.GetFileName(d), StringComparer.Ordinal)
             .FirstOrDefault();
-    }
 }
 
 /// <summary>A type as a metadata signature names it (SharedFramework.InterfacesOf).</summary>
