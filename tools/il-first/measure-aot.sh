@@ -44,17 +44,19 @@ def measured(cmd, cwd):
     cpu, wall, rss = r.stdout.split()[-3:]
     return float(cpu), float(wall), int(rss)
 
-def run_median(exe):
+# Every program runs (and valgrind with it) inside the program's own temporary directory, deleted afterwards, so a core dump of a
+# crashing run never lands in the caller's directory (or a checkout).
+def run_median(exe, cwd):
     times, out = [], None
     for _ in range(runs):
         start = time.monotonic()
-        r = subprocess.run([exe], capture_output=True)
+        r = subprocess.run([exe], cwd=cwd, capture_output=True)
         times.append(time.monotonic() - start)
         out = r.stdout
     return statistics.median(times), out
 
-def instructions(exe):
-    r = subprocess.run(['valgrind', '--tool=callgrind', '--callgrind-out-file=/dev/null', exe], capture_output=True, text=True)
+def instructions(exe, cwd):
+    r = subprocess.run(['valgrind', '--tool=callgrind', '--callgrind-out-file=/dev/null', exe], cwd=cwd, capture_output=True, text=True)
     for line in r.stderr.splitlines():
         if 'Collected :' in line: return int(line.split(':')[-1].strip())
     return None
@@ -74,13 +76,13 @@ for program in programs:
         aot_dir = os.path.join(work, 'aot')
         a_cpu, a_wall, a_rss = measured(['dotnet', 'publish', src, '-o', aot_dir, '--disable-build-servers', '-p:UseSharedCompilation=false'], work)
         aot = os.path.join(aot_dir, name)
-        c_time, c_out = run_median(exe)
-        a_time, a_out = run_median(aot)
+        c_time, c_out = run_median(exe, work)
+        a_time, a_out = run_median(aot, work)
         if c_out != a_out: sys.exit(f'{name}: csharpc and NativeAOT print different output')
         row = (f'| {name} | {fmt_size(os.path.getsize(exe))} | {fmt_size(os.path.getsize(aot))} | {c_cpu:.1f} s / {c_wall:.1f} s / {c_rss} MB '
                f'| {a_cpu:.1f} s / {a_wall:.1f} s / {a_rss} MB | {c_time * 1000:.0f} / {a_time * 1000:.0f} ms | {c_time / a_time:.2f}x |')
         if callgrind:
-            ci, ai = instructions(exe), instructions(aot)
+            ci, ai = instructions(exe, work), instructions(aot, work)
             row += f' {fmt_size(ci) if ci else "-"} / {fmt_size(ai) if ai else "-"} |'
         print(row, flush=True)
     finally:
