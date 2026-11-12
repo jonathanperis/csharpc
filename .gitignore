@@ -493,3 +493,7 @@ artifacts/
 # The corelib ownership map, generated on demand by tools/il-first/ownership.sh (docs/21-ownership.md); not tracked so that
 # flips, which delete corelib files, do not all rewrite one shared file.
 tools/il-first/ownership.tsv
+
+# valgrind leftovers of local profiling (tools/il-first/measure-aot.sh --callgrind): never part of the tree
+vgcore.*
+callgrind.out.*
