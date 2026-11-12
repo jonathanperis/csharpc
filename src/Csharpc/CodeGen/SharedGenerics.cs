@@ -103,6 +103,13 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
     {
         var context = IlGenericContext.For(definition);
         var needed = new HashSet<string>(StringComparer.Ordinal);
+        // `catch (T)`: the handler's type test is against the exact exception type.
+        foreach (var region in body.ExceptionRegions)
+        {
+            if (region.Kind != ExceptionRegionKind.Catch || region.CatchType.IsNil) continue;
+            try { if (MentionsTypeParameter(owner.ResolveType(MetadataTokens.GetToken(region.CatchType), context))) needed.Add("catch"); }
+            catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { needed.Add("catch"); }
+        }
         foreach (var instruction in IlDecoder.Decode(body.GetILReader()))
         {
             if (instruction.Token == 0 || instruction.OpCode is ILOpCode.Ldstr) continue;
@@ -145,6 +152,9 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
                 IInvocationOperation inv => inv.TargetMethod,
                 IFieldReferenceOperation { Field.IsStatic: true } f => f.Field,
                 IDefaultValueOperation d => d.Type,
+                // (an element of an array over T: a store or a writable reference checks the array's exact element type)
+                IArrayElementReferenceOperation { ArrayReference.Type: IArrayTypeSymbol array } => array,
+                ICatchClauseOperation c => c.ExceptionType,
                 _ => null,
             };
             if (symbol is not null && Dependent(symbol, ILOpCode.Nop)) needed.Add(op.Kind + ":" + symbol.ToDisplayString());
@@ -155,18 +165,25 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
     /// <summary>Does the symbol depend on a type parameter in a way only a dictionary can supply in shared code?</summary>
     private static bool Dependent(ISymbol symbol, ILOpCode opCode) => symbol switch
     {
-        // In shared code every type parameter is a reference type: element loads and stores, initobj, ldobj/stobj and sizeof of T (or of a
-        // generic value type over it, whose canonical layout is the same) need no type handle, and boxing a reference type is the identity.
-        ITypeSymbol type when opCode is ILOpCode.Ldelem or ILOpCode.Stelem or ILOpCode.Initobj or ILOpCode.Ldobj or ILOpCode.Stobj
+        // In shared code every type parameter is a reference type: element loads, initobj, ldobj/stobj and sizeof of T (or of a generic
+        // value type over it, whose canonical layout is the same) need no type handle, and boxing a reference type is the identity.
+        // An element store does: a T[] can be a covariant array (a string[] behind an object[] when T is object), and stelem checks the
+        // value against the array's exact element type, so does ldelema.
+        ITypeSymbol type when opCode is ILOpCode.Ldelem or ILOpCode.Initobj or ILOpCode.Ldobj or ILOpCode.Stobj
             or ILOpCode.Cpobj or ILOpCode.Sizeof => false,
         ITypeSymbol type when opCode is ILOpCode.Box => MentionsTypeParameter(type) && type is not ITypeParameterSymbol && type.IsValueType,
         ITypeSymbol type => MentionsTypeParameter(type),
+        // Array.Copy, CopyTo and SetValue check (or cast) each element against the arrays' exact element types.
+        IMethodSymbol method when IsCheckedArrayCopy(method) => true,
         IMethodSymbol method => method.TypeArguments.Any(MentionsTypeParameter)
             // an instance method of the generic type itself is reached through `this`; a static one (or another type's) needs the dictionary
             || (method.ContainingType is { } owner && MentionsTypeParameter(owner) && (method.IsStatic || opCode is ILOpCode.Newobj or ILOpCode.Ldftn)),
         IFieldSymbol field => field.IsStatic && MentionsTypeParameter(field.ContainingType),
         _ => false,
     };
+
+    private static bool IsCheckedArrayCopy(IMethodSymbol method) =>
+        method is { Name: "Copy" or "ConstrainedCopy" or "CopyTo" or "SetValue", ContainingType.SpecialType: SpecialType.System_Array };
 
     private static bool MentionsTypeParameter(ITypeSymbol type) => type switch
     {
