@@ -1125,11 +1125,23 @@ namespace CsharpcCoreLib
         /// </summary>
         public static TInteger ConvertToIntegerNative<TInteger>(double value) where TInteger : System.Numerics.IBinaryInteger<TInteger>
         {
-            if (!double.IsNaN(value))
+            if (typeof(TInteger) == typeof(int))
+            {
+                // In range (strictly between int.MinValue - 1 and int.MaxValue + 1, so NaN fails too): the truncation is exact everywhere.
+                if (value > -2147483649.0 && value < 2147483648.0) { int result = (int)value; return Unsafe.As<int, TInteger>(ref result); }
+            }
+            else if (!double.IsNaN(value))
             {
                 try { return TInteger.CreateChecked(value); }
                 catch (OverflowException) { }
             }
+            ThrowNativeConversion();
+            return default;
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void ThrowNativeConversion()
+        {
             throw new NotSupportedException("double.ConvertToIntegerNative of NaN or of a value outside the integer type's range is not supported by csharpc yet (the result is the platform instruction's).");
         }
 
