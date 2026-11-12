@@ -360,7 +360,7 @@ public sealed partial class FunctionCodeGen
         var creation = new IlObjectCreationOperation(il.Syntax, constructor, IlArguments(constructor.Parameters, args));
         var value = EmitValue(creation);
         var entry = IlPush(value, type);
-        return entry.Kind == IlKind.Ref ? entry with { NonNull = true } : entry;
+        return entry.Kind == IlKind.Ref ? entry with { NonNull = true, ExactClass = type.TypeKind == TypeKind.Class ? type : null } : entry;
     }
 
     /// <summary>`ldftn M` / `ldvirtftn M` + `newobj D::.ctor(object, native int)`: a delegate bound to M.</summary>

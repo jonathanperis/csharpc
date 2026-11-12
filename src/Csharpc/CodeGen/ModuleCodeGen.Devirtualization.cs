@@ -47,7 +47,7 @@ public sealed partial class ModuleCodeGen
     /// generic base class is that base's instantiation (Roslyn's CSharp.Emit.PEModuleBuilder derives from
     /// PEModuleBuilder&lt;CSharpCompilation, ...&gt;), not the open definition.
     /// </summary>
-    private static IMethodSymbol? ResolveSlot(INamedTypeSymbol type, IMethodSymbol root)
+    internal static IMethodSymbol? ResolveSlot(INamedTypeSymbol type, IMethodSymbol root)
     {
         for (var t = type; t is not null; t = t.BaseType)
         {
@@ -61,7 +61,7 @@ public sealed partial class ModuleCodeGen
         return null;
     }
 
-    private static bool DerivesFromOrEquals(INamedTypeSymbol type, INamedTypeSymbol baseType)
+    internal static bool DerivesFromOrEquals(INamedTypeSymbol type, INamedTypeSymbol baseType)
     {
         for (var t = type; t is not null; t = t.BaseType)
             if (SymbolEqualityComparer.Default.Equals(t.OriginalDefinition, baseType.OriginalDefinition)) return true;
