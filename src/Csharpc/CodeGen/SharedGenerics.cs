@@ -73,19 +73,43 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
     /// </summary>
     public int DictionarySlots(IMethodSymbol method) => _slots.GetOrAdd(method.OriginalDefinition, CountSlots);
 
-    private int CountSlots(IMethodSymbol definition)
+    private int CountSlots(IMethodSymbol definition) => SlotKeys(definition)?.Count ?? -1;
+
+    /// <summary>The type-parameter-dependent symbols a definition's body names (null: body not readable).</summary>
+    private HashSet<string>? SlotKeys(IMethodSymbol definition)
     {
-        if (il?.OwnerOf(definition) is { } owner && owner.Body(definition) is { } body) return CountIlSlots(owner, definition, body);
+        if (il?.OwnerOf(definition) is { } owner && owner.Body(definition) is { } body) return IlSlotKeys(owner, definition, body);
         if (definition.DeclaringSyntaxReferences.FirstOrDefault() is { } reference
             && compilation.GetSemanticModel(reference.SyntaxTree).GetOperation(reference.GetSyntax()) is { } operation)
-            return CountSourceSlots(operation);
-        return -1;
+            return SourceSlotKeys(operation);
+        return null;
     }
 
-    private static int CountIlSlots(IlAssembly owner, IMethodSymbol definition, MethodBodyBlock body)
+    private readonly ConcurrentDictionary<INamedTypeSymbol, int> _classSlots = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// The class-level dictionary of a generic class definition: the union of what its instance methods' bodies need (the slots a shared
+    /// instance method reaches through `this`). Static and generic methods get dictionaries of their own (ADR 0026, step 4).
+    /// </summary>
+    public int ClassDictionarySlots(INamedTypeSymbol definition) => _classSlots.GetOrAdd(definition.OriginalDefinition, d =>
+    {
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var method in d.GetMembers().OfType<IMethodSymbol>())
+            if (!method.IsStatic && !method.IsGenericMethod && SlotKeys(method) is { } own) keys.UnionWith(own);
+        return keys.Count;
+    });
+
+    private static HashSet<string> IlSlotKeys(IlAssembly owner, IMethodSymbol definition, MethodBodyBlock body)
     {
         var context = IlGenericContext.For(definition);
         var needed = new HashSet<string>(StringComparer.Ordinal);
+        // `catch (T)`: the handler's type test is against the exact exception type.
+        foreach (var region in body.ExceptionRegions)
+        {
+            if (region.Kind != ExceptionRegionKind.Catch || region.CatchType.IsNil) continue;
+            try { if (MentionsTypeParameter(owner.ResolveType(MetadataTokens.GetToken(region.CatchType), context))) needed.Add("catch"); }
+            catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { needed.Add("catch"); }
+        }
         foreach (var instruction in IlDecoder.Decode(body.GetILReader()))
         {
             if (instruction.Token == 0 || instruction.OpCode is ILOpCode.Ldstr) continue;
@@ -100,14 +124,23 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
             catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { continue; }
             if (symbol is not null && Dependent(symbol, instruction.OpCode)) needed.Add(instruction.OpCode + ":" + symbol.ToDisplayString());
         }
-        return needed.Count;
+        return needed;
     }
 
-    private static int CountSourceSlots(IOperation body)
+    private static HashSet<string> SourceSlotKeys(IOperation body)
     {
         var needed = new HashSet<string>(StringComparer.Ordinal);
         foreach (var op in body.DescendantsAndSelf())
         {
+            // Lambdas, local functions (closures and expression trees built over the exact members) and dynamic operations
+            // (bound per instantiation) keep a source method exact.
+            if (op is IAnonymousFunctionOperation or ILocalFunctionOperation or IDelegateCreationOperation
+                || op.Kind is OperationKind.DynamicInvocation or OperationKind.DynamicMemberReference or OperationKind.DynamicObjectCreation
+                    or OperationKind.DynamicIndexerAccess)
+            {
+                needed.Add(op.Kind.ToString());
+                continue;
+            }
             ISymbol? symbol = op switch
             {
                 ITypeOfOperation t => t.TypeOperand,
@@ -119,23 +152,38 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
                 IInvocationOperation inv => inv.TargetMethod,
                 IFieldReferenceOperation { Field.IsStatic: true } f => f.Field,
                 IDefaultValueOperation d => d.Type,
+                // (an element of an array over T: a store or a writable reference checks the array's exact element type)
+                IArrayElementReferenceOperation { ArrayReference.Type: IArrayTypeSymbol array } => array,
+                ICatchClauseOperation c => c.ExceptionType,
                 _ => null,
             };
             if (symbol is not null && Dependent(symbol, ILOpCode.Nop)) needed.Add(op.Kind + ":" + symbol.ToDisplayString());
         }
-        return needed.Count;
+        return needed;
     }
 
     /// <summary>Does the symbol depend on a type parameter in a way only a dictionary can supply in shared code?</summary>
     private static bool Dependent(ISymbol symbol, ILOpCode opCode) => symbol switch
     {
+        // In shared code every type parameter is a reference type: element loads, initobj, ldobj/stobj and sizeof of T (or of a generic
+        // value type over it, whose canonical layout is the same) need no type handle, and boxing a reference type is the identity.
+        // An element store does: a T[] can be a covariant array (a string[] behind an object[] when T is object), and stelem checks the
+        // value against the array's exact element type, so does ldelema.
+        ITypeSymbol type when opCode is ILOpCode.Ldelem or ILOpCode.Initobj or ILOpCode.Ldobj or ILOpCode.Stobj
+            or ILOpCode.Cpobj or ILOpCode.Sizeof => false,
+        ITypeSymbol type when opCode is ILOpCode.Box => MentionsTypeParameter(type) && type is not ITypeParameterSymbol && type.IsValueType,
         ITypeSymbol type => MentionsTypeParameter(type),
+        // Array.Copy, CopyTo and SetValue check (or cast) each element against the arrays' exact element types.
+        IMethodSymbol method when IsCheckedArrayCopy(method) => true,
         IMethodSymbol method => method.TypeArguments.Any(MentionsTypeParameter)
             // an instance method of the generic type itself is reached through `this`; a static one (or another type's) needs the dictionary
             || (method.ContainingType is { } owner && MentionsTypeParameter(owner) && (method.IsStatic || opCode is ILOpCode.Newobj or ILOpCode.Ldftn)),
         IFieldSymbol field => field.IsStatic && MentionsTypeParameter(field.ContainingType),
         _ => false,
     };
+
+    private static bool IsCheckedArrayCopy(IMethodSymbol method) =>
+        method is { Name: "Copy" or "ConstrainedCopy" or "CopyTo" or "SetValue", ContainingType.SpecialType: SpecialType.System_Array };
 
     private static bool MentionsTypeParameter(ITypeSymbol type) => type switch
     {
@@ -145,4 +193,167 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
         IPointerTypeSymbol pointer => MentionsTypeParameter(pointer.PointedAtType),
         _ => false,
     };
+
+    // ======================================================================================
+    // Step 3a: which instance methods of shared generic classes are compiled once, as their canonical form
+    // ======================================================================================
+
+    /// <summary>
+    /// Definitions that stay exact whatever the arguments in step 3a: hot paths whose exact code is worth more than the copies (ADR 0026,
+    /// section 7: the comparer family and the hash collections keep their per-instantiation devirtualization).
+    /// </summary>
+    private static readonly HashSet<string> s_exactDefinitions = new(StringComparer.Ordinal)
+    {
+        "System.Collections.Generic.Dictionary`2", "System.Collections.Generic.HashSet`1",
+        "System.Collections.Generic.EqualityComparer`1", "System.Collections.Generic.Comparer`1",
+        "CsharpcCoreLib.EqualityComparerImpl`1", "CsharpcCoreLib.DefaultEqualityComparer`1", "CsharpcCoreLib.ComparerImpl`1", "CsharpcCoreLib.DefaultComparer`1",
+    };
+
+    private readonly ConcurrentDictionary<IMethodSymbol, string?> _exactReasons = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// The canonical form this exact method is compiled as, or null when it is compiled exact (its own instantiation). Shared: a
+    /// non-generic instance method of a generic class whose canonical form is shared, whose definition needs nothing a dictionary would
+    /// have to supply (step 3a) and whose calls into other generic code reach only methods that are shared too.
+    /// </summary>
+    public IMethodSymbol? ShareAs(IMethodSymbol method)
+    {
+        if (Canon is null || ObservesFrames || method.IsStatic || method.IsGenericMethod || method.ContainingType is not { TypeKind: TypeKind.Class } owner
+            || !IsSharedType(owner) || ExactReason(method.OriginalDefinition) is not null || !SameSignature(method)) return null;
+        return Canonicalize(method);
+    }
+
+    /// <summary>
+    /// Do the exact method and its canonical form pass and return the same LLVM types? A generic value type over reference types
+    /// (KeyValuePair&lt;Exception, Action&gt; as T) is a struct type of its own per instantiation, so such a signature stays exact.
+    /// </summary>
+    private bool SameSignature(IMethodSymbol method) =>
+        method.Parameters.Select(p => p.Type).Append(method.ReturnType).All(t => t.IsReferenceType || t is ITypeParameterSymbol
+            || SymbolEqualityComparer.Default.Equals(Canonicalize(t), t));
+
+    /// <summary>Why a definition's instantiations stay exact (null: they are shared). For the report (CSHARPC_GENERIC_REPORT).</summary>
+    public string? ExactReason(IMethodSymbol definition)
+    {
+        definition = definition.OriginalDefinition;
+        if (_exactReasons.TryGetValue(definition, out var known)) return known;
+        _exactReasons[definition] = null; // a recursive call to itself (or a cycle of shared methods) does not make it exact
+        var reason = ComputeExactReason(definition);
+        _exactReasons[definition] = reason;
+        return reason;
+    }
+
+    private string? ComputeExactReason(IMethodSymbol definition)
+    {
+        if (definition.IsStatic) return "static";
+        if (definition.IsGenericMethod) return "generic method";
+        if (definition.IsAbstract || definition.IsExtern) return "no body";
+        if (definition.MethodKind is not (MethodKind.Ordinary or MethodKind.Constructor or MethodKind.PropertyGet or MethodKind.PropertySet
+                or MethodKind.ExplicitInterfaceImplementation or MethodKind.EventAdd or MethodKind.EventRemove))
+            return "method kind " + definition.MethodKind;
+        for (var t = definition.ContainingType; t is not null; t = t.ContainingType)
+            if (s_exactDefinitions.Contains(MetadataNameOf(t.OriginalDefinition))) return "hot path " + MetadataNameOf(t.OriginalDefinition);
+        // The signature must lower identically for every instantiation: T itself and reference types are pointers; a generic value type
+        // over T (KeyValuePair<T, int>) has a layout of its own per instantiation.
+        foreach (var type in definition.Parameters.Select(p => p.Type).Append(definition.ReturnType))
+            if (MentionsTypeParameter(type) && type is not ITypeParameterSymbol && !type.IsReferenceType) return "signature " + type.ToDisplayString();
+        if (definition.Parameters.Any(p => p.RefKind != RefKind.None && MentionsTypeParameter(p.Type))) return "by-ref over T";
+        if (Calls(definition, dependentOnly: false).FirstOrDefault(IsMethodObserver) is { } observer)
+            return "observes its own method: " + observer.ContainingType.Name + "." + observer.Name;
+        if (SlotKeys(definition) is not { } keys) return "body not readable";
+        if (keys.Count > 0) return "needs dictionary: " + keys.OrderBy(k => k, StringComparer.Ordinal).First();
+        foreach (var callee in Calls(definition, dependentOnly: true))
+        {
+            if (callee.ContainingType.TypeKind == TypeKind.Interface) return "interface over T: " + callee.ContainingType.ToDisplayString();
+            if (callee.IsGenericMethod || callee.IsStatic) return "calls " + callee.ToDisplayString();
+            if (ExactReason(callee.OriginalDefinition) is { } calleeReason) return "calls exact " + callee.OriginalDefinition.ToDisplayString() + " (" + calleeReason + ")";
+        }
+        return null;
+    }
+
+    // (types served from the framework's IL are named as their real types: the slice's namespaces carry a prefix, Frontend.UpstreamSlice)
+    private static string MetadataNameOf(INamedTypeSymbol type) =>
+        (type.ContainingNamespace is { IsGlobalNamespace: false } ns ? Frontend.UpstreamSlice.RealNamespace(ns.ToDisplayString()) + "." : "") + type.MetadataName;
+
+    /// <summary>
+    /// MethodBase.GetCurrentMethod() reports the method it is called from, exactly (`Holder`1[System.String].Get`); a shared body would report
+    /// its canonical form, so a method that calls it stays exact (ADR 0026: __Canon is never observable).
+    /// </summary>
+    private static bool IsMethodObserver(IMethodSymbol method) =>
+        method is { Name: "GetCurrentMethod", ContainingType: { Name: "MethodBase", ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } } };
+
+    private bool? _observesFrames;
+
+    /// <summary>
+    /// Does the program read the methods of stack frames (StackFrame.GetMethod, StackTrace.GetFrame(s))? Any frame of shared code would then
+    /// report its canonical form, so with --shared-generics such a program shares nothing (until frames carry their exact instantiation).
+    /// </summary>
+    public bool ObservesFrames => _observesFrames ??= ComputeObservesFrames();
+
+    private bool ComputeObservesFrames()
+    {
+        static bool IsFrameApi(string type, string member) =>
+            (type == "StackFrame" && member == "GetMethod") || (type == "StackTrace" && member is "GetFrame" or "GetFrames");
+        if (il is not null)
+            foreach (var assembly in il.Assemblies)
+            {
+                var reader = assembly.Reader;
+                foreach (var handle in reader.MemberReferences)
+                {
+                    var reference = reader.GetMemberReference(handle);
+                    if (reference.Parent.Kind != HandleKind.TypeReference) continue;
+                    var type = reader.GetString(reader.GetTypeReference((TypeReferenceHandle)reference.Parent).Name);
+                    if (IsFrameApi(type, reader.GetString(reference.Name))) return true;
+                }
+            }
+        foreach (var tree in compilation.SyntaxTrees)
+        {
+            var text = tree.ToString();
+            if (!text.Contains("StackFrame", StringComparison.Ordinal) && !text.Contains("StackTrace", StringComparison.Ordinal)) continue;
+            var model = compilation.GetSemanticModel(tree);
+            foreach (var node in tree.GetRoot().DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.InvocationExpressionSyntax>())
+                if (model.GetSymbolInfo(node).Symbol is IMethodSymbol { ContainingType.ContainingNamespace: { Name: "Diagnostics", ContainingNamespace.Name: "System" } } m
+                    && IsFrameApi(m.ContainingType.Name, m.Name))
+                    return true;
+        }
+        return false;
+    }
+
+    /// <summary>The methods a definition's body calls (dependentOnly: only those of type-parameter-dependent types or with dependent type arguments).</summary>
+    private List<IMethodSymbol> Calls(IMethodSymbol definition, bool dependentOnly)
+    {
+        var callees = new List<IMethodSymbol>();
+        if (il?.OwnerOf(definition) is { } owner && owner.Body(definition) is { } body)
+        {
+            var context = IlGenericContext.For(definition);
+            foreach (var instruction in IlDecoder.Decode(body.GetILReader()))
+            {
+                if (instruction.OpCode is not (ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj or ILOpCode.Ldftn or ILOpCode.Ldvirtftn)) continue;
+                try
+                {
+                    if (owner.ResolveMember(instruction.Token, context) is IMethodSymbol m && (!dependentOnly || CallsDependent(m))) callees.Add(m);
+                }
+                catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { }
+            }
+        }
+        else if (definition.DeclaringSyntaxReferences.FirstOrDefault() is { } reference
+                 && compilation.GetSemanticModel(reference.SyntaxTree).GetOperation(reference.GetSyntax()) is { } operation)
+        {
+            foreach (var op in operation.DescendantsAndSelf())
+            {
+                var target = op switch
+                {
+                    IInvocationOperation inv => inv.TargetMethod,
+                    IObjectCreationOperation { Constructor: { } ctor } => ctor,
+                    IPropertyReferenceOperation { Property: var p } => p.GetMethod ?? p.SetMethod,
+                    IMethodReferenceOperation r => r.Method,
+                    _ => null,
+                };
+                if (target is not null && (!dependentOnly || CallsDependent(target))) callees.Add(target);
+            }
+        }
+        return callees;
+    }
+
+    private static bool CallsDependent(IMethodSymbol method) =>
+        method.TypeArguments.Any(MentionsTypeParameter) || (method.ContainingType is { } owner && MentionsTypeParameter(owner));
 }

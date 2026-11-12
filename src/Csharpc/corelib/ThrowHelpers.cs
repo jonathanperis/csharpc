@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace CsharpcCoreLib
 {
@@ -66,12 +67,19 @@ namespace CsharpcCoreLib
             if (T.IsZero(value)) Throw(value, paramName, paramName + " ('" + Text(value) + "') must be a non-zero value.");
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void ThrowIfNegative<T>(T value, string paramName) where T : INumberBase<T>
         {
+            if (T.IsNegative(value)) ThrowNegative(value, paramName);
+        }
+
+        // The throw out of line (.NET's ThrowNegative), so the test inlines into hot callers such as Random.Next.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void ThrowNegative<T>(T value, string paramName)
+        {
             // A negative value is never null: Throw's ActualValue case.
-            if (T.IsNegative(value))
-                throw CoreIntrinsics.LibraryFrames(new ArgumentOutOfRangeException(paramName, value, paramName + " ('" + Text(value) + "') must be a non-negative value."),
-                    "System.ArgumentOutOfRangeException.ThrowNegative[T](T value, String paramName)\nSystem.ArgumentOutOfRangeException.ThrowIfNegative[T](T value, String paramName)");
+            throw CoreIntrinsics.LibraryFrames(new ArgumentOutOfRangeException(paramName, value, paramName + " ('" + Text(value) + "') must be a non-negative value."),
+                "System.ArgumentOutOfRangeException.ThrowNegative[T](T value, String paramName)\nSystem.ArgumentOutOfRangeException.ThrowIfNegative[T](T value, String paramName)");
         }
 
         public static void ThrowIfNegativeOrZero<T>(T value, string paramName) where T : INumberBase<T>

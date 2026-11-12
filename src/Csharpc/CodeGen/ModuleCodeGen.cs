@@ -359,6 +359,9 @@ public sealed partial class ModuleCodeGen
         if (method.PartialDefinitionPart is { } partialDefinition) method = partialDefinition; // one function per partial member
         if (!_slotReference) NoteReference(method, virtualCall: false);
         if (_functions.TryGetValue(method, out var existing)) return existing;
+        // --shared-generics (ADR 0026, step 3a): an instantiation compiled once as its canonical form is that form's function.
+        if (generic && SharedGenerics && SharedGenericsInfo.ShareAs(method) is { } canonical && !SymbolEqualityComparer.Default.Equals(canonical, method))
+            return _functions[method] = GetFunction(canonical);
         if (method is { MethodKind: MethodKind.PropertyGet, ContainingType.IsAnonymousType: true }) return _functions[method] = AnonymousGetter(method);
         if (method is { MethodKind: MethodKind.Constructor, ContainingType.IsAnonymousType: true }) return _functions[method] = AnonymousConstructor(method);
         if (generic && TypeSubstitution.IsOpen(method))
@@ -376,6 +379,11 @@ public sealed partial class ModuleCodeGen
         // otherwise inlines every internal function with a single call site, however big.
         if ((method.MethodImplementationFlags & System.Reflection.MethodImplAttributes.NoInlining) != 0)
             Llvm.AddFunctionAttribute(fn, "noinline");
+        // [MethodImpl(AggressiveInlining)]: inlined wherever it is called, as NativeAOT does (the framework marks its small hot helpers so;
+        // LLVM's cost model alone leaves Random.Next's argument check and the like as calls). LLVM still refuses recursive or
+        // otherwise uninlinable bodies.
+        else if ((method.MethodImplementationFlags & System.Reflection.MethodImplAttributes.AggressiveInlining) != 0)
+            Llvm.AddFunctionAttribute(fn, "alwaysinline");
         if (CoreLib.IsCoreLib(method) && OptimizeForSize(method.ContainingType))
         {
             Llvm.AddFunctionAttribute(fn, "optsize");

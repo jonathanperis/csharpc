@@ -109,9 +109,21 @@ namespace CsharpcCoreLib
             return result;
         }
 
+        // .NET's checks, then Array.Copy of the one or two runs of the ring buffer: Array.Copy's rules apply to a
+        // covariant destination (a string[] passed as object[] casts each element: InvalidCastException at the
+        // first misfit, after the elements before it), where element stores would throw ArrayTypeMismatchException.
         public void CopyTo(T[] array, int arrayIndex)
         {
-            for (int i = 0; i < _size; i++) array[arrayIndex + i] = _array[(_head + i) % _array.Length];
+            if (array == null) ThrowHelper.ArgumentNull("array");
+            if (arrayIndex < 0 || arrayIndex > array.Length)
+                ThrowHelper.ArgumentOutOfRange("arrayIndex", "Index was out of range. Must be non-negative and less than or equal to the size of the collection.");
+            if (array.Length - arrayIndex < _size) ThrowHelper.Argument(ArrayChecks.InvalidOffLen);
+            int numToCopy = _size;
+            if (numToCopy == 0) return;
+            int firstPart = Math.Min(_array.Length - _head, numToCopy);
+            Array.Copy(_array, _head, array, arrayIndex, firstPart);
+            numToCopy -= firstPart;
+            if (numToCopy > 0) Array.Copy(_array, 0, array, arrayIndex + _array.Length - _head, numToCopy);
         }
 
         public int EnsureCapacity(int capacity)
