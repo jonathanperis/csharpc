@@ -96,6 +96,8 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     internal void NoteConstructed(LLVMValueRef methodTable)
     {
+        if (!_canonMethodTable.IsNull && methodTable.Handle == _canonMethodTable.Handle)
+            throw new CompileError("CSLLVM0004", "internal error: an object of a canonical form would be constructed (shared generic code must allocate the exact class)", null);
         if (!_constructedMethodTables.Add(methodTable.Handle)) return;
         if (_unconstructedTables.Remove(methodTable.Handle, out var table))
         {

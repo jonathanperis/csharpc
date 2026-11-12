@@ -262,7 +262,7 @@ internal static partial class BclValueTypes
             || g.Module.Compilation.ClassifyCommonConversion(e, de) is not ({ IsImplicit: true, IsReference: true } or { IsIdentity: true })))
         {
             Rt(g, "csrt_array_copy_checked", g.Llvm.Void, (src, g.Llvm.Ptr), (srcIndex, g.Llvm.I64), (dst, g.Llvm.Ptr), (dstIndex, g.Llvm.I64),
-                (length, g.Llvm.I64), (g.Module.ArrayMethodTable(de), g.Llvm.Ptr));
+                (length, g.Llvm.I64), (g.SharedHandleOf(SharedHandle.Array, de) ?? g.Module.ArrayMethodTable(de), g.Llvm.Ptr));
             return default;
         }
         Rt(g, "csrt_array_copy", g.Llvm.Void, (src, g.Llvm.Ptr), (srcIndex, g.Llvm.I64), (dst, g.Llvm.Ptr), (dstIndex, g.Llvm.I64),

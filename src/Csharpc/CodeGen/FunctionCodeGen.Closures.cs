@@ -229,7 +229,7 @@ public sealed partial class FunctionCodeGen
                 if (dispatched) NullCheck(target);
                 else if (group.Instance is not IInstanceReferenceOperation) DelegateTargetCheck(target);
                 var isVirtual = dispatched && !method.IsSealed && !method.ContainingType.IsSealed;
-                fn = isVirtual ? LoadVirtualFunction(method, target) : _m.GetFunction(method).Fn;
+                fn = isVirtual ? LoadVirtualFunction(method, target) : _m.DelegateEntry(method, _m.GetFunction(method));
                 if (!isVirtual) described = method;
                 break;
             }

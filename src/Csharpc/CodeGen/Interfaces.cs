@@ -36,6 +36,7 @@ public sealed partial class ModuleCodeGen
 
     public LLVMValueRef InterfaceMethodTable(INamedTypeSymbol itf)
     {
+        if (IsCanonDependent(itf)) return CanonMethodTable; // shared generic code: the exact table comes from a dictionary
         itf = (INamedTypeSymbol)CoreLib.Unmap(TypeSubstitution.EraseTupleNames(itf, Compilation));
         if (_interfaceTables.TryGetValue(itf, out var g)) return g;
         if (TypeSubstitution.IsOpen(itf)) throw CompileError.Unsupported($"open generic interface '{itf}'", itf);
@@ -180,8 +181,13 @@ public sealed partial class FunctionCodeGen
         var concrete = ConcreteReceiver(receiver);
         var staticType = TypeOf(concrete);
 
+        // Shared generic code (ADR 0026): a receiver typed by a canonical form (List<__Canon0>, __Canon0[]) is some exact instantiation at
+        // run time, so the call is dispatched through the object it is, never bound to the canonical form's own implementation (which may
+        // be a method the eligibility analysis kept exact: List<T>'s IEnumerable<T>.GetEnumerator boxes its struct enumerator).
+        var canonicalReceiver = staticType is not null && _m.IsCanonDependent(staticType);
+        if (canonicalReceiver && staticType is IArrayTypeSymbol && !_m.IsCanonDependent(target.ContainingType)) _m.RequestArrayInterface(target.ContainingType);
         // Devirtualize when the receiver's type is known to be a class / primitive.
-        if (staticType is not null && staticType.TypeKind is not (TypeKind.Interface or TypeKind.TypeParameter)
+        if (staticType is not null && !canonicalReceiver && staticType.TypeKind is not (TypeKind.Interface or TypeKind.TypeParameter)
             && (staticType.FindImplementationForInterfaceMember(target) as IMethodSymbol
                 ?? (staticType.IsValueType ? PatternImplementation(staticType, target) : null)) is IMethodSymbol impl)
         {
@@ -210,7 +216,7 @@ public sealed partial class FunctionCodeGen
             ? Box(EmitValue(concrete), primitive, receiver) : null;
 
         // Arrays / strings statically known: call the corelib helper directly (no runtime lookup).
-        if (staticType is IArrayTypeSymbol { Rank: 1 } staticArray && target.ContainingType is { } arrayItf
+        if (!canonicalReceiver && staticType is IArrayTypeSymbol { Rank: 1 } staticArray && target.ContainingType is { } arrayItf
             && _m.ArrayInterfaceHelper(arrayItf, target, staticArray.ElementType) is { } arrayHelper)
             return CallBuiltinHelper(arrayHelper, concrete, arguments, extra, target);
         if (staticType?.SpecialType == SpecialType.System_String && _m.StringInterfaceHelper(target.ContainingType, target) is { } stringHelper)

@@ -8,61 +8,199 @@ using Microsoft.CodeAnalysis.Operations;
 namespace Csharpc.CodeGen;
 
 /// <summary>
-/// Shared generic code (ADR 0026), step 2a/2b: canonical forms and the generic dictionary each canonical body would need. Nothing here
-/// changes code generation yet; the report (CSHARPC_GENERIC_REPORT) prints what it finds so the dictionaries' cost is known before
-/// they are emitted.
+/// Shared generic code (ADR 0026): canonical forms, which methods are compiled once per canonical form, and the generic dictionary each
+/// canonical body needs. A canonical form names every reference-type type argument by a positional marker, CsharpcCoreLib.__Canon0,
+/// __Canon1, ...: the marker of a type parameter is its position in the flattened parameter list of its class and the classes that contain
+/// it (stable: it does not depend on which other arguments are reference types, so C&lt;string, int&gt; is C&lt;__Canon0, int&gt; and
+/// C&lt;int, string&gt; is C&lt;int, __Canon1&gt;). A canonical body can therefore tell List&lt;TKey&gt; from List&lt;TValue&gt;, which a single
+/// __Canon could not, and ask its dictionary for the right one. Markers are internal, never instantiated and never observable.
 /// </summary>
-internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
+/// <summary>
+/// Why a definition stays exact. Formatted only when the report asks: the analysis runs for every generic definition the program reaches,
+/// and display strings of symbols are most of what it would otherwise allocate.
+/// </summary>
+internal sealed class SharingReason(string text, ISymbol? subject = null, string? suffix = null, SharingReason? inner = null)
 {
-    /// <summary>CsharpcCoreLib.__Canon: what every reference-type type argument becomes in a canonical form.</summary>
-    public INamedTypeSymbol? Canon { get; } = compilation.GetTypeByMetadataName(CoreLib.Namespace + ".__Canon");
+    public static implicit operator SharingReason(string text) => new(text);
+    public override string ToString() => text + inner + subject?.ToDisplayString() + suffix;
+}
 
-    /// <summary>The canonical form of a type: reference types are __Canon, generic value types canonicalize their arguments.</summary>
-    public ITypeSymbol Canonicalize(ITypeSymbol type)
-    {
-        if (Canon is null || type is ITypeParameterSymbol) return type;
-        if (type.IsReferenceType) return Canon;
-        return type is INamedTypeSymbol { IsGenericType: true } named ? CanonicalizeArguments(named) : type;
-    }
+internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il, Func<IMethodSymbol, IMethodSymbol>? redirect = null)
+{
+    /// <summary>The most type parameters (flattened) a shared class may have; classes with more stay exact.</summary>
+    public const int MarkerCount = 8;
 
-    private INamedTypeSymbol CanonicalizeArguments(INamedTypeSymbol type)
+    private readonly INamedTypeSymbol?[] _markers = [.. Enumerable.Range(0, MarkerCount).Select(i => compilation.GetTypeByMetadataName(CoreLib.Namespace + ".__Canon" + i))];
+
+    private bool HasMarkers => _markers[0] is not null;
+
+    private bool? _active;
+
+    /// <summary>Does this compile share anything? Not when the corelib has no markers (then the flag costs nothing and changes nothing).</summary>
+    public bool Active => _active ??= HasMarkers;
+
+    /// <summary>Is this type one of the canonical markers?</summary>
+    public bool IsMarker(ITypeSymbol? type)
     {
-        var outer = type.ContainingType is { } containing ? CanonicalizeArguments(containing) : null;
-        var definition = outer is null ? type.OriginalDefinition
-            : outer.GetTypeMembers(type.Name, type.Arity).First(t => SymbolEqualityComparer.Default.Equals(t.OriginalDefinition, type.OriginalDefinition));
-        return type.Arity == 0 ? definition : definition.Construct([.. type.TypeArguments.Select(Canonicalize)]);
+        if (type is not INamedTypeSymbol { Arity: 0, Name: ['_', '_', 'C', 'a', 'n', 'o', 'n', ..] } named) return false;
+        foreach (var marker in _markers)
+            if (SymbolEqualityComparer.Default.Equals(marker, named)) return true;
+        return false;
     }
 
     /// <summary>
-    /// The canonical form of a method (its containing types and its own type arguments canonicalized), or the method itself when it is
-    /// not a generic instantiation. Reference-type arguments only: a form with no __Canon is its own exact code.
+    /// The canonical form of a class instantiation, or null when it has none: an argument is a generic value type over reference types
+    /// (KeyValuePair&lt;string, int&gt;: its exact layout and method table would have to come from a dictionary, ADR 0026 step 4), or the class
+    /// has more type parameters than there are markers.
+    /// </summary>
+    public INamedTypeSymbol? CanonicalizeArguments(INamedTypeSymbol type)
+    {
+        // (asked for every method of every instantiation: Construct allocates, so the answer is kept per type)
+        if (_canonicalTypes.TryGetValue(type, out var known)) return known;
+        var index = 0;
+        return _canonicalTypes[type] = CanonicalizeArguments(type, ref index);
+    }
+
+    private readonly ConcurrentDictionary<INamedTypeSymbol, INamedTypeSymbol?> _canonicalTypes = new(SymbolEqualityComparer.Default);
+    private readonly ConcurrentDictionary<IMethodSymbol, IMethodSymbol> _canonicalMethods = new(SymbolEqualityComparer.Default);
+
+    private INamedTypeSymbol? CanonicalizeArguments(INamedTypeSymbol type, ref int index)
+    {
+        INamedTypeSymbol? outer = null;
+        if (type.ContainingType is { } containing && (outer = CanonicalizeArguments(containing, ref index)) is null) return null;
+        var definition = outer is null ? type.OriginalDefinition
+            : outer.GetTypeMembers(type.Name, type.Arity).First(t => SymbolEqualityComparer.Default.Equals(t.OriginalDefinition, type.OriginalDefinition));
+        if (type.Arity == 0) return definition;
+        var arguments = new ITypeSymbol[type.Arity];
+        for (var i = 0; i < arguments.Length; i++, index++)
+        {
+            var argument = type.TypeArguments[i];
+            if (argument is ITypeParameterSymbol) arguments[i] = argument;
+            else if (argument.IsReferenceType)
+            {
+                if (index >= MarkerCount || _markers[index] is not { } marker || !IsPlainReference(argument)) return null;
+                arguments[i] = marker;
+            }
+            else if (MentionsReferenceArgument(argument)) return null;
+            else arguments[i] = argument;
+        }
+        return definition.Construct(arguments);
+    }
+
+    /// <summary>
+    /// Reference types a shared body can test, cast to and allocate arrays of through one method table from its dictionary
+    /// (csrt_isinst_class): classes, interfaces and single-dimension arrays. Delegates (variance is decided by a test function per delegate
+    /// type, System.Delegate by a flag) and multi-dimensional arrays keep their instantiations exact.
+    /// </summary>
+    private static bool IsPlainReference(ITypeSymbol type) => type switch
+    {
+        IArrayTypeSymbol array => array.IsSZArray,
+        { TypeKind: TypeKind.Delegate } or { SpecialType: SpecialType.System_Delegate or SpecialType.System_MulticastDelegate } => false,
+        _ => true,
+    };
+
+    /// <summary>The type arguments of a class and of the classes that contain it, outermost first: marker N stands for argument N.</summary>
+    public static List<ITypeSymbol> FlatArguments(INamedTypeSymbol type)
+    {
+        var arguments = type.ContainingType is { } outer ? FlatArguments(outer) : [];
+        arguments.AddRange(type.TypeArguments);
+        return arguments;
+    }
+
+    /// <summary>The exact type a canonical type stands for in one instantiation: each marker replaced by that instantiation's argument.</summary>
+    public ITypeSymbol Instantiate(ITypeSymbol canonical, List<ITypeSymbol> arguments) => canonical switch
+    {
+        _ when !MentionsMarker(canonical) => canonical,
+        IArrayTypeSymbol array => compilation.CreateArrayTypeSymbol(Instantiate(array.ElementType, arguments), array.Rank),
+        INamedTypeSymbol named when IsMarker(named) => arguments[Array.FindIndex(_markers, m => SymbolEqualityComparer.Default.Equals(m, named))],
+        INamedTypeSymbol named => InstantiateNamed(named, arguments),
+        _ => throw new InvalidOperationException($"shared generics: no exact form of '{canonical}'"),
+    };
+
+    private INamedTypeSymbol InstantiateNamed(INamedTypeSymbol named, List<ITypeSymbol> arguments)
+    {
+        var definition = named.OriginalDefinition;
+        if (named.ContainingType is { } outer && (outer.IsGenericType || outer.ContainingType is not null))
+            definition = InstantiateNamed(outer, arguments).GetTypeMembers(named.Name, named.Arity)
+                .First(t => SymbolEqualityComparer.Default.Equals(t.OriginalDefinition, named.OriginalDefinition));
+        return named.Arity == 0 ? definition : definition.Construct([.. named.TypeArguments.Select(a => Instantiate(a, arguments))]);
+    }
+
+    /// <summary>A value type with a reference type somewhere in its type arguments (the temporary limit of step 3: such instantiations stay exact).</summary>
+    public static bool MentionsReferenceArgument(ITypeSymbol type) =>
+        type is INamedTypeSymbol named && (AnyArgument(named.TypeArguments, static a => a.IsReferenceType || MentionsReferenceArgument(a))
+            || (named.ContainingType is { } outer && MentionsReferenceArgument(outer)));
+
+    // (LINQ over an ImmutableArray boxes it: these run for every type the analysis looks at)
+    private static bool AnyArgument(System.Collections.Immutable.ImmutableArray<ITypeSymbol> arguments, Func<ITypeSymbol, bool> test)
+    {
+        foreach (var argument in arguments)
+            if (test(argument)) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// The canonical form of a method of a generic class (its own type arguments are kept: generic methods are not shared yet), or the
+    /// method itself when its class has no canonical form.
     /// </summary>
     public IMethodSymbol Canonicalize(IMethodSymbol method)
     {
-        if (Canon is null) return method;
-        var owner = method.ContainingType is { IsGenericType: true } or { ContainingType: not null } ? CanonicalizeArguments(method.ContainingType) : method.ContainingType;
-        var inOwner = SymbolEqualityComparer.Default.Equals(owner, method.ContainingType) ? method
-            : owner.GetMembers(method.Name).OfType<IMethodSymbol>().First(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, method.OriginalDefinition));
-        return method.IsGenericMethod ? inOwner.ConstructedFrom.Construct([.. method.TypeArguments.Select(Canonicalize)]) : inOwner;
+        if (_canonicalMethods.TryGetValue(method, out var known)) return known;
+        return _canonicalMethods[method] = ComputeCanonical(method);
+    }
+
+    private IMethodSymbol ComputeCanonical(IMethodSymbol method)
+    {
+        if (!HasMarkers || method.ContainingType is not { } owner || CanonicalizeArguments(owner) is not { } canonicalOwner
+            || SymbolEqualityComparer.Default.Equals(canonicalOwner, owner)) return method;
+        var inOwner = canonicalOwner.GetMembers(method.Name).OfType<IMethodSymbol>().First(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, method.OriginalDefinition));
+        return method.IsGenericMethod ? inOwner.ConstructedFrom.Construct([.. method.TypeArguments]) : inOwner;
+    }
+
+    /// <summary>
+    /// Why an instantiation is not shared code, for the report: the method's own kind, or which of the canonical form's limits its type
+    /// arguments hit (null: it is a shared class).
+    /// </summary>
+    public string? NotSharedReason(IMethodSymbol method)
+    {
+        if (method.IsStatic) return "static";
+        if (method.ContainingType is not { } owner) return "no class";
+        if (owner.TypeKind != TypeKind.Class) return owner.TypeKind == TypeKind.Struct ? "struct (step 4)" : owner.TypeKind.ToString().ToLowerInvariant();
+        if (IsSharedType(owner)) return null;
+        var arguments = FlatArguments(owner);
+        if (arguments.Count > MarkerCount) return "more than " + MarkerCount + " type parameters";
+        foreach (var argument in arguments)
+        {
+            if (argument.IsValueType && MentionsReferenceArgument(argument)) return "value type over a reference type (step 4)";
+            if (argument.IsReferenceType && !IsPlainReference(argument)) return argument is IArrayTypeSymbol ? "multi-dimensional array argument" : "delegate argument";
+        }
+        return arguments.Any(a => a.IsReferenceType) ? "not a shared class" : "value-type arguments only";
     }
 
     /// <summary>Is this class (or a containing class) a generic instantiation whose canonical form is shared code?</summary>
     public bool IsSharedType(INamedTypeSymbol type) =>
-        Canon is not null && type.TypeKind == TypeKind.Class && (type.IsGenericType || type.ContainingType is not null) && MentionsCanon(CanonicalizeArguments(type));
+        type.TypeKind == TypeKind.Class && Active && type.TypeKind == TypeKind.Class && (type.IsGenericType || type.ContainingType is not null)
+        && CanonicalizeArguments(type) is { } canonical && MentionsMarker(canonical);
 
     /// <summary>Is this method's canonical form shared code, i.e. does it stand for more than its own exact instantiation?</summary>
-    public bool IsShared(IMethodSymbol canonical) => Canon is not null && MentionsCanon(canonical);
+    public bool IsShared(IMethodSymbol canonical) => HasMarkers && canonical.ContainingType is { } owner && MentionsMarker(owner);
 
-    private bool MentionsCanon(IMethodSymbol method) =>
-        method.TypeArguments.Any(MentionsCanon) || (method.ContainingType is { } owner && MentionsCanon(owner));
-
-    private bool MentionsCanon(ITypeSymbol type) => type switch
+    /// <summary>Does the type name a canonical marker (as itself, a type argument, a containing type's argument or an array element)?</summary>
+    public bool MentionsMarker(ITypeSymbol type)
     {
-        _ when SymbolEqualityComparer.Default.Equals(type, Canon) => true,
-        INamedTypeSymbol named => named.TypeArguments.Any(MentionsCanon) || (named.ContainingType is { } outer && MentionsCanon(outer)),
-        IArrayTypeSymbol array => MentionsCanon(array.ElementType),
-        _ => false,
-    };
+        // (on the method-table paths of every compile with the flag on: no allocation)
+        switch (type)
+        {
+            case INamedTypeSymbol named:
+                if (IsMarker(named)) return true;
+                foreach (var argument in named.TypeArguments)
+                    if (MentionsMarker(argument)) return true;
+                return named.ContainingType is { } outer && MentionsMarker(outer);
+            case IArrayTypeSymbol array: return MentionsMarker(array.ElementType);
+            case IPointerTypeSymbol pointer: return MentionsMarker(pointer.PointedAtType);
+            default: return false;
+        }
+    }
 
     private readonly ConcurrentDictionary<IMethodSymbol, int> _slots = new(SymbolEqualityComparer.Default);
 
@@ -75,14 +213,85 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
 
     private int CountSlots(IMethodSymbol definition) => SlotKeys(definition)?.Count ?? -1;
 
+    /// <summary>An IL instruction of a definition's body with its operand resolved in the definition's generic context (null: no token).</summary>
+    private readonly record struct IlStep(ILOpCode OpCode, ISymbol? Symbol);
+
+    private sealed record IlCode(IlAssembly Owner, MethodBodyBlock Body, IlGenericContext Context, List<IlStep> Steps);
+
+    // The analyses of one definition (ExactReason: calls, slots, unsupported needs, then the callees' own) read its body several times in a
+    // row: the last few decoded bodies are kept, and nothing else, so the analysis decodes each body about once and holds no per-body data.
+    private readonly (IMethodSymbol Definition, IlCode? Code)[] _recentIl = new (IMethodSymbol, IlCode?)[4];
+    private int _recentIlNext;
+
+    private IlCode? IlCodeOf(IMethodSymbol definition)
+    {
+        foreach (var (d, code) in _recentIl)
+            if (d is not null && SymbolEqualityComparer.Default.Equals(d, definition)) return code;
+        IlCode? result = null;
+        if (il?.OwnerOf(definition) is { } owner && owner.Body(definition) is { } body)
+        {
+            // The body as lowering decodes it (IlMethodBody.For: once per definition), in the same generic context, so the tokens
+            // resolved here are the ones lowering finds in the assembly's resolution cache, not a second set of symbols.
+            var decoded = IlMethodBody.For(owner, definition, body);
+            var context = decoded.Context;
+            var steps = new List<IlStep>(decoded.Instructions.Length);
+            foreach (var instruction in decoded.Instructions)
+            {
+                ISymbol? symbol = null;
+                if (instruction.Token != 0 && instruction.OpCode is not ILOpCode.Ldstr)
+                {
+                    var handle = MetadataTokens.EntityHandle(instruction.Token);
+                    try
+                    {
+                        symbol = handle.Kind is HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification
+                            ? owner.ResolveType(instruction.Token, context)
+                            : owner.ResolveMember(instruction.Token, context);
+                    }
+                    catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { }
+                }
+                steps.Add(new IlStep(instruction.OpCode, symbol));
+            }
+            result = new IlCode(owner, body, context, steps);
+        }
+        _recentIl[_recentIlNext] = (definition, result);
+        _recentIlNext = (_recentIlNext + 1) % _recentIl.Length;
+        return result;
+    }
+
+    private readonly (IMethodSymbol Definition, IOperation? Operation)[] _recentSource = new (IMethodSymbol, IOperation?)[4];
+    private int _recentSourceNext;
+
+    /// <summary>The bound body of a source definition (the same few-entry reuse as <see cref="IlCodeOf"/>).</summary>
+    private IOperation? SourceOf(IMethodSymbol definition)
+    {
+        foreach (var (d, operation) in _recentSource)
+            if (d is not null && SymbolEqualityComparer.Default.Equals(d, definition)) return operation;
+        IOperation? result = definition.DeclaringSyntaxReferences.FirstOrDefault() is { } reference
+            ? compilation.GetSemanticModel(reference.SyntaxTree).GetOperation(reference.GetSyntax()) : null;
+        _recentSource[_recentSourceNext] = (definition, result);
+        _recentSourceNext = (_recentSourceNext + 1) % _recentSource.Length;
+        return result;
+    }
+
+    private bool HasReadableBody(IMethodSymbol definition) => IlCodeOf(definition) is not null || SourceOf(definition) is not null;
+
+    /// <summary>The first symbol the body names that a dictionary would have to supply (null: none), without listing them all.</summary>
+    private SharingReason? FirstDependent(IMethodSymbol definition)
+    {
+        if (IlCodeOf(definition) is { } code)
+        {
+            foreach (var (op, symbol) in code.Steps)
+                if (symbol is not null && Dependent(symbol, op)) return new SharingReason(op + ":", symbol);
+            return null;
+        }
+        return SlotKeys(definition) is { Count: > 0 } keys ? keys.Min(StringComparer.Ordinal) : null;
+    }
+
     /// <summary>The type-parameter-dependent symbols a definition's body names (null: body not readable).</summary>
     private HashSet<string>? SlotKeys(IMethodSymbol definition)
     {
-        if (il?.OwnerOf(definition) is { } owner && owner.Body(definition) is { } body) return IlSlotKeys(owner, definition, body);
-        if (definition.DeclaringSyntaxReferences.FirstOrDefault() is { } reference
-            && compilation.GetSemanticModel(reference.SyntaxTree).GetOperation(reference.GetSyntax()) is { } operation)
-            return SourceSlotKeys(operation);
-        return null;
+        if (IlCodeOf(definition) is { } code) return IlSlotKeys(code);
+        return SourceOf(definition) is { } operation ? SourceSlotKeys(operation) : null;
     }
 
     private readonly ConcurrentDictionary<INamedTypeSymbol, int> _classSlots = new(SymbolEqualityComparer.Default);
@@ -99,9 +308,9 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
         return keys.Count;
     });
 
-    private static HashSet<string> IlSlotKeys(IlAssembly owner, IMethodSymbol definition, MethodBodyBlock body)
+    private static HashSet<string> IlSlotKeys(IlCode code)
     {
-        var context = IlGenericContext.For(definition);
+        var (owner, body, context, steps) = code;
         var needed = new HashSet<string>(StringComparer.Ordinal);
         // `catch (T)`: the handler's type test is against the exact exception type.
         foreach (var region in body.ExceptionRegions)
@@ -110,20 +319,8 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
             try { if (MentionsTypeParameter(owner.ResolveType(MetadataTokens.GetToken(region.CatchType), context))) needed.Add("catch"); }
             catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { needed.Add("catch"); }
         }
-        foreach (var instruction in IlDecoder.Decode(body.GetILReader()))
-        {
-            if (instruction.Token == 0 || instruction.OpCode is ILOpCode.Ldstr) continue;
-            var handle = MetadataTokens.EntityHandle(instruction.Token);
-            ISymbol? symbol;
-            try
-            {
-                symbol = handle.Kind is HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification
-                    ? owner.ResolveType(instruction.Token, context)
-                    : owner.ResolveMember(instruction.Token, context);
-            }
-            catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { continue; }
-            if (symbol is not null && Dependent(symbol, instruction.OpCode)) needed.Add(instruction.OpCode + ":" + symbol.ToDisplayString());
-        }
+        foreach (var (op, symbol) in steps)
+            if (symbol is not null && Dependent(symbol, op)) needed.Add(op + ":" + symbol.ToDisplayString());
         return needed;
     }
 
@@ -182,13 +379,20 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
         _ => false,
     };
 
+    private IMethodSymbol Redirected(IMethodSymbol method)
+    {
+        if (redirect is null) return method;
+        try { return redirect(method) is { ContainingType: not null } mapped ? mapped : method; }
+        catch (Exception e) when (e is InvalidOperationException or ArgumentException) { return method; }
+    }
+
     private static bool IsCheckedArrayCopy(IMethodSymbol method) =>
         method is { Name: "Copy" or "ConstrainedCopy" or "CopyTo" or "SetValue", ContainingType.SpecialType: SpecialType.System_Array };
 
     private static bool MentionsTypeParameter(ITypeSymbol type) => type switch
     {
         ITypeParameterSymbol => true,
-        INamedTypeSymbol named => named.TypeArguments.Any(MentionsTypeParameter) || (named.ContainingType is { } outer && MentionsTypeParameter(outer)),
+        INamedTypeSymbol named => AnyArgument(named.TypeArguments, MentionsTypeParameter) || (named.ContainingType is { } outer && MentionsTypeParameter(outer)),
         IArrayTypeSymbol array => MentionsTypeParameter(array.ElementType),
         IPointerTypeSymbol pointer => MentionsTypeParameter(pointer.PointedAtType),
         _ => false,
@@ -209,7 +413,7 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
         "CsharpcCoreLib.EqualityComparerImpl`1", "CsharpcCoreLib.DefaultEqualityComparer`1", "CsharpcCoreLib.ComparerImpl`1", "CsharpcCoreLib.DefaultComparer`1",
     };
 
-    private readonly ConcurrentDictionary<IMethodSymbol, string?> _exactReasons = new(SymbolEqualityComparer.Default);
+    private readonly ConcurrentDictionary<IMethodSymbol, SharingReason?> _exactReasons = new(SymbolEqualityComparer.Default);
 
     /// <summary>
     /// The canonical form this exact method is compiled as, or null when it is compiled exact (its own instantiation). Shared: a
@@ -218,8 +422,8 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
     /// </summary>
     public IMethodSymbol? ShareAs(IMethodSymbol method)
     {
-        if (Canon is null || ObservesFrames || method.IsStatic || method.IsGenericMethod || method.ContainingType is not { TypeKind: TypeKind.Class } owner
-            || !IsSharedType(owner) || ExactReason(method.OriginalDefinition) is not null || !SameSignature(method)) return null;
+        if (!Active || method.IsStatic || method.IsGenericMethod || method.ContainingType is not { TypeKind: TypeKind.Class } owner
+            || !IsSharedType(owner) || ExactReasonOf(method.OriginalDefinition) is not null || !SameSignature(method)) return null;
         return Canonicalize(method);
     }
 
@@ -227,22 +431,50 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
     /// Do the exact method and its canonical form pass and return the same LLVM types? A generic value type over reference types
     /// (KeyValuePair&lt;Exception, Action&gt; as T) is a struct type of its own per instantiation, so such a signature stays exact.
     /// </summary>
-    private bool SameSignature(IMethodSymbol method) =>
-        method.Parameters.Select(p => p.Type).Append(method.ReturnType).All(t => t.IsReferenceType || t is ITypeParameterSymbol
-            || SymbolEqualityComparer.Default.Equals(Canonicalize(t), t));
+    private static bool SameSignature(IMethodSymbol method)
+    {
+        static bool Same(ITypeSymbol t) => t.IsReferenceType || t is ITypeParameterSymbol || !MentionsReferenceArgument(t);
+        if (!Same(method.ReturnType)) return false;
+        foreach (var parameter in method.Parameters)
+            if (!Same(parameter.Type)) return false;
+        return true;
+    }
 
     /// <summary>Why a definition's instantiations stay exact (null: they are shared). For the report (CSHARPC_GENERIC_REPORT).</summary>
-    public string? ExactReason(IMethodSymbol definition)
+    public string? ExactReason(IMethodSymbol definition) => ExactReasonOf(definition)?.ToString();
+
+    private readonly Dictionary<IMethodSymbol, int> _inProgress = new(SymbolEqualityComparer.Default);
+    private int _lowestCycle = int.MaxValue;
+
+    /// <summary>
+    /// Calls form cycles (mutual recursion, an iterator's MoveNext and its finally blocks): a definition reached again while its own reason
+    /// is being computed is taken as shared for now. A result that leaned on such an assumption about a caller further up is kept only once
+    /// that caller has its answer: if the caller turns out exact, whatever assumed otherwise is computed again, and sees it. A whole cycle
+    /// with no exact member is shared (the greatest consistent answer).
+    /// </summary>
+    private SharingReason? ExactReasonOf(IMethodSymbol definition)
     {
         definition = definition.OriginalDefinition;
         if (_exactReasons.TryGetValue(definition, out var known)) return known;
-        _exactReasons[definition] = null; // a recursive call to itself (or a cycle of shared methods) does not make it exact
-        var reason = ComputeExactReason(definition);
-        _exactReasons[definition] = reason;
+        if (_inProgress.TryGetValue(definition, out var depth))
+        {
+            _lowestCycle = Math.Min(_lowestCycle, depth);
+            return null;
+        }
+        var myDepth = _inProgress.Count;
+        _inProgress[definition] = myDepth;
+        var outer = _lowestCycle;
+        _lowestCycle = int.MaxValue;
+        SharingReason? reason;
+        try { reason = ComputeExactReason(definition); }
+        finally { _inProgress.Remove(definition); }
+        var leanedOn = _lowestCycle; // the shallowest caller still in progress that this answer assumed shared
+        if (reason is not null || leanedOn >= myDepth) _exactReasons[definition] = reason;
+        _lowestCycle = Math.Min(outer, leanedOn >= myDepth ? int.MaxValue : leanedOn);
         return reason;
     }
 
-    private string? ComputeExactReason(IMethodSymbol definition)
+    private SharingReason? ComputeExactReason(IMethodSymbol definition)
     {
         if (definition.IsStatic) return "static";
         if (definition.IsGenericMethod) return "generic method";
@@ -250,23 +482,250 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
         if (definition.MethodKind is not (MethodKind.Ordinary or MethodKind.Constructor or MethodKind.PropertyGet or MethodKind.PropertySet
                 or MethodKind.ExplicitInterfaceImplementation or MethodKind.EventAdd or MethodKind.EventRemove))
             return "method kind " + definition.MethodKind;
+        // A constructor (and any member of a struct) runs its type's static constructor first, and a canonical form has no statics of its
+        // own to initialize (step 3c).
+        if ((definition.MethodKind == MethodKind.Constructor || definition.ContainingType.IsValueType) && definition.ContainingType.StaticConstructors.Length > 0)
+            return "class initializer";
         for (var t = definition.ContainingType; t is not null; t = t.ContainingType)
             if (s_exactDefinitions.Contains(MetadataNameOf(t.OriginalDefinition))) return "hot path " + MetadataNameOf(t.OriginalDefinition);
         // The signature must lower identically for every instantiation: T itself and reference types are pointers; a generic value type
         // over T (KeyValuePair<T, int>) has a layout of its own per instantiation.
         foreach (var type in definition.Parameters.Select(p => p.Type).Append(definition.ReturnType))
-            if (MentionsTypeParameter(type) && type is not ITypeParameterSymbol && !type.IsReferenceType) return "signature " + type.ToDisplayString();
+            if (MentionsTypeParameter(type) && type is not ITypeParameterSymbol && !type.IsReferenceType) return new SharingReason("signature ", type);
         if (definition.Parameters.Any(p => p.RefKind != RefKind.None && MentionsTypeParameter(p.Type))) return "by-ref over T";
         if (Calls(definition, dependentOnly: false).FirstOrDefault(IsMethodObserver) is { } observer)
             return "observes its own method: " + observer.ContainingType.Name + "." + observer.Name;
-        if (SlotKeys(definition) is not { } keys) return "body not readable";
-        if (keys.Count > 0) return "needs dictionary: " + keys.OrderBy(k => k, StringComparer.Ordinal).First();
-        foreach (var callee in Calls(definition, dependentOnly: true))
+        if (!HasReadableBody(definition)) return "body not readable";
+        // Step 3b-1: an instance method of a class reads type handles (casts, typeof, new T[], new C<T>) from the dictionary its `this`
+        // carries. A struct's method has no dictionary (step 4), so it is shared only when it needs none.
+        if (definition.ContainingType.TypeKind != TypeKind.Class && FirstDependent(definition) is { } need) return new SharingReason("needs dictionary (no dictionary in a struct): ", inner: need);
+        if (UnsupportedNeed(definition) is { } unsupported) return new SharingReason("needs ", inner: unsupported);
+        foreach (var named in Calls(definition, dependentOnly: true))
         {
-            if (callee.ContainingType.TypeKind == TypeKind.Interface) return "interface over T: " + callee.ContainingType.ToDisplayString();
-            if (callee.IsGenericMethod || callee.IsStatic) return "calls " + callee.ToDisplayString();
-            if (ExactReason(callee.OriginalDefinition) is { } calleeReason) return "calls exact " + callee.OriginalDefinition.ToDisplayString() + " (" + calleeReason + ")";
+            // What lowering calls: a library member served by the corelib (List<T> from the framework's IL, a shadow) is that code.
+            var callee = Redirected(named);
+            if (callee.ContainingType.TypeKind == TypeKind.Interface) return new SharingReason("interface over T: ", callee.ContainingType);
+            if (callee.IsGenericMethod || callee.IsStatic) return new SharingReason("calls ", callee);
+            // The callee's own class must have a canonical form whatever T is: List<KeyValuePair<T, int>> or Wrapper<Func<T>> would be
+            // compiled over the markers themselves, with no dictionary behind them.
+            if (callee.ContainingType.TypeKind == TypeKind.Class && !HasCanonicalFormOverParameters(callee.ContainingType))
+                return new SharingReason("calls into ", callee.ContainingType, " (no canonical form)");
+            if (callee.ContainingType.TypeKind == TypeKind.Delegate) return new SharingReason("delegate over T: ", callee.ContainingType);
+            // (the callee's own reason is on its own line of the report: nesting it here would grow with the call chain)
+            if (ExactReasonOf(callee.OriginalDefinition) is not null) return new SharingReason("calls exact ", callee.OriginalDefinition);
         }
+        return null;
+    }
+
+    private readonly ConcurrentDictionary<IMethodSymbol, HashSet<ITypeSymbol>> _named = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// The types a canonical method's body names, in canonical terms: the operands of its instructions, the types of the members, locals
+    /// and parameters it uses, and what those are made of (element types, type arguments). A canonical body may ask its dictionary only for
+    /// the handle of one of these: what the eligibility analysis read and what lowering asks for come from the same body.
+    /// </summary>
+    public HashSet<ITypeSymbol> NamedTypes(IMethodSymbol canonicalMethod) => _named.GetOrAdd(canonicalMethod, method =>
+    {
+        var named = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default);
+        var substitution = TypeSubstitution.For(method, compilation);
+        void Add(ITypeSymbol? type)
+        {
+            if (type is null || !named.Add(type)) return;
+            switch (type)
+            {
+                case IArrayTypeSymbol array: Add(array.ElementType); break;
+                case IPointerTypeSymbol pointer: Add(pointer.PointedAtType); break;
+                case INamedTypeSymbol n:
+                    foreach (var argument in n.TypeArguments) Add(argument);
+                    Add(n.ContainingType);
+                    break;
+            }
+        }
+        void AddSymbol(ISymbol? symbol)
+        {
+            switch (symbol)
+            {
+                case ITypeSymbol type: Add(substitution.Apply(type)); break;
+                case IFieldSymbol field: AddSymbol(field.Type); AddSymbol(field.ContainingType); break;
+                case IPropertySymbol property: AddSymbol(property.Type); AddSymbol(property.ContainingType); break;
+                case ILocalSymbol local: AddSymbol(local.Type); break;
+                case IParameterSymbol parameter: AddSymbol(parameter.Type); break;
+                case IMethodSymbol m:
+                    AddSymbol(m.ContainingType);
+                    AddSymbol(m.ReturnType);
+                    foreach (var parameter in m.Parameters) AddSymbol(parameter.Type);
+                    foreach (var argument in m.TypeArguments) AddSymbol(argument);
+                    break;
+            }
+        }
+        var definition = method.OriginalDefinition;
+        AddSymbol(definition);
+        for (var t = definition.ContainingType; t is not null; t = t.BaseType)
+            foreach (var field in t.GetMembers().OfType<IFieldSymbol>()) AddSymbol(field.Type);
+        if (IlCodeOf(definition) is { } code)
+        {
+            foreach (var step in code.Steps) AddSymbol(step.Symbol);
+        }
+        else if (SourceOf(definition) is { } operation)
+            foreach (var op in operation.DescendantsAndSelf())
+            {
+                AddSymbol(op.Type);
+                AddSymbol(op switch
+                {
+                    IInvocationOperation invocation => invocation.TargetMethod,
+                    IObjectCreationOperation { Constructor: { } constructor } => constructor,
+                    IMemberReferenceOperation member => member.Member,
+                    ILocalReferenceOperation local => local.Local,
+                    IParameterReferenceOperation parameter => parameter.Parameter,
+                    ITypeOfOperation typeOf => typeOf.TypeOperand,
+                    IIsTypeOperation isType => isType.TypeOperand,
+                    IPatternOperation pattern => pattern.NarrowedType,
+                    IVariableDeclaratorOperation declarator => declarator.Symbol,
+                    _ => null,
+                });
+            }
+        return named;
+    });
+
+    /// <summary>Does a class named in terms of type parameters canonicalize for every (shareable) choice of them?</summary>
+    private static bool HasCanonicalFormOverParameters(INamedTypeSymbol type)
+    {
+        var arguments = FlatArguments(type);
+        return arguments.Count <= MarkerCount && arguments.All(a => a is ITypeParameterSymbol || !MentionsTypeParameter(a) || (a.IsReferenceType && IsPlainReference(a)));
+    }
+
+    /// <summary>
+    /// A class or interface over T, named by a body (as an operand, a member's owner, a field's or a call's type), that has no canonical form
+    /// (TreeSet&lt;KeyValuePair&lt;TKey, TValue&gt;&gt;): lowering would devirtualize or allocate through it over the markers themselves, with no
+    /// dictionary behind them. Null when there is none.
+    /// </summary>
+    private static ITypeSymbol? WithoutCanonicalForm(ISymbol symbol)
+    {
+        static ITypeSymbol? Check(ITypeSymbol? type) => type switch
+        {
+            IArrayTypeSymbol array => Check(array.ElementType),
+            INamedTypeSymbol { TypeKind: TypeKind.Class or TypeKind.Interface } named when MentionsTypeParameter(named) && !HasCanonicalFormOverParameters(named) => named,
+            _ => null,
+        };
+        switch (symbol)
+        {
+            case ITypeSymbol type: return Check(type);
+            case IFieldSymbol field: return Check(field.Type) ?? Check(field.ContainingType);
+            case IMethodSymbol method:
+                if ((Check(method.ContainingType) ?? Check(method.ReturnType)) is { } found) return found;
+                foreach (var parameter in method.Parameters)
+                    if (Check(parameter.Type) is { } p) return p;
+                return null;
+            default: return null;
+        }
+    }
+
+    private static IOperation Receiver(IOperation operation)
+    {
+        while (operation is IConversionOperation { IsImplicit: true } conversion) operation = conversion.Operand;
+        return operation;
+    }
+
+    private static bool HasFinalizer(INamedTypeSymbol type)
+    {
+        for (var t = type; t is not null && t.SpecialType != SpecialType.System_Object; t = t.BaseType)
+            if (t.GetMembers("Finalize").OfType<IMethodSymbol>().Any(m => m.Parameters.IsEmpty)) return true;
+        return false;
+    }
+
+    /// <summary>
+    /// What a definition's body needs that step 3b-1's dictionaries do not supply yet (null: nothing). Supplied: the method tables for casts
+    /// and type tests against reference types over T, typeof (IL bodies), arrays of types over T and `new` of classes over T. Not yet:
+    /// boxing and unboxing generic value types over T, delegates over T, statics of generic types and method addresses (step 3c), classes
+    /// with finalizers, catch clauses over T, and in source bodies closures, dynamic operations and typeof (lowered against the static type).
+    /// </summary>
+    private SharingReason? UnsupportedNeed(IMethodSymbol definition)
+    {
+        if (IlCodeOf(definition) is { } code)
+        {
+            var (owner, body, context, steps) = code;
+            foreach (var region in body.ExceptionRegions)
+                if (region.Kind == ExceptionRegionKind.Filter) return "an exception filter"; // (a filter is a function of its own, without `this`)
+                else if (region.Kind == ExceptionRegionKind.Catch && !region.CatchType.IsNil)
+                {
+                    try { if (MentionsTypeParameter(owner.ResolveType(MetadataTokens.GetToken(region.CatchType), context))) return "catch over T"; }
+                    catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { return "catch type not readable"; }
+                }
+            // An interface call on an array over T is lowered through the array helpers, generic over the element type
+            // (ArrayChecks.CopyToUntyped<T>): in a canonical body that would be one of them over a marker, with no dictionary behind it.
+            // The receiver's type is not in the token, so a body that holds such an array and calls through an interface stays exact.
+            var holdsArrayOverT = definition.Parameters.Any(p => p.Type is IArrayTypeSymbol a && MentionsTypeParameter(a))
+                || steps.Any(st => st.Symbol is IArrayTypeSymbol a && MentionsTypeParameter(a)
+                    || st.Symbol is IFieldSymbol { Type: IArrayTypeSymbol fa } && MentionsTypeParameter(fa)
+                    || st.Symbol is IMethodSymbol { ReturnType: IArrayTypeSymbol ra } && MentionsTypeParameter(ra));
+            if (holdsArrayOverT && steps.Any(st => st.Symbol is IMethodSymbol { ContainingType.TypeKind: TypeKind.Interface }))
+                return "interface call where an array over T may be the receiver";
+            foreach (var (op, symbol) in steps)
+            {
+                if (op is ILOpCode.Mkrefany or ILOpCode.Refanyval or ILOpCode.Refanytype) return "typed references";
+                if (symbol is null) continue;
+                // `constrained. S<T>; callvirt I.M`: lowering calls S<T>'s own method, which the token does not name (the call names I.M).
+                if (op is ILOpCode.Constrained && symbol is ITypeSymbol { IsValueType: true } constrainedType && MentionsTypeParameter(constrainedType))
+                    return new SharingReason("constrained call on ", constrainedType);
+                if (WithoutCanonicalForm(symbol) is { } uncanonical) return new SharingReason("uses ", uncanonical, " (no canonical form)");
+                switch (symbol)
+                {
+                    case ITypeSymbol type when MentionsTypeParameter(type):
+                        if (op is ILOpCode.Box or ILOpCode.Unbox or ILOpCode.Unbox_any or ILOpCode.Castclass or ILOpCode.Isinst)
+                        {
+                            if (type.IsValueType) return new SharingReason("boxing of ", type);
+                            if (type is not ITypeParameterSymbol && !IsPlainReference(type)) return new SharingReason("cast to ", type);
+                        }
+                        break;
+                    case IFieldSymbol field when field.IsStatic && MentionsTypeParameter(field.ContainingType): return new SharingReason("static field ", field);
+                    // (Array.Copy to a System.Array, CopyTo and SetValue are lowered as a generic helper over the source element type: not yet)
+                    case IMethodSymbol copy when IsCheckedArrayCopy(copy): return "array copy";
+                    case IFieldSymbol field when op is ILOpCode.Ldtoken && MentionsTypeParameter(field.ContainingType): return "field handle";
+                    case IMethodSymbol method when CallsDependent(method):
+                        if (op is ILOpCode.Ldftn or ILOpCode.Ldvirtftn or ILOpCode.Ldtoken) return new SharingReason("address of ", method);
+                        if (op is ILOpCode.Newobj && method.ContainingType.TypeKind == TypeKind.Delegate) return new SharingReason("delegate ", method.ContainingType);
+                        if (op is ILOpCode.Newobj && method.ContainingType.TypeKind == TypeKind.Class && HasFinalizer(method.ContainingType))
+                            return new SharingReason("finalizable ", method.ContainingType);
+                        break;
+                }
+            }
+            return null;
+        }
+        if (SourceOf(definition) is { } operation)
+            foreach (var op in operation.DescendantsAndSelf())
+            {
+                if (op is IAnonymousFunctionOperation or ILocalFunctionOperation or IDelegateCreationOperation) return "closure or delegate";
+                if (op.Type is { } opType && WithoutCanonicalForm(opType) is { } uncanonical) return new SharingReason("uses ", uncanonical, " (no canonical form)");
+                if (op is IInvocationOperation { TargetMethod.ContainingType.TypeKind: TypeKind.Interface, Instance: { } receiver }
+                    && Receiver(receiver).Type is IArrayTypeSymbol receiverArray && MentionsTypeParameter(receiverArray))
+                    return "interface call on an array over T";
+                if (op.Kind is OperationKind.DynamicInvocation or OperationKind.DynamicMemberReference or OperationKind.DynamicObjectCreation
+                    or OperationKind.DynamicIndexerAccess) return "dynamic operation";
+                switch (op)
+                {
+                    case ITypeOfOperation t when MentionsTypeParameter(t.TypeOperand): return "typeof in a source body";
+                    case IInvocationOperation copy when IsCheckedArrayCopy(copy.TargetMethod): return "array copy";
+                    case IFieldReferenceOperation { Field.IsStatic: true } f when MentionsTypeParameter(f.Field.ContainingType): return new SharingReason("static field ", f.Field);
+                    case IObjectCreationOperation { Type: INamedTypeSymbol created } when MentionsTypeParameter(created) && created.TypeKind == TypeKind.Class && HasFinalizer(created):
+                        return new SharingReason("finalizable ", created);
+                    case IAnonymousObjectCreationOperation or ITupleOperation when op.Type is { } t && MentionsTypeParameter(t): return "anonymous type or tuple over T";
+                    case ICatchClauseOperation c when MentionsTypeParameter(c.ExceptionType): return "catch over T";
+                    case IConversionOperation c when c.Type is { } to && c.Operand.Type is { } from && (MentionsTypeParameter(to) || MentionsTypeParameter(from)):
+                        if (c.OperatorMethod is not null) return "user-defined conversion over T";
+                        if ((to.IsValueType && to is not ITypeParameterSymbol) != (from.IsValueType && from is not ITypeParameterSymbol)) return "boxing of a value type over T";
+                        if (to is not ITypeParameterSymbol && to.IsReferenceType && !IsPlainReference(to)) return new SharingReason("cast to ", to);
+                        break;
+                    case IIsTypeOperation i when MentionsTypeParameter(i.TypeOperand) && i.TypeOperand is not ITypeParameterSymbol && (i.TypeOperand.IsValueType || !IsPlainReference(i.TypeOperand)):
+                        return new SharingReason("type test against ", i.TypeOperand);
+                    case IPatternOperation p when p.NarrowedType is { } narrowed && MentionsTypeParameter(narrowed) && narrowed is not ITypeParameterSymbol
+                        && (narrowed.IsValueType || !IsPlainReference(narrowed)) && !SymbolEqualityComparer.Default.Equals(narrowed, p.InputType):
+                        return new SharingReason("pattern over ", narrowed);
+                    case IForEachLoopOperation or IUsingOperation or IUsingDeclarationOperation or IAwaitOperation or IInterpolatedStringOperation or IRangeOperation
+                        or IDeconstructionAssignmentOperation or IWithOperation or ICollectionExpressionOperation or ISpreadOperation or IEventAssignmentOperation
+                        when op.DescendantsAndSelf().Any(o => o.Type is { } t && MentionsTypeParameter(t)):
+                        return op.Kind + " over T in a source body";
+                }
+            }
         return null;
     }
 
@@ -281,62 +740,22 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il)
     private static bool IsMethodObserver(IMethodSymbol method) =>
         method is { Name: "GetCurrentMethod", ContainingType: { Name: "MethodBase", ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } } };
 
-    private bool? _observesFrames;
-
-    /// <summary>
-    /// Does the program read the methods of stack frames (StackFrame.GetMethod, StackTrace.GetFrame(s))? Any frame of shared code would then
-    /// report its canonical form, so with --shared-generics such a program shares nothing (until frames carry their exact instantiation).
-    /// </summary>
-    public bool ObservesFrames => _observesFrames ??= ComputeObservesFrames();
-
-    private bool ComputeObservesFrames()
-    {
-        static bool IsFrameApi(string type, string member) =>
-            (type == "StackFrame" && member == "GetMethod") || (type == "StackTrace" && member is "GetFrame" or "GetFrames");
-        if (il is not null)
-            foreach (var assembly in il.Assemblies)
-            {
-                var reader = assembly.Reader;
-                foreach (var handle in reader.MemberReferences)
-                {
-                    var reference = reader.GetMemberReference(handle);
-                    if (reference.Parent.Kind != HandleKind.TypeReference) continue;
-                    var type = reader.GetString(reader.GetTypeReference((TypeReferenceHandle)reference.Parent).Name);
-                    if (IsFrameApi(type, reader.GetString(reference.Name))) return true;
-                }
-            }
-        foreach (var tree in compilation.SyntaxTrees)
-        {
-            var text = tree.ToString();
-            if (!text.Contains("StackFrame", StringComparison.Ordinal) && !text.Contains("StackTrace", StringComparison.Ordinal)) continue;
-            var model = compilation.GetSemanticModel(tree);
-            foreach (var node in tree.GetRoot().DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.InvocationExpressionSyntax>())
-                if (model.GetSymbolInfo(node).Symbol is IMethodSymbol { ContainingType.ContainingNamespace: { Name: "Diagnostics", ContainingNamespace.Name: "System" } } m
-                    && IsFrameApi(m.ContainingType.Name, m.Name))
-                    return true;
-        }
-        return false;
-    }
-
+    // Frames: StackFrame and StackTrace objects are not supported by csharpc (their constructors throw NotSupportedException), so no
+    // program can read a frame's method; whoever implements them must report a shared frame's exact instantiation (or, as .NET does, the
+    // definition's). Delegates: Delegate.Method answers from the function a delegate holds, and a delegate to a shared method holds an
+    // exact entry of its own (ModuleCodeGen.DelegateEntry).
     /// <summary>The methods a definition's body calls (dependentOnly: only those of type-parameter-dependent types or with dependent type arguments).</summary>
     private List<IMethodSymbol> Calls(IMethodSymbol definition, bool dependentOnly)
     {
         var callees = new List<IMethodSymbol>();
-        if (il?.OwnerOf(definition) is { } owner && owner.Body(definition) is { } body)
+        if (IlCodeOf(definition) is { } code)
         {
-            var context = IlGenericContext.For(definition);
-            foreach (var instruction in IlDecoder.Decode(body.GetILReader()))
-            {
-                if (instruction.OpCode is not (ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj or ILOpCode.Ldftn or ILOpCode.Ldvirtftn)) continue;
-                try
-                {
-                    if (owner.ResolveMember(instruction.Token, context) is IMethodSymbol m && (!dependentOnly || CallsDependent(m))) callees.Add(m);
-                }
-                catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { }
-            }
+            foreach (var (op, symbol) in code.Steps)
+                if (op is ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj or ILOpCode.Ldftn or ILOpCode.Ldvirtftn
+                    && symbol is IMethodSymbol m && (!dependentOnly || CallsDependent(m)))
+                    callees.Add(m);
         }
-        else if (definition.DeclaringSyntaxReferences.FirstOrDefault() is { } reference
-                 && compilation.GetSemanticModel(reference.SyntaxTree).GetOperation(reference.GetSyntax()) is { } operation)
+        else if (SourceOf(definition) is { } operation)
         {
             foreach (var op in operation.DescendantsAndSelf())
             {
