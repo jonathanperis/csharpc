@@ -45,8 +45,10 @@ public sealed partial class ModuleCodeGen
                 + (method.Arity > 0 ? "`" + method.Arity : "") + "(" + method.OriginalDefinition.Parameters.Length + ")";
             var canonical = shared.Canonicalize(method);
             var name = _functions.TryGetValue(method, out var lowered) ? Native.LLVMGetValueName(lowered.Fn) : "";
+            // (with --shared-generics: whether step 3 compiles it as its canonical form, and why not)
+            var sharing = !SharedGenerics ? "" : shared.ShareAs(method) is not null ? "\tcompiled shared" : $"\tcompiled exact: {shared.ExactReason(method.OriginalDefinition) ?? "not a shared class"}";
             writer.WriteLine($"{definition}\t{method.ToDisplayString()}\t{canonical.ToDisplayString()}\t{(shared.IsShared(canonical) ? "shared" : "exact")}"
-                + $"\t{shared.DictionarySlots(method)}\t{name}");
+                + $"\t{shared.DictionarySlots(method)}\t{name}{sharing}");
         }
     }
 
