@@ -11,6 +11,14 @@
 > `tools/il-first/measure-aot.sh` on the library's program in `tools/il-first/bench` (add one when the library has none). `tools/il-first/ownership.tsv`
 > is generated on demand (`tools/il-first/ownership.sh`) and not committed; ownership.cs overrides of deleted files can stay.
 >
+> **Two slices, one per pointer size** (#382): CoreLib is compiled per target, so IL compiled under `TARGET_64BIT` (8-byte widths, a folded
+> `IntPtr.Size`) is wrong on a 4-byte-pointer target. The build cuts the same roots twice: from the shared framework's 64-bit CoreLib into
+> `CsharpcUpstream.dll`, and from the 32-bit CoreCLR CoreLib (`Microsoft.NETCore.App.Runtime.linux-arm`, the same version, verified with
+> `dotnet nuget verify` against the Microsoft author certificate pinned in `src/Csharpc/nuget-signers.txt`) into `upstream32/CsharpcUpstream.dll`.
+> The compiler picks the slice by the target's pointer size (`Frontend/UpstreamSlice.cs`; wasm32 takes the 32-bit one, and a missing 32-bit
+> slice is an error, never a fallback). `Slicer pointer-size` lists the members compiled differently for 32-bit targets at every build
+> (`obj/.../slicer/pointer-size.md`). Corelib members the slices call must exist for both widths (`ulong.PowersOf10` and `uint.PowersOf10`).
+>
 > **The contract layer** between the corelib and the CoreLib types sliced from the framework's IL (`tools/il-first/slicer`,
 > `CsharpcUpstream.dll`; chosen by the slicer's `csharpc` profile) is kept thin, and every member of it is listed here:
 > * `corelib/UpstreamSupport.cs`: the members the slice calls into the corelib for: SR texts, the string-comparer family,
