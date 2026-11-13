@@ -206,6 +206,35 @@ public sealed partial class ModuleCodeGen
         _ => 0,
     };
 
+    /// <summary>
+    /// The key of a type in the method-table caches keyed by name: its fully qualified name, then the assembly of every named type in it.
+    /// Two assemblies may each define a type of the same full name (the regex source generator carries its own
+    /// System.Text.RegularExpressions.RegexNode; assemblies carry their own copies of polyfill types). They are different types, with
+    /// method tables of their own (class layouts are keyed by symbol), and so are the arrays, pointers and generic instantiations over
+    /// them: one table for both would make a store of one into an array of the other fail its covariance check, and casts and typeof
+    /// confuse the two.
+    /// </summary>
+    internal static string IdentityKey(ITypeSymbol type)
+    {
+        var key = new System.Text.StringBuilder(type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat));
+        AppendAssemblies(type, key);
+        return key.ToString();
+
+        static void AppendAssemblies(ITypeSymbol type, System.Text.StringBuilder key)
+        {
+            switch (type)
+            {
+                case IArrayTypeSymbol array: AppendAssemblies(array.ElementType, key); break;
+                case IPointerTypeSymbol pointer: AppendAssemblies(pointer.PointedAtType, key); break;
+                case INamedTypeSymbol named:
+                    if (named.ContainingType is { } outer) AppendAssemblies(outer, key);
+                    key.Append('@').Append(named.ContainingAssembly?.Identity.Name);
+                    foreach (var argument in named.TypeArguments) AppendAssemblies(argument, key);
+                    break;
+            }
+        }
+    }
+
     /// <summary>CLR full name as Type.FullName reports it: "System.Int32", "Program+Nested", "System.String[]".</summary>
     public static string ClrName(ITypeSymbol type) => type switch
     {
@@ -228,7 +257,7 @@ public sealed partial class ModuleCodeGen
         var name = ClrName(elementType) + "[]";
         // Keyed by the exact element type: List<int>[] and List<Edge>[] share a display name, but
         // not their interfaces (and a corelib shadow is the same type as what it shadows).
-        var key = "array:" + CoreLib.Map(TypeSubstitution.EraseTupleNames(elementType, Compilation)).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var key = "array:" + IdentityKey(CoreLib.Map(TypeSubstitution.EraseTupleNames(elementType, Compilation)));
         if (_arrayMethodTables.TryGetValue(key, out var existing)) return existing;
         var tagged = new TaggedArray(name, elementType, default) { Element = LlvmContext.Null(Llvm.Ptr) };
         var init = ArrayMethodTableInit(tagged, LlvmContext.Null(Llvm.Ptr), 0);
@@ -310,7 +339,7 @@ public sealed partial class ModuleCodeGen
     public LLVMValueRef MdArrayMethodTable(IArrayTypeSymbol array)
     {
         if (IsCanonDependent(array)) return CanonMethodTable; // shared generic code: the exact table comes from a dictionary
-        var key = "mdarray:" + CoreLib.Map(TypeSubstitution.EraseTupleNames(array, Compilation)).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var key = "mdarray:" + IdentityKey(CoreLib.Map(TypeSubstitution.EraseTupleNames(array, Compilation)));
         if (_arrayMethodTables.TryGetValue(key, out var existing)) return existing;
         string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
         var slots = defaults.Select(d => Runtime(d, Llvm.Ptr, Llvm.Ptr).Fn).ToArray();
@@ -344,7 +373,7 @@ public sealed partial class ModuleCodeGen
         var name = Mangler.MetadataName(type);
         if (IsDef(type) && ChainArguments(type) is { Count: > 0 } parameters)
             name += "[" + string.Join(",", parameters.Select(p => p.Name)) + "]";
-        var key = "type:" + CoreLib.Map(TypeSubstitution.EraseTupleNames(type, Compilation)).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var key = "type:" + IdentityKey(CoreLib.Map(TypeSubstitution.EraseTupleNames(type, Compilation)));
         return NameOnlyMethodTable(key, name, type.TypeKind == TypeKind.Interface ? 2 /* CSRT_MT_INTERFACE */ : 0, type);
     }
 
@@ -410,11 +439,11 @@ public sealed partial class ModuleCodeGen
         {
             // T[] in a member of an open generic definition: an identity only, no instances (like the definition's own table).
             IArrayTypeSymbol array when TypeSubstitution.IsOpen(array.ElementType) =>
-                NameOnlyMethodTable("openarray:" + array.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), ClrName(array), 0, array),
+                NameOnlyMethodTable("openarray:" + IdentityKey(array), ClrName(array), 0, array),
             IArrayTypeSymbol { IsSZArray: true } array => ArrayMethodTable(array.ElementType),
             IArrayTypeSymbol array => MdArrayMethodTable(array),
             IPointerTypeSymbol pointer when !TypeSubstitution.IsOpen(pointer.PointedAtType) =>
-                NameOnlyMethodTable("ptr:" + pointer.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat), ClrName(pointer), 0, pointer),
+                NameOnlyMethodTable("ptr:" + IdentityKey(pointer), ClrName(pointer), 0, pointer),
             INamedTypeSymbol { TypeKind: TypeKind.Enum } e => EnumMethodTable(e),
             // Interfaces: the identity table interface maps refer to, so IsAssignableFrom and `is` agree.
             INamedTypeSymbol { TypeKind: TypeKind.Interface } i when !i.IsUnboundGenericType && !TypeSubstitution.IsOpen(i) => InterfaceMethodTable(i),

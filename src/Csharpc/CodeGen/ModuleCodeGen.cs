@@ -161,6 +161,7 @@ public sealed partial class ModuleCodeGen
         var entryPoint = ProgramEntryPoint
             ?? throw new CompileError("CSLLVM0003", "program has no entry point (Main method or top-level statements)", null);
 
+        Facts.FieldTagsPerDefinition = SharedGenerics; // (shared code accesses the fields of every instantiation it stands for)
         CollectTypes(Compilation.Assembly.GlobalNamespace);
 
         // 1. Layouts and method tables for every class (base classes first, via GetLayout recursion).

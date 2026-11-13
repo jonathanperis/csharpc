@@ -394,7 +394,7 @@ public sealed partial class ModuleCodeGen
     private sealed record HiddenInterface(string FullName, string Namespace, string Name, IReadOnlyList<ITypeSymbol> Arguments,
         string Assembly, IReadOnlyList<int> Variances)
     {
-        public string Key { get; } = FullName + "[" + string.Join(",", Arguments.Select(a => a.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))) + "]";
+        public string Key { get; } = FullName + "[" + string.Join(",", Arguments.Select(IdentityKey)) + "]";
     }
 
     /// <summary>Interface identity across symbols and HiddenInterfaces.</summary>
@@ -588,7 +588,7 @@ public sealed partial class ModuleCodeGen
     {
         var parameters = ChainArguments(owner);
         var parameter = (ITypeParameterSymbol)parameters[position];
-        var key = "typeparam:" + owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + ":" + position;
+        var key = "typeparam:" + IdentityKey(owner) + ":" + position;
         if (_arrayMethodTables.TryGetValue(key, out var existing)) return existing;
         var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(parameter.Name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0));
