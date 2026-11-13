@@ -202,17 +202,70 @@
   -->
   <ItemGroup>
     <PackageDownload Include="Microsoft.NET.ILLink.Tasks" Version="[$(BundledNETCoreAppPackageVersion)]" />
+    <!-- The 32-bit CoreLib that wasm32's slice is cut from (#382): CoreLib is compiled per target, and the 64-bit one has its pointer size
+         baked into the IL (TARGET_64BIT, IntPtr.Size folded by the trimmer). CoreCLR's linux-arm build: the same runtime-internal surface as the
+         64-bit CoreLib the contract layer is written against (Mono's browser-wasm CoreLib differs there). Always the same version as the
+         64-bit slice, never a floating one, and verified by signature with the signer pinned (nuget-signers.txt, _CsharpcVerifyCoreLib32Pack). -->
+    <PackageDownload Include="Microsoft.NETCore.App.Runtime.linux-arm" Version="[$(BundledNETCoreAppPackageVersion)]" />
     <_CsharpcSlicerSource Include="../../tools/il-first/slicer/*.cs;../../tools/il-first/slicer/Slicer.csproj" />
     <_CsharpcUpstreamTypes Include="upstream-types/*.txt" />
   </ItemGroup>
   <PropertyGroup>
     <_CsharpcRefDir>$(NetCoreTargetingPackRoot)/Microsoft.NETCore.App.Ref/$(BundledNETCoreAppPackageVersion)/ref/net11.0</_CsharpcRefDir>
     <_CsharpcCoreLibIl>$(_CsharpcFrameworkDir)System.Private.CoreLib.dll</_CsharpcCoreLibIl>
+    <_CsharpcCoreLib32Package>microsoft.netcore.app.runtime.linux-arm</_CsharpcCoreLib32Package>
+    <_CsharpcCoreLib32Dir>$(NuGetPackageRoot)$(_CsharpcCoreLib32Package)/$(BundledNETCoreAppPackageVersion)/</_CsharpcCoreLib32Dir>
+    <_CsharpcCoreLib32Il>$(_CsharpcCoreLib32Dir)runtimes/linux-arm/lib/net11.0/System.Private.CoreLib.dll</_CsharpcCoreLib32Il>
+    <_CsharpcCoreLib32Nupkg>$(_CsharpcCoreLib32Dir)$(_CsharpcCoreLib32Package).$(BundledNETCoreAppPackageVersion).nupkg</_CsharpcCoreLib32Nupkg>
+    <_CsharpcPackHashes>$(MSBuildThisFileDirectory)runtime-pack-hashes.txt</_CsharpcPackHashes>
+    <_CsharpcNuGetSigners>$(MSBuildThisFileDirectory)nuget-signers.txt</_CsharpcNuGetSigners>
   </PropertyGroup>
 
-  <Target Name="CsharpcUpstreamSlice" AfterTargets="CopyFilesToOutputDirectory"
-          Inputs="@(_CsharpcSlicerSource);@(_CsharpcUpstreamTypes);$(_CsharpcCoreLibIl);$(ProjectAssetsFile)"
-          Outputs="$(OutDir)CsharpcUpstream.dll;$(OutDir)CsharpcUpstream.map">
+  <!-- The 32-bit pack is verified before anything is cut from it: its NuGet signature must be valid (integrity: the package is unchanged since
+       it was signed) and its author signer one of the certificates pinned in nuget-signers.txt (Microsoft's), as NuGet's trustedSigners
+       pins them; that survives SDK patch updates, which a pinned hash would not. runtime-pack-hashes.txt is an extra check: a line for the
+       exact version must match, a missing one is not an error. A missing pack, a bad signature, another signer or a mismatching hash stops
+       the build: a 32-bit target never falls back to the 64-bit slice (#382). -->
+  <Target Name="_CsharpcVerifyCoreLib32Pack" Inputs="$(_CsharpcCoreLib32Nupkg);$(_CsharpcNuGetSigners);$(_CsharpcPackHashes)"
+          Outputs="$(IntermediateOutputPath)corelib32.verified">
+    <Error Condition="!Exists('$(_CsharpcCoreLib32Nupkg)') or !Exists('$(_CsharpcCoreLib32Il)')"
+           Text="csharpc: the 32-bit runtime pack Microsoft.NETCore.App.Runtime.linux-arm $(BundledNETCoreAppPackageVersion) ($(_CsharpcCoreLib32Nupkg)) is needed to build wasm32's CoreLib slice (#382); restore it (dotnet restore src/Csharpc)" />
+    <ReadLinesFromFile File="$(_CsharpcNuGetSigners)">
+      <Output TaskParameter="Lines" ItemName="_CsharpcNuGetSignerLine" />
+    </ReadLinesFromFile>
+    <ItemGroup>
+      <_CsharpcNuGetSigner Include="@(_CsharpcNuGetSignerLine)" Condition="!$([System.String]::Copy('%(Identity)').StartsWith('#'))" />
+    </ItemGroup>
+    <Error Condition="'@(_CsharpcNuGetSigner)' == ''" Text="csharpc: no signer fingerprint in $(_CsharpcNuGetSigners)" />
+    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; nuget verify --all &quot;$(_CsharpcCoreLib32Nupkg)&quot; @(_CsharpcNuGetSigner->'--certificate-fingerprint %(Identity)', ' ')"
+          StandardOutputImportance="low" IgnoreExitCode="true">
+      <Output TaskParameter="ExitCode" PropertyName="_CsharpcCoreLib32Verify" />
+    </Exec>
+    <Error Condition="'$(_CsharpcCoreLib32Verify)' != '0'"
+           Text="csharpc: $(_CsharpcCoreLib32Nupkg) failed `dotnet nuget verify --all` against the signers pinned in $(_CsharpcNuGetSigners) (invalid or missing signature, a package changed since it was signed, or a signer that is not Microsoft's); refusing to cut wasm32's slice from it" />
+    <GetFileHash Files="$(_CsharpcCoreLib32Nupkg)" Algorithm="SHA512" HashEncoding="base64">
+      <Output TaskParameter="Hash" PropertyName="_CsharpcCoreLib32Hash" />
+    </GetFileHash>
+    <ReadLinesFromFile File="$(_CsharpcPackHashes)">
+      <Output TaskParameter="Lines" ItemName="_CsharpcPackHashLine" />
+    </ReadLinesFromFile>
+    <ItemGroup>
+      <_CsharpcCoreLib32Pinned Include="@(_CsharpcPackHashLine)"
+                               Condition="$([System.String]::Copy('%(Identity)').StartsWith('$(_CsharpcCoreLib32Package) $(BundledNETCoreAppPackageVersion) '))" />
+    </ItemGroup>
+    <Error Condition="'@(_CsharpcCoreLib32Pinned)' != '' and '@(_CsharpcCoreLib32Pinned)' != '$(_CsharpcCoreLib32Package) $(BundledNETCoreAppPackageVersion) $(_CsharpcCoreLib32Hash)'"
+           Text="csharpc: $(_CsharpcCoreLib32Nupkg) does not match the SHA-512 listed for it in $(_CsharpcPackHashes) (got $(_CsharpcCoreLib32Hash)); refusing to cut wasm32's slice from it" />
+    <!-- Verified once per package, signer list and hash list (incremental). -->
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <Touch Files="$(IntermediateOutputPath)corelib32.verified" AlwaysCreate="true" />
+    <ItemGroup>
+      <FileWrites Include="$(IntermediateOutputPath)corelib32.verified" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="CsharpcUpstreamSlice" AfterTargets="CopyFilesToOutputDirectory" DependsOnTargets="_CsharpcVerifyCoreLib32Pack"
+          Inputs="@(_CsharpcSlicerSource);@(_CsharpcUpstreamTypes);$(_CsharpcCoreLibIl);$(_CsharpcCoreLib32Il);$(_CsharpcPackHashes);$(_CsharpcNuGetSigners);$(ProjectAssetsFile)"
+          Outputs="$(OutDir)CsharpcUpstream.dll;$(OutDir)CsharpcUpstream.map;$(OutDir)upstream32/CsharpcUpstream.dll;$(OutDir)upstream32/CsharpcUpstream.map">
     <PropertyGroup>
       <_CsharpcSlicerDir>$(MSBuildProjectDirectory)/$(IntermediateOutputPath)slicer/</_CsharpcSlicerDir>
     </PropertyGroup>
@@ -223,8 +276,17 @@
           StandardOutputImportance="low" />
     <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; &quot;$(_CsharpcSlicerDir)Slicer.dll&quot; emit --profile csharpc --roots-file &quot;$(MSBuildThisFileDirectory)upstream-types&quot; --corelib &quot;$(_CsharpcCoreLibIl)&quot; --ref &quot;$(_CsharpcRefDir)&quot; --shadows &quot;$(MSBuildThisFileDirectory)corelib&quot; --name CsharpcUpstream --out &quot;$(OutDir)CsharpcUpstream.dll&quot;"
           StandardOutputImportance="low" />
+    <!-- The same roots and profile, cut from the 32-bit CoreLib: what 4-byte-pointer targets (wasm32) use (Frontend/UpstreamSlice.cs). It keeps
+         the assembly name CsharpcUpstream (the corelib reaches the slice by that name: [UnsafeAccessorType]), in a directory of its own. -->
+    <MakeDir Directories="$(OutDir)upstream32/" />
+    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; &quot;$(_CsharpcSlicerDir)Slicer.dll&quot; emit --profile csharpc --roots-file &quot;$(MSBuildThisFileDirectory)upstream-types&quot; --corelib &quot;$(_CsharpcCoreLib32Il)&quot; --ref &quot;$(_CsharpcRefDir)&quot; --shadows &quot;$(MSBuildThisFileDirectory)corelib&quot; --name CsharpcUpstream --out &quot;$(OutDir)upstream32/CsharpcUpstream.dll&quot;"
+          StandardOutputImportance="low" />
+    <!-- The exact pointer-size check (tools/il-first/slicer/PointerSize.cs): the members compiled differently for 32-bit targets, listed in
+         obj/.../slicer/pointer-size.md, and a failure if the two slices do not serve the same types. -->
+    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; &quot;$(_CsharpcSlicerDir)Slicer.dll&quot; pointer-size &quot;$(OutDir)CsharpcUpstream.dll&quot; &quot;$(OutDir)upstream32/CsharpcUpstream.dll&quot; &quot;$(_CsharpcCoreLibIl)&quot; &quot;$(_CsharpcCoreLib32Il)&quot; &quot;$(_CsharpcSlicerDir)pointer-size.md&quot;"
+          StandardOutputImportance="high" />
     <ItemGroup>
-      <FileWrites Include="$(OutDir)CsharpcUpstream.dll;$(OutDir)CsharpcUpstream.map" />
+      <FileWrites Include="$(OutDir)CsharpcUpstream.dll;$(OutDir)CsharpcUpstream.map;$(OutDir)upstream32/CsharpcUpstream.dll;$(OutDir)upstream32/CsharpcUpstream.map" />
     </ItemGroup>
   </Target>
 
@@ -232,6 +294,8 @@
     <ItemGroup>
       <_CsharpcUpstreamFile Include="$(OutDir)CsharpcUpstream.dll;$(OutDir)CsharpcUpstream.map" />
       <ResolvedFileToPublish Include="@(_CsharpcUpstreamFile)" RelativePath="%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
+      <_CsharpcUpstream32File Include="$(OutDir)upstream32/CsharpcUpstream.dll;$(OutDir)upstream32/CsharpcUpstream.map" />
+      <ResolvedFileToPublish Include="@(_CsharpcUpstream32File)" RelativePath="upstream32/%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
   </Target>
 

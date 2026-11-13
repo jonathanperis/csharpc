@@ -14,8 +14,35 @@ public static class UpstreamSlice
 
     private static IReadOnlyDictionary<string, List<string>>? s_members;
 
-    /// <summary>The map the build wrote next to the compiler.</summary>
-    private static string ShippedMap => Path.Combine(AppContext.BaseDirectory, "CsharpcUpstream.map");
+    private static bool s_pointer32;
+
+    /// <summary>
+    /// The target's pointer size picks the slice. CoreLib is compiled per target and the slice is IL cut from it, so a 4-byte-pointer target
+    /// (wasm32) uses the slice the build cut from the 32-bit CoreLib (upstream32/), never the 64-bit one: IL compiled under TARGET_64BIT
+    /// computes with 8-byte widths there (#382). Call before anything reads the map.
+    /// </summary>
+    public static void UseTarget(bool pointer32)
+    {
+        if (s_pointer32 == pointer32) return;
+        s_pointer32 = pointer32;
+        s_entries = null;
+        s_members = null;
+    }
+
+    private static string Map64 => Path.Combine(AppContext.BaseDirectory, "CsharpcUpstream.map");
+
+    private static string Map32 => Path.Combine(AppContext.BaseDirectory, "upstream32", "CsharpcUpstream.map");
+
+    /// <summary>The map the build wrote next to the compiler for the target's pointer size.</summary>
+    private static string ShippedMap => s_pointer32 ? Map32 : Map64;
+
+    /// <summary>
+    /// An error when the compiler ships a 64-bit slice but not the 32-bit one a 32-bit target needs: such a target never falls back to the
+    /// 64-bit slice.
+    /// </summary>
+    public static string? MissingSliceError => s_pointer32 && File.Exists(Map64) && !File.Exists(Map32)
+        ? $"the CoreLib slice for 32-bit targets ({Map32}) is missing next to the compiler; csharpc does not compile a 32-bit target from the 64-bit slice (rebuild src/Csharpc, which cuts both)"
+        : null;
 
     /// <summary>The slice assembly of the shipped map (an IL assembly of every compilation), when there is one.</summary>
     public static IReadOnlyList<string> ShippedAssemblies => File.Exists(ShippedMap) ? [Path.ChangeExtension(ShippedMap, ".dll")] : [];
