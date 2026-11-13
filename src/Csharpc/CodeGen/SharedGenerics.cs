@@ -258,16 +258,41 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
         return result;
     }
 
-    private readonly (IMethodSymbol Definition, IOperation? Operation)[] _recentSource = new (IMethodSymbol, IOperation?)[4];
+    private readonly (IMethodSymbol Definition, IOperation[]? Operations)[] _recentSource = new (IMethodSymbol, IOperation[]?)[4];
     private int _recentSourceNext;
 
-    /// <summary>The bound body of a source definition (the same few-entry reuse as <see cref="IlCodeOf"/>).</summary>
-    private IOperation? SourceOf(IMethodSymbol definition)
+    /// <summary>
+    /// The bound body of a source definition (the same few-entry reuse as <see cref="IlCodeOf"/>). An instance constructor also runs
+    /// its class's instance field and property initializers, which are not part of its body's syntax: they are analysed with it.
+    /// </summary>
+    private IOperation[]? SourceOf(IMethodSymbol definition)
     {
-        foreach (var (d, operation) in _recentSource)
-            if (d is not null && SymbolEqualityComparer.Default.Equals(d, definition)) return operation;
-        IOperation? result = definition.DeclaringSyntaxReferences.FirstOrDefault() is { } reference
-            ? compilation.GetSemanticModel(reference.SyntaxTree).GetOperation(reference.GetSyntax()) : null;
+        foreach (var (d, operations) in _recentSource)
+            if (d is not null && SymbolEqualityComparer.Default.Equals(d, definition)) return operations;
+        IOperation[]? result = null;
+        if (definition.DeclaringSyntaxReferences.FirstOrDefault() is { } reference
+            && compilation.GetSemanticModel(reference.SyntaxTree).GetOperation(reference.GetSyntax()) is { } body)
+        {
+            List<IOperation> operations = [body];
+            if (definition.MethodKind == MethodKind.Constructor && !definition.IsStatic)
+                foreach (var member in definition.ContainingType.GetMembers())
+                {
+                    if (member.IsStatic || member is not (IFieldSymbol or IPropertySymbol)) continue;
+                    foreach (var declaration in member.DeclaringSyntaxReferences)
+                    {
+                        var syntax = declaration.GetSyntax();
+                        var initializer = syntax switch
+                        {
+                            Microsoft.CodeAnalysis.CSharp.Syntax.VariableDeclaratorSyntax v => (SyntaxNode?)v.Initializer,
+                            Microsoft.CodeAnalysis.CSharp.Syntax.PropertyDeclarationSyntax p => p.Initializer,
+                            _ => null,
+                        };
+                        if (initializer is not null && compilation.GetSemanticModel(syntax.SyntaxTree).GetOperation(initializer) is { } init)
+                            operations.Add(init);
+                    }
+                }
+            result = [.. operations];
+        }
         _recentSource[_recentSourceNext] = (definition, result);
         _recentSourceNext = (_recentSourceNext + 1) % _recentSource.Length;
         return result;
@@ -291,7 +316,7 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
     private HashSet<string>? SlotKeys(IMethodSymbol definition)
     {
         if (IlCodeOf(definition) is { } code) return IlSlotKeys(code);
-        return SourceOf(definition) is { } operation ? SourceSlotKeys(operation) : null;
+        return SourceOf(definition) is { } operations ? SourceSlotKeys(operations) : null;
     }
 
     private readonly ConcurrentDictionary<INamedTypeSymbol, int> _classSlots = new(SymbolEqualityComparer.Default);
@@ -324,10 +349,10 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
         return needed;
     }
 
-    private static HashSet<string> SourceSlotKeys(IOperation body)
+    private static HashSet<string> SourceSlotKeys(IOperation[] bodies)
     {
         var needed = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var op in body.DescendantsAndSelf())
+        foreach (var op in bodies.SelectMany(b => b.DescendantsAndSelf()))
         {
             // Lambdas, local functions (closures and expression trees built over the exact members) and dynamic operations
             // (bound per instantiation) keep a source method exact.
@@ -574,8 +599,8 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
         {
             foreach (var step in code.Steps) AddSymbol(step.Symbol);
         }
-        else if (SourceOf(definition) is { } operation)
-            foreach (var op in operation.DescendantsAndSelf())
+        else if (SourceOf(definition) is { } operations)
+            foreach (var op in operations.SelectMany(o => o.DescendantsAndSelf()))
             {
                 AddSymbol(op.Type);
                 AddSymbol(op switch
@@ -699,8 +724,8 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
             }
             return null;
         }
-        if (SourceOf(definition) is { } operation)
-            foreach (var op in operation.DescendantsAndSelf())
+        if (SourceOf(definition) is { } operations)
+            foreach (var op in operations.SelectMany(o => o.DescendantsAndSelf()))
             {
                 if (op is IAnonymousFunctionOperation or ILocalFunctionOperation or IDelegateCreationOperation) return "closure or delegate";
                 if (op.Type is { } opType && WithoutCanonicalForm(opType) is { } uncanonical) return new SharingReason("uses ", uncanonical, " (no canonical form)");
@@ -763,9 +788,9 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
                     && symbol is IMethodSymbol m && (!dependentOnly || CallsDependent(m)))
                     callees.Add(m);
         }
-        else if (SourceOf(definition) is { } operation)
+        else if (SourceOf(definition) is { } operations)
         {
-            foreach (var op in operation.DescendantsAndSelf())
+            foreach (var op in operations.SelectMany(o => o.DescendantsAndSelf()))
             {
                 var target = op switch
                 {
