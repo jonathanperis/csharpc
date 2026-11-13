@@ -14,7 +14,9 @@ name: Bootstrap
 # IL" and "csharpc compiles csharpc (-O0 / -O2)". They are part of the merge bar for such a PR (AGENTS.md,
 # docs/05-testing.md): the five `test (<platform>)` jobs do not compile Roslyn or csharpc itself, and Bootstrap
 # went red on main twice in two days (the Regex flip, Vector128) while every PR gate was green. The native-suite
-# shards (16 jobs, the long part) run on pushes to main and ci/m6-** branches only.
+# shards (16 jobs) and the heavy-samples jobs, the long part, run nightly on main (schedule), on ci/m6-** pushes and on
+# dispatch, not on every merge: they competed with the PR gates for runners (#406). A merge to main still runs the
+# first two.
 on:
   pull_request:
     paths: ['src/**', 'global.json', 'tests/projects/il/IlRoslynHostApp/**', 'tests/il.sh', 'tools/bootstrap/**', '.github/workflows/bootstrap.yml']
@@ -22,12 +24,14 @@ on:
     branches: [main, "ci/m6-**"]
     paths: ['src/**', 'global.json', 'tests/projects/il/IlRoslynHostApp/**', 'tests/il.sh', 'tools/bootstrap/**', '.github/workflows/bootstrap.yml']
   workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
 
 permissions:
   contents: read
 
 concurrency:
-  group: bootstrap-${{ github.ref }}
+  group: bootstrap-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: true
 
 env:
@@ -121,7 +125,7 @@ jobs:
   native-suite:
     name: native csharpc (${{ matrix.native }}) on the differential suite, shard ${{ matrix.shard }}/8
     needs: selfhost
-    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/ci/m6-')) }}
     strategy:
       fail-fast: false
       matrix:
@@ -173,7 +177,7 @@ jobs:
     # native-suite shard's 180 minutes, so each optimization level runs them alone with a longer limit (#394).
     name: native csharpc (${{ matrix.native }}) on the heavy samples
     needs: selfhost
-    if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+    if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/heads/ci/m6-')) }}
     strategy:
       fail-fast: false
       matrix:
