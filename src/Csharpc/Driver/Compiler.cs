@@ -402,9 +402,12 @@ public sealed class Compiler(CompilerOptions options)
 
         if (options.OptLevel == 0 && codegen.HasCoroutines)
         {
-            // async methods / iterators are LLVM coroutines: CoroSplit must run even at -O0.
-            module.RunPasses("default<O0>", target);
-            Phase("coroutine lowering (default<O0>)");
+            // async methods / iterators are LLVM coroutines: CoroSplit must run even at -O0. Only the coroutine passes of LLVM's O0
+            // pipeline (buildO0DefaultPipeline), not its always-inliner: -O0 inlines nothing in a program without coroutines either, and
+            // on csharpc compiling itself inlining every [AggressiveInlining] method took 4.8 GB on top of the module and grew it by
+            // a third, which the backend then paid for again (the -O0 self-compile peaked at 14.7 GB on a 16 GB runner).
+            module.RunPasses("coro-early,cgscc(coro-split),coro-cleanup,globaldce", target);
+            Phase("coroutine lowering");
         }
         List<string>? prebuiltObjects = null, prebuiltWeakImports = null;
         string? prebuiltObjectBase = null;
