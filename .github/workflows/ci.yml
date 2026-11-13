@@ -12,7 +12,7 @@ name: CI
 # full gate. `gh workflow run` is 403 from the agent checkout; push a ci/** branch instead.
 #
 # A shard compiles and runs several samples at once (CSHARPC_JOBS, tests/run.sh). Shard counts
-# (tools/ci-plan.sh, measured in docs/05-testing.md): x86-64 3, the other platforms 2.
+# (tools/ci-plan.sh, measured in docs/05-testing.md): x86-64 and windows-x64 4, the other platforms 3.
 on:
   push:
     # ci/** is the long-lived namespace for measurement branches (docs/20-status.md).
