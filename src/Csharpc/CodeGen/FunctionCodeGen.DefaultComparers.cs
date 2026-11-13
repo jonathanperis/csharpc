@@ -94,6 +94,8 @@ public sealed partial class FunctionCodeGen
         if (!(target is { Name: "Equals", Parameters.Length: 2 } or { Name: "GetHashCode", Parameters.Length: 1 })) return null;
         var element = S(itf.TypeArguments[0]);
         if (element is ITypeParameterSymbol) return null;
+        // Shared generic code: EqualityComparer<__Canon0>.Default names no instantiation's static; the call dispatches (ADR 0026, 3b-2).
+        if (_m.IsCanonDependent(element)) return null;
         var comparerType = _m.Compilation.GetTypeByMetadataName("System.Collections.Generic.EqualityComparer`1")?.Construct(element);
         if (comparerType is null || _m.CoreLib.Map(comparerType) is not INamedTypeSymbol mapped
             || mapped.GetMembers("get_Default").OfType<IMethodSymbol>().FirstOrDefault(m => m.IsStatic && m.Parameters.IsEmpty) is not { } getter) return null;
