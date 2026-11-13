@@ -719,9 +719,10 @@ internal static partial class BclValueTypes
                 g.Builder.Select(g.Builder.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, a[0], a[1]), a[0], a[1]);
             t[$"{type}.Min({type}, {type})"] = (g, _, _, a, _) =>
                 g.Builder.Select(g.Builder.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, a[0], a[1]), a[0], a[1]);
-            t[$"{type}.Clamp({type}, {type}, {type})"] = (g, _, _, a, _) =>
+            t[$"{type}.Clamp({type}, {type}, {type})"] = (g, m, _, a, _) =>
             {
                 var b = g.Builder;
+                g.ClampBoundsCheck(a[1], a[2], m.Parameters[1].Type); // ArgumentException when min > max (#392)
                 var lo = b.Select(b.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, a[0], a[1]), a[1], a[0]);
                 return b.Select(b.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, lo, a[2]), a[2], lo);
             };

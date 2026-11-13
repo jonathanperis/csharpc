@@ -3,3 +3,5 @@
 # one host class per type (tools/il-first/slicer: `host:` roots); intrinsics, corelib shadows and the generic-math paths keep priority.
 # Int128 and UInt128 are not hosted: their IL reads _lower/_upper and private helpers csharpc's representation of them lacks (#393).
 host:System.Byte,System.SByte,System.Int16,System.UInt16,System.Int32,System.UInt32,System.Int64,System.UInt64,System.IntPtr,System.UIntPtr::Log2,PopCount,LeadingZeroCount,TrailingZeroCount,IsPow2,RotateLeft,RotateRight,Abs,Clamp,Min,Max,MinMagnitude,MaxMagnitude,MinMagnitudeNumber,MaxMagnitudeNumber,MinNumber,MaxNumber,Sign,DivRem,CopySign,IsNegative,IsPositive,IsEvenInteger,IsOddInteger,IsZero,IsCanonical,IsComplexNumber,IsFinite,IsImaginaryNumber,IsInfinity,IsInteger,IsNaN,IsNegativeInfinity,IsNormal,IsPositiveInfinity,IsRealNumber,IsSubnormal,CreateChecked,CreateSaturating,CreateTruncating
+# Math.Clamp's overloads (decimal has no intrinsic; the others keep theirs, which check min > max the same way: #392).
+host:System.Math::Clamp
