@@ -25,7 +25,8 @@
 # A sample with a NAME.diagnostics file is one csharpc must reject cleanly (explicit diagnostics, no
 # crash): the compiler's stderr, with the samples directory stripped from paths, must equal that file.
 #
-# Environment: CSHARPC_NATIVE=path/to/csharpc-native (run the suite with the compiler csharpc built from itself,
+# Environment: CSHARPC_SKIP_LIST=file (skip the samples named in it, one per line: another job runs them),
+#              CSHARPC_NATIVE=path/to/csharpc-native (run the suite with the compiler csharpc built from itself,
 #              tools/bootstrap/selfhost.sh, instead of the managed one; no build),
 #              CSHARPC_FLAGS="-g" (extra compiler flags, e.g. run the suite with debug info), CSHARPC_OPT=-O0 (same as --opt), CSHARPC_TEST_TIMEOUT=20 (seconds per binary),
 #              DOTNET=path/to/dotnet, CSHARPC_TEST_TARGET=wasm32-wasip1 (compile for WebAssembly and run with
@@ -204,6 +205,11 @@ run_sample() { # name opt rep workdir
   expected="$SAMPLES/$name.expected"
   # A sample without a recording would otherwise pass every shard and CI's coverage check unrun.
   [[ -f "$expected" ]] || { echo "FAIL $label (no .expected — record it with --regen)"; return 1; }
+  # CSHARPC_SKIP_LIST=file: samples another job runs (one name per line, '#' comments), e.g. the native
+  # suite's slow reflection-JSON samples, which tools/bootstrap/native-heavy-samples.txt moves to their own job.
+  if [[ -n "${CSHARPC_SKIP_LIST:-}" ]] && grep -Eqx "$name" <(sed 's/#.*//; s/[[:space:]]//g' "$CSHARPC_SKIP_LIST"); then
+    echo "SKIP $label (run by another job: $CSHARPC_SKIP_LIST)"; return 2
+  fi
   reason="$(platform_skip "$name")"
   [[ -n "$reason" ]] && ! platform_is_live "$reason" && { echo "SKIP $label (platform-dependent on $TARGET_OS: $reason)"; return 2; }
   stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
