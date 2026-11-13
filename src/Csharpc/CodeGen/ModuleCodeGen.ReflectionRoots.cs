@@ -155,7 +155,7 @@ public sealed partial class ModuleCodeGen
     {
         if (arguments.Any(a => a is IPointerTypeSymbol or IFunctionPointerTypeSymbol || a.IsRefLikeType || a.SpecialType == SpecialType.System_Void || TypeSubstitution.IsOpen(a)
                 || ReflectionNestingDepth(a) > 4)) return false;
-        var key = definition.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + "<" + string.Join(",", arguments.Select(a => a.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))) + ">";
+        var key = IdentityKey(definition) + "<" + string.Join(",", arguments.Select(IdentityKey)) + ">";
         if (!_rootedInstantiations.Add(key)) return false;
         if (!SatisfiesConstraints(definition, arguments)) return false;
         try
