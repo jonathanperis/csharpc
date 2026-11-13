@@ -438,6 +438,24 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         return _typeRefs[handle] = result ?? throw new IlException($"type '{full}' referenced by '{Name}' was not found");
     }
 
+    /// <summary>
+    /// Int128's and UInt128's private <c>_lower</c> / <c>_upper</c> fields, which their CoreLib IL reads and writes (and the reference pack
+    /// doesn't declare): csharpc keeps the two types as one 128-bit integer, whose little-endian layout puts the lower half at byte 0 and the
+    /// upper half at byte 8, as .NET's struct does on the little-endian targets csharpc supports (FunctionCodeGen.Int128Fields.cs).
+    /// </summary>
+    public bool IsInt128Half(int token, IlGenericContext context, out bool upper)
+    {
+        upper = false;
+        var handle = MetadataTokens.EntityHandle(token);
+        if (handle.Kind != HandleKind.MemberReference) return false;
+        var reference = Reader.GetMemberReference((MemberReferenceHandle)handle);
+        if (reference.GetKind() != MemberReferenceKind.Field || reference.Parent.Kind is not (HandleKind.TypeReference or HandleKind.TypeDefinition)) return false;
+        var name = Reader.GetString(reference.Name);
+        if (name is not ("_lower" or "_upper") || !CodeGen.Int128Support.Is128(ResolveType(reference.Parent, context).Type)) return false;
+        upper = name == "_upper";
+        return true;
+    }
+
     /// <summary>A field, method or constructor token (FieldDef, MethodDef, MemberRef, MethodSpec).</summary>
     public ISymbol ResolveMember(int token, IlGenericContext context)
     {
@@ -534,7 +552,29 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         // A member of System.Private.CoreLib the reference pack doesn't have (Debug.SetProvider, which System.Diagnostics.TraceSource
         // calls; string.GetRawStringData and the other internals the framework's own CoreLib IL calls): the corelib shadow that implements it.
         if (ShadowedMember(owner, definition, reference, name, arity, header) is { } shadowed) return shadowed;
+        if (!header.IsInstance && HostedMember(definition, reference, name, arity) is { } hosted) return hosted;
         throw new IlException($"method '{owner}.{name}' with the referenced signature not found");
+    }
+
+    /// <summary>
+    /// A non-public static helper of a built-in type that the reference pack doesn't declare (UInt128.LeadingZeroCountAsInt32, ulong's
+    /// private TryConvertFromChecked&lt;TOther&gt;), which the slice carries in the type's host class next to the members that call it
+    /// (tools/il-first/slicer: `host:` roots and what they reach).
+    /// </summary>
+    private IMethodSymbol? HostedMember(INamedTypeSymbol definition, MemberReference reference, string name, int arity)
+    {
+        if (definition.ContainingType is not null) return null;
+        var full = definition.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + definition.MetadataName : definition.MetadataName;
+        if (!UpstreamSlice.MemberClasses.TryGetValue(full, out var classes)) return null;
+        foreach (var className in classes)
+            foreach (var holder in Compilation.GetTypesByMetadataName(className))
+                foreach (var candidate in holder.GetMembers(name).OfType<IMethodSymbol>())
+                {
+                    if (!candidate.IsStatic || candidate.Arity != arity) continue;
+                    var signature = reference.DecodeMethodSignature(this, new IlGenericContext([], [.. candidate.TypeParameters]));
+                    if (Matches(candidate, signature)) return candidate;
+                }
+        return null;
     }
 
     /// <summary>
