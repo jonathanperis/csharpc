@@ -10,6 +10,6 @@ linux-x86_64 numbers 156672
 linux-aarch64 numbers 152576
 macos-arm64 numbers 181248
 windows-x86_64 numbers 169984
-# wasm32 keeps the corelib's own digit generation (the sliced Dragon4 is 64-bit only, #382), so it does not carry Dragon4: measured
-# 146 678 B, budget = measured + 3 %.
-wasi-wasm32 numbers 151552
+# wasm32's Grisu3/Dragon4 come from the slice cut from the 32-bit CoreLib (#382), in place of #377's corelib fallback: measured 146 678 to
+# 155 984 B (+9 306), a measured speed gain like on the other targets (#348); budget = measured + 3 %.
+wasi-wasm32 numbers 160768

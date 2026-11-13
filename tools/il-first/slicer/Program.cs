@@ -19,6 +19,12 @@ if (args.Length > 1 && args[0] == "types")
     foreach (var t in ModuleDefinition.ReadModule(args[1]).GetTypes()) Console.WriteLine($"0x{t.MetadataToken.ToInt32():X8} {t.FullName} ({t.Attributes})");
     return;
 }
+if (args.Length > 5 && args[0] == "pointer-size")
+{
+    // pointer-size <slice64.dll> <slice32.dll> <CoreLib64> <CoreLib32> <report.md>: the members of the slice compiled differently for
+    // 32-bit targets (PointerSize.cs, #382), and a failure when the two slices do not serve the same types.
+    Environment.Exit(PointerSize.Run(args[1], args[2], args[3], args[4], args[5]));
+}
 if (args.Length > 1 && args[0] == "synth-create-instance")
 {
     Synth.CreateInstance(args[1]);

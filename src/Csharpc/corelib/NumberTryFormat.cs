@@ -77,6 +77,10 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.UInt32")]
     internal static class UInt32TryFormat
     {
+        // 10^0 .. 10^9 (internal upstream), which the framework's IL reads where its blocks are 32-bit: Number.BigInteger's power table in
+        // the slice cut from the 32-bit CoreLib for wasm32 (#382).
+        public static ReadOnlySpan<uint> PowersOf10 => [1, 10, 100, 1000, 10000, 100000, 1000000, 10000000, 100000000, 1000000000];
+
         [ShadowInstance] public static bool TryFormat(uint value, Span<char> destination, out int charsWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null) =>
             format.Length == 0 ? NumberTryFormat.Digits((ulong)value, destination, out charsWritten)
                 : NumberTryFormat.Copy(value.ToString(NumberTryFormat.Format(format), provider), destination, out charsWritten);
