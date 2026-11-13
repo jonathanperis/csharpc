@@ -372,6 +372,11 @@ collections still shadowed: `Hashtable` (from IL it is correct but 30 % larger a
 composite formatting: #373), `ArrayList` (untyped `Array.IndexOf`/`LastIndexOf`/`Sort(Array, int, int, IComparer)`) and `BitArray` (Vector128/256
 operators from IL): #372.
 
+**Status (2026-11-13): ConcurrentDictionary<TKey,TValue> and ConcurrentQueue<T> are served from the framework's IL** (#399): `corelib/Concurrent/`
+is gone (3 571 lines). Two general compiler changes: the slicer copies the state-machine attributes, and the IL front-end folds
+`Type.GetTypeCode(typeof(X))`. The dictionary program is the same size and the same instruction count as with the shadows, 0.90x NativeAOT's
+instructions (`docs/il-first/System.Collections.Concurrent.md`).
+
 ### Proposed boundary, and the order
 
 The numbers support boundary A for collections and text, with the contract growing by the internals listed above (12 members so
