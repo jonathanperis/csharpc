@@ -976,7 +976,7 @@ ulong.CreateSaturating((double)double.NaN): 0
 ulong.CreateTruncating((double)double.NaN): 0
 nint.Log2((nint)0): 0
 nint.PopCount((nint)0): 0
-nint.TrailingZeroCount((nint)0): 64
+nint.TrailingZeroCount((nint)0) is the width: True
 nint.Sign((nint)0): 0
 nint.IsPow2((nint)0): False
 nint.IsEvenInteger((nint)0): True
@@ -1030,7 +1030,7 @@ nint.Clamp((nint)64, 1, 9): 9
 nint.Min/Max((nint)64, 2): (2, 64)
 nint.DivRem((nint)64, 2): (32, 0)
 nint.CopySign((nint)64, -1): -64
-nint.PopCount((nint)(-5)): 63
+nint.PopCount((nint)(-5)) is the width - 1: True
 nint.TrailingZeroCount((nint)(-5)): 0
 nint.Sign((nint)(-5)): -1
 nint.IsPow2((nint)(-5)): False
@@ -1065,7 +1065,7 @@ nint.CreateSaturating((double)double.NaN): 0
 nint.CreateTruncating((double)double.NaN): 0
 nuint.Log2((nuint)0): 0
 nuint.PopCount((nuint)0): 0
-nuint.TrailingZeroCount((nuint)0): 64
+nuint.TrailingZeroCount((nuint)0) is the width: True
 nuint.Sign((nuint)0): 0
 nuint.IsPow2((nuint)0): False
 nuint.IsEvenInteger((nuint)0): True
@@ -1906,7 +1906,7 @@ T.CreateSaturating(300)/(-1) IntPtr(5): (300, -1)
 T.CreateChecked(5UL) IntPtr(5): 5
 T.Log2 IntPtr(0): 0
 T.PopCount IntPtr(0): 0
-T.TrailingZeroCount IntPtr(0): 64
+T.TrailingZeroCount IntPtr(0): the width
 T.Sign IntPtr(0): 0
 T.IsPow2 IntPtr(0): False
 T.IsEvenInteger IntPtr(0): True
@@ -1932,7 +1932,7 @@ T.MaxMagnitude/MinMagnitude IntPtr(0): (1, 0)
 T.CreateSaturating(300)/(-1) IntPtr(0): (300, -1)
 T.CreateChecked(5UL) IntPtr(0): 5
 T.Log2 IntPtr(-5): ArgumentOutOfRangeException Non-negative number required. (Parameter 'value')
-T.PopCount IntPtr(-5): 63
+T.PopCount IntPtr(-5): the width - 1
 T.TrailingZeroCount IntPtr(-5): 0
 T.Sign IntPtr(-5): -1
 T.IsPow2 IntPtr(-5): False
@@ -1987,7 +1987,7 @@ T.CreateSaturating(300)/(-1) UIntPtr(5): (300, 0)
 T.CreateChecked(5UL) UIntPtr(5): 5
 T.Log2 UIntPtr(0): 0
 T.PopCount UIntPtr(0): 0
-T.TrailingZeroCount UIntPtr(0): 64
+T.TrailingZeroCount UIntPtr(0): the width
 T.Sign UIntPtr(0): 0
 T.IsPow2 UIntPtr(0): False
 T.IsEvenInteger UIntPtr(0): True

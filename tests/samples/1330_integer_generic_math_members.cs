@@ -1027,7 +1027,7 @@ static class Program
     {
         R("nint.Log2((nint)0)", () => nint.Log2((nint)0));
         R("nint.PopCount((nint)0)", () => nint.PopCount((nint)0));
-        R("nint.TrailingZeroCount((nint)0)", () => nint.TrailingZeroCount((nint)0));
+        R("nint.TrailingZeroCount((nint)0) is the width", () => nint.TrailingZeroCount((nint)0) == (nint)(nint.Size * 8));
         R("nint.Sign((nint)0)", () => nint.Sign((nint)0));
         R("nint.IsPow2((nint)0)", () => nint.IsPow2((nint)0));
         R("nint.IsEvenInteger((nint)0)", () => nint.IsEvenInteger((nint)0));
@@ -1081,7 +1081,7 @@ static class Program
         R("nint.Min/Max((nint)64, 2)", () => (nint.Min((nint)64, (nint)2), nint.Max((nint)64, (nint)2)));
         R("nint.DivRem((nint)64, 2)", () => nint.DivRem((nint)64, (nint)2));
         R("nint.CopySign((nint)64, -1)", () => nint.CopySign((nint)64, (nint)(-1)));
-        R("nint.PopCount((nint)(-5))", () => nint.PopCount((nint)(-5)));
+        R("nint.PopCount((nint)(-5)) is the width - 1", () => nint.PopCount((nint)(-5)) == (nint)(nint.Size * 8 - 1));
         R("nint.TrailingZeroCount((nint)(-5))", () => nint.TrailingZeroCount((nint)(-5)));
         R("nint.Sign((nint)(-5))", () => nint.Sign((nint)(-5)));
         R("nint.IsPow2((nint)(-5))", () => nint.IsPow2((nint)(-5)));
@@ -1120,7 +1120,7 @@ static class Program
     {
         R("nuint.Log2((nuint)0)", () => nuint.Log2((nuint)0));
         R("nuint.PopCount((nuint)0)", () => nuint.PopCount((nuint)0));
-        R("nuint.TrailingZeroCount((nuint)0)", () => nuint.TrailingZeroCount((nuint)0));
+        R("nuint.TrailingZeroCount((nuint)0) is the width", () => nuint.TrailingZeroCount((nuint)0) == (nuint)(nint.Size * 8));
         R("nuint.Sign((nuint)0)", () => nuint.Sign((nuint)0));
         R("nuint.IsPow2((nuint)0)", () => nuint.IsPow2((nuint)0));
         R("nuint.IsEvenInteger((nuint)0)", () => nuint.IsEvenInteger((nuint)0));
@@ -1178,12 +1178,20 @@ static class Program
         R("nuint.CreateTruncating((double)double.NaN)", () => nuint.CreateTruncating((double)double.NaN));
     }
 
+    // A bit count of nint or nuint relative to the pointer width (64 on 64-bit targets, 32 on wasm32); other types print the number.
+    static object Bits<T>(T count) where T : IBinaryInteger<T>
+    {
+        if (typeof(T) != typeof(nint) && typeof(T) != typeof(nuint)) return count;
+        var value = long.CreateTruncating(count);
+        return value == nint.Size * 8 ? "the width" : value == nint.Size * 8 - 1 ? "the width - 1" : value.ToString();
+    }
+
     static void Generic<T>(T x) where T : IBinaryInteger<T>
     {
         var n = typeof(T).Name + "(" + x + ")";
         R("T.Log2 " + n, () => T.Log2(x));
-        R("T.PopCount " + n, () => T.PopCount(x));
-        R("T.TrailingZeroCount " + n, () => T.TrailingZeroCount(x));
+        R("T.PopCount " + n, () => Bits(T.PopCount(x)));
+        R("T.TrailingZeroCount " + n, () => Bits(T.TrailingZeroCount(x)));
         R("T.Sign " + n, () => T.Sign(x));
         R("T.IsPow2 " + n, () => T.IsPow2(x));
         R("T.IsEvenInteger " + n, () => T.IsEvenInteger(x));
