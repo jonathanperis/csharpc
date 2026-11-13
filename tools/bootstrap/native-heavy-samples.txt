@@ -1,0 +1,20 @@
+# Samples the Bootstrap native suite runs in their own job (native-heavy), not in the 8 regular shards.
+# They opt into reflection-based System.Text.Json; compiling that serializer with the self-compiled
+# csharpc takes 30-75 minutes per sample, and three in one shard exceeded the 180-minute job limit (#394).
+1160_json_private_nested_types
+1250_json_culture_real
+1251_json_culture_synthetic
+1295_json_reflection_bcl_member_types
+1296_json_reflection_dateonly_timeonly
+1301_json_reflection_roots
+1313_json_reflection_disabled
+315_json_node
+316_json_serialize
+317_json_deserialize
+318_json_options
+319_json_converters
+320_json_polymorphism
+321_json_references
+323_json_anonymous_and_file_local
+325_json_types
+740_json_internal_types
