@@ -11,11 +11,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # the counts were first measured on (run 40310822368, docs/05-testing.md), so a platform needs only
 # as many shards as it takes to finish near its suites job (7-26 min). That keeps the gate's wall
 # clock where the suites job puts it and spends fewer runner minutes, which are what queue.
-# Measured on run 42269384295 (docs/05-testing.md, "Shard counts").
+# Measured on run 42269384295 (docs/05-testing.md, "Shard counts"); raised when the suite grew to
+# 40-75 min shards against the 100 min job limit (#403, main runs at 5b790596 and f98a33e6).
 shard_count() {
   case "$1" in
-    x86-64) echo 3 ;;
-    windows-x64|arm64|macos-arm64|wasm32-wasi) echo 2 ;;
+    x86-64|windows-x64) echo 4 ;;
+    arm64|macos-arm64|wasm32-wasi) echo 3 ;;
     *) echo "unknown platform: $1" >&2; return 1 ;;
   esac
 }

@@ -163,8 +163,9 @@ fails if any shard or the suites job failed, or if the shard manifests do not li
 `LC_ALL=C` sorted sample names (`tests/run.sh --shard INDEX/COUNT`).
 
 Each shard compiles and runs several samples at once (`CSHARPC_JOBS`, 3 on every platform),
-which makes it 2-3x faster than a sequential shard, so a platform needs fewer of them: x86-64 3, the other platforms 2
-(11 differential jobs). The queue, not the work, is the usual delay (runner minutes are capped across the repository),
+which makes it 2-3x faster than a sequential shard, so a platform needs fewer of them: x86-64 and windows-x64 4, the other platforms 3
+(17 differential jobs; raised from 3/2 in #403, when the grown suite made shards take 40-75 minutes
+against the 100-minute job limit). The queue, not the work, is the usual delay (runner minutes are capped across the repository),
 so the counts aim at finishing near the platform's `suites` job rather than at the shortest shard. The `suites` jobs
 (size, conformance, programs, projects, IL; 11-21 minutes) set the wall clock of an unqueued gate.
 
