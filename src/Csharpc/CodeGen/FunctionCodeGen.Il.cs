@@ -31,6 +31,8 @@ internal sealed record IlEntry(IlKind Kind, LLVMValueRef Value, ITypeSymbol? Typ
     /// <summary>The result of EqualityComparer&lt;T&gt;.Default / Comparer&lt;T&gt;.Default: a call on it lowers inline (FunctionCodeGen.DefaultComparers.cs).</summary>
     public bool IsDefaultComparer { get; init; }
     public bool NonNull { get; init; }
+    /// <summary>The class a Ref entry's object is exactly: a `newobj` result, or a local only ever stored one (FunctionCodeGen.ExactTypes.cs).</summary>
+    public ITypeSymbol? ExactClass { get; init; }
     /// <summary>
     /// The value of an `ldc.*`/`ldstr` entry (int, long, float, double or string): operands built from it
     /// carry it as their ConstantValue, as Roslyn's operations do for C# constants, so lowering that

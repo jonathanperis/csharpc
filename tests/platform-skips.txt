@@ -295,3 +295,6 @@ macos 1270_x509_load_pkcs12_collection    live: the exception for a missing PFX 
 windows 1270_x509_load_pkcs12_collection  live: the exception for a missing PFX file is the platform loader's (CryptoAPI on Windows), recorded on real .NET there; the sample leaves that line out
 macos 1271_default_credentials_placeholder  known gap: System.Net.Http's system-proxy support (CFNetwork: Marshal.GetFunctionPointerForDelegate) isn't implemented, so HttpClient is an explicit compile error on macOS
 windows 1271_default_credentials_placeholder  known gap: System.Net.Http's system-proxy support (HttpWindowsProxy: WinINet, WindowsIdentity, EventWaitHandle) isn't implemented, so HttpClient is an explicit compile error on Windows
+linux 1328_convert_to_integer_native   live: ConvertToIntegerNative of NaN and out-of-range values is the CPU's instruction (x64 cvttsd2si: the minimum value; Arm64 fcvtzs: saturation), and Linux runs on both
+macos 1328_convert_to_integer_native   live: ConvertToIntegerNative of NaN and out-of-range values is the CPU's instruction (Arm64 fcvtzs saturates, NaN as 0), not the x64 recording's
+wasi 1328_convert_to_integer_native    WebAssembly has no native conversion instruction .NET defines for ConvertToIntegerNative, so the out-of-range half isn't comparable there

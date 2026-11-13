@@ -126,6 +126,23 @@
   </Target>
 
   <!--
+    Bundle the shared framework's managed assemblies (shared/Microsoft.NETCore.App/<version>, its *.dll only: no native
+    runtime) so NativeAOT installs compile from the framework's IL without a .NET installation (#375): the libraries served
+    from IL (System.Linq, System.Text.Json, Regex ...) are lowered from these. The same directory the slicer cut
+    CsharpcUpstream.dll from (_CsharpcFrameworkDir), so the slice and the IL always match. Frontend/SharedFramework.cs
+    looks for them next to the executable first. -p:CsharpcBundleSharedFramework=true (tools/pack-release.sh).
+  -->
+  <Target Name="CsharpcBundleSharedFramework" AfterTargets="ComputeResolvedFilesToPublishList"
+          Condition="'$(CsharpcBundleSharedFramework)' == 'true' and '$(RuntimeIdentifier)' != ''">
+    <Error Condition="!Exists('$(_CsharpcFrameworkDir)System.Private.CoreLib.dll')"
+           Text="csharpc: the shared framework to bundle is missing: $(_CsharpcFrameworkDir)" />
+    <ItemGroup>
+      <_CsharpcFrameworkDll Include="$(_CsharpcFrameworkDir)*.dll" />
+      <ResolvedFileToPublish Include="@(_CsharpcFrameworkDll)" RelativePath="shared/Microsoft.NETCore.App/$(BundledNETCoreAppPackageVersion)/%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+  <!--
     ReadyToRun at build time (docs/adr/0014-compile-time.md). Every csharpc run used to JIT Roslyn's
     binder and parser and csharpc's code generator before compiling anything (~1-2 s of CPU per
     compile). Release builds (`dotnet build -c Release`, what the tests, the README and the Csharpc.Sdk

@@ -167,6 +167,16 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string FrameworkVersion();
         /// <summary>System.Runtime.InteropServices.Architecture of the target triple (X64 1, Arm64 3, Wasm 5).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int TargetArchitecture();
+        /// <summary>
+        /// Whether the target has the conversion instruction double/float.ConvertToIntegerNative means for int and long (x64's cvttsd2si /
+        /// cvttss2si, Arm64's fcvtzs): a constant per target, so the other path folds away.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool HasNativeIntegerConversion();
+        /// <summary>The target's own truncating conversion (HasNativeIntegerConversion): x64 gives the minimum value for NaN and out-of-range values, Arm64 saturates (NaN: 0).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int ConvertToInt32Native(double value);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern long ConvertToInt64Native(double value);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int ConvertToInt32Native(float value);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern long ConvertToInt64Native(float value);
         /// <summary>The delegate types' Invoke signatures (MethodInfo.CreateDelegate): { count, { mt, return, parameters, count, 0 }[] }.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateSignatureTableAddress();
         /// <summary>The object-array thunks of the program's delegate types (ObjectArrayDelegates): { count, { mt, thunk }[] }.</summary>
