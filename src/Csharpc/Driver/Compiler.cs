@@ -34,6 +34,9 @@ public sealed class Compiler(CompilerOptions options)
         var windows = TargetMachine.IsWindowsTriple(triple);
         var wasm = TargetMachine.IsWasmTriple(triple);
         NativeTls.On = NativeTls.Enabled(windows, darwin, linux: !windows && !darwin && !wasm);
+        // The CoreLib slice cut for the target's pointer size (wasm32: the 32-bit one, #382), before anything reads its map.
+        UpstreamSlice.UseTarget(pointer32: wasm);
+        if (UpstreamSlice.MissingSliceError is { } sliceError) return Fail(sliceError);
         // Before the corelib index or the framework index is read: they depend on which shadows are mapped. The Windows
         // native-TLS mode is the same mechanism with a hand-picked family of shadows (NativeTls).
         try

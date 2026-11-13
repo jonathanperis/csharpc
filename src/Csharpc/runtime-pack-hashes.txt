@@ -1,0 +1,8 @@
+# Optional: SHA-512 (base64, as NuGet records it) of runtime packs the build downloads, one line per package and version:
+#   <package id, lower case> <version> <sha512>
+# The packs are verified by signature with the signer pinned (nuget-signers.txt). This list is an extra check on top: when a line for the
+# exact package and version exists, the downloaded package must match it; a version without a line is not an error.
+#
+# microsoft.netcore.app.runtime.linux-arm: the 32-bit CoreCLR System.Private.CoreLib that wasm32's slice is cut from (#382); the hash is the
+# packageHash of nuget.org's catalog entry for 11.0.0.
+microsoft.netcore.app.runtime.linux-arm 11.0.0 BpdcM6l9Q2y2M3p7GHSNaow5C6oszJVc+8/aUkxIutXKUHJ8cAga0Wu1OdqXsV6SAqgwSXsQnUOt3Ixpb7MW1w==

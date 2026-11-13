@@ -783,9 +783,9 @@ internal static partial class BclValueTypes
             t[$"{BO}.TrailingZeroCount({type})"] = (g, _, _, a, _) => BitIntrinsic(g, "cttz", a[0], w, g.Llvm.False);
             t[$"{BO}.Log2({type})"] = (g, _, _, a, _) =>
             {
-                var b = g.Builder; // 31 - lzcnt(x | 1)
+                var b = g.Builder; // (width - 1) - lzcnt(x | 1); the operand's own width: nuint is 32 bits on wasm32
                 var x = b.BinOp(LLVMOpcode.Or, a[0], g.Llvm.ConstInt(a[0].Type, 1));
-                return b.BinOp(LLVMOpcode.Sub, I32(g, w - 1), BitIntrinsic(g, "ctlz", x, w, g.Llvm.False));
+                return b.BinOp(LLVMOpcode.Sub, I32(g, (int)a[0].Type.IntWidth - 1), BitIntrinsic(g, "ctlz", x, w, g.Llvm.False));
             };
             t[$"{BO}.IsPow2({type})"] = (g, _, _, a, _) =>
             {
