@@ -1,0 +1,31 @@
+plain: Shape shape-label
+declared base, created derived: Circle(1) circle-label
+constructor's virtual call: Derived Derived
+interface-typed local: Circle(2)
+copy of an exact local: Circle(6)
+both branches the same class: Circle(7)
+generic class: BigBox<Int32>
+reassigned in a loop: Shape,Circle(0),Square,Circle(2)
+captured by a lambda: Circle(9)
+captured by a local function: Square
+ref argument: Circle(0)
+out argument: Square
+Interlocked.Exchange: Shape Square
+Unsafe.AsRef: Circle(10)
+ref local: Square
+deconstruction: Circle(11)
+??=: Square
+pattern: Circle(12)
+foreach: Square
+foreach: Circle(13)
+null, then a creation: Circle(14)
+null receiver: NullReferenceException
+catch: Circle(15)
+finally: Circle(15)
+catch, one class: Circle(17)
+finally, one class: Circle(17)
+catch variable: OtherFailure
+catch variable, reassigned: Failure
+async: Circle(3) Square
+iterator: Circle(4) Shape
+iterator: Circle(4) Circle(5)
