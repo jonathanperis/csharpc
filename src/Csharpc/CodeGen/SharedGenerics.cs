@@ -474,8 +474,16 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
         return reason;
     }
 
+    /// <summary>
+    /// CSHARPC_SHARED_GENERICS_EXCLUDE=&lt;a,b,...&gt;: definitions whose display name contains one of these substrings stay exact. A bisection
+    /// tool for shared-code bugs (which definitions, when compiled exact again, make a program right); it changes nothing when unset.
+    /// </summary>
+    private static readonly string[] s_excluded = (Environment.GetEnvironmentVariable("CSHARPC_SHARED_GENERICS_EXCLUDE") ?? "")
+        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
     private SharingReason? ComputeExactReason(IMethodSymbol definition)
     {
+        if (s_excluded.Length > 0 && s_excluded.Any(definition.ToDisplayString().Contains)) return "excluded (CSHARPC_SHARED_GENERICS_EXCLUDE)";
         if (definition.IsStatic) return "static";
         if (definition.IsGenericMethod) return "generic method";
         if (definition.IsAbstract || definition.IsExtern) return "no body";
