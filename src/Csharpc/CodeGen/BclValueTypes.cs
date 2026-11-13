@@ -728,11 +728,17 @@ internal static partial class BclValueTypes
             if (signed)
                 t[$"{type}.Abs({type})"] = (g, _, _, a, _) =>
                 {
-                    var b = g.Builder; // .NET throws OverflowException for MinValue
-                    g.FailIf(b.ICmp(LLVMIntPredicate.EQ, a[0], g.Llvm.ConstUInt(a[0].Type, 1UL << (int)(a[0].Type.IntWidth - 1))), "csrt_throw_overflow");
+                    var b = g.Builder; // .NET throws OverflowException for MinValue, with Math.Abs's message
+                    g.FailIf(b.ICmp(LLVMIntPredicate.EQ, a[0], g.Llvm.ConstUInt(a[0].Type, 1UL << (int)(a[0].Type.IntWidth - 1))), "csrt_throw_negate_overflow");
                     return b.Select(b.ICmp(LLVMIntPredicate.SLT, a[0], g.Llvm.ConstInt(a[0].Type, 0)), b.Neg(a[0]), a[0]);
                 };
-            t[$"{type}.Sign({type})"] = (g, _, _, a, _) => ICompare(g, a[0], g.Llvm.ConstInt(a[0].Type, 0), signed);
+            // -1, 0 or 1 for every width: not CompareTo's rule, which for byte and short returns the difference (byte.Sign(5) is 1, not 5).
+            t[$"{type}.Sign({type})"] = (g, _, _, a, _) =>
+            {
+                var zero = g.Llvm.ConstInt(a[0].Type, 0);
+                return ThreeWay(g, g.Builder.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, a[0], zero),
+                    g.Builder.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, a[0], zero));
+            };
             t[$"{type}.IsPow2({type})"] = (g, _, _, a, _) =>
             {
                 var b = g.Builder;
@@ -798,6 +804,15 @@ internal static partial class BclValueTypes
             t[$"{BO}.RotateLeft({type}, int)"] = (g, _, _, a, _) => Rotate(g, "fshl", a[0], a[1]);
             t[$"{BO}.RotateRight({type}, int)"] = (g, _, _, a, _) => Rotate(g, "fshr", a[0], a[1]);
         }
+        // BitOperations' two nint overloads (nint.TrailingZeroCount and nint.IsPow2's CoreLib IL calls them), at the operand's own width.
+        t[$"{BO}.TrailingZeroCount(nint)"] = (g, _, _, a, _) => BitIntrinsic(g, "cttz", a[0], 0, g.Llvm.False);
+        t[$"{BO}.IsPow2(nint)"] = (g, _, _, a, _) =>
+        {
+            var b = g.Builder;
+            var zero = g.Llvm.ConstInt(a[0].Type, 0);
+            var single = b.ICmp(LLVMIntPredicate.EQ, b.BinOp(LLVMOpcode.And, a[0], b.BinOp(LLVMOpcode.Sub, a[0], g.Llvm.ConstInt(a[0].Type, 1))), zero);
+            return b.BinOp(LLVMOpcode.And, b.ICmp(LLVMIntPredicate.SGT, a[0], zero), single);
+        };
         foreach (var (type, bits) in new[] { ("uint", 32), ("ulong", 64), ("int", 32), ("long", 64) })
         {
             var w = bits;

@@ -511,7 +511,8 @@ internal static class Intrinsics
         t["System.Math.Log(double)"] = (g, inv) => logOf(g, inv, "log");
         t["System.Math.Log2(double)"] = (g, inv) => logOf(g, inv, "llvm.log2.f64");
         // Math.Sign(double/float) is corelib C# (FloatingPointMath.cs): NaN throws ArithmeticException with .NET's message.
-        foreach (var type in new[] { "int", "long", "short", "sbyte" })
+        // (nint at the target's pointer width: the comparisons are on the value's own LLVM type.)
+        foreach (var type in new[] { "int", "long", "short", "sbyte", "nint" })
             t[$"System.Math.Sign({type})"] = (g, inv) =>
             {
                 var b = g.Builder;
@@ -530,7 +531,8 @@ internal static class Intrinsics
         t["System.Math.Min(double, double)"] = (g, inv) => CallBinaryF64(g, "llvm.minimum.f64", Arg(g, inv, 0), Arg(g, inv, 1));
 
         // Math.Clamp for the other numeric types: value < min ? min : value > max ? max : value.
-        foreach (var (type, signed) in new[] { ("long", true), ("short", true), ("sbyte", true), ("uint", false), ("ulong", false), ("byte", false), ("ushort", false) })
+        foreach (var (type, signed) in new[] { ("long", true), ("short", true), ("sbyte", true), ("uint", false), ("ulong", false), ("byte", false), ("ushort", false),
+                     ("nint", true), ("nuint", false) })
             t[$"System.Math.Clamp({type}, {type}, {type})"] = (g, inv) =>
             {
                 var (v, lo, hi) = (Arg(g, inv, 0), Arg(g, inv, 1), Arg(g, inv, 2));

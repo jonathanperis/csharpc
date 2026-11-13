@@ -8,6 +8,9 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.IntPtr")]
     internal static class IntPtrMembers
     {
+        // nint.MaxValue / MinValue: properties whose value is the target's pointer width (wasm32: int's), like nuint.MaxValue.
+        public static nint MaxValue => (nint)(unchecked((nuint)(nint)(-1)) >> 1);
+        public static nint MinValue => ~MaxValue;
         [ShadowInstance] public static string ToString(nint value, string format) => ((long)value).ToString(format);
         [ShadowInstance] public static string ToString(nint value, IFormatProvider provider) => ((long)value).ToString(provider);
         [ShadowInstance] public static string ToString(nint value, string format, IFormatProvider provider) => ((long)value).ToString(format, provider);
@@ -21,6 +24,7 @@ namespace CsharpcCoreLib
     {
         // nuint.MaxValue (a property, not a constant: its width is the target's), which the framework's IL reads (Number.BigInteger).
         public static nuint MaxValue => unchecked((nuint)(nint)(-1));
+        public static nuint MinValue => 0;
         public static nuint LeadingZeroCount(nuint value) => (nuint)System.Numerics.BitOperations.LeadingZeroCount(value);
         public static nuint BigMul(nuint left, nuint right, out nuint lower)
         {
