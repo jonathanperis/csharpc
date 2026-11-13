@@ -1119,12 +1119,18 @@ namespace CsharpcCoreLib
         private static bool EvenInt(long value) => (value & 1) == 0;
 
         /// <summary>
-        /// double.ConvertToIntegerNative: the platform's own conversion instruction. In range it truncates toward zero on every platform (as
-        /// here); for NaN and out-of-range values the instruction decides (x64: the minimum value, Arm64: saturation), so csharpc stops with an
-        /// explicit error instead of picking one.
+        /// double.ConvertToIntegerNative: the platform's own conversion instruction. In range it truncates toward zero on every platform; for
+        /// NaN and out-of-range values the instruction decides (x64: the minimum value, Arm64: saturation). For int and long on x64 and Arm64
+        /// that instruction is what csharpc emits (CoreIntrinsics.ConvertToInt32Native, #351); elsewhere csharpc stops with an explicit
+        /// error instead of picking a result.
         /// </summary>
         public static TInteger ConvertToIntegerNative<TInteger>(double value) where TInteger : System.Numerics.IBinaryInteger<TInteger>
         {
+            if (CoreIntrinsics.HasNativeIntegerConversion())
+            {
+                if (typeof(TInteger) == typeof(int)) { int native = CoreIntrinsics.ConvertToInt32Native(value); return Unsafe.As<int, TInteger>(ref native); }
+                if (typeof(TInteger) == typeof(long)) { long native = CoreIntrinsics.ConvertToInt64Native(value); return Unsafe.As<long, TInteger>(ref native); }
+            }
             if (typeof(TInteger) == typeof(int))
             {
                 // In range (strictly between int.MinValue - 1 and int.MaxValue + 1, so NaN fails too): the truncation is exact everywhere.
