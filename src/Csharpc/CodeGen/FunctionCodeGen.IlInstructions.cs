@@ -883,6 +883,7 @@ public sealed partial class FunctionCodeGen
             BoxedFrom = e is { Kind: IlKind.Ref, Unboxed: { Type: { } boxedType } boxed } && !boxed.Value.IsNull ? IlOperand(boxed, boxedType) : null,
             IsNullLiteral = e is { Kind: IlKind.Ref, Type: null } && !e.Value.IsNull && Native.LLVMIsNull(e.Value) != 0,
             EntryType = e.Type,
+            ExactClass = e.Kind == IlKind.Ref ? e.ExactClass : null,
         };
     }
 
@@ -941,6 +942,7 @@ public sealed partial class FunctionCodeGen
         var slot = IlLocalSlot(index);
         if (local.IsByRef) return new IlEntry(IlKind.ByRef, _b.Load(L.Ptr, slot), local.Type);
         var loaded = IlPush(LoadValue(slot, S(local.Type)), local.Type);
+        if (loaded.Kind == IlKind.Ref && IlExactLocal(index) is { } exact) loaded = loaded with { ExactClass = exact };
         return IsSystemType(local.Type) ? loaded with { FromLocal = index } : loaded;
     }
 

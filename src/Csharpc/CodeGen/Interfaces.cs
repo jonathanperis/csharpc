@@ -194,7 +194,7 @@ public sealed partial class FunctionCodeGen
             if (_m.IsUserMethod(impl) && impl.ContainingType.TypeKind == TypeKind.Class)
             {
                 var self = EmitValue(concrete);
-                return EmitUserCall(impl, self, concrete is IInstanceReferenceOperation, arguments, isVirtual: true, extra.Length > 0 ? extra : null);
+                return EmitUserCall(impl, self, concrete is IInstanceReferenceOperation, arguments, isVirtual: true, extra.Length > 0 ? extra : null, receiver: concrete);
             }
             // Constrained call on a struct (e.g. `using`/foreach disposing a struct enumerator): no boxing,
             // `this` is the receiver's address.

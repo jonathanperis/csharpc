@@ -120,7 +120,7 @@ public sealed partial class FunctionCodeGen
             var self = ModuleCodeGen.HasThis(target) || ModuleCodeGen.HasExtensionReceiver(target) || (CoreLib.IsInstanceShadow(target) && inv.Instance is not null)
                 ? Receiver(inv.Instance!, target) : default;
             var isBaseCall = inv.Instance?.Syntax is BaseExpressionSyntax;
-            return EmitUserCall(target, self, ReceiverIsNonNull(inv.Instance, target), arguments, inv.IsVirtual && !isBaseCall);
+            return EmitUserCall(target, self, ReceiverIsNonNull(inv.Instance, target), arguments, inv.IsVirtual && !isBaseCall, receiver: inv.Instance);
         }
         if (TrySpanMethod(inv, out var spanResult)) return spanResult;
         if (Intrinsics.TryGet(target, out var handler)) return handler(this, inv);
@@ -340,7 +340,7 @@ public sealed partial class FunctionCodeGen
     private Dictionary<IArgumentOperation, LLVMValueRef>? _argumentCache;
 
     internal LLVMValueRef EmitUserCall(IMethodSymbol target, LLVMValueRef self, bool selfIsNonNull,
-        ImmutableArray<IArgumentOperation> arguments, bool isVirtual, LLVMValueRef[]? extraArgs = null)
+        ImmutableArray<IArgumentOperation> arguments, bool isVirtual, LLVMValueRef[]? extraArgs = null, IOperation? receiver = null)
     {
         var hasThis = ModuleCodeGen.HasThis(target);
         // A corelib [ShadowInstance] static implementing a library instance method: the receiver is its
@@ -368,6 +368,8 @@ public sealed partial class FunctionCodeGen
         var dispatch = isVirtual && hasThis && (target.IsVirtual || target.IsAbstract || target.IsOverride)
             && !target.IsSealed && !target.ContainingType.IsSealed;
         if (dispatch && target.IsGenericMethod) return GenericVirtualCall(target, self, args);
+        // The receiver's exact class is known from its allocation (FunctionCodeGen.ExactTypes.cs, #370).
+        if (dispatch && ExactReceiverImplementation(target, receiver) is { } exact) return DirectCall(exact, args);
         if (dispatch && _m.Devirtualize(target) is { } only) return DirectCall(only, args); // closed-world CHA
         return dispatch ? VirtualCall(target, self, args) : DirectCall(target, args);
     }
@@ -1076,7 +1078,7 @@ public sealed partial class FunctionCodeGen
             for (var i = 0; i < extra.Length; i++) args[args.Length - extra.Length + i] = extra[i];
             return InterfaceDispatch(accessor, self, args);
         }
-        return EmitUserCall(accessor, self, ReceiverIsNonNull(p.Instance, accessor), p.Arguments, isVirtual: !isBase, extra);
+        return EmitUserCall(accessor, self, ReceiverIsNonNull(p.Instance, accessor), p.Arguments, isVirtual: !isBase, extra, receiver: p.Instance);
     }
 
     // ======================================================================================
