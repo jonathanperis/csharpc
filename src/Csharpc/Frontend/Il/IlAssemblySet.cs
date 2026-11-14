@@ -555,6 +555,13 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                     .FirstOrDefault(m => m.Arity == 1 && m.Parameters.Length == 2) is { } create)
                 return create.Construct(owner.TypeArguments[0]);
         }
+        // new Lock(bool useTrivialWaits), CoreLib-internal (the framework's ManualResetEventSlim): the flag only chooses how .NET's lock
+        // parks a waiter, which csharpc's runtime lock decides itself, so it is the public new Lock().
+        if (name == ".ctor" && header.IsInstance && definition.MetadataName == "Lock" && definition.ContainingType is null
+            && definition.ContainingNamespace.ToDisplayString() == "System.Threading"
+            && reference.DecodeMethodSignature(this, new IlGenericContext([], [])).ParameterTypes is [{ Type.SpecialType: SpecialType.System_Boolean }]
+            && definition.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty) is { } plainLock)
+            return plainLock;
         if (definition.ContainingType is not null) return null;
         var full = definition.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + definition.MetadataName : definition.MetadataName;
         foreach (var declaration in CoreLibAssembly.ShadowsOf(Compilation))
