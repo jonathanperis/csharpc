@@ -35,7 +35,7 @@ add() { # name dir file expected exitcode stdin
   local name="$1"
   if [[ ${#filters[@]} -gt 0 ]]; then
     local f hit=0
-    for f in "${filters[@]}"; do [[ "$name" == *"$f"* ]] && hit=1; done
+    for f in ${filters[@]+"${filters[@]}"}; do [[ "$name" == *"$f"* ]] && hit=1; done
     [[ $hit == 1 ]] || return 0
   fi
   [[ -f "$4" ]] || return 0
@@ -71,7 +71,7 @@ check_test() {
   local test_env hook="$ORACLE_HOOK"
   read -ra test_env <<< "$(platform_env "$dir" "${file%.cs}")"
   [[ ${#test_env[@]} -gt 0 ]] && hook=""
-  (cd "$dir" && env "${test_env[@]}" DOTNET_STARTUP_HOOKS="$hook" "$DOTNET" run "$file" -p:WarningLevel=0 -p:AllowUnsafeBlocks=true -p:StartupHookSupport=true 2>/dev/null < "$in") > "$OUT/$safe.raw"
+  (cd "$dir" && env ${test_env[@]+"${test_env[@]}"} DOTNET_STARTUP_HOOKS="$hook" "$DOTNET" run "$file" -p:WarningLevel=0 -p:AllowUnsafeBlocks=true -p:StartupHookSupport=true 2>/dev/null < "$in") > "$OUT/$safe.raw"
   local code=$?
   grep -U -a -v -E '^[^ ]+\([0-9]+,[0-9]+\): warning ' < "$OUT/$safe.raw" > "$OUT/$safe.out"
   platform_expected < "$expected" > "$OUT/$safe.want"

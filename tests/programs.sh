@@ -12,6 +12,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROGRAMS="$ROOT/tests/programs"
 DOTNET="${DOTNET:-dotnet}"
 REGEN=0; BENCH=0; FILTER=""
+# Milliseconds since the epoch: GNU date's %N, or perl where date has none (macOS prints a literal "N").
+now_ms() { local t; t=$(date +%s%N); if [[ $t == *N ]]; then perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000'; else echo $((t / 1000000)); fi; }
 for arg in "$@"; do
   case "$arg" in
     --regen) REGEN=1 ;;
@@ -29,7 +31,7 @@ done
 source "$ROOT/tests/platform.sh"  # the culture setup (C locale on Linux) applies to recording too
 
 if [[ $REGEN == 1 ]]; then
-  for name in "${names[@]}"; do
+  for name in ${names[@]+"${names[@]}"}; do
     dir="$PROGRAMS/$name"
     stdin_file=/dev/null; [[ -f "$dir/input.txt" ]] && stdin_file="$dir/input.txt"
     (cd "$dir" && "$DOTNET" run Program.cs -p:WarningLevel=0 2>/dev/null < "$stdin_file") \
@@ -46,14 +48,14 @@ CSHARPC=("$DOTNET" "$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll")
 OUT="$(mktemp -d)"
 # The corelib's own diagnostics are skipped in normal compiles (speed); check them once here so a
 # broken corelib fails loudly instead of producing wrong code.
-if ! CSHARPC_CHECK_CORELIB=1 "${CSHARPC[@]}" --emit obj "$ROOT/tests/samples/01_hello.cs" -o "$OUT/corelib-check.o" 2> "$OUT/corelib.err"; then
+if ! CSHARPC_CHECK_CORELIB=1 ${CSHARPC[@]+"${CSHARPC[@]}"} --emit obj "$ROOT/tests/samples/01_hello.cs" -o "$OUT/corelib-check.o" 2> "$OUT/corelib.err"; then
   echo "corelib check FAILED:"; head -20 "$OUT/corelib.err"; exit 1
 fi
 trap 'rm -rf "$OUT"' EXIT
 
 pass=0; fail=0; failed=()
 printf '%-24s %-5s %-6s %9s %9s\n' program opt result compile_ms size_kb
-for name in "${names[@]}"; do
+for name in ${names[@]+"${names[@]}"}; do
   dir="$PROGRAMS/$name"
   stdin_file=/dev/null; [[ -f "$dir/input.txt" ]] && stdin_file="$dir/input.txt"
   want_code=0; [[ -f "$dir/exitcode" ]] && want_code="$(platform_exit_code "$(cat "$dir/exitcode")")"
@@ -66,15 +68,15 @@ for name in "${names[@]}"; do
   fi
   for opt in -O0 -O2; do
     exe="$OUT/$name$opt$EXE_SUFFIX"
-    start=$(date +%s%N)
-    if ! "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$opt" "$dir/Program.cs" "${CULTURE_PIN[@]}" -o "$exe" 2> "$OUT/$name.compile"; then
+    start=$(now_ms)
+    if ! ${CSHARPC[@]+"${CSHARPC[@]}"} ${TARGET_FLAGS[@]+"${TARGET_FLAGS[@]}"} "$opt" "$dir/Program.cs" ${CULTURE_PIN[@]+"${CULTURE_PIN[@]}"} -o "$exe" 2> "$OUT/$name.compile"; then
       printf '%-24s %-5s %-6s\n' "$name" "$opt" FAIL; sed 's/^/     /' "$OUT/$name.compile" | head -6
       fail=$((fail + 1)); failed+=("$name[$opt]"); continue
     fi
-    ms=$(( ($(date +%s%N) - start) / 1000000 ))
-    size=$(( $(stat -c %s "$exe") / 1024 ))
+    ms=$(( $(now_ms) - start ))
+    size=$(( $(wc -c < "$exe") / 1024 ))
     bash -c 'ulimit -c 0 2>/dev/null; out="$1" err="$2" in="$3"; shift 3; timeout 120 "$@" > "$out" 2> "$err" < "$in"' _ \
-      "$OUT/$name.out" "$OUT/$name.err" "$stdin_file" "${RUN_PREFIX[@]}" "$exe" 2>/dev/null
+      "$OUT/$name.out" "$OUT/$name.err" "$stdin_file" ${RUN_PREFIX[@]+"${RUN_PREFIX[@]}"} "$exe" 2>/dev/null
     code=$?
     if diff -u "$OUT/$name.want" "$OUT/$name.out" > "$OUT/$name.diff" && [[ $code == "$want_code" ]]; then
       printf '%-24s %-5s %-6s %9s %9s\n' "$name" "$opt" PASS "$ms" "$size"; pass=$((pass + 1))

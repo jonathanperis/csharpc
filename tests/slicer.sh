@@ -26,7 +26,7 @@ WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 export CSHARPC_UPSTREAM_MAP="$WORK/slice.map"
 
 pass=0; fail=0
-for name in "${SAMPLES[@]}"; do
+for name in ${SAMPLES[@]+"${SAMPLES[@]}"}; do
   src="$ROOT/tests/samples/$name.cs"
   [[ -f "$src" ]] || { echo "FAIL $name: no such sample"; fail=$((fail + 1)); continue; }
   if ! dotnet "$CSC" "$OPT" -r "$WORK/slice.dll" "$src" -o "$WORK/$name" > "$WORK/$name.log" 2>&1; then

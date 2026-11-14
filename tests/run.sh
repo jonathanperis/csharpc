@@ -85,7 +85,7 @@ while IFS= read -r src; do
   if [[ -n "$FILTER" ]]; then
     matched=0
     IFS='|' read -ra alternatives <<< "$FILTER"
-    for alternative in "${alternatives[@]}"; do [[ "$name" == *"$alternative"* ]] && { matched=1; break; }; done
+    for alternative in ${alternatives[@]+"${alternatives[@]}"}; do [[ "$name" == *"$alternative"* ]] && { matched=1; break; }; done
     [[ $matched == 1 ]] || continue
   fi
   if (( index % SHARD_COUNT == SHARD_INDEX )); then
@@ -95,7 +95,7 @@ while IFS= read -r src; do
 done < <(printf '%s\n' "$SAMPLES"/*.cs | LC_ALL=C sort)
 
 if [[ $LIST_ONLY == 1 ]]; then
-  if ((${#selected[@]} > 0)); then printf '%s\n' "${selected[@]}"; fi
+  if ((${#selected[@]} > 0)); then printf '%s\n' ${selected[@]+"${selected[@]}"}; fi
   exit 0
 fi
 
@@ -105,13 +105,13 @@ strip_warnings() { grep -Ev '^[^ ]+\([0-9]+,[0-9]+\): warning ' || true; }
 if [[ $REGEN == 1 && $VIA_IL == 1 ]]; then echo "--regen records from .NET; it can't be combined with --via-il" >&2; exit 2; fi
 if [[ $REGEN == 1 ]]; then
   if ((${#selected[@]} == 0)); then exit 0; fi
-  for name in "${selected[@]}"; do
+  for name in ${selected[@]+"${selected[@]}"}; do
     printf 'recording %-32s' "$name"
     # File-based apps (dotnet run app.cs) — the real .NET compiler and runtime.
     # WarningLevel=0 keeps compiler warnings out of stdout; strip_warnings is a safety net.
     stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
     read -ra test_env <<< "$(platform_env "$SAMPLES" "$name")"
-    (cd "$SAMPLES" && env "${test_env[@]}" "$DOTNET" run "$name.cs" -p:WarningLevel=0 -p:NuGetAudit=false 2>/dev/null < "$stdin_file") > "$SAMPLES/$name.raw"
+    (cd "$SAMPLES" && env ${test_env[@]+"${test_env[@]}"} "$DOTNET" run "$name.cs" -p:WarningLevel=0 -p:NuGetAudit=false 2>/dev/null < "$stdin_file") > "$SAMPLES/$name.raw"
     code=$?
     strip_warnings < "$SAMPLES/$name.raw" > "$SAMPLES/$name.expected"
     rm -f "$SAMPLES/$name.raw"
@@ -161,7 +161,7 @@ if [[ $VIA_IL == 1 ]]; then
     return 0
   }
   export -f build_il; export IL_BUILD SAMPLES DOTNET
-  printf '%s\n' "${selected[@]}" | xargs -P "${CSHARPC_IL_JOBS:-2}" -I{} bash -c 'build_il "$1"' _ {}
+  printf '%s\n' ${selected[@]+"${selected[@]}"} | xargs -P "${CSHARPC_IL_JOBS:-2}" -I{} bash -c 'build_il "$1"' _ {}
 fi
 # One sample at one optimization level. Prints the PASS / FAIL / SKIP line (and the failure details)
 # to stdout and returns 0 (pass), 1 (fail) or 2 (skip); the caller counts. $4 is the directory for the
@@ -185,14 +185,14 @@ run_sample() { # name opt rep workdir
   fi
   if [[ -f "$SAMPLES/$name.diagnostics" && $VIA_IL == 1 ]]; then
     # Rejected programs: from IL, any explicit diagnostic (exit 1) will do; the wording differs from the source path's.
-    "${CSHARPC[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$w/$name$opt$EXE_SUFFIX" > /dev/null 2> "$w/$name.compile"
+    ${CSHARPC[@]+"${CSHARPC[@]}"} "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$w/$name$opt$EXE_SUFFIX" > /dev/null 2> "$w/$name.compile"
     got_code=$?
     if [[ $got_code == 1 ]]; then echo "PASS $label (rejected)"; return 0; fi
     echo "FAIL $label (compiler exit $got_code, expected 1 with a diagnostic)"; sed 's/^/     /' "$w/$name.compile" | head -8
     return 1
   fi
   if [[ -f "$SAMPLES/$name.diagnostics" ]]; then
-    "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$w/$name$opt$EXE_SUFFIX" > /dev/null 2> "$w/$name.compile"
+    ${CSHARPC[@]+"${CSHARPC[@]}"} ${TARGET_FLAGS[@]+"${TARGET_FLAGS[@]}"} "$opt" ${CSHARPC_FLAGS:-} "$src" -o "$w/$name$opt$EXE_SUFFIX" > /dev/null 2> "$w/$name.compile"
     got_code=$?
     platform_compiler_output < "$w/$name.compile" | sed "s|^$SAMPLES/||" > "$w/$name.diag"
     if [[ $got_code == 1 ]] && diff -u "$SAMPLES/$name.diagnostics" "$w/$name.diag" > "$w/$name.diff"; then
@@ -214,11 +214,11 @@ run_sample() { # name opt rep workdir
   [[ -n "$reason" ]] && ! platform_is_live "$reason" && { echo "SKIP $label (platform-dependent on $TARGET_OS: $reason)"; return 2; }
   stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
   read -ra test_env <<< "$(platform_env "$SAMPLES" "$name")"
-  pin=("${CULTURE_PIN[@]}"); [[ ${#test_env[@]} -gt 0 || $VIA_IL == 1 ]] && pin=()
+  pin=(${CULTURE_PIN[@]+"${CULTURE_PIN[@]}"}); [[ ${#test_env[@]} -gt 0 || $VIA_IL == 1 ]] && pin=()
   if [[ -n "$reason" ]]; then
     # Recorded live from real .NET on this machine (once per run; a sample is in one pass at a time,
     # so a parallel pass never records the same name twice at once).
-    [[ -f "$OUT/$name.live" ]] || platform_live_expected "$SAMPLES" "$name.cs" "$stdin_file" "$OUT/$name.live" "${test_env[@]}" > "$OUT/$name.livecode"
+    [[ -f "$OUT/$name.live" ]] || platform_live_expected "$SAMPLES" "$name.cs" "$stdin_file" "$OUT/$name.live" ${test_env[@]+"${test_env[@]}"} > "$OUT/$name.livecode"
     cp "$OUT/$name.live" "$w/$name.want"
     want_code="$(cat "$OUT/$name.livecode")"
   else
@@ -228,14 +228,14 @@ run_sample() { # name opt rep workdir
   fi
 
   exe="$w/$name$opt$EXE_SUFFIX"
-  if ! "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$opt" ${CSHARPC_FLAGS:-} "$src" "${pin[@]}" -o "$exe" 2> "$w/$name.compile"; then
+  if ! ${CSHARPC[@]+"${CSHARPC[@]}"} ${TARGET_FLAGS[@]+"${TARGET_FLAGS[@]}"} "$opt" ${CSHARPC_FLAGS:-} "$src" ${pin[@]+"${pin[@]}"} -o "$exe" 2> "$w/$name.compile"; then
     echo "FAIL $label (compile error)"; sed 's/^/     /' "$w/$name.compile" | head -8
     return 1
   fi
   # Run in a child bash so the parent shell doesn't print "Aborted (core dumped)" job noise
   # for samples that intentionally die with an unhandled exception (SIGABRT, exit 134).
-  env "${test_env[@]}" bash -c 'ulimit -c 0 2>/dev/null; t="$1" out="$2" err="$3" in="$4"; shift 4; timeout "$t" "$@" > "$out" 2> "$err" < "$in"' _ \
-    "${CSHARPC_TEST_TIMEOUT:-90}" "$w/$name.stdout" "$w/$name.stderr" "$stdin_file" "${RUN_PREFIX[@]}" "$exe" 2>/dev/null
+  env ${test_env[@]+"${test_env[@]}"} bash -c 'ulimit -c 0 2>/dev/null; t="$1" out="$2" err="$3" in="$4"; shift 4; timeout "$t" "$@" > "$out" 2> "$err" < "$in"' _ \
+    "${CSHARPC_TEST_TIMEOUT:-90}" "$w/$name.stdout" "$w/$name.stderr" "$stdin_file" ${RUN_PREFIX[@]+"${RUN_PREFIX[@]}"} "$exe" 2>/dev/null
   got_code=$?
   if diff -u "$w/$name.want" "$w/$name.stdout" > "$w/$name.diff" && [[ "$got_code" == "$want_code" ]]; then
     echo "PASS $label"
@@ -277,7 +277,7 @@ fi
 run_pass() { # opt rep
   local opt="$1" rep="$2" name i n=${#selected[@]} next=0 running=0 res
   if (( JOBS <= 1 )); then
-    for name in "${selected[@]}"; do
+    for name in ${selected[@]+"${selected[@]}"}; do
       run_sample "$name" "$opt" "$rep" "$OUT"
       record $? "$(sample_label "$name" "$opt" "$rep")"
     done
@@ -293,7 +293,23 @@ run_pass() { # opt rep
       next=$((next + 1))
     done
   }
-  reap() { wait -n 2>/dev/null; running=$((running - 1)); flush; }
+  # wait -n (bash 4.3+) returns when any job ends; macOS's /bin/bash 3.2 has no -n (it fails at once, which ran
+  # every sample at the same time), so there the jobs' pids are polled.
+  local pids=()
+  reap() {
+    if (( BASH_VERSINFO[0] > 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] >= 3) )); then
+      wait -n 2>/dev/null
+    else
+      local k
+      while :; do
+        for k in ${pids[@]+"${!pids[@]}"}; do
+          if ! kill -0 "${pids[k]}" 2>/dev/null; then wait "${pids[k]}" 2>/dev/null; unset "pids[k]"; break 2; fi
+        done
+        sleep 0.05
+      done
+    fi
+    running=$((running - 1)); flush
+  }
   for ((i = 0; i < n; i++)); do
     name="${selected[i]}"
     if (( i == 0 )) || [[ "$SERIAL" == *" $name "* ]]; then
@@ -307,6 +323,7 @@ run_pass() { # opt rep
       echo $? > "$res/$i.rc.tmp"
       mv "$res/$i.out.tmp" "$res/$i.out"; mv "$res/$i.rc.tmp" "$res/$i.rc"
     ) &
+    pids+=($!)
     running=$((running + 1))
     if (( i == 0 )) || [[ "$SERIAL" == *" $name "* ]]; then while (( running > 0 )); do reap; done; fi
     flush
@@ -316,7 +333,7 @@ run_pass() { # opt rep
 }
 
 for ((rep = 1; rep <= REPEAT; rep++)); do
-  for opt in "${OPTS[@]}"; do
+  for opt in ${OPTS[@]+"${OPTS[@]}"}; do
     run_pass "$opt" "$rep"
   done
 done
