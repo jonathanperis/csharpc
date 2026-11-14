@@ -21,6 +21,14 @@ sealed class BySound : IComparer<Animal>
     public int Compare(Animal? a, Animal? b) => string.CompareOrdinal(a?.Sound, b?.Sound);
 }
 
+// One receiver class, two interfaces over T: the shared Pick<T>.Larger site asks for IComparer<string> and IComparer<Animal> on the
+// same method table, so its cache must not answer one with the other.
+sealed class Both : IComparer<string>, IComparer<Animal>
+{
+    public int Compare(string? a, string? b) => -(a?.Length ?? 0).CompareTo(b?.Length ?? 0);
+    public int Compare(Animal? a, Animal? b) => -string.CompareOrdinal(a?.Sound, b?.Sound);
+}
+
 sealed class ObjectOrder : IComparer<object>
 {
     public int Compare(object? a, object? b) => string.CompareOrdinal(a?.ToString(), b?.ToString());
@@ -57,6 +65,13 @@ sealed class NamedSorter<T> : Sorter<T>
 {
     public NamedSorter(IComparer<T> comparer) : base(comparer) { }
     public override string Name => "named";
+}
+
+class Pick<T>
+{
+    private readonly IComparer<T> _comparer;
+    public Pick(IComparer<T> comparer) { _comparer = comparer; }
+    public T Larger(T a, T b) => _comparer.Compare(a, b) >= 0 ? a : b;
 }
 
 class Shaper<T>
@@ -101,6 +116,10 @@ static class Program
         var animalsBag = new Bag<Animal>(EqualityComparer<Animal>.Default);
         foreach (var a in animals) Console.Write(animalsBag.Add(a) ? "+" : "-");
         Console.WriteLine(" " + animalsBag.Count);
+        var both = new Both();
+        var byWord = new Pick<string>(both);
+        var byAnimal = new Pick<Animal>(both);
+        for (int i = 0; i < 2; i++) Console.WriteLine(byWord.Larger("pear", "fig") + " " + byAnimal.Larger(new Dog(), new Cat()).Sound);
         Sorter<string> s = new NamedSorter<string>(new ByLength());
         Console.WriteLine(s.Name + " " + s.Max(new List<string> { "a", "abc", "ab" }));
     }
