@@ -22,7 +22,12 @@ sealed class Emitter
         "System.FlagsAttribute", "System.Diagnostics.StackTraceHiddenAttribute",
         // [ThreadStatic] is the field's semantics: one copy per thread (ThreadLocal<T>'s slot arrays, Random.Shared's t_random); without it the
         // field is shared across threads.
-        "System.ThreadStaticAttribute"];
+        "System.ThreadStaticAttribute",
+        // A state machine's MoveNext frame is named after the method that carries one of these (Ns.Type.Method(), as .NET's StackTrace
+        // prints it; CodeGen/StackTraces.cs reads them from the slice's metadata). The typeof argument is serialized as the nested
+        // state-machine type's name, which the slice keeps (ConcurrentQueue<T>.Enumerate, #399).
+        "System.Runtime.CompilerServices.AsyncStateMachineAttribute", "System.Runtime.CompilerServices.IteratorStateMachineAttribute",
+        "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute"];
 
     /// <summary>
     /// Attributes that change what a member means at run time or how csharpc lowers it (thread-local storage, fixed buffers, decoded constants,

@@ -141,7 +141,7 @@ calling thread after the loop drains.
   priorities are not supported (the current culture is per thread and flows like in .NET, see
   [19 — Globalization](19-globalization.md)). Named `EventWaitHandle`s are not implemented, and `Mutex` shared
   between processes and named `Mutex` on Windows are explicit diagnostics (see "Mutex and Semaphore" below). The
-  concurrent collections are in the C# corelib (`corelib/Concurrent`).
+  concurrent collections come from the framework's IL (docs/12-corelib.md).
 - Monitor `Wait` may wake spuriously (pthread condition variables); idiomatic `while` loops are
   unaffected.
 - With nullable analysis enabled, Roslyn's CFG drops `lock (System.Threading.Lock)` inside lambdas
