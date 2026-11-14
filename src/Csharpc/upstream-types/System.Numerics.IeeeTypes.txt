@@ -1,0 +1,11 @@
+# .NET 11's BFloat16 and IEEE 754 decimal types, served from the framework's CoreLib IL (#405).
+System.Numerics.BFloat16
+System.Numerics.Decimal32
+System.Numerics.Decimal64
+System.Numerics.Decimal128
+# What their IL calls on other CoreLib types that csharpc doesn't provide: decimal.IsNegative (public; decimal.VarBFloat16FromDec, which sits in
+# decimal's private DecCalc, is corelib/Numerics/DecimalToBFloat16.cs) and MemoryExtensions.TrimStartUtf8.
+host:System.MemoryExtensions::TrimStartUtf8
+# decimal's TryConvert* members, which the types' CreateChecked/Saturating/Truncating call on their TOther (decimal's DecCalc internals stay
+# the corelib's: the slicer hosts only helpers no shadow declares, corelib/Numerics/DecimalContract.cs).
+host:System.Decimal::TryConvertFromChecked,TryConvertFromSaturating,TryConvertFromTruncating,TryConvertToChecked,TryConvertToSaturating,TryConvertToTruncating

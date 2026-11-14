@@ -532,6 +532,25 @@ namespace CsharpcCoreLib.Globalization
         }
 
         /// <summary>
+        /// CoreLib's UTF-8 IsPrefix, which the framework's generic number parsing calls over TChar = byte (BFloat16, Decimal32/64/128 from IL,
+        /// #405). As upstream: the empty prefix first, Ordinal on the bytes, and everything else through UTF-16 with invalid sequences
+        /// replaced (upstream's path for a linguistic comparison; for OrdinalIgnoreCase, upstream folds the same scalars). Number parsing
+        /// asks with short inputs (a sign, NaN or infinity symbol), so the UTF-16 copies are on the stack up to 256 chars each.
+        /// </summary>
+        internal bool IsPrefixUtf8(ReadOnlySpan<byte> source, ReadOnlySpan<byte> prefix, CompareOptions options = CompareOptions.None)
+        {
+            if (prefix.IsEmpty) return true;
+            if (options == CompareOptions.Ordinal) return source.StartsWith(prefix);
+            int sourceMax = Encoding.UTF8.GetMaxCharCount(source.Length), prefixMax = Encoding.UTF8.GetMaxCharCount(prefix.Length);
+            Span<char> sourceUtf16 = sourceMax <= 256 ? stackalloc char[256] : new char[sourceMax];
+            Span<char> prefixUtf16 = prefixMax <= 256 ? stackalloc char[256] : new char[prefixMax];
+            if (System.Text.Unicode.Utf8.ToUtf16(source, sourceUtf16, out _, out int sourceLength, replaceInvalidSequences: true) != System.Buffers.OperationStatus.Done
+                || System.Text.Unicode.Utf8.ToUtf16(prefix, prefixUtf16, out _, out int prefixLength, replaceInvalidSequences: true) != System.Buffers.OperationStatus.Done)
+                return false;
+            return IsPrefix(sourceUtf16[..sourceLength], prefixUtf16[..prefixLength], options);
+        }
+
+        /// <summary>
         /// Determines whether a string starts with a specific prefix.
         /// </summary>
         /// <param name="source">The string to search within.</param>

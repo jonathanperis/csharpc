@@ -288,7 +288,7 @@ public sealed partial class FunctionCodeGen
     }
 
     /// <summary>
-    /// A corelib shadow of a BCL struct (BFloat16, Decimal32, ...) implements the interface members generic code constrains on as
+    /// A corelib shadow of a BCL struct (Half, ...) implements the interface members generic code constrains on as
     /// plain public statics of the BCL type, without naming the interfaces (it can't declare the operators INumberBase asks of
     /// the type it shadows): the static member of the same name and signature. A member the shadow lacks stays unimplemented.
     /// </summary>
@@ -312,6 +312,26 @@ public sealed partial class FunctionCodeGen
         return null;
     }
 
+    /// <summary>
+    /// A member of an interface constructed over a CoreLib type that the program sees as its replacement (the slice's Decimal128 served from
+    /// the framework's IL for System.Numerics.Decimal128): the same member of the interface over the replacement, which is what the
+    /// replacement implements (`INumberBase&lt;System.Numerics.Decimal128&gt;.CreateTruncating` -> `INumberBase&lt;slice Decimal128&gt;.CreateTruncating`).
+    /// Without it, Roslyn finds no implementation, and a default interface member from the reference pack (no body) or a same-named
+    /// overload (CompareTo(object) for IComparable&lt;T&gt;.CompareTo(T)) would be called.
+    /// </summary>
+    internal IMethodSymbol InterfaceMemberOverShadow(ITypeSymbol concrete, IMethodSymbol target)
+    {
+        if (concrete is not INamedTypeSymbol named || _m.CoreLib.RealNameOf(named) is null || target.ContainingType.TypeArguments.IsEmpty) return target;
+        var arguments = target.ContainingType.TypeArguments.Select(a => _m.CoreLib.Map(a)).ToArray();
+        if (target.ContainingType.ContainingType is not null || arguments.Select((a, i) => ReferenceEquals(a, target.ContainingType.TypeArguments[i])).All(same => same)) return target;
+        var mapped = target.ContainingType.OriginalDefinition.Construct(arguments);
+        var definition = (target.IsGenericMethod ? target.ConstructedFrom : target).OriginalDefinition;
+        foreach (var member in mapped.GetMembers(target.Name).OfType<IMethodSymbol>())
+            if (SymbolEqualityComparer.Default.Equals(member.OriginalDefinition, definition))
+                return target.IsGenericMethod ? member.Construct([.. target.TypeArguments]) : member;
+        return target;
+    }
+
     /// <summary>Static abstract/virtual interface member + constrained type → the concrete implementation.</summary>
     internal IMethodSymbol? ResolveStaticInterfaceMember(IMethodSymbol target, ITypeSymbol? constrainedTo)
     {
@@ -319,6 +339,7 @@ public sealed partial class FunctionCodeGen
         var concrete = S(constrainedTo);
         if (concrete is ITypeParameterSymbol) return null;
         if (!_m.IsUserType(concrete)) return BuiltinStaticInterfaceMember(target, concrete); // primitives: generic-math paths, or an IL interface they implement inside CoreLib
+        target = InterfaceMemberOverShadow(concrete, target);
         var implementation = concrete.FindImplementationForInterfaceMember(target) as IMethodSymbol;
         // A member whose own type arguments are set (`IAdapter.WaitAsync<int>`) is not found by Roslyn from the constructed symbol on every
         // path (sample 1272): ask for the generic definition within the same containing type (keeping a nested type's arguments).
@@ -330,8 +351,10 @@ public sealed partial class FunctionCodeGen
         if (implementation is { IsGenericMethod: true } && target.IsGenericMethod && SymbolEqualityComparer.Default.Equals(implementation, implementation.ConstructedFrom)
             && implementation.TypeParameters.Length == target.TypeArguments.Length)
             implementation = implementation.Construct([.. target.TypeArguments.Select(a => S(a))]);
+        // Roslyn answers a default interface member with the member itself; one of the reference pack has no body here (HostedDefaultInterfaceMember).
+        if (implementation is { ContainingType.TypeKind: TypeKind.Interface } && HostedDefaultInterfaceMember(implementation) is { } hostedDefault) return hostedDefault;
         return implementation
-            ?? (target.IsAbstract ? throw CompileError.Unsupported($"no implementation of '{target}' on '{concrete}'", target) : target);
+            ?? (target.IsAbstract ? throw CompileError.Unsupported($"no implementation of '{target}' on '{concrete}'", target) : HostedDefaultInterfaceMember(target) ?? target);
     }
 
     /// <summary>
