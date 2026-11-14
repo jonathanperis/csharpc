@@ -1087,6 +1087,11 @@ internal static partial class BclValueTypes
         };
         t[$"{A}.IndexOf(T[], T)"] = t[$"{A}.IndexOf({A}, object)"] = (g, m, _, a, at) =>
         {
+            // Array.IndexOf(Array, object) where the element type is only known at run time (Enum.GetValues(...)), or is a
+            // value type: element by element with object.Equals, as .NET does.
+            if (m.Parameters[1].Type.SpecialType == SpecialType.System_Object
+                && (m.TypeArguments.Length == 0 && ArrayElementOf(g, at, 0) is null || ArrayElementOf(g, at, 0) is { IsValueType: true }))
+                return g.CallCoreLib("ArrayChecks", "IndexOfUntyped", a[0], a[1]);
             var e = ElementOrThrow(g, m, at, 0);
             var value = g.Spill(g.ToStorage(a[1], e.IsReferenceType || m.Parameters[1].Type.IsReferenceType == false ? e : e), "needle");
             if (m.Parameters[1].Type.SpecialType == SpecialType.System_Object && e.IsValueType)
