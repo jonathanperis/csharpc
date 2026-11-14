@@ -195,6 +195,17 @@ public sealed partial class ModuleCodeGen
     /// <summary>The handle exact code would have used for <paramref name="exact"/>: the same calls FunctionCodeGen makes for a known type.</summary>
     private LLVMValueRef SharedEntry(SharedHandle kind, ITypeSymbol exact)
     {
+        // `new C<C<T>>()` in shared code: each exact instantiation's dictionary names a deeper one, and filling it would expand forever.
+        // Exact code stops at the depth cutoff when the constructor is requested (CheckGenericDepth); shared code asks for the type
+        // here, so the same cutoff and the same diagnostic apply here.
+        if (GenericDepth(exact) - 1 > MaxGenericDepth)
+        {
+            if (kind == SharedHandle.Alloc && exact is INamedTypeSymbol allocated && allocated.InstanceConstructors.FirstOrDefault() is { } constructor)
+                CheckGenericDepth(constructor);
+            throw CompileError.Unsupported(
+                $"generic instantiations nested more than {MaxGenericDepth} levels deep (recursive generic expansion in '{exact.OriginalDefinition}')",
+                exact.OriginalDefinition);
+        }
         switch (kind)
         {
             case SharedHandle.Cast:
