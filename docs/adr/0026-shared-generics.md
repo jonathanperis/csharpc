@@ -113,12 +113,17 @@ instantiation, also through the dictionary.
 
 ### 5. Interface dispatch and casts in shared code
 
-- A call through an interface on a receiver is unchanged: the call-site cache (`csrt_interface_slots_cached`) keys on the receiver's
-  method table and finds the shared implementation in its map. The interface itself, when it depends on `T` (`IComparer<T>.Compare`), is
-  named by a dictionary slot instead of a constant; the per-site cache stays valid because the site still sees one interface per exact
-  instantiation in practice, and a miss is only a slower lookup.
-- The interface stubs (`ModuleCodeGen.InterfaceStubs.cs`) compare the receiver's method table with the few classes that implement an
-  interface; in shared code they compare against the classes for every instantiation the canonical body serves, still a small set.
+- A call through an interface on a receiver finds the shared implementation in the receiver's interface map. The interface itself,
+  when it depends on `T` (`IComparer<T>.Compare`), is named by a dictionary slot instead of a constant (step 3b-2). The exact-code
+  call-site cache (`csrt_interface_slots_cached`, receiver method table | map index) cannot be used as is: one shared site sees one
+  interface per exact instantiation, and a receiver class can implement several of them (`IComparer<string>` and `IComparer<Animal>`),
+  so a hit on the method table alone would call the other interface's implementation, a silent wrong result. Shared sites call
+  `csrt_interface_slots_cached_shared`, which also compares the cached map entry's interface; exact sites keep the unvalidated hit.
+- Each exact instantiation of the canonical owner notes the dispatch on its own interface (reachability, interface-map slots), and when
+  that interface is one `string` or arrays implement, their builtin interface maps are requested too: exact code calls
+  `string.CompareTo` directly where shared code dispatches through `IComparable<string>` (#411).
+- `foreach` over an `IEnumerable<T>` interface is these dispatches (GetEnumerator, MoveNext, Current, Dispose) and shares; the analysis
+  names `IEnumerator<T>` for its dictionary slot.
 - Casts and type tests on `T` load the target from the dictionary: `csrt_isinst_class(obj, dict[k])`. The compile-time folds that need an
   exact `T` (`typeof(A) == typeof(B)`, `box T; isinst I`, the default-comparer guards of #223/#269, `IsValueType`/`IsEnum`) stay exact
   for value types (which are not shared) and become dictionary loads plus a compare for the markers.
@@ -178,8 +183,9 @@ the IL path on every step.
      which is what .NET's JIT reports for shared code. `MethodBase.GetCurrentMethod()` keeps the method that calls it exact.
    - **The staging limits of step 3b-1**, each a named reason in `CSHARPC_GENERIC_REPORT`: classes with a static constructor (step 3c),
      array copies (`Array.Copy`, `CopyTo`, `SetValue` take the element type from a generic helper), `typeof` over T in source bodies,
-     boxing of value types over T, casts to delegate or interface types over T and interface calls over T (step 3b-2), finalizable classes
-     over T, exception filters, `catch (T)`, statics of generic types. The shared-method count on `json.cs` and on the self-compile is
+     boxing of value types over T, casts to delegate types over T, finalizable classes over T, exception filters, `catch (T)`, statics of
+     generic types; after step 3b-2, generic interface methods, interface calls where an array over T may be the receiver, and `foreach`
+     other than over an `IEnumerable<T>` interface (struct enumerators over T wait for step 4). The shared-method count on `json.cs` and on the self-compile is
      reported as each one is lifted.
    - **Size and speed**: the size budgets hold with the flag on, and no benchmark is slower with it than without.
 

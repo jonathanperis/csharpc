@@ -14,6 +14,8 @@ internal enum SharedHandle
     Array,
     /// <summary>The method table a `new` of the class allocates with.</summary>
     Alloc,
+    /// <summary>The identity of an interface over T that shared code dispatches through (csrt_interface_slots_cached).</summary>
+    Interface,
 }
 
 /// <summary>
@@ -28,8 +30,17 @@ public sealed partial class ModuleCodeGen
     private sealed class SharedDictionary
     {
         public readonly List<(SharedHandle Kind, ITypeSymbol Type)> Slots = [];
-        public readonly Dictionary<ITypeSymbol, int>[] Index = [.. Enumerable.Range(0, 4).Select(_ => new Dictionary<ITypeSymbol, int>(SymbolEqualityComparer.Default))];
+        public readonly Dictionary<ITypeSymbol, int>[] Index = [.. Enumerable.Range(0, 5).Select(_ => new Dictionary<ITypeSymbol, int>(SymbolEqualityComparer.Default))];
         public readonly List<SharedInstance> Instances = [];
+        /// <summary>Interface members over T the canonical bodies dispatch through, with their slot (step 3b-2).</summary>
+        public readonly List<(IMethodSymbol Target, int Index)> Dispatches = [];
+        public readonly HashSet<(IMethodSymbol, int)> DispatchSet = new(new DispatchComparer());
+    }
+
+    private sealed class DispatchComparer : IEqualityComparer<(IMethodSymbol, int)>
+    {
+        public bool Equals((IMethodSymbol, int) a, (IMethodSymbol, int) b) => a.Item2 == b.Item2 && SymbolEqualityComparer.Default.Equals(a.Item1, b.Item1);
+        public int GetHashCode((IMethodSymbol, int) d) => HashCode.Combine(SymbolEqualityComparer.Default.GetHashCode(d.Item1), d.Item2);
     }
 
     private sealed class SharedInstance(ClassLayout layout, SharedDictionary dictionary)
@@ -102,6 +113,33 @@ public sealed partial class ModuleCodeGen
         _sharedInstances[layout.Type] = instance;
         dictionary.Instances.Add(instance);
         for (var slot = 0; slot < dictionary.Slots.Count; slot++) _pendingSharedFills.Enqueue((instance, slot));
+        foreach (var (target, index) in dictionary.Dispatches) NoteExactInterfaceDispatch(instance, target, index);
+    }
+
+    /// <summary>
+    /// A canonical body of <paramref name="canonicalOwner"/> dispatches through slot <paramref name="index"/> of an interface over T: every
+    /// exact instantiation, now and later, dispatches through that slot of its own interface (reachability and interface-map slots).
+    /// </summary>
+    internal void NoteSharedInterfaceDispatch(INamedTypeSymbol canonicalOwner, IMethodSymbol target, int index)
+    {
+        var dictionary = SharedDictionaryOf(canonicalOwner);
+        if (!dictionary.DispatchSet.Add((target, index))) return;
+        dictionary.Dispatches.Add((target, index));
+        foreach (var instance in dictionary.Instances) NoteExactInterfaceDispatch(instance, target, index);
+    }
+
+    private void NoteExactInterfaceDispatch(SharedInstance instance, IMethodSymbol target, int index)
+    {
+        var exactInterface = (INamedTypeSymbol)SharedGenericsInfo.Instantiate(target.ContainingType, instance.Arguments);
+        var exactTarget = exactInterface.GetMembers(target.Name).OfType<IMethodSymbol>()
+            .First(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, target.OriginalDefinition));
+        NoteInterfaceDispatch(exactInterface, index);
+        NoteVirtualCall(exactTarget);
+        // The receiver is a T: it may be a string or an array, whose interface maps hold only what the program converts them to. Exact
+        // code calls string.CompareTo directly where shared code dispatches through IComparable<string>, so the maps must hold it.
+        if (Compilation.GetSpecialType(SpecialType.System_String).AllInterfaces.Contains(exactInterface, SymbolEqualityComparer.Default))
+            RequestStringInterface(exactInterface);
+        RequestArrayInterface(exactInterface);
     }
 
     /// <summary>
@@ -179,6 +217,8 @@ public sealed partial class ModuleCodeGen
                 return TypeMethodTable(exact, null!);
             case SharedHandle.Array:
                 return ArrayMethodTable(exact);
+            case SharedHandle.Interface:
+                return InterfaceMethodTable((INamedTypeSymbol)exact);
             default:
                 var layout = GetLayout((INamedTypeSymbol)exact);
                 NoteConstructed(layout.MethodTable); // objects of it exist: its vtable slots can be dispatched
