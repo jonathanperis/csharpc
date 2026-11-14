@@ -298,3 +298,4 @@ windows 1271_default_credentials_placeholder  known gap: System.Net.Http's syste
 linux 1328_convert_to_integer_native   live: ConvertToIntegerNative of NaN and out-of-range values is the CPU's instruction (x64 cvttsd2si: the minimum value; Arm64 fcvtzs: saturation), and Linux runs on both
 macos 1328_convert_to_integer_native   live: ConvertToIntegerNative of NaN and out-of-range values is the CPU's instruction (Arm64 fcvtzs saturates, NaN as 0), not the x64 recording's
 wasi 1328_convert_to_integer_native    WebAssembly has no native conversion instruction .NET defines for ConvertToIntegerNative, so the out-of-range half isn't comparable there
+wasi 1334_monitor_wait_pulse_semantics   needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
