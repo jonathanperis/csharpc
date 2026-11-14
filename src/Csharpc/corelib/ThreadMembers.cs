@@ -10,6 +10,13 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Threading.Thread")]
     internal static class ThreadMembers
     {
+        /// <summary>
+        /// Thread.OptimalMaxSpinWaitsPerSpinIteration (internal upstream; the framework's SpinWait reads it): the most pauses one
+        /// SpinOnce spins. .NET measures its normalized pause on the machine; csharpc's Thread.SpinWait is one PAUSE/YIELD per
+        /// iteration, and 8 keeps a spin step at a few hundred cycles, the order .NET's normalization aims for.
+        /// </summary>
+        internal static int OptimalMaxSpinWaitsPerSpinIteration => 8;
+
 #if CSHARPC_TARGET_LINUX
         [DllImport("libc")] private static extern int sched_getcpu();
 

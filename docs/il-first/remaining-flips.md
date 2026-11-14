@@ -11,7 +11,7 @@ OS boundary) and the contract layer (reflection/type system, task/async glue, in
 
 | Area | Status | Issue |
 |---|---|---|
-| ManualResetEventSlim, SpinWait, Barrier, other sync types | to do | #414 |
+| ManualResetEventSlim, SpinWait, Barrier, other sync types | done locally: ManualResetEventSlim, SpinWait, CountdownEvent, Barrier, ReaderWriterLock, LockCookie from the framework (SemaphoreSlim in #419); docs/il-first/System.Threading.md | #414 |
 | BFloat16, Decimal32/64/128 | to do | #405 |
 | Hashtable, ArrayList, BitArray | to do | #372, #373 |
 | Guid | to do | #416 |
