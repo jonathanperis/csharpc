@@ -59,13 +59,22 @@ namespace CsharpcCoreLib
         // (CoreIntrinsics.AppendLibraryFrames, docs/adr/0012-stack-traces.md).
         private const string OpenReaderFrames = "Interop.ThrowExceptionForIoErrno(ErrorInfo errorInfo, String path, Boolean isDirError)\nMicrosoft.Win32.SafeHandles.SafeFileHandle.Open(String path, OpenFlags flags, Int32 mode, Boolean failForSymlink, Boolean& wasSymlink, Func`4 createOpenException)\nMicrosoft.Win32.SafeHandles.SafeFileHandle.Open(String fullPath, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, UnixFileMode openPermissions, Int64& fileLength, UnixFileMode& filePermissions, Boolean failForSymlink, Boolean& wasSymlink, Func`4 createOpenException)\nSystem.IO.Strategies.OSFileStreamStrategy..ctor(String path, FileMode mode, FileAccess access, FileShare share, FileOptions options, Int64 preallocationSize, Nullable`1 unixCreateMode)\nSystem.IO.StreamReader.ValidateArgsAndOpenPath(String path, Int32 bufferSize)";
 
+        // StreamReader(path, encoding, true) over this FileStream: the framework's StreamReader opens the file the same way (FileShare.Read,
+        // 4096-byte buffer, SequentialScan); opening it here keeps the failure's frames the ones listed above (OpenReaderFrames) instead of
+        // adding StreamReader's constructor chain, which .NET's optimized framework inlines.
+        private static StreamReader OpenReader(string path, Encoding encoding)
+        {
+            ArgumentException.ThrowIfNullOrEmpty(path);
+            return new StreamReader(new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read, 4096, FileOptions.SequentialScan), encoding, true);
+        }
+
         public static StreamReader OpenText(string path)
         {
             StreamReader reader;
 #if CSHARPC_TARGET_WINDOWS
             reader = new StreamReader(path);
 #else
-            try { reader = new StreamReader(path); }
+            try { reader = OpenReader(path, Encoding.UTF8); }
             catch (IOException e) when (CoreIntrinsics.AppendLibraryFrames(e, OpenReaderFrames + "\nSystem.IO.File.OpenText(String path)")) { throw; }
             catch (UnauthorizedAccessException e) when (CoreIntrinsics.AppendLibraryFrames(e, OpenReaderFrames + "\nSystem.IO.File.OpenText(String path)")) { throw; }
 #endif
@@ -119,7 +128,7 @@ namespace CsharpcCoreLib
 #if CSHARPC_TARGET_WINDOWS
             reader = new StreamReader(path, encoding, true);
 #else
-            try { reader = new StreamReader(path, encoding, true); }
+            try { reader = OpenReader(path, encoding); }
             catch (IOException e) when (CoreIntrinsics.AppendLibraryFrames(e, OpenReaderFrames + "\nSystem.IO.File.ReadAllText(String path, Encoding encoding)")) { throw; }
             catch (UnauthorizedAccessException e) when (CoreIntrinsics.AppendLibraryFrames(e, OpenReaderFrames + "\nSystem.IO.File.ReadAllText(String path, Encoding encoding)")) { throw; }
 #endif
@@ -135,7 +144,7 @@ namespace CsharpcCoreLib
 #if CSHARPC_TARGET_WINDOWS
             opened = new StreamReader(path, encoding, true);
 #else
-            try { opened = new StreamReader(path, encoding, true); }
+            try { opened = OpenReader(path, encoding); }
             catch (IOException e) when (CoreIntrinsics.AppendLibraryFrames(e, OpenReaderFrames + "\nSystem.IO.File.ReadAllLines(String path, Encoding encoding)")) { throw; }
             catch (UnauthorizedAccessException e) when (CoreIntrinsics.AppendLibraryFrames(e, OpenReaderFrames + "\nSystem.IO.File.ReadAllLines(String path, Encoding encoding)")) { throw; }
 #endif
