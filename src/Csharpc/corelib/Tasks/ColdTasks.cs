@@ -53,6 +53,17 @@ namespace CsharpcCoreLib
             if ((options & ~ValidOptions) != 0) throw new ArgumentOutOfRangeException("creationOptions");
         }
 
+        // Task<TResult>(bool canceled, TResult result, TaskCreationOptions, CancellationToken), CoreLib-internal: completed at creation
+        // (ran to completion with the result, or canceled with the token). .NET masks its internal options out of CreationOptions.
+        public static Task<TResult> Completed<TResult>(bool canceled, TResult result, TaskCreationOptions options, CancellationToken token)
+        {
+            var source = new TaskCompletionSource<TResult>();
+            if (canceled) source.TrySetCanceled(token);
+            else source.TrySetResult(result);
+            TaskState.Set(source.Task, null, options & ValidOptions);
+            return source.Task;
+        }
+
         public static Task Create(Action action, CancellationToken token, TaskCreationOptions options)
         {
             if (action == null) throw new ArgumentNullException("action");

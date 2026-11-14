@@ -1,0 +1,20 @@
+uncontended: RanToCompletion, cached True, options None, count 0
+queued: System.Threading.SemaphoreSlim+TaskNode, is Task<bool> True, status WaitingForActivation, options RunContinuationsAsynchronously, state null, id>0 True
+after one Release: [0], completed True False False, count 0
+after Release(2): [0,1,2], results True True, count 0
+WaitAsync(20) on 0: False, count 0
+with a token: a wrapper, status WaitingForActivation
+canceled: OperationCanceledException, task Canceled
+pre-canceled token: Canceled, count 0
+timed waiter released: True, count 0
+sync Wait(30) behind an async waiter: False, async completed False
+Release: async waiter RanToCompletion, count 0
+handle with count 0: False
+handle with count 1: True
+handle with count 0: False
+Release(3) at 1 of 3: Adding the specified count to the semaphore would cause it to exceed its maximum count.
+count 1
+after Dispose: ObjectDisposedException: Cannot access a disposed object.
+Object name: 'System.Threading.SemaphoreSlim'.
+ctor: initialCount: The initialCount argument must be non-negative and less than or equal to the maximumCount. (Parameter 'initialCount')
+Actual value was 2.

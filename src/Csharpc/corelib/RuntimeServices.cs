@@ -371,6 +371,8 @@ namespace CsharpcCoreLib
         internal const int YieldThreshold = 10;
         private const int Sleep0EveryHowManyYields = 5;
         internal const int DefaultSleep1Threshold = 20;
+        // SpinWait.SpinCountForSpinBeforeWait: how long the framework's waits (SemaphoreSlim, ManualResetEventSlim) spin before blocking.
+        internal static readonly int SpinCountForSpinBeforeWait = Environment.ProcessorCount == 1 ? 1 : 35;
 
         private int _count;
 

@@ -512,6 +512,9 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                 // A field-like event's backing field (hidden from Roslyn's symbols), as a FieldDef token resolves.
                 if (t.GetMembers(name).OfType<IEventSymbol>().FirstOrDefault() is { } backed) return OnConstructed(owner, backed);
             }
+            // A CoreLib-internal field the reference pack lacks (SpinWait.SpinCountForSpinBeforeWait, which SemaphoreSlim reads): the field of
+            // the type's corelib shadow that stands for it.
+            if (ShadowedField(definition, name) is { } shadowedField) return shadowedField;
             throw new IlException($"field '{owner}.{name}' not found");
         }
 
@@ -555,6 +558,9 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                     .FirstOrDefault(m => m.Arity == 1 && m.Parameters.Length == 2) is { } create)
                 return create.Construct(owner.TypeArguments[0]);
         }
+        if (definition.ContainingType is null && definition.MetadataName is "Task" or "Task`1" && definition.ContainingNamespace.ToDisplayString() == "System.Threading.Tasks"
+            && TaskInternalMember(owner, reference, name, arity, header) is { } taskMember)
+            return taskMember;
         if (definition.ContainingType is not null) return null;
         var full = definition.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + definition.MetadataName : definition.MetadataName;
         foreach (var declaration in CoreLibAssembly.ShadowsOf(Compilation))
@@ -576,6 +582,39 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                     return candidate;
             }
         }
+        return null;
+    }
+
+    /// <summary>
+    /// CoreLib-internal members of Task / Task&lt;TResult&gt; that the framework's own CoreLib IL uses for its promise-style tasks (SemaphoreSlim's
+    /// TaskNode : Task&lt;bool&gt;). A csharpc task is the runtime's object and a TaskCompletionSource is its own task, so the task's internal
+    /// (state, options) constructors and its TrySetResult/TrySetCanceled are TaskCompletionSource(&lt;T&gt;)'s members of the same name and
+    /// signature, called on the task (a derived class's base-constructor call lays the object out over the runtime task,
+    /// ModuleCodeGen.TaskSources.cs). The completed-task constructor (bool canceled, TResult, options, token) is the corelib's
+    /// ColdTasks.Completed, whose result the newobj site takes as the new object.
+    /// </summary>
+    private IMethodSymbol? TaskInternalMember(INamedTypeSymbol owner, MemberReference reference, string name, int arity, SignatureHeader header)
+    {
+        if (arity != 0 || !header.IsInstance) return null;
+        var signature = reference.DecodeMethodSignature(this, new IlGenericContext([.. owner.TypeArguments], []));
+        if (name == ".ctor" && owner.TypeArguments is [var result] && signature.ParameterTypes is [{ Type.SpecialType: SpecialType.System_Boolean }, var value, { Type.Name: "TaskCreationOptions" }, { Type.Name: "CancellationToken" }]
+            && SameType(value.Type, result) && Compilation.GetTypeByMetadataName("CsharpcCoreLib.ColdTasks") is { } coldTasks
+            && coldTasks.GetMembers("Completed").OfType<IMethodSymbol>().FirstOrDefault(m => m.Arity == 1) is { } completed)
+            return completed.Construct(result);
+        var source = Compilation.GetTypeByMetadataName(owner.TypeArguments.IsEmpty ? "System.Threading.Tasks.TaskCompletionSource" : "System.Threading.Tasks.TaskCompletionSource`1");
+        if (source is null) return null;
+        var constructed = owner.TypeArguments.IsEmpty ? source : source.Construct([.. owner.TypeArguments]);
+        return constructed.GetMembers(name).OfType<IMethodSymbol>().FirstOrDefault(m => m.Arity == 0 && !m.IsStatic && Matches(m, signature));
+    }
+
+    private IFieldSymbol? ShadowedField(INamedTypeSymbol definition, string name)
+    {
+        if (definition.ContainingType is not null || definition.IsGenericType) return null;
+        var full = definition.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + definition.MetadataName : definition.MetadataName;
+        foreach (var declaration in CoreLibAssembly.ShadowsOf(Compilation))
+            if (declaration.Real == full && Compilation.GetTypeByMetadataName(declaration.Shadow) is { } container
+                && container.GetMembers(name).OfType<IFieldSymbol>().FirstOrDefault() is { } field)
+                return field;
         return null;
     }
 

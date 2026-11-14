@@ -446,6 +446,26 @@ public sealed partial class FunctionCodeGen
     /// <summary>The size of csrt's zeroed payload (async.c s_zero_payload), what a null task's result reads.</summary>
     private const ulong ZeroPayloadSize = 64;
 
+    /// <summary>Task.FromResult: the shared task .NET keeps for this result (TaskCache.Cached), or a new completed one.</summary>
+    internal LLVMValueRef CachedOrCompletedTask(LLVMValueRef value, ITypeSymbol resultType)
+    {
+        var cached = CallCoreLibGeneric("TaskCache", "Cached", resultType, value);
+        var isNull = _b.ICmp(LLVMIntPredicate.EQ, cached, LlvmContext.Null(L.Ptr));
+        var fresh = NewBlock("fromresult.new");
+        var join = NewBlock("fromresult.done");
+        var entry = _b.InsertBlock;
+        _b.CondBr(isNull, fresh, join);
+        _b.PositionAtEnd(fresh);
+        var created = CompletedTask(value, resultType);
+        var freshEnd = _b.InsertBlock;
+        _b.Br(join);
+        _b.PositionAtEnd(join);
+        var phi = _b.Phi(L.Ptr, "fromresult");
+        IrBuilder.AddIncoming(phi, cached, entry);
+        IrBuilder.AddIncoming(phi, created, freshEnd);
+        return phi;
+    }
+
     /// <summary>A new, already-completed task holding <paramref name="value"/> (Task.FromResult).</summary>
     internal LLVMValueRef CompletedTask(LLVMValueRef value, ITypeSymbol? resultType)
     {
