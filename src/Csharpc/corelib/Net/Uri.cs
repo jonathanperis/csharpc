@@ -146,7 +146,9 @@ namespace CsharpcCoreLib
         private static void CheckRelative(string s)
         {
             // '#' starts a fragment: .NET keeps it as it is, but calls such a reference not well formed.
-            if (s.Length != 0 && (s.Trim().Length == 0 || !IsPlain(s.Replace('#', '/'), 0, true))) throw Unsupported("this relative URI");
+            // Spaces too: .NET keeps them as they are in OriginalString and ToString() of a relative reference (a path such as
+            // ".../eM Client.app/Contents/...", which XmlResolver then makes absolute with Path.GetFullPath).
+            if (s.Length != 0 && (s.Trim().Length == 0 || !IsPlain(s.Replace('#', '/').Replace(' ', '/'), 0, true))) throw Unsupported("this relative URI");
         }
 
         /// <summary>
@@ -183,8 +185,12 @@ namespace CsharpcCoreLib
             }
 #endif
             string slashed = drive ? rest.Replace('\\', '/') : rest;
-            if (!IsPlain(slashed, 0, false) || HasDotSegment(slashed) || slashed.Contains("//")) throw Unsupported("file paths .NET escapes or rewrites");
-            path = drive ? "/" + slashed : slashed;
+            // Spaces in an implicit path (".../eM Client.app/..."): .NET escapes them to %20 in the URI's path and AbsoluteUri,
+            // and keeps them in LocalPath and ToString(). No other character that .NET escapes is modelled ('%' stays refused,
+            // so ToString's unescaping of %20 is exact).
+            string checkedPath = explicitScheme ? slashed : slashed.Replace(' ', '/');
+            if (!IsPlain(checkedPath, 0, false) || HasDotSegment(slashed) || slashed.Contains("//")) throw Unsupported("file paths .NET escapes or rewrites");
+            path = (drive ? "/" + slashed : slashed).Replace(" ", "%20");
             localPath = drive ? slashed.Replace('/', '\\') : slashed;
             return true;
         }
@@ -486,7 +492,7 @@ namespace CsharpcCoreLib
 
         private static int DefaultPort(string scheme) => scheme switch { "http" => 80, "https" => 443, "ftp" => 21, "ws" => 80, "wss" => 443, _ => -1 };
 
-        public override string ToString() => _relative ? _original : AbsoluteUri;
+        public override string ToString() => _relative ? _original : _file ? AbsoluteUri.Replace("%20", " ") : AbsoluteUri;
 
         // .NET compares the scheme, host, port, path and query (the scheme and host case-insensitively,
         // which the lowercased fields already are) and ignores the fragment; a string is parsed first.
