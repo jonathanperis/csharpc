@@ -430,7 +430,7 @@ public sealed partial class FunctionCodeGen
                 // `box T; castclass I` with T known to implement I: the cast cannot fail, and the entry stays a box of T, so a call through I on it is
                 // T's own (IlCall).
                 if (value is { Kind: IlKind.Ref, Unboxed: { Type: { } castBoxed } } && !value.Value.IsNull && S(castBoxed) is { IsValueType: true } castValue && !TypeMapper.IsNullable(castValue)
-                    && S(type) is INamedTypeSymbol { TypeKind: TypeKind.Interface } castTarget && castValue.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, castTarget)))
+                    && S(type) is INamedTypeSymbol { TypeKind: TypeKind.Interface } castTarget && ImplementsInterface(castValue, castTarget))
                 {
                     Push(value);
                     return false;
@@ -448,7 +448,7 @@ public sealed partial class FunctionCodeGen
                 if (value is { Kind: IlKind.Ref, Unboxed: { Type: { } boxedType } } && S(boxedType) is { IsValueType: true } boxedValue && !TypeMapper.IsNullable(boxedValue)
                     && st is INamedTypeSymbol { TypeKind: TypeKind.Interface or TypeKind.Class } target && !TypeMapper.IsNullable(st))
                 {
-                    var isInstance = SymbolEqualityComparer.Default.Equals(boxedValue, target) || boxedValue.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, target))
+                    var isInstance = SymbolEqualityComparer.Default.Equals(boxedValue, target) || ImplementsInterface(boxedValue, target)
                         || target.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType
                         || (boxedValue.TypeKind == TypeKind.Enum && target.SpecialType == SpecialType.System_Enum);
                     Push(isInstance ? value : new IlEntry(IlKind.Ref, LlvmContext.Null(L.Ptr), Special(SpecialType.System_Object)));

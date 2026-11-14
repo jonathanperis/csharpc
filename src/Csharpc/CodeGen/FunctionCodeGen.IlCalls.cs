@@ -76,7 +76,7 @@ public sealed partial class FunctionCodeGen
         // target is T's implementation, called as `constrained. T callvirt` would, not a look-up of the boxed value's interface table.
         if (op == ILOpCode.Callvirt && constrained is null && receiver is { Kind: IlKind.Ref, Unboxed: { Type: { } boxedType } boxedEntry } && !boxedEntry.Value.IsNull
             && method.ContainingType.TypeKind == TypeKind.Interface && S(boxedType) is { IsValueType: true } boxedValue && !TypeMapper.IsNullable(boxedValue)
-            && boxedValue.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, S(method.ContainingType))))
+            && ImplementsInterface(boxedValue, (INamedTypeSymbol)S(method.ContainingType)))
         {
             var home = Spill(IlTyped(boxedEntry, boxedValue));
             if (IlInvoke(method, new IlEntry(IlKind.ByRef, home, boxedValue), args, isVirtual: true, boxedValue) is { } direct) stack.Push(direct);
@@ -356,6 +356,17 @@ public sealed partial class FunctionCodeGen
             _ => null,
         };
         return result is { } r ? IlPush(r, method.ReturnType) : null;
+    }
+
+    /// <summary>
+    /// Whether a value type implements an interface, deciding a framework slice's struct (Guid : IEquatable&lt;its own Guid&gt;) on the real
+    /// types as well: the interface the IL names carries the real type (IEquatable&lt;System.Guid&gt;).
+    /// </summary>
+    private bool ImplementsInterface(ITypeSymbol valueType, INamedTypeSymbol itf)
+    {
+        if (valueType.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, itf))) return true;
+        var real = _m.CoreLib.Unmap(itf);
+        return valueType.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(_m.CoreLib.Unmap(i), real));
     }
 
     private IlEntry IlNewObject(IMethodSymbol constructor, IlEntry[] args)
