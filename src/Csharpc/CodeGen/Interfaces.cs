@@ -265,6 +265,19 @@ public sealed partial class FunctionCodeGen
         if (target.IsGenericMethod) return GenericInterfaceCall(target, self, args);
         var itf = target.ContainingType;
         var index = ModuleCodeGen.InterfaceSlotIndex(itf, target);
+        // Shared generic code (ADR 0026, step 3b-2): an interface over T (IEqualityComparer<__Canon0>) is a different interface per exact
+        // instantiation. Its identity comes from the dictionary, and the dispatch is noted for every exact instantiation, so each one's
+        // implementations are lowered and its interface-map slots filled. One site sees several interfaces, possibly on the same
+        // receiver class (a class implementing IComparer<string> and IComparer<Animal>), so a cache hit also checks the interface.
+        if (_m.IsCanonDependent(itf))
+        {
+            var handle = SharedHandleOf(SharedHandle.Interface, itf)!.Value;
+            _m.NoteSharedInterfaceDispatch(_m.GetLayout(_method!.ContainingType).Type, target, index);
+            var cached = CallRuntime("csrt_interface_slots_cached_shared", L.Ptr, [L.Ptr, L.Ptr, L.Ptr], self, handle, _m.NewInterfaceCallSiteCache());
+            var sharedSlot = _b.InBoundsGep(L.I8, cached, [L.ConstUInt(L.I64, (ulong)index * T.PointerSize)], "islot");
+            var sharedFn = _b.Load(L.Ptr, sharedSlot, "ifn");
+            return _b.Call(_m.FunctionTypeOf(target), sharedFn, args);
+        }
         _m.NoteInterfaceDispatch(itf, index);
         _m.NoteVirtualCall(target);
         // Through the slot's stub (ModuleCodeGen.InterfaceStubs.cs): guarded direct calls, then this site's cache.

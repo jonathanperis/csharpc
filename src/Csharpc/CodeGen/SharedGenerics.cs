@@ -309,7 +309,7 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
                 if (symbol is not null && Dependent(symbol, op)) return new SharingReason(op + ":", symbol);
             return null;
         }
-        return SlotKeys(definition) is { Count: > 0 } keys ? keys.Min(StringComparer.Ordinal) : null;
+        return SlotKeys(definition) is { Count: > 0 } keys ? new SharingReason(keys.Min(StringComparer.Ordinal)!) : null;
     }
 
     /// <summary>The type-parameter-dependent symbols a definition's body names (null: body not readable).</summary>
@@ -377,6 +377,8 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
                 // (an element of an array over T: a store or a writable reference checks the array's exact element type)
                 IArrayElementReferenceOperation { ArrayReference.Type: IArrayTypeSymbol array } => array,
                 ICatchClauseOperation c => c.ExceptionType,
+                // (foreach over IEnumerable<T>: the shared body dispatches on IEnumerator<T>, an interface the dictionary supplies)
+                IForEachLoopOperation loop when IsInterfaceEnumeration(loop) => EnumeratorOf(loop).ReturnType,
                 _ => null,
             };
             if (symbol is not null && Dependent(symbol, ILOpCode.Nop)) needed.Add(op.Kind + ":" + symbol.ToDisplayString());
@@ -537,7 +539,14 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
         {
             // What lowering calls: a library member served by the corelib (List<T> from the framework's IL, a shadow) is that code.
             var callee = Redirected(named);
-            if (callee.ContainingType.TypeKind == TypeKind.Interface) return new SharingReason("interface over T: ", callee.ContainingType);
+            // Step 3b-2: a call through an interface over T dispatches on the interface its dictionary names. A generic interface method
+            // (a closed-world type switch per exact instantiation) and an interface with no canonical form stay exact.
+            if (callee.ContainingType.TypeKind == TypeKind.Interface)
+            {
+                if (callee.IsGenericMethod || callee.IsStatic) return new SharingReason("calls ", callee);
+                if (!HasCanonicalFormOverParameters(callee.ContainingType)) return new SharingReason("interface over T with no canonical form: ", callee.ContainingType);
+                continue;
+            }
             if (callee.IsGenericMethod || callee.IsStatic) return new SharingReason("calls ", callee);
             // The callee's own class must have a canonical form whatever T is: List<KeyValuePair<T, int>> or Wrapper<Func<T>> would be
             // compiled over the markers themselves, with no dictionary behind them.
@@ -614,6 +623,7 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
                     IIsTypeOperation isType => isType.TypeOperand,
                     IPatternOperation pattern => pattern.NarrowedType,
                     IVariableDeclaratorOperation declarator => declarator.Symbol,
+                    IForEachLoopOperation loop when IsInterfaceEnumeration(loop) => EnumeratorOf(loop),
                     _ => null,
                 });
             }
@@ -651,6 +661,26 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
                 return null;
             default: return null;
         }
+    }
+
+    /// <summary>
+    /// `constrained. P; callvirt I&lt;Q&gt;.M` with Q another type parameter: when P is a struct in a canonical form that shares Q (Roslyn's
+    /// OverloadResolution.&lt;&gt;c__102&lt;TMemberResolution, TMember&gt;), the call must reach the struct's own implementation of the exact
+    /// I&lt;X&gt;, which a body over the marker cannot name. An interface over P alone is exact whenever P is a struct, and shared code
+    /// dispatches it when P is a reference type; a reference-type constraint on P makes every receiver an object.
+    /// </summary>
+    private static bool ConstrainedThroughOtherParameter(ITypeParameterSymbol constrainedOn, INamedTypeSymbol calledInterface)
+    {
+        if (constrainedOn.IsReferenceType) return false; // (a class or base-class constraint)
+        static bool Other(ITypeSymbol type, ITypeParameterSymbol p) => type switch
+        {
+            ITypeParameterSymbol t => !SymbolEqualityComparer.Default.Equals(t, p),
+            INamedTypeSymbol named => named.TypeArguments.Any(a => Other(a, p)) || (named.ContainingType is { } outer && Other(outer, p)),
+            IArrayTypeSymbol array => Other(array.ElementType, p),
+            IPointerTypeSymbol pointer => Other(pointer.PointedAtType, p),
+            _ => false,
+        };
+        return Other(calledInterface, constrainedOn);
     }
 
     private static IOperation Receiver(IOperation operation)
@@ -693,6 +723,11 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
                     || st.Symbol is IMethodSymbol { ReturnType: IArrayTypeSymbol ra } && MentionsTypeParameter(ra));
             if (holdsArrayOverT && steps.Any(st => st.Symbol is IMethodSymbol { ContainingType.TypeKind: TypeKind.Interface }))
                 return "interface call where an array over T may be the receiver";
+            for (var i = 0; i + 1 < steps.Count; i++)
+                if (steps[i] is { OpCode: ILOpCode.Constrained, Symbol: ITypeParameterSymbol constrainedOn }
+                    && steps[i + 1].Symbol is IMethodSymbol { ContainingType: { TypeKind: TypeKind.Interface } calledInterface }
+                    && ConstrainedThroughOtherParameter(constrainedOn, calledInterface))
+                    return new SharingReason("constrained call on a type parameter through ", calledInterface);
             foreach (var (op, symbol) in steps)
             {
                 if (op is ILOpCode.Mkrefany or ILOpCode.Refanyval or ILOpCode.Refanytype) return "typed references";
@@ -729,6 +764,12 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
             {
                 if (op is IAnonymousFunctionOperation or ILocalFunctionOperation or IDelegateCreationOperation) return "closure or delegate";
                 if (op.Type is { } opType && WithoutCanonicalForm(opType) is { } uncanonical) return new SharingReason("uses ", uncanonical, " (no canonical form)");
+                if (op is IInvocationOperation { TargetMethod.ContainingType: { TypeKind: TypeKind.Interface } invokedInterface, Instance: { } typed }
+                    && Receiver(typed).Type is ITypeParameterSymbol constrainedOn && ConstrainedThroughOtherParameter(constrainedOn, invokedInterface))
+                    return new SharingReason("constrained call on a type parameter through ", invokedInterface);
+                if (op is IPropertyReferenceOperation { Property.ContainingType: { TypeKind: TypeKind.Interface } propertyInterface, Instance: { } typedProperty }
+                    && Receiver(typedProperty).Type is ITypeParameterSymbol propertyOn && ConstrainedThroughOtherParameter(propertyOn, propertyInterface))
+                    return new SharingReason("constrained call on a type parameter through ", propertyInterface);
                 if (op is IInvocationOperation { TargetMethod.ContainingType.TypeKind: TypeKind.Interface, Instance: { } receiver }
                     && Receiver(receiver).Type is IArrayTypeSymbol receiverArray && MentionsTypeParameter(receiverArray))
                     return "interface call on an array over T";
@@ -753,6 +794,11 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
                     case IPatternOperation p when p.NarrowedType is { } narrowed && MentionsTypeParameter(narrowed) && narrowed is not ITypeParameterSymbol
                         && (narrowed.IsValueType || !IsPlainReference(narrowed)) && !SymbolEqualityComparer.Default.Equals(narrowed, p.InputType):
                         return new SharingReason("pattern over ", narrowed);
+                    // Step 3b-2: foreach over an IEnumerable<X> interface whose element is the loop variable's own type is GetEnumerator,
+                    // MoveNext, Current and Dispose through interfaces, which shared code dispatches on its dictionary. Other shapes (a
+                    // struct enumerator over T, a cast per element, deconstruction) stay exact.
+                    case IForEachLoopOperation f when IsInterfaceEnumeration(f):
+                        break;
                     case IForEachLoopOperation or IUsingOperation or IUsingDeclarationOperation or IAwaitOperation or IInterpolatedStringOperation or IRangeOperation
                         or IDeconstructionAssignmentOperation or IWithOperation or ICollectionExpressionOperation or ISpreadOperation or IEventAssignmentOperation
                         when op.DescendantsAndSelf().Any(o => o.Type is { } t && MentionsTypeParameter(t)):
@@ -761,6 +807,16 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
             }
         return null;
     }
+
+    /// <summary>IEnumerable&lt;X&gt;.GetEnumerator of an interface enumeration (IsInterfaceEnumeration): its return type is IEnumerator&lt;X&gt;.</summary>
+    private static IMethodSymbol EnumeratorOf(IForEachLoopOperation loop) =>
+        ((INamedTypeSymbol)loop.Collection.Type!).GetMembers("GetEnumerator").OfType<IMethodSymbol>().First(m => m.Parameters.IsEmpty);
+
+    private static bool IsInterfaceEnumeration(IForEachLoopOperation loop) =>
+        loop is { IsAsynchronous: false, LoopControlVariable: IVariableDeclaratorOperation { Symbol: { RefKind: RefKind.None } variable } }
+        && loop.Collection.Type is INamedTypeSymbol { TypeKind: TypeKind.Interface, IsGenericType: true } enumerable
+        && enumerable.OriginalDefinition.SpecialType == SpecialType.System_Collections_Generic_IEnumerable_T
+        && SymbolEqualityComparer.Default.Equals(enumerable.TypeArguments[0], variable.Type);
 
     // (types served from the framework's IL are named as their real types: the slice's namespaces carry a prefix, Frontend.UpstreamSlice)
     private static string MetadataNameOf(INamedTypeSymbol type) =>
