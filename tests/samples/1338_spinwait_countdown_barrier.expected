@@ -1,0 +1,31 @@
+SpinWait: ssssssssssYY count 12
+after Reset: count 0, next yields False
+SpinOnce(-1): count 1
+SpinOnce(-2): sleep1Threshold
+SpinUntil(true) returned, SpinUntil(false, 0): False, SpinUntil(false, 10): False
+SpinUntil(null): condition
+SpinUntil(-2): The timeout must represent a value between -1 and Int32.MaxValue, inclusive. (Parameter 'millisecondsTimeout')
+Actual value was -2.
+countdown: initial 3, current 3, set False
+Signal(): False, current 2
+AddCount(2): current 4, TryAddCount True, current 5
+Signal(5): True, set True, Wait(0) True
+Signal at zero: Invalid attempt made to decrement the event's count below zero.
+AddCount when set: The event is already signaled and cannot be incremented.
+TryAddCount when set: False
+Reset(2): initial 2, current 2, Wait(10) False
+waited for another thread's signals: set True
+Signal(0): signalCount
+new CountdownEvent(-1): initialCount
+Wait(canceled token): OperationCanceledException
+barrier: participants 3, remaining 3, phase 0
+after 4 phases: phase 4, post-phase actions 4, sums 6 6 6
+AddParticipant -> phase 4, participants 4
+RemoveParticipants(2): participants 2
+RemoveParticipants(5): participantCount
+SignalAndWait(0) alone: False, phase 4
+post-phase exception: BarrierPostPhaseException: The postPhaseAction failed with an exception. / inner post-phase failed
+phase after a failed action: 1
+new Barrier(-1): participantCount
+disposed: Cannot access a disposed object.
+Object name: 'System.Threading.Barrier'.

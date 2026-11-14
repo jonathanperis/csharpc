@@ -201,6 +201,16 @@ static inline void spin_pause(void) {
 #endif
 }
 
+/// Thread.SpinWait(iterations): that many processor pauses (none on WASI's one thread, where nothing else can change what the
+/// caller waits for). The framework's SpinWait spins min(2^count, Thread.OptimalMaxSpinWaitsPerSpinIteration) of them per SpinOnce.
+void csrt_thread_spin_wait(int32_t iterations) {
+#ifndef __wasi__
+    for (int32_t i = 0; i < iterations; i++) spin_pause();
+#else
+    (void)iterations;
+#endif
+}
+
 #define INTERRUPT_POLL_MS 50
 
 // The interruptible wait a thread is in (wait_cond / wait_mutex) is guarded by a flag of that thread's own: registering it is
