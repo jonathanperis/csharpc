@@ -27,7 +27,10 @@ sealed class Emitter
         // prints it; CodeGen/StackTraces.cs reads them from the slice's metadata). The typeof argument is serialized as the nested
         // state-machine type's name, which the slice keeps (ConcurrentQueue<T>.Enumerate, #399).
         "System.Runtime.CompilerServices.AsyncStateMachineAttribute", "System.Runtime.CompilerServices.IteratorStateMachineAttribute",
-        "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute"];
+        "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute",
+        // A method the native side calls through a function pointer (Interop.Sys.AddMountPoint, GetAllMountPoints' callback): csharpc
+        // gives it the C calling convention and an exception barrier only when it carries the attribute.
+        "System.Runtime.InteropServices.UnmanagedCallersOnlyAttribute"];
 
     /// <summary>
     /// Attributes that change what a member means at run time or how csharpc lowers it (thread-local storage, fixed buffers, decoded constants,

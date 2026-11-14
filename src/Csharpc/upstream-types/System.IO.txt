@@ -1,5 +1,4 @@
-# Streams and text readers/writers above the OS boundary (ADR 0023, #315; docs/il-first/System.IO.md). The file system types
-# (FileStream, File, Directory, Path, FileSystemInfo) are the next part of this flip.
+# Streams and text readers/writers above the OS boundary (ADR 0023, #315; docs/il-first/System.IO.md).
 System.IO.Stream
 System.IO.MemoryStream
 System.IO.UnmanagedMemoryStream
@@ -13,3 +12,19 @@ System.IO.StringWriter
 System.IO.BinaryReader
 System.IO.BinaryWriter
 System.CodeDom.Compiler.IndentedTextWriter
+# The file system (part 2): CoreLib's Unix IO calls libSystem.Native's C API, which is csharpc's C# contract over its libc layer
+# (corelib/IO/SystemNative.cs); the Windows slice calls kernel32 directly.
+System.IO.File
+System.IO.Directory
+System.IO.FileInfo
+System.IO.DirectoryInfo
+System.IO.FileSystemInfo
+System.IO.FileStream
+System.IO.FileStreamOptions
+System.IO.Path
+System.IO.RandomAccess
+Microsoft.Win32.SafeHandles.SafeFileHandle
+System.IO.Enumeration.FileSystemEnumerable`1
+System.IO.Enumeration.FileSystemEnumerator`1
+System.IO.Enumeration.FileSystemName
+System.IO.EnumerationOptions
