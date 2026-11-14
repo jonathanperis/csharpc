@@ -221,6 +221,15 @@ namespace CsharpcCoreLib
             if (length > 0) CoreIntrinsics.csrt_os_random(buffer, (nuint)length);
         }
 
+        /// <summary>
+        /// Interop.GetCryptographicallySecureRandomBytes (Guid.NewGuid, Guid.CreateVersion7): the operating system's CSPRNG through csrt_os_random
+        /// (getentropy, rand_s, WASI random_get), never a weaker source; the program stops if the OS cannot provide it, as CoreCLR fails fast.
+        /// </summary>
+        public static void GetCryptographicallySecureRandomBytes(byte* buffer, int length)
+        {
+            if (length > 0) CoreIntrinsics.csrt_os_random(buffer, (nuint)length);
+        }
+
         private static ResourceManager s_strings;
 
         /// <summary>

@@ -165,6 +165,8 @@ sealed class Cli
                     c.Replace["System.ThrowHelper::GetAddingDuplicateWithKeyArgumentException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetAddingDuplicateWithKeyArgumentException";
                     // Random's default seed: the OS RNG the runtime seeds string hashing with (csrt_os_random), where CoreLib calls libSystem.Native.
                     c.Replace["Interop::GetRandomBytes"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetRandomBytes";
+                    // Guid.NewGuid / CreateVersion7: the same OS CSPRNG (getentropy, BCryptGenRandom-equivalent rand_s, WASI random_get).
+                    c.Replace["Interop::GetCryptographicallySecureRandomBytes"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetCryptographicallySecureRandomBytes";
                     c.Redirect["System.Collections.Generic.NonRandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer";
                     c.Redirect["System.Collections.Generic.IInternalStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamInternalStringEqualityComparer";
                     c.Redirect["System.Collections.Generic.RandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamRandomizedStringEqualityComparer";
