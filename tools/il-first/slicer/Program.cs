@@ -165,6 +165,12 @@ sealed class Cli
                     c.Replace["System.ThrowHelper::GetAddingDuplicateWithKeyArgumentException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetAddingDuplicateWithKeyArgumentException";
                     // Random's default seed: the OS RNG the runtime seeds string hashing with (csrt_os_random), where CoreLib calls libSystem.Native.
                     c.Replace["Interop::GetRandomBytes"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetRandomBytes";
+                    // Stream's asynchronous defaults run as Stream.ReadWriteTask over Task's internals and test for BeginRead/BeginWrite overrides in
+                    // the method table's auxiliary data; csharpc's tasks are the runtime's (corelib/IO/StreamContract.cs).
+                    foreach (var member in new[] { "BeginRead", "EndRead", "BeginWrite", "EndWrite", "BeginEndReadAsync", "BeginEndWriteAsync" })
+                        c.Replace["System.IO.Stream::" + member] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamStreamSupport::" + member;
+                    // (Stream.Null's BeginRead hands out Task<int>.s_defaultResultTask, a field of the runtime's Task<int> csharpc does not have)
+                    c.Replace["System.IO.Stream/NullStream::BeginRead"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamStreamSupport::NullStreamBeginRead";
                     c.Redirect["System.Collections.Generic.NonRandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer";
                     c.Redirect["System.Collections.Generic.IInternalStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamInternalStringEqualityComparer";
                     c.Redirect["System.Collections.Generic.RandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamRandomizedStringEqualityComparer";
