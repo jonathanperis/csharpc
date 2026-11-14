@@ -266,7 +266,7 @@ public sealed partial class FunctionCodeGen
             case ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj:
                 IlCall(instruction, stack, constrained, isReadonly);
                 return false;
-            case ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld when TryEmitIlInt128Half(op, instruction.Token, stack):
+            case ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld when TryEmitIlBuiltinPrivateField(op, instruction.Token, stack):
                 return false; // before the symbol lookup below: the reference pack has no such field
             case ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld
                 when IlAssembly.ResolveMember(instruction.Token, IlBody.Context) is IEventSymbol backing:
@@ -300,6 +300,10 @@ public sealed partial class FunctionCodeGen
                 else StoreValue(ToStorage(typed, S(field.Type)), address);
                 return false;
             }
+            case ILOpCode.Ldsfld when IlAssembly.ResolveMember(instruction.Token, IlBody.Context) is IMethodSymbol getter:
+                // A static field the corelib's replacement of the type keeps as a lazily initialized property (IlAssembly.ShadowedStaticProperty).
+                if (IlInvoke(getter, null, [], isVirtual: false, constrained: null) is { } gotten) Push(gotten);
+                return false;
             case ILOpCode.Ldsfld:
             {
                 var field = IlField(instruction.Token);

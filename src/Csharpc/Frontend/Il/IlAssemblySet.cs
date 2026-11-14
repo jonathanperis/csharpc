@@ -439,21 +439,31 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
     }
 
     /// <summary>
-    /// Int128's and UInt128's private <c>_lower</c> / <c>_upper</c> fields, which their CoreLib IL reads and writes (and the reference pack
-    /// doesn't declare): csharpc keeps the two types as one 128-bit integer, whose little-endian layout puts the lower half at byte 0 and the
-    /// upper half at byte 8, as .NET's struct does on the little-endian targets csharpc supports (FunctionCodeGen.Int128Fields.cs).
+    /// A private field of a built-in type that the reference pack doesn't declare and CoreLib's IL reads or writes: Int128's and UInt128's
+    /// <c>_lower</c> / <c>_upper</c>, decimal's <c>_flags</c> / <c>_hi32</c> / <c>_lo64</c>. csharpc lays these types out as .NET does (an
+    /// LLVM i128, little-endian: the lower half at byte 0; decimal as { int, uint, ulong }), so the field is the value's bytes at
+    /// <paramref name="offset"/> (FunctionCodeGen.BuiltinPrivateFields.cs).
     /// </summary>
-    public bool IsInt128Half(int token, IlGenericContext context, out bool upper)
+    public bool IsBuiltinPrivateField(int token, IlGenericContext context, out int offset, out SpecialType type)
     {
-        upper = false;
+        (offset, type) = (0, SpecialType.None);
         var handle = MetadataTokens.EntityHandle(token);
         if (handle.Kind != HandleKind.MemberReference) return false;
         var reference = Reader.GetMemberReference((MemberReferenceHandle)handle);
         if (reference.GetKind() != MemberReferenceKind.Field || reference.Parent.Kind is not (HandleKind.TypeReference or HandleKind.TypeDefinition)) return false;
         var name = Reader.GetString(reference.Name);
-        if (name is not ("_lower" or "_upper") || !CodeGen.Int128Support.Is128(ResolveType(reference.Parent, context).Type)) return false;
-        upper = name == "_upper";
-        return true;
+        if (name is not ("_lower" or "_upper" or "_flags" or "_hi32" or "_lo64")) return false;
+        var owner = ResolveType(reference.Parent, context).Type;
+        (offset, type) = (owner, name) switch
+        {
+            (_, "_lower") when CodeGen.Int128Support.Is128(owner) => (0, SpecialType.System_UInt64),
+            (_, "_upper") when CodeGen.Int128Support.Is128(owner) => (8, SpecialType.System_UInt64),
+            ({ SpecialType: SpecialType.System_Decimal }, "_flags") => (0, SpecialType.System_Int32),
+            ({ SpecialType: SpecialType.System_Decimal }, "_hi32") => (4, SpecialType.System_UInt32),
+            ({ SpecialType: SpecialType.System_Decimal }, "_lo64") => (8, SpecialType.System_UInt64),
+            _ => (0, SpecialType.None),
+        };
+        return type != SpecialType.None;
     }
 
     /// <summary>A field, method or constructor token (FieldDef, MethodDef, MemberRef, MethodSpec).</summary>
@@ -530,6 +540,12 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                 // A field-like event's backing field (hidden from Roslyn's symbols), as a FieldDef token resolves.
                 if (t.GetMembers(name).OfType<IEventSymbol>().FirstOrDefault() is { } backed) return OnConstructed(owner, backed);
             }
+            // An internal field of a CoreLib type the corelib replaces as a whole (NumberFormatInfo._numberGroupSizes, which the framework's
+            // number formatting reads): the replacement's field of the same name, as for a method (ShadowedMember).
+            if (ShadowedField(definition, name) is { } shadowedField) return shadowedField;
+            // A static readonly field the replacement keeps as a lazily initialized static property (CompareInfo.Invariant): its getter,
+            // which ldsfld calls (FunctionCodeGen.IlInstructions.cs).
+            if (ShadowedStaticProperty(definition, name) is { } getter) return getter;
             throw new IlException($"field '{owner}.{name}' not found");
         }
 
@@ -554,6 +570,28 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         if (ShadowedMember(owner, definition, reference, name, arity, header) is { } shadowed) return shadowed;
         if (!header.IsInstance && HostedMember(definition, reference, name, arity) is { } hosted) return hosted;
         throw new IlException($"method '{owner}.{name}' with the referenced signature not found");
+    }
+
+    private IMethodSymbol? ShadowedStaticProperty(INamedTypeSymbol definition, string name)
+    {
+        if (definition.ContainingType is not null || definition.IsGenericType) return null;
+        var full = definition.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + definition.MetadataName : definition.MetadataName;
+        foreach (var declaration in CoreLibAssembly.ShadowsOf(Compilation))
+            if (!declaration.MembersOnly && declaration.Real == full && Compilation.GetTypeByMetadataName(declaration.Shadow) is { } shadow
+                && shadow.GetMembers(name).OfType<IPropertySymbol>().FirstOrDefault(p => p.IsStatic && p.Parameters.IsEmpty) is { GetMethod: { } get })
+                return get;
+        return null;
+    }
+
+    private IFieldSymbol? ShadowedField(INamedTypeSymbol definition, string name)
+    {
+        if (definition.ContainingType is not null || definition.IsGenericType) return null;
+        var full = definition.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + definition.MetadataName : definition.MetadataName;
+        foreach (var declaration in CoreLibAssembly.ShadowsOf(Compilation))
+            if (!declaration.MembersOnly && declaration.Real == full && Compilation.GetTypeByMetadataName(declaration.Shadow) is { } shadow
+                && shadow.GetMembers(name).OfType<IFieldSymbol>().FirstOrDefault() is { } field)
+                return field;
+        return null;
     }
 
     /// <summary>
@@ -661,6 +699,24 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
     }
 
     /// <summary>Type identity as metadata sees it: no tuple names, dynamic is object, nint is IntPtr.</summary>
+    /// <summary>
+    /// A CoreLib type served from the framework's IL and its reference-pack twin (System.Numerics.BFloat16 and the slice's
+    /// CsharpcCoreLib.Upstream.System.Numerics.BFloat16): one type to the program, so a signature naming either matches the other (a corelib
+    /// contract member returning BFloat16, called by the slice's IL).
+    /// </summary>
+    private static bool SliceTwins(INamedTypeSymbol a, INamedTypeSymbol b)
+    {
+        if (a.Name != b.Name || UpstreamSlice.Entries.Count == 0) return false;
+        var (na, nb) = (FullMetadataName(a), FullMetadataName(b));
+        foreach (var (real, slice) in UpstreamSlice.Entries)
+            if ((real == na && slice == nb) || (real == nb && slice == na)) return true;
+        return false;
+    }
+
+    private static string FullMetadataName(INamedTypeSymbol t) =>
+        t.ContainingType is { } outer ? FullMetadataName(outer) + "+" + t.MetadataName
+        : t.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + t.MetadataName : t.MetadataName;
+
     public static bool SameType(ITypeSymbol a, ITypeSymbol b)
     {
         if (ReferenceEquals(a, b)) return true;
@@ -678,7 +734,7 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                 return SymbolEqualityComparer.Default.Equals(a, b);
             case INamedTypeSymbol an when b is INamedTypeSymbol bn:
                 if (an.SpecialType != SpecialType.None || bn.SpecialType != SpecialType.None) return an.SpecialType == bn.SpecialType;
-                if (!SymbolEqualityComparer.Default.Equals(an.OriginalDefinition, bn.OriginalDefinition)) return false;
+                if (!SymbolEqualityComparer.Default.Equals(an.OriginalDefinition, bn.OriginalDefinition) && !SliceTwins(an.OriginalDefinition, bn.OriginalDefinition)) return false;
                 if (an.ContainingType is { } ac && bn.ContainingType is { } bc && !SameType(ac, bc)) return false;
                 var at = an.TypeArguments;
                 var bt = bn.TypeArguments;

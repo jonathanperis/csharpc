@@ -12,7 +12,7 @@ OS boundary) and the contract layer (reflection/type system, task/async glue, in
 | Area | Status | Issue |
 |---|---|---|
 | ManualResetEventSlim, SpinWait, Barrier, other sync types | to do | #414 |
-| BFloat16, Decimal32/64/128 | to do | #405 |
+| BFloat16, Decimal32/64/128 | done: `docs/il-first/System.Numerics.IeeeTypes.md` (also hosts every generic-math interface's static defaults; follow-ups #420, #425) | #405 |
 | Hashtable, ArrayList, BitArray | to do | #372, #373 |
 | Guid | to do | #416 |
 | Culture, number formatting and parsing (deletes the digits bridge) | to do | |

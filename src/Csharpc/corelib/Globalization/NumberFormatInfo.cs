@@ -760,5 +760,39 @@ namespace CsharpcCoreLib.Globalization
                     throw new ArgumentException((value & InvalidNumberStyles) != 0 ? SR.Argument_InvalidNumberStyles : SR.Arg_HexBinaryStylesNotSupported, nameof(style));
             }
         }
+
+        // The framework's generic number code (Number.Formatting/Parsing over TChar = char or byte), which the IL-served types reach
+        // (BFloat16, Decimal32/64/128: #405), reads the symbols through these, as CoreLib's NumberFormatInfo declares them. UTF-8 is cached
+        // with a terminating zero that is not part of the span, as upstream does, so a helper that scans for one cannot run off the end.
+        private static ReadOnlySpan<byte> GetUtf8Span(ref byte[]? utf8Cache, string value)
+        {
+            byte[] utf8 = utf8Cache ?? CreateUtf8Cache(ref utf8Cache, value);
+            return utf8.AsSpan(0, utf8.Length - 1);
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static byte[] CreateUtf8Cache(ref byte[]? utf8Cache, string value)
+        {
+            byte[] utf8 = new byte[Encoding.UTF8.GetByteCount(value) + 1];
+            Encoding.UTF8.GetBytes(value, utf8);
+            return utf8Cache = utf8;
+        }
+
+        private static ReadOnlySpan<TChar> SymbolTChar<TChar>(string value, ref byte[]? utf8Cache) where TChar : unmanaged =>
+            typeof(TChar) == typeof(char) ? MemoryMarshal.Cast<char, TChar>(value.AsSpan()) : MemoryMarshal.Cast<byte, TChar>(GetUtf8Span(ref utf8Cache, value));
+        internal ReadOnlySpan<TChar> CurrencyDecimalSeparatorTChar<TChar>() where TChar : unmanaged => SymbolTChar<TChar>(_currencyDecimalSeparator, ref _currencyDecimalSeparatorUtf8);
+        internal ReadOnlySpan<TChar> CurrencyGroupSeparatorTChar<TChar>() where TChar : unmanaged => SymbolTChar<TChar>(_currencyGroupSeparator, ref _currencyGroupSeparatorUtf8);
+        internal ReadOnlySpan<TChar> CurrencySymbolTChar<TChar>() where TChar : unmanaged => SymbolTChar<TChar>(_currencySymbol, ref _currencySymbolUtf8);
+        internal ReadOnlySpan<TChar> NaNSymbolTChar<TChar>() where TChar : unmanaged => SymbolTChar<TChar>(_nanSymbol, ref _nanSymbolUtf8);
+        internal ReadOnlySpan<TChar> NegativeInfinitySymbolTChar<TChar>() where TChar : unmanaged => SymbolTChar<TChar>(_negativeInfinitySymbol, ref _negativeInfinitySymbolUtf8);
+        internal ReadOnlySpan<TChar> NegativeSignTChar<TChar>() where TChar : unmanaged => SymbolTChar<TChar>(_negativeSign, ref _negativeSignUtf8);
+        internal ReadOnlySpan<TChar> NumberDecimalSeparatorTChar<TChar>() where TChar : unmanaged => SymbolTChar<TChar>(_numberDecimalSeparator, ref _numberDecimalSeparatorUtf8);
+        internal ReadOnlySpan<TChar> NumberGroupSeparatorTChar<TChar>() where TChar : unmanaged => SymbolTChar<TChar>(_numberGroupSeparator, ref _numberGroupSeparatorUtf8);
+        internal ReadOnlySpan<TChar> PositiveInfinitySymbolTChar<TChar>() where TChar : unmanaged => SymbolTChar<TChar>(_positiveInfinitySymbol, ref _positiveInfinitySymbolUtf8);
+        internal ReadOnlySpan<TChar> PositiveSignTChar<TChar>() where TChar : unmanaged => SymbolTChar<TChar>(_positiveSign, ref _positiveSignUtf8);
+        internal ReadOnlySpan<TChar> PercentDecimalSeparatorTChar<TChar>() where TChar : unmanaged => SymbolTChar<TChar>(_percentDecimalSeparator, ref _percentDecimalSeparatorUtf8);
+        internal ReadOnlySpan<TChar> PercentGroupSeparatorTChar<TChar>() where TChar : unmanaged => SymbolTChar<TChar>(_percentGroupSeparator, ref _percentGroupSeparatorUtf8);
+        internal ReadOnlySpan<TChar> PercentSymbolTChar<TChar>() where TChar : unmanaged => SymbolTChar<TChar>(_percentSymbol, ref _percentSymbolUtf8);
+        internal ReadOnlySpan<TChar> PerMilleSymbolTChar<TChar>() where TChar : unmanaged => SymbolTChar<TChar>(_perMilleSymbol, ref _perMilleSymbolUtf8);
     }
 }

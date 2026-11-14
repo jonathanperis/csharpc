@@ -241,7 +241,7 @@ sealed class Slice
             foreach (var f in Directory.GetFiles(shadowDir, "*.cs", SearchOption.AllDirectories))
             {
                 var text = File.ReadAllText(f);
-                HashSet<string>? words = null;
+                HashSet<string> words = null;
                 foreach (Match m in rx.Matches(text))
                 {
                     var name = m.Groups[2].Value.Replace('+', '/');

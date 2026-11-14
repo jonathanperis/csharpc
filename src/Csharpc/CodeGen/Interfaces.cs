@@ -180,6 +180,7 @@ public sealed partial class FunctionCodeGen
         if (TryGuardedDefaultComparer(target, receiver, arguments, extra, invocation) is { } guarded) return guarded;
         var concrete = ConcreteReceiver(receiver);
         var staticType = TypeOf(concrete);
+        if (staticType is not null) target = InterfaceMemberOverShadow(staticType, target);
 
         // Shared generic code (ADR 0026): a receiver typed by a canonical form (List<__Canon0>, __Canon0[]) is some exact instantiation at
         // run time, so the call is dispatched through the object it is, never bound to the canonical form's own implementation (which may

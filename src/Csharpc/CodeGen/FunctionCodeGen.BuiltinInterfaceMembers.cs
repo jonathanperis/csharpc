@@ -72,6 +72,32 @@ public sealed partial class FunctionCodeGen
         return null;
     }
 
+    /// <summary>
+    /// The body of a static default member of a reference-pack interface (INumberBase&lt;TSelf&gt;.TryParse over UTF-8, which Decimal32 and
+    /// user number types don't implement themselves): the reference pack declares the member without its IL, so the slice hosts CoreLib's
+    /// in the interface's host class as a generic method over the interface's type arguments, then the member's own (the slicer's `host:`
+    /// roots on a generic interface). Null when the slice carries none: the call is then an explicit diagnostic.
+    /// </summary>
+    private IMethodSymbol? HostedDefaultInterfaceMember(IMethodSymbol target)
+    {
+        var iface = target.ContainingType;
+        if (!target.IsStatic || target.IsAbstract || iface.TypeKind != TypeKind.Interface || _m.IsUserType(iface)) return null;
+        if (!Frontend.UpstreamSlice.MemberClasses.TryGetValue(Mangler.MetadataName(iface.OriginalDefinition), out var classes)) return null;
+        ITypeSymbol[] typeArguments = [.. iface.TypeArguments.Select(a => S(a)), .. target.TypeArguments.Select(a => S(a))];
+        if (typeArguments.Any(a => a is ITypeParameterSymbol)) return null;
+        foreach (var className in classes)
+            foreach (var holder in _m.Compilation.GetTypesByMetadataName(className))
+                foreach (var candidate in holder.GetMembers(target.MetadataName).OfType<IMethodSymbol>())
+                {
+                    if (!candidate.IsStatic || candidate.TypeParameters.Length != typeArguments.Length) continue;
+                    var constructed = candidate.Construct(typeArguments);
+                    if (constructed.Parameters.Length == target.Parameters.Length
+                        && constructed.Parameters.Zip(target.Parameters).All(p => p.First.RefKind == p.Second.RefKind && SymbolEqualityComparer.Default.Equals(S(p.First.Type), S(p.Second.Type))))
+                        return constructed;
+                }
+        return null;
+    }
+
     /// <summary>"System.Numerics.INumberBase&lt;System.UInt64&gt;.TryConvertToChecked": the metadata name of an explicit implementation of the member.</summary>
     private string ExplicitImplementationName(IMethodSymbol member)
     {

@@ -29,6 +29,8 @@ namespace CsharpcCoreLib
         // The internal members of System.String that the framework's own CoreLib IL calls (docs/21-ownership.md, issue #191 part B);
         // the IL front-end resolves them here because the reference pack does not declare them (IlAssembly.ShadowedMember). Not through AsSpan:
         // with MemoryExtensions from the framework IL, AsSpan(string) is the framework's and calls GetRawStringData itself.
+        public static void CheckStringComparison(StringComparison comparisonType) => CultureStrings.CheckStringComparison(comparisonType);
+        public static System.Globalization.CompareOptions GetCaseCompareOfComparisonCulture(StringComparison comparisonType) => CultureStrings.OptionsFor(comparisonType);
         [ShadowInstance]
         public static ref char GetRawStringData(string s) => ref System.Runtime.CompilerServices.Unsafe.AsRef(in System.Runtime.InteropServices.MemoryMarshal.GetReference(CoreIntrinsics.StringChars(s)));
 
