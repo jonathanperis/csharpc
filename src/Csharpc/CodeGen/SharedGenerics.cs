@@ -663,6 +663,26 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
         }
     }
 
+    /// <summary>
+    /// `constrained. P; callvirt I&lt;Q&gt;.M` with Q another type parameter: when P is a struct in a canonical form that shares Q (Roslyn's
+    /// OverloadResolution.&lt;&gt;c__102&lt;TMemberResolution, TMember&gt;), the call must reach the struct's own implementation of the exact
+    /// I&lt;X&gt;, which a body over the marker cannot name. An interface over P alone is exact whenever P is a struct, and shared code
+    /// dispatches it when P is a reference type; a reference-type constraint on P makes every receiver an object.
+    /// </summary>
+    private static bool ConstrainedThroughOtherParameter(ITypeParameterSymbol constrainedOn, INamedTypeSymbol calledInterface)
+    {
+        if (constrainedOn.IsReferenceType) return false; // (a class or base-class constraint)
+        static bool Other(ITypeSymbol type, ITypeParameterSymbol p) => type switch
+        {
+            ITypeParameterSymbol t => !SymbolEqualityComparer.Default.Equals(t, p),
+            INamedTypeSymbol named => named.TypeArguments.Any(a => Other(a, p)) || (named.ContainingType is { } outer && Other(outer, p)),
+            IArrayTypeSymbol array => Other(array.ElementType, p),
+            IPointerTypeSymbol pointer => Other(pointer.PointedAtType, p),
+            _ => false,
+        };
+        return Other(calledInterface, constrainedOn);
+    }
+
     private static IOperation Receiver(IOperation operation)
     {
         while (operation is IConversionOperation { IsImplicit: true } conversion) operation = conversion.Operand;
@@ -703,6 +723,11 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
                     || st.Symbol is IMethodSymbol { ReturnType: IArrayTypeSymbol ra } && MentionsTypeParameter(ra));
             if (holdsArrayOverT && steps.Any(st => st.Symbol is IMethodSymbol { ContainingType.TypeKind: TypeKind.Interface }))
                 return "interface call where an array over T may be the receiver";
+            for (var i = 0; i + 1 < steps.Count; i++)
+                if (steps[i] is { OpCode: ILOpCode.Constrained, Symbol: ITypeParameterSymbol constrainedOn }
+                    && steps[i + 1].Symbol is IMethodSymbol { ContainingType: { TypeKind: TypeKind.Interface } calledInterface }
+                    && ConstrainedThroughOtherParameter(constrainedOn, calledInterface))
+                    return new SharingReason("constrained call on a type parameter through ", calledInterface);
             foreach (var (op, symbol) in steps)
             {
                 if (op is ILOpCode.Mkrefany or ILOpCode.Refanyval or ILOpCode.Refanytype) return "typed references";
@@ -739,6 +764,12 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
             {
                 if (op is IAnonymousFunctionOperation or ILocalFunctionOperation or IDelegateCreationOperation) return "closure or delegate";
                 if (op.Type is { } opType && WithoutCanonicalForm(opType) is { } uncanonical) return new SharingReason("uses ", uncanonical, " (no canonical form)");
+                if (op is IInvocationOperation { TargetMethod.ContainingType: { TypeKind: TypeKind.Interface } invokedInterface, Instance: { } typed }
+                    && Receiver(typed).Type is ITypeParameterSymbol constrainedOn && ConstrainedThroughOtherParameter(constrainedOn, invokedInterface))
+                    return new SharingReason("constrained call on a type parameter through ", invokedInterface);
+                if (op is IPropertyReferenceOperation { Property.ContainingType: { TypeKind: TypeKind.Interface } propertyInterface, Instance: { } typedProperty }
+                    && Receiver(typedProperty).Type is ITypeParameterSymbol propertyOn && ConstrainedThroughOtherParameter(propertyOn, propertyInterface))
+                    return new SharingReason("constrained call on a type parameter through ", propertyInterface);
                 if (op is IInvocationOperation { TargetMethod.ContainingType.TypeKind: TypeKind.Interface, Instance: { } receiver }
                     && Receiver(receiver).Type is IArrayTypeSymbol receiverArray && MentionsTypeParameter(receiverArray))
                     return "interface call on an array over T";
