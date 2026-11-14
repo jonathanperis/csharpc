@@ -21,6 +21,17 @@ class Repo<T> : IProducer<T>, IConsumer<T> where T : class
 
 }
 
+// Two type parameters, used with the arguments swapped: each delegate names its own exact instantiation.
+class Pair<TKey, TValue>
+{
+    public Func<string> KeyName() => Key;
+    public Func<string> ValueName() => Value;
+    public string Key() => typeof(TKey).Name;
+    public string Value() => typeof(TValue).Name;
+    public bool Produces(object o) => o is IProducer<TKey>;
+    public bool Consumes(object o) => o is IConsumer<TValue>;
+}
+
 class Program
 {
     static void Main()
@@ -38,5 +49,12 @@ class Program
         Console.WriteLine(consumer.Take(new Customer()));
         Console.WriteLine($"{producer is IProducer<Customer>} {(object)customers is IConsumer<object>} {(object)strings is IConsumer<string>}");
         Console.WriteLine($"{customers.IsEnumerable(new List<Customer>())} {customers.IsEnumerable(new List<object>())} {strings.IsEnumerable(new List<Customer>())}");
+        foreach (var (key, value, keyProbe) in new (Func<string>, Func<string>, Func<object, bool>)[]
+        {
+            (new Pair<string, Customer>().KeyName(), new Pair<string, Customer>().ValueName(), new Pair<string, Customer>().Produces),
+            (new Pair<Customer, string>().KeyName(), new Pair<Customer, string>().ValueName(), new Pair<Customer, string>().Produces),
+        })
+            Console.WriteLine($"{key.Method.DeclaringType} {key()} {value.Target.GetType()} {value()} {keyProbe(customers)} {keyProbe(strings)} {keyProbe.Method.DeclaringType}.{keyProbe.Method.Name} {keyProbe.Target.GetType()}");
+        Console.WriteLine($"{new Pair<Customer, object>().Consumes(strings)} {new Pair<object, Customer>().Consumes(strings)} {new Pair<object, string>().Consumes(customers)}");
     }
 }

@@ -161,6 +161,7 @@ public sealed partial class ModuleCodeGen
         var entryPoint = ProgramEntryPoint
             ?? throw new CompileError("CSLLVM0003", "program has no entry point (Main method or top-level statements)", null);
 
+        Facts.FieldTagsPerDefinition = SharedGenerics; // (shared code accesses the fields of every instantiation it stands for)
         CollectTypes(Compilation.Assembly.GlobalNamespace);
 
         // 1. Layouts and method tables for every class (base classes first, via GetLayout recursion).
@@ -228,6 +229,7 @@ public sealed partial class ModuleCodeGen
             FinishEventSourceAttributes();
             FinishPInvokeResolver();
             ResolveTaskMethodTables();
+            CheckSharedGenericLeaks();
         }
         finally { Timed("IL failure reachability", ReportIlFailures); ReportWhyLowered(); WriteGenericReport(); }
         // Every call site is known now: the stack-trace tables main registers.
@@ -240,7 +242,8 @@ public sealed partial class ModuleCodeGen
         do DrainFunctionWorklists();
         while (Timed("class inits", EmitPendingClassInits) | Timed("builtin interface tables", EmitPendingBuiltinInterfaceTables)
                | Timed("generic interface dispatchers", () => EmitGenericInterfaceDispatchers(final: false))
-               | Timed("variant delegate tests", () => EmitVariantDelegateTests(final: false)) | Timed("dispatched slots", RequestDispatchedSlots));
+               | Timed("variant delegate tests", () => EmitVariantDelegateTests(final: false)) | Timed("dispatched slots", RequestDispatchedSlots)
+               | Timed("shared dictionaries", FillSharedDictionaries));
     }
 
     /// <summary>
@@ -361,7 +364,12 @@ public sealed partial class ModuleCodeGen
         if (_functions.TryGetValue(method, out var existing)) return existing;
         // --shared-generics (ADR 0026, step 3a): an instantiation compiled once as its canonical form is that form's function.
         if (generic && SharedGenerics && SharedGenericsInfo.ShareAs(method) is { } canonical && !SymbolEqualityComparer.Default.Equals(canonical, method))
+        {
+            NoteDynamicallyAccessedInstantiation(method); // (the exact instantiation's [DynamicallyAccessedMembers] arguments, as exact code notes them)
             return _functions[method] = GetFunction(canonical);
+        }
+        // (a canonical body, reached through an instantiation or called from another canonical body, reads its class's dictionary)
+        if (generic && SharedGenerics && method.ContainingType is { } owner && IsCanonDependent(owner)) _classesWithSharedCode.Add(owner.OriginalDefinition);
         if (method is { MethodKind: MethodKind.PropertyGet, ContainingType.IsAnonymousType: true }) return _functions[method] = AnonymousGetter(method);
         if (method is { MethodKind: MethodKind.Constructor, ContainingType.IsAnonymousType: true }) return _functions[method] = AnonymousConstructor(method);
         if (generic && TypeSubstitution.IsOpen(method))
@@ -887,6 +895,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>Delegate objects get a per-type method table with System.Object's default vtable.</summary>
     public LLVMValueRef DelegateMethodTable(INamedTypeSymbol type)
     {
+        if (IsCanonDependent(type)) return CanonMethodTable; // shared generic code: the exact table comes from a dictionary
         var name = Mangler.MetadataName(type); // includes generic arguments, e.g. System.Func`2[System.Int32,System.Int32]
         var key = "dmt:" + name;
         if (_globals.TryGetValue(key, out var g)) return g;
@@ -1074,8 +1083,18 @@ public sealed partial class ModuleCodeGen
         }
         // --shared-generics (ADR 0026, step 2c): a generic class whose canonical form is shared code gets its dictionary slot after the
         // virtuals it introduces; it stays null until step 2d emits the dictionaries.
-        if (SharedGenerics && SharedGenericsInfo.IsSharedType(type)) AddDictionarySlot(layout, type);
+        var shared = SharedGenerics && SharedGenericsInfo.IsSharedType(type);
+        if (shared) AddDictionarySlot(layout, type);
+        // A canonical form (List<__Canon0>) is a layout only: field offsets and vtable slots, which every instantiation it stands for
+        // shares. It has no method table of its own, so no vtable to fill and no type name; shared code takes the exact tables from
+        // the dictionary (ModuleCodeGen.SharedDictionaries.cs).
+        if (IsCanonDependent(type))
+        {
+            layout.MethodTable = CanonMethodTable;
+            return layout;
+        }
         EmitMethodTable(layout);
+        if (shared) RegisterSharedInstance(layout);
         return layout;
     }
 

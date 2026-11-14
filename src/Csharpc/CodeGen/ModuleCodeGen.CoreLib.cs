@@ -63,6 +63,7 @@ public sealed partial class ModuleCodeGen
 
     public void RequestArrayInterface(INamedTypeSymbol itf)
     {
+        if (IsCanonDependent(itf)) return; // requested for each exact instantiation when its dictionary is filled
         foreach (var i in (IEnumerable<INamedTypeSymbol>)[itf, .. itf.AllInterfaces])
             if ((i.IsGenericType ? !TypeSubstitution.IsOpen(i) : IsNonGenericArrayInterface(i))
                 && _arrayInterfaces.Add(i))

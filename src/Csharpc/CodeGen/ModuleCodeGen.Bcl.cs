@@ -253,6 +253,7 @@ public sealed partial class ModuleCodeGen
 
     public LLVMValueRef ArrayMethodTable(ITypeSymbol elementType)
     {
+        if (IsCanonDependent(elementType)) return CanonMethodTable; // shared generic code: the exact table comes from a dictionary
         var name = ClrName(elementType) + "[]";
         // Keyed by the exact element type: List<int>[] and List<Edge>[] share a display name, but
         // not their interfaces (and a corelib shadow is the same type as what it shadows).
@@ -337,6 +338,7 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     public LLVMValueRef MdArrayMethodTable(IArrayTypeSymbol array)
     {
+        if (IsCanonDependent(array)) return CanonMethodTable; // shared generic code: the exact table comes from a dictionary
         var key = "mdarray:" + IdentityKey(CoreLib.Map(TypeSubstitution.EraseTupleNames(array, Compilation)));
         if (_arrayMethodTables.TryGetValue(key, out var existing)) return existing;
         string[] defaults = ["csrt_object_to_string_default", "csrt_object_equals_default", "csrt_object_get_hash_code_default"];
@@ -388,6 +390,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>The method table that identifies a type at runtime (for typeof / Type objects).</summary>
     public LLVMValueRef TypeMethodTable(ITypeSymbol type, IOperation at)
     {
+        if (IsCanonDependent(type)) return CanonMethodTable; // shared generic code: the exact table comes from a dictionary
         LLVMValueRef Builtin(string name)
         {
             var mt = ExternalGlobal(name);

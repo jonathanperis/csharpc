@@ -4,3 +4,6 @@ Customer
 Customer
 True False True
 True False True
+Pair`2[System.String,Customer] String Pair`2[System.String,Customer] Customer False False Pair`2[System.String,Customer].Produces Pair`2[System.String,Customer]
+Pair`2[Customer,System.String] Customer Pair`2[Customer,System.String] String True False Pair`2[Customer,System.String].Produces Pair`2[Customer,System.String]
+True True False
