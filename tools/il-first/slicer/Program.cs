@@ -198,6 +198,9 @@ sealed class Slice
     public readonly Dictionary<string, AssemblyNameReference> RefAssemblyOf = new(StringComparer.Ordinal);
     public readonly HashSet<string> Shadowed = new(StringComparer.Ordinal);                      // real names csharpc shadows (type or members)
     public readonly HashSet<string> ShadowedTypes = new(StringComparer.Ordinal);
+    // The methods the corelib's shadow files of each real type declare, as "Name(Type,Type)" with simple type names (ShadowSignatures):
+    // a hosted type's helper that a shadow provides stays the shadow's, so the slice never trades csharpc's copy for upstream's code.
+    public readonly Dictionary<string, HashSet<string>> ShadowMemberNames = new(StringComparer.Ordinal);
     public readonly HashSet<TypeDefinition> Types = [];
     public readonly HashSet<MethodDefinition> Methods = [];
     public readonly HashSet<TypeDefinition> RootTypes = [];
@@ -234,13 +237,21 @@ sealed class Slice
         if (shadowDir is not null)
         {
             var rx = new Regex(@"^\s*\[(Shadows|ShadowMembers)\(""([^""]+)""\)\]", RegexOptions.Multiline);
+
             foreach (var f in Directory.GetFiles(shadowDir, "*.cs", SearchOption.AllDirectories))
-                foreach (Match m in rx.Matches(File.ReadAllText(f)))
+            {
+                var text = File.ReadAllText(f);
+                HashSet<string>? words = null;
+                foreach (Match m in rx.Matches(text))
                 {
                     var name = m.Groups[2].Value.Replace('+', '/');
                     Shadowed.Add(name);
                     if (m.Groups[1].Value == "Shadows") ShadowedTypes.Add(name);
+                    words ??= ShadowSignatures.Declared(text);
+                    if (!ShadowMemberNames.TryGetValue(name, out var set)) ShadowMemberNames[name] = set = new(StringComparer.Ordinal);
+                    set.UnionWith(words);
                 }
+            }
         }
     }
 
@@ -433,7 +444,21 @@ sealed class Slice
         if (element.DeclaringType is ArrayType) return;
         var def = element as MethodDefinition ?? SafeResolve(element);
         if (def is null || def.Module != Core) return;
-        if (IsStop(def.DeclaringType)) { if (Cli.Replacement(def) is null) { NoteMember(def); NoteUsed(def); } return; }
+        if (IsStop(def.DeclaringType))
+        {
+            // A non-public static helper of a type whose members the slice hosts (UInt128.LeadingZeroCountAsInt32, ulong's private
+            // TryConvertFromChecked<TOther>, which the hosted CreateChecked calls): hosted with them, since nothing else provides it.
+            if (def.IsStatic && def.HasBody && Hosted.TryGetValue(def.DeclaringType, out var hosted) && Cli.Replacement(def) is null
+                && !(RefTypes.TryGetValue(def.DeclaringType.FullName, out var r) && InRef(r, def))
+                && !(ShadowMemberNames.TryGetValue(def.DeclaringType.FullName, out var shadowNames) && shadowNames.Contains(ShadowSignatures.Of(def))))
+            {
+                if (!hosted.Contains(def)) hosted.Add(def);
+                Enqueue(def);
+                return;
+            }
+            if (Cli.Replacement(def) is null) { NoteMember(def); NoteUsed(def); }
+            return;
+        }
         Enqueue(def);
     }
 
