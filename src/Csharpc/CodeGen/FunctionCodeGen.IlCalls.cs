@@ -411,6 +411,37 @@ public sealed partial class FunctionCodeGen
         EmitValue(new IlInvocationOperation(il.Syntax, constructor, instance, isVirtual: false, IlArguments(constructor.Parameters, args), null));
     }
 
+    /// <summary>
+    /// Type.GetTypeCode of a type known at compile time, as the run time's (corelib Reflection/Members.cs GetTypeCode) and .NET's: an enum's is its
+    /// underlying type's, a primitive's its own, DateTime/Decimal/String theirs, any other value type Object. Null (the run-time call) for a type
+    /// parameter and for reference types other than string: DBNull has a TypeCode of its own and is a corelib shadow here, so its symbol does not
+    /// say System.DBNull.
+    /// </summary>
+    private static TypeCode? IlKnownTypeCode(ITypeSymbol type)
+    {
+        if (type is ITypeParameterSymbol) return null;
+        if (type is INamedTypeSymbol { TypeKind: TypeKind.Enum, EnumUnderlyingType: { } underlying }) type = underlying;
+        return type.SpecialType switch
+        {
+            SpecialType.System_Boolean => TypeCode.Boolean,
+            SpecialType.System_Char => TypeCode.Char,
+            SpecialType.System_SByte => TypeCode.SByte,
+            SpecialType.System_Byte => TypeCode.Byte,
+            SpecialType.System_Int16 => TypeCode.Int16,
+            SpecialType.System_UInt16 => TypeCode.UInt16,
+            SpecialType.System_Int32 => TypeCode.Int32,
+            SpecialType.System_UInt32 => TypeCode.UInt32,
+            SpecialType.System_Int64 => TypeCode.Int64,
+            SpecialType.System_UInt64 => TypeCode.UInt64,
+            SpecialType.System_Single => TypeCode.Single,
+            SpecialType.System_Double => TypeCode.Double,
+            SpecialType.System_Decimal => TypeCode.Decimal,
+            SpecialType.System_DateTime => TypeCode.DateTime,
+            SpecialType.System_String => TypeCode.String,
+            _ => type.IsValueType ? TypeCode.Object : null,
+        };
+    }
+
     /// <summary>Calls whose meaning is an IL idiom rather than a library member (ldtoken consumers...); null if not one.</summary>
     private IlEntry? IlSpecialCall(IMethodSymbol method, IlEntry? receiver, IlEntry[] args)
     {
@@ -446,6 +477,12 @@ public sealed partial class FunctionCodeGen
                 or SpecialType.System_Double;
             return I4(supported ? 1 : 0) with { Constant = supported ? 1 : 0 };
         }
+        // Type.GetTypeCode(typeof(X)) for a known X: a constant, as ILCompiler folds it. ConcurrentDictionary's IsWriteAtomic switches on it
+        // for TValue; as a call it reached the run-time reflection tables, and through them every boxed BCL value's formatting (+240 KB, #399).
+        if (method is { Name: "GetTypeCode", Parameters.Length: 1 } && receiver is null
+            && owner is { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } }
+            && args[0] is { Kind: IlKind.Ref, Symbol: ITypeSymbol typeofArgument } && IlKnownTypeCode(S(typeofArgument)) is { } typeCode)
+            return I4((int)typeCode) with { Constant = (int)typeCode };
         // `fixed (char* p = s)`: a reference to the first char (the terminator of an empty string), as in .NET;
         // the compiler tests for null before the call.
         // Span<T>/ReadOnlySpan<T>.GetPinnableReference (`fixed (T* p = span)`): the data pointer, or a null
