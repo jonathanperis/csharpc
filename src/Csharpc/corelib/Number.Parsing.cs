@@ -1,7 +1,7 @@
-// Number parsing in C# (formerly src/runtime/parse.c and the int/double parsers in strings.c):
-// int/long/double Parse/TryParse with NumberStyles for the invariant culture, a correctly rounded
-// decimal -> binary conversion (exact big-integer division, no strtod), Math.Round(double, digits,
-// mode) on the exact decimal value, and Int128 formatting.
+// What remains of the corelib's own number code once number parsing and formatting are the framework's (#426): Enum.Parse's
+// invariant integer reader (src/runtime/parse.c calls it), the correctly rounded decimal -> double conversion decimal uses
+// (DecimalOps), Math.Round(double, digits, mode) on the exact decimal value, and the Int128 entry points of the compiler's
+// own paths. The primitives' Parse/TryParse are hosted from their IL.
 #nullable disable
 using System;
 
@@ -97,143 +97,8 @@ namespace CsharpcCoreLib
             return StatusOk;
         }
 
-        private static string IntegerTypeName(int bits, bool isSigned) => bits switch
-        {
-            8 => isSigned ? "a signed byte" : "an unsigned byte",
-            16 => isSigned ? "an Int16" : "a UInt16",
-            32 => isSigned ? "an Int32" : "a UInt32",
-            _ => isSigned ? "an Int64" : "a UInt64",
-        };
 
-        private static void ThrowParseFormat(string s) =>
-            throw new FormatException("The input string '" + s + "' was not in a correct format.");
 
-        internal static long ParseInt64StyledOrThrow(string s, int styles, int bits, bool isSigned)
-        {
-            if (s == null) throw new ArgumentNullException("s");
-            long v = 0;
-            int status = ParseInt64Styled(s, styles, bits, isSigned, ref v);
-            if (status == StatusOk) return v;
-            if (status == StatusOverflow)
-                throw new OverflowException("Value was either too large or too small for " + IntegerTypeName(bits, isSigned) + ".");
-            ThrowParseFormat(s);
-            return 0;
-        }
-
-        // int.Parse(string) / long.Parse(string) / TryParse (Convert.ToInt32(string) & co.): NumberStyles.Integer,
-        // current culture (Number.Parsing.Culture.cs).
-        internal static int ParseInt32(string s) => (int)ParseIntegerWith(s, 7, null, 32, true);
-        internal static long ParseInt64(string s) => ParseIntegerWith(s, 7, null, 64, true);
-
-        internal static bool TryParseInt32(string s, ref int result)
-        {
-            bool ok = TryParseIntegerWith(s, 7, null, 32, true, out long v);
-            result = (int)v;
-            return ok;
-        }
-
-        internal static bool TryParseInt64(string s, ref long result) => TryParseIntegerWith(s, 7, null, 64, true, out result);
-
-        // ==========================================================================================
-        // Floating point
-        // ==========================================================================================
-
-        private static bool EqualsIgnoreCase(string s, int start, int end, string word)
-        {
-            if (end - start != word.Length) return false;
-            for (int i = 0; i < word.Length; i++)
-            {
-                char c = s[start + i];
-                if (c >= 'A' && c <= 'Z') c = (char)(c + 32);
-                char w = word[i];
-                if (w >= 'A' && w <= 'Z') w = (char)(w + 32);
-                if (c != w) return false;
-            }
-            return true;
-        }
-
-        /// <summary>Returns 1 on success, 0 on format error (out-of-range values become ±Infinity / ±0, as in .NET Core 3.0+).</summary>
-        internal static int ParseDoubleStyled(string s, int styles, ref double result)
-        {
-            result = 0;
-            if (s == null) return StatusFormat;
-            int i = 0, end = s.Length;
-            while (i < end && IsWhite(s[i])) i++;
-            while (end > i && IsWhite(s[end - 1])) end--;
-            if (i == end) return StatusFormat;
-            int start = i;
-            bool negative = false;
-            if ((styles & AllowLeadingSign) != 0 && (s[i] == '-' || s[i] == '+')) { negative = s[i] == '-'; i++; }
-
-            Span<byte> digits = stackalloc byte[MaxParseDigits];
-            int n = 0, exp10 = 0;
-            bool any = false, truncatedNonZero = false;
-            // integer part
-            for (; i < end; i++)
-            {
-                char c = s[i];
-                if (c >= '0' && c <= '9')
-                {
-                    any = true;
-                    if (n == 0 && c == '0') continue;  // leading zeros
-                    if (n < MaxParseDigits) digits[n++] = (byte)c;
-                    else if (c != '0') truncatedNonZero = true;
-                    exp10++;
-                    continue;
-                }
-                if (c == ',' && (styles & AllowThousands) != 0 && any) continue;
-                break;
-            }
-            if (i < end && s[i] == '.' && (styles & AllowDecimalPoint) != 0)
-            {
-                for (i++; i < end; i++)
-                {
-                    char c = s[i];
-                    if (c < '0' || c > '9') break;
-                    any = true;
-                    if (n == 0 && c == '0') { exp10--; continue; }
-                    if (n < MaxParseDigits) digits[n++] = (byte)c;
-                    else if (c != '0') truncatedNonZero = true;
-                }
-            }
-            if (any && i < end && (s[i] == 'e' || s[i] == 'E') && (styles & AllowExponent) != 0)
-            {
-                int j = i + 1;
-                bool expNegative = false;
-                if (j < end && (s[j] == '-' || s[j] == '+')) { expNegative = s[j] == '-'; j++; }
-                if (j < end && s[j] >= '0' && s[j] <= '9')
-                {
-                    int e = 0;
-                    for (; j < end && s[j] >= '0' && s[j] <= '9'; j++) if (e < 100000) e = e * 10 + (s[j] - '0');
-                    exp10 += expNegative ? -e : e;
-                    i = j;
-                }
-            }
-            if (!any || i != end)
-            {
-                // NaN / Infinity (case-insensitive, optionally signed)
-                int k = start;
-                bool neg = false;
-                if (k < end && (s[k] == '-' || s[k] == '+')) { neg = s[k] == '-'; k++; }
-                if (EqualsIgnoreCase(s, k, end, "NaN")) { result = double.NaN; return StatusOk; }
-                if (EqualsIgnoreCase(s, k, end, "Infinity"))
-                {
-                    result = neg ? double.NegativeInfinity : double.PositiveInfinity;
-                    return StatusOk;
-                }
-                return StatusFormat;
-            }
-            while (n > 0 && digits[n - 1] == (byte)'0') n--;
-            result = DigitsToDouble(digits, n, exp10, truncatedNonZero, negative);
-            return StatusOk;
-        }
-
-        internal static double ParseDoubleStyledOrThrow(string s, int styles) => ParseDoubleWith(s, styles, null);
-
-        // double.Parse(string) / TryParse (Convert.ToDouble(string)): NumberStyles.Float | AllowThousands, current culture.
-        internal static double ParseDouble(string s) => ParseDoubleWith(s, 231, null);
-
-        internal static bool TryParseDouble(string s, ref double result) => TryParseDoubleWith(s, 231, null, out result);
 
         internal static double DigitsToDoubleOf(Span<byte> digits, int n, int exp10, bool negative) =>
             DigitsToDouble(digits, n, exp10, false, negative);
@@ -412,43 +277,10 @@ namespace CsharpcCoreLib
         [RuntimeExport("csrt_uint128_to_string", "csrt_Boxed_UInt128_MT")]
         internal static string UInt128ToString(ulong lo, ulong hi) => FormatInt128(lo, hi, false);
 
-        /// <summary>
-        /// IFormattable.ToString on a boxed Int128 / UInt128: the plain digits ("G", "D", "R" or no format, under a
-        /// culture whose negative sign is "-"). Other formats need the 128-bit number formatter csharpc doesn't have yet.
-        /// </summary>
-        internal static string FormatBoxedInt128(ulong lo, ulong hi, bool isSigned, string format, IFormatProvider provider)
-        {
-            bool plain = format is null or "" or "G" or "g" or "D" or "d" or "R" or "r";
-            if (!plain || System.Globalization.NumberFormatInfo.GetInstance(provider).NegativeSign != "-")
-                throw new NotSupportedException("Formatting " + (isSigned ? "Int128" : "UInt128") + " with a format string or a culture-specific sign is not supported by csharpc yet.");
-            return FormatInt128(lo, hi, isSigned);
-        }
+        /// <summary>IFormattable.ToString on a boxed Int128 / UInt128: CoreLib's own 128-bit formatter.</summary>
+        internal static string FormatBoxedInt128(ulong lo, ulong hi, bool isSigned, string format, IFormatProvider provider) =>
+            isSigned ? UpstreamNumber.FormatInt128(null, new Int128(hi, lo), format, provider) : UpstreamNumber.FormatUInt128(null, new UInt128(hi, lo), format, provider);
 
-        internal static string FormatInt128(ulong lo, ulong hi, bool isSigned)
-        {
-            bool negative = isSigned && (long)hi < 0;
-            if (negative)
-            {
-                lo = ~lo + 1;
-                hi = ~hi + (lo == 0 ? 1UL : 0UL);
-            }
-            if (hi == 0) return negative ? "-" + UInt64ToDecStr(lo) : UInt64ToDecStr(lo);
-            Span<uint> words = stackalloc uint[5];
-            var n = new BigNum(words);
-            n.W[0] = (uint)lo; n.W[1] = (uint)(lo >> 32); n.W[2] = (uint)hi; n.W[3] = (uint)(hi >> 32); n.Len = 4;
-            n.Normalize();
-            Span<char> buf = stackalloc char[48];
-            int at = buf.Length;
-            while (!n.IsZero)
-            {
-                uint chunk = n.DivRemSmall(1000000000);
-                for (int i = 0; i < 9 && (chunk != 0 || !n.IsZero); i++) { buf[--at] = (char)('0' + (int)(chunk % 10)); chunk /= 10; }
-            }
-            if (negative) buf[--at] = '-';
-            string s = CoreIntrinsics.FastAllocateString(buf.Length - at);
-            Span<char> dst = CoreIntrinsics.StringChars(s);
-            for (int i = at; i < buf.Length; i++) dst[i - at] = buf[i];
-            return s;
-        }
+        internal static string FormatInt128(ulong lo, ulong hi, bool isSigned) => FormatBoxedInt128(lo, hi, isSigned, null, null);
     }
 }

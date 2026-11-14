@@ -34,7 +34,7 @@ public sealed partial class FunctionCodeGen
         // inside a try/catch that gives up when the type can't be loaded). The target is resolved at run time there, and csharpc binds
         // accessors at compile time, so the call throws what .NET throws for a missing member and the caller's own fallback applies.
         // A static method of a type named by string that this compilation knows (a public type of an IL assembly it compiles, such as the
-        // upstream slice's NumberBridge contract member): bound at compile time, a direct call without the first (type-naming) argument.
+        // upstream slice's System.Number, corelib/NumberUpstream.cs): bound at compile time, a direct call without the first (type-naming) argument.
         if (kind == 2 && target.Parameters.Length > 0 && AccessorTypeName(target.Parameters[0].GetAttributes()) is { } typeName
             && !target.Parameters.Skip(1).Any(p => HasAccessorTypeName(p.GetAttributes())) && !HasAccessorTypeName(target.GetReturnTypeAttributes())
             && ResolveAccessorType(typeName) is { } namedOwner)

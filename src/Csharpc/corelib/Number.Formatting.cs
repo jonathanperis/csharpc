@@ -28,7 +28,6 @@ namespace CsharpcCoreLib
 
         public DigitBuffer(Span<byte> storage) { D = storage; N = 0; Exp10 = 0; Neg = false; IsFloat = false; }
 
-        public bool HasDigit(int i) => i < N;
     }
 
     /// <summary>A growable char buffer that starts on the stack.</summary>
@@ -43,7 +42,6 @@ namespace CsharpcCoreLib
 
         public char LastChar => _chars[_pos - 1];
 
-        public void Truncate(int length) { _pos = length; }
 
         public void Append(char c)
         {
@@ -67,18 +65,7 @@ namespace CsharpcCoreLib
             _pos += count;
         }
 
-        public void Insert(int index, string s)
-        {
-            for (int i = s.Length - 1; i >= 0; i--) Insert(index, s[i]);
-        }
 
-        public void Insert(int index, char c)
-        {
-            if (_pos == _chars.Length) Grow(1);
-            for (int i = _pos; i > index; i--) _chars[i] = _chars[i - 1];
-            _chars[index] = c;
-            _pos++;
-        }
 
         private void Grow(int extra)
         {
@@ -170,38 +157,10 @@ namespace CsharpcCoreLib
             return at + digits;
         }
 
-        private static void IntegerDigits(ulong magnitude, ref DigitBuffer g)
-        {
-            if (magnitude == 0) { g.N = 0; g.Exp10 = 0; return; }
-            int digits = CountDigits(magnitude);
-            for (int i = digits - 1; i >= 0; i--) { g.D[i] = (byte)('0' + (int)(magnitude % 10)); magnitude /= 10; }
-            g.N = digits;
-            g.Exp10 = digits;
-            while (g.N > 0 && g.D[g.N - 1] == (byte)'0') g.N--;
-        }
 
-        // The shortest round-trip digits come from CoreLib's own Grisu3 and Dragon4, served from the framework's IL through the slicer's
-        // NumberBridge contract member (tools/il-first/slicer/Emit.cs; src/Csharpc/upstream-types/System.Number.txt). It writes ASCII digits
-        // with value = 0.d1d2... * 10^scale, the DigitBuffer convention. Deleted when number formatting flips (ADR 0025, Phase 3).
-        [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "ShortestDigits")]
-        private static extern int UpstreamShortestDigits([UnsafeAccessorType("CsharpcCoreLib.Upstream.NumberBridge, CsharpcUpstream")] object bridge,
-            double value, Span<byte> digits, out int scale);
 
-        [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "ShortestDigits")]
-        private static extern int UpstreamShortestDigits([UnsafeAccessorType("CsharpcCoreLib.Upstream.NumberBridge, CsharpcUpstream")] object bridge,
-            float value, Span<byte> digits, out int scale);
 
-        private static void ShortestDigits(double value, ref DigitBuffer g)
-        {
-            g.N = UpstreamShortestDigits(null, value, g.D, out g.Exp10);
-            while (g.N > 0 && g.D[g.N - 1] == (byte)'0') g.N--;
-        }
 
-        private static void ShortestDigits(float value, ref DigitBuffer g)
-        {
-            g.N = UpstreamShortestDigits(null, value, g.D, out g.Exp10);
-            while (g.N > 0 && g.D[g.N - 1] == (byte)'0') g.N--;
-        }
 
         /// <summary>
         /// .NET's RoundNumber: keep `pos` digits. Ties go to even when the digits are an exact binary
@@ -242,73 +201,14 @@ namespace CsharpcCoreLib
         // ==========================================================================================
 
         [RuntimeExport("csrt_string_from_f64", "csrt_Boxed_Double_MT")]
-        internal static string DoubleToString(double value) => DoubleToString(value, NumberFormatInfo.CurrentInfo);
+        internal static string DoubleToString(double value) => UpstreamNumber.FormatFloat(null, value, null, NumberFormatInfo.CurrentInfo);
 
-        internal static string DoubleToString(double value, NumberFormatInfo nfi)
-        {
-            if (value != value) return nfi.NaNSymbol;
-            double magnitude = value < 0 ? -value : value;
-            if (magnitude < 9007199254740992.0)
-            {
-                long integer = (long)magnitude;
-                if (integer == magnitude && magnitude != 0)
-                    return value < 0 ? NegativeInt64ToDecStr(-integer, nfi.NegativeSign) : UInt64ToDecStr((ulong)integer);
-            }
-            Span<byte> storage = stackalloc byte[32];
-            var g = new DigitBuffer(storage);
-            Span<char> chars = stackalloc char[32];
-            var sb = new CharBuilder(chars);
-            if (!ShortestDouble(value, ref g, ref sb, nfi)) FormatGeneral(ref sb, ref g, 17, 'E', false, nfi);
-            return sb.Build();
-        }
 
         [RuntimeExport("csrt_string_from_f32", "csrt_Boxed_Single_MT")]
-        internal static string SingleToString(float value) => SingleToString(value, NumberFormatInfo.CurrentInfo);
+        internal static string SingleToString(float value) => UpstreamNumber.FormatFloat(null, value, null, NumberFormatInfo.CurrentInfo);
 
-        internal static string SingleToString(float value, NumberFormatInfo nfi)
-        {
-            if (value != value) return nfi.NaNSymbol;
-            float magnitude = value < 0 ? -value : value;
-            if (magnitude < 16777216f)
-            {
-                int integer = (int)magnitude;
-                if (integer == magnitude && magnitude != 0)
-                    return value < 0 ? NegativeInt64ToDecStr(-integer, nfi.NegativeSign) : UInt64ToDecStr((ulong)integer);
-            }
-            Span<byte> storage = stackalloc byte[16];
-            var g = new DigitBuffer(storage);
-            Span<char> chars = stackalloc char[32];
-            var sb = new CharBuilder(chars);
-            if (!ShortestSingle(value, ref g, ref sb, nfi)) FormatGeneral(ref sb, ref g, 9, 'E', false, nfi);
-            return sb.Build();
-        }
 
-        /// <summary>Shortest digits of a double; writes the special values (and the sign) and returns true if done.</summary>
-        private static bool ShortestDouble(double value, ref DigitBuffer g, ref CharBuilder sb, NumberFormatInfo nfi)
-        {
-            g.IsFloat = true;
-            g.Neg = CoreIntrinsics.DoubleToBits(value) < 0;
-            if (value != value) { sb.Append(nfi.NaNSymbol); return true; }
-            if (value == double.PositiveInfinity) { sb.Append(nfi.PositiveInfinitySymbol); return true; }
-            if (value == double.NegativeInfinity) { sb.Append(nfi.NegativeInfinitySymbol); return true; }
-            if (g.Neg) sb.Append(nfi.NegativeSign);
-            if (value == 0) { g.N = 0; g.Exp10 = 0; return false; }
-            ShortestDigits(value, ref g);
-            return false;
-        }
 
-        private static bool ShortestSingle(float value, ref DigitBuffer g, ref CharBuilder sb, NumberFormatInfo nfi)
-        {
-            g.IsFloat = true;
-            g.Neg = CoreIntrinsics.SingleToBits(value) < 0;
-            if (value != value) { sb.Append(nfi.NaNSymbol); return true; }
-            if (value == float.PositiveInfinity) { sb.Append(nfi.PositiveInfinitySymbol); return true; }
-            if (value == float.NegativeInfinity) { sb.Append(nfi.NegativeInfinitySymbol); return true; }
-            if (g.Neg) sb.Append(nfi.NegativeSign);
-            if (value == 0) { g.N = 0; g.Exp10 = 0; return false; }
-            ShortestDigits(value, ref g);
-            return false;
-        }
 
         // ==========================================================================================
         // Layout: .NET's NumberToString and its helpers (src/libraries/Common/src/System/
@@ -584,28 +484,6 @@ namespace CsharpcCoreLib
             }
         }
 
-        /// <summary>Splits "X8" into ('X', 8); returns '\0' for a custom format. Precision -1 = none.</summary>
-        private static char ParseFormatSpecifier(string format, out int precision)
-        {
-            precision = -1;
-            if (format == null || format.Length == 0) return 'G';
-            char c = format[0];
-            if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'))
-            {
-                if (format.Length == 1) return c;
-                int p = 0;
-                for (int i = 1; i < format.Length; i++)
-                {
-                    char d = format[i];
-                    if (d < '0' || d > '9') return '\0';
-                    p = p * 10 + (d - '0');
-                    if (p > 999999999) ThrowBadFormat();
-                }
-                precision = p;
-                return c;
-            }
-            return '\0';
-        }
 
         // ==========================================================================================
         // Entry points (CoreLibRuntime redirects the former csrt_format_* calls here). The provider-less
@@ -614,161 +492,28 @@ namespace CsharpcCoreLib
 
         internal static string FormatDouble(double value, string format, bool single) => FormatDoubleWith(value, format, single, null);
 
-        internal static string FormatDoubleWith(double value, string format, bool single, IFormatProvider provider)
-        {
-            NumberFormatInfo nfi = NumberFormatInfo.GetInstance(provider);
-            char fmt = ParseFormatSpecifier(format, out int precision);
-            Span<byte> storage = stackalloc byte[DigitStorage];
-            var g = new DigitBuffer(storage);
-            Span<char> chars = stackalloc char[64];
-            var sb = new CharBuilder(chars);
-            if ((fmt == 'R' || fmt == 'r' || ((fmt == 'G' || fmt == 'g') && precision <= 0)))
-            {
-                bool done = single ? ShortestSingle((float)value, ref g, ref sb, nfi) : ShortestDouble(value, ref g, ref sb, nfi);
-                if (!done) FormatGeneral(ref sb, ref g, single ? 9 : 17, fmt == 'g' || fmt == 'r' ? 'e' : 'E', false, nfi);
-                return sb.Build();
-            }
-            if (value != value) return nfi.NaNSymbol;
-            if (value == double.PositiveInfinity) return nfi.PositiveInfinitySymbol;
-            if (value == double.NegativeInfinity) return nfi.NegativeInfinitySymbol;
-            g.IsFloat = true;
-            g.Neg = CoreIntrinsics.DoubleToBits(value) < 0;
-            if (value != 0)
-            {
-                Decompose(value, out ulong f, out int e, out bool _);
-                ExactDigits(f, e, ref g);
-            }
-            if (fmt == '\0')
-            {
-                Round(ref g, single ? SinglePrecisionCustomFormat : DoublePrecisionCustomFormat, true);
-                FormatCustom(ref sb, ref g, format, nfi);
-                return sb.Build();
-            }
-            if (fmt == 'X' || fmt == 'x')
-            {
-                FormatHexFloat(ref sb, value, single, precision, fmt == 'X');
-                return sb.Build();
-            }
-            if (fmt == 'D' || fmt == 'd' || fmt == 'B' || fmt == 'b') ThrowBadFormat();
-            FormatStandard(ref sb, ref g, fmt, precision, true, nfi);
-            return sb.Build();
-        }
+        internal static string FormatDoubleWith(double value, string format, bool single, IFormatProvider provider) =>
+            single ? UpstreamNumber.FormatFloat(null, (float)value, format, NumberFormatInfo.GetInstance(provider))
+                : UpstreamNumber.FormatFloat(null, value, format, NumberFormatInfo.GetInstance(provider));
 
-        /// <summary>"X" on double/float (.NET 11): normalized hexadecimal significand, "0X1.8P+0".</summary>
-        private static void FormatHexFloat(ref CharBuilder sb, double value, bool single, int precision, bool upper)
-        {
-            ulong f;
-            int e, fractionBits, hexDigits;
-            if (single) { Decompose((float)value, out f, out e, out bool _); fractionBits = 23; hexDigits = 6; }
-            else { Decompose(value, out f, out e, out bool _); fractionBits = 52; hexDigits = 13; }
-            if (CoreIntrinsics.DoubleToBits(value) < 0) sb.Append('-');
-            sb.Append('0');
-            sb.Append(upper ? 'X' : 'x');
-            int exponent = 0;
-            ulong fraction = 0;  // hexDigits * 4 bits after the point
-            ulong lead = 0;
-            if (f != 0)
-            {
-                while ((f >> fractionBits) == 0) { f <<= 1; e--; }  // normalize subnormals
-                lead = 1;
-                exponent = e + fractionBits;
-                fraction = (f & ((1UL << fractionBits) - 1)) << (hexDigits * 4 - fractionBits);
-            }
-            int shown = hexDigits;
-            if (precision < 0)
-            {
-                while (shown > 0 && ((fraction >> ((hexDigits - shown) * 4)) & 0xF) == 0) shown--;
-            }
-            else if (precision < hexDigits)
-            {
-                // Round to `precision` hex digits, ties to even; a carry into the leading digit makes it 2.
-                int dropBits = (hexDigits - precision) * 4;
-                ulong kept = ((lead << (hexDigits * 4)) | fraction) >> dropBits;
-                ulong rest = fraction & ((1UL << dropBits) - 1);
-                ulong half = 1UL << (dropBits - 1);
-                if (rest > half || (rest == half && (kept & 1) == 1)) kept++;
-                lead = kept >> (precision * 4);
-                fraction = (kept & ((1UL << (precision * 4)) - 1)) << dropBits;
-                shown = precision;
-            }
-            char a = upper ? 'A' : 'a';
-            sb.Append((char)('0' + (int)lead));
-            int total = precision > hexDigits ? precision : shown;
-            if (total > 0) sb.Append('.');
-            for (int i = 0; i < total; i++)
-            {
-                int d = i < hexDigits ? (int)((fraction >> ((hexDigits - 1 - i) * 4)) & 0xF) : 0;
-                sb.Append(d < 10 ? (char)('0' + d) : (char)(a + d - 10));
-            }
-            sb.Append(upper ? 'P' : 'p');
-            sb.Append(exponent < 0 ? '-' : '+');
-            int magnitude = exponent < 0 ? -exponent : exponent;
-            AppendDigits(ref sb, (ulong)magnitude, CountDigits((ulong)magnitude));
-        }
+
 
         internal static string FormatInt64(long value, string format, int bits) => FormatInt64With(value, format, bits, null);
 
-        internal static string FormatInt64With(long value, string format, int bits, IFormatProvider provider)
+        // The width chooses the primitive's own formatter (short's hex mask is 0xFFFF: (short)-1 is "FFFF" in "X").
+        internal static string FormatInt64With(long value, string format, int bits, IFormatProvider provider) => bits switch
         {
-            ulong magnitude = value < 0 ? (ulong)(-(value + 1)) + 1 : (ulong)value;
-            return FormatInteger(magnitude, value < 0, (ulong)value, format, bits, provider);
-        }
+            64 => UpstreamNumber.FormatInt64(null, value, format, provider),
+            16 => UpstreamNumber.FormatInt32(null, (int)value, 0xFFFF, format, provider),
+            8 => UpstreamNumber.FormatInt32(null, (int)value, 0xFF, format, provider),
+            _ => UpstreamNumber.FormatInt32(null, (int)value, ~0, format, provider),
+        };
 
-        internal static string FormatUInt64(ulong value, string format, int bits) => FormatInteger(value, false, value, format, bits, null);
+        internal static string FormatUInt64(ulong value, string format, int bits) => FormatUInt64With(value, format, bits, null);
 
-        internal static string FormatUInt64With(ulong value, string format, int bits, IFormatProvider provider) => FormatInteger(value, false, value, format, bits, provider);
+        internal static string FormatUInt64With(ulong value, string format, int bits, IFormatProvider provider) =>
+            bits == 64 ? UpstreamNumber.FormatUInt64(null, value, format, provider) : UpstreamNumber.FormatUInt32(null, (uint)value, format, provider);
 
-        private static string FormatInteger(ulong magnitude, bool negative, ulong raw, string format, int bits, IFormatProvider provider)
-        {
-            char fmt = ParseFormatSpecifier(format, out int precision);
-            if ((fmt == 'G' || fmt == 'g' || fmt == 'R' || fmt == 'r') && precision < 1)
-                return negative ? NegativeInt64ToDecStr(-(long)(magnitude - 1) - 1, NumberFormatInfo.GetInstance(provider).NegativeSign) : UInt64ToDecStr(magnitude);
-            if (bits < 64) raw &= (1UL << bits) - 1;
-            Span<char> chars = stackalloc char[72];
-            var sb = new CharBuilder(chars);
-            switch (fmt)
-            {
-                case 'D': case 'd':
-                {
-                    int digits = CountDigits(magnitude);
-                    if (negative) sb.Append(NumberFormatInfo.GetInstance(provider).NegativeSign);
-                    sb.Append('0', precision - digits);
-                    AppendDigits(ref sb, magnitude, digits);
-                    return sb.Build();
-                }
-                case 'X': case 'x':
-                {
-                    int digits = 1;
-                    for (ulong t = raw >> 4; t != 0; t >>= 4) digits++;
-                    sb.Append('0', precision - digits);
-                    char a = fmt == 'X' ? 'A' : 'a';
-                    for (int i = digits - 1; i >= 0; i--)
-                    {
-                        int d = (int)((raw >> (i * 4)) & 0xF);
-                        sb.Append(d < 10 ? (char)('0' + d) : (char)(a + d - 10));
-                    }
-                    return sb.Build();
-                }
-                case 'B': case 'b':
-                {
-                    int digits = 1;
-                    for (ulong t = raw >> 1; t != 0; t >>= 1) digits++;
-                    sb.Append('0', precision - digits);
-                    for (int i = digits - 1; i >= 0; i--) sb.Append((raw >> i & 1) != 0 ? '1' : '0');
-                    return sb.Build();
-                }
-            }
-            NumberFormatInfo nfi = NumberFormatInfo.GetInstance(provider);
-            Span<byte> storage = stackalloc byte[24];
-            var g = new DigitBuffer(storage);
-            g.Neg = negative;
-            IntegerDigits(magnitude, ref g);
-            if (fmt == '\0') FormatCustom(ref sb, ref g, format, nfi);
-            // Integers format "R<n>" as "G<n>" (case preserved: "r5" gives a lowercase exponent).
-            else if (fmt == 'R' || fmt == 'r') FormatStandard(ref sb, ref g, (char)(fmt - ('R' - 'G')), precision, false, nfi);
-            else FormatStandard(ref sb, ref g, fmt, precision, false, nfi);
-            return sb.Build();
-        }
 
         /// <summary>A standard format over an integer given as its decimal digits (BigInteger).</summary>
         internal static string FormatIntegerDigits(string digits, bool negative, char fmt, int precision, NumberFormatInfo nfi)
@@ -787,348 +532,27 @@ namespace CsharpcCoreLib
             return sb.Build();
         }
 
-        private static void AppendDigits(ref CharBuilder sb, ulong value, int digits)
-        {
-            Span<char> tmp = stackalloc char[20];
-            WriteDigits(tmp.Slice(0, digits), value);
-            for (int i = 0; i < digits; i++) sb.Append(tmp[i]);
-        }
 
         internal static string FormatDecimal(decimal value, string format) => FormatDecimalWith(value, format, null);
 
         /// <summary>decimal.ToString(format, provider): exact digits (trailing zeros kept for "G"), half-up rounding.</summary>
-        internal static string FormatDecimalWith(decimal value, string format, IFormatProvider provider)
-        {
-            NumberFormatInfo nfi = NumberFormatInfo.GetInstance(provider);
-            int flags = CoreIntrinsics.DecimalFlags(value);
-            uint hi = CoreIntrinsics.DecimalHi(value);
-            ulong lo = CoreIntrinsics.DecimalLo(value);
-            int scale = (flags >> 16) & 0xFF;
-            Span<byte> storage = stackalloc byte[32];
-            var g = new DigitBuffer(storage);
-            g.Neg = flags < 0;
-            // 96-bit integer digits via base-10^9 chunks.
-            Span<uint> words = stackalloc uint[4];
-            var n = new BigNum(words);
-            n.W[0] = (uint)lo; n.W[1] = (uint)(lo >> 32); n.W[2] = hi; n.Len = 3;
-            n.Normalize();
-            int len = 0;
-            if (!n.IsZero)
-            {
-                Span<uint> chunks = stackalloc uint[4];
-                int count = 0;
-                while (!n.IsZero) chunks[count++] = n.DivRemSmall(1000000000);
-                len = WriteChunk(g.D, 0, chunks[count - 1], false);
-                for (int i = count - 2; i >= 0; i--) len = WriteChunk(g.D, len, chunks[i], true);
-            }
-            g.N = len;
-            g.Exp10 = len - scale;
+        internal static string FormatDecimalWith(decimal value, string format, IFormatProvider provider) =>
+            UpstreamNumber.FormatDecimal(null, value, format, NumberFormatInfo.GetInstance(provider));
 
-            char fmt = ParseFormatSpecifier(format, out int precision);
-            Span<char> chars = stackalloc char[64];
-            var sb = new CharBuilder(chars);
-            if (fmt == '\0')
-            {
-                TrimTrailingZeros(ref g);
-                FormatCustom(ref sb, ref g, format, nfi);
-                return sb.Build();
-            }
-            // "R<n>" is "G<n>" for decimal (case preserved for the exponent character).
-            if (fmt == 'R' || fmt == 'r') fmt = (char)(fmt - ('R' - 'G'));
-            if ((fmt == 'G' || fmt == 'g') && precision < 0)
-            {
-                // ECMA: all digits, trailing zeros included, never scientific; no "-0".
-                if (g.N > 0 && g.Neg) sb.Append(nfi.NegativeSign);
-                FormatGeneral(ref sb, ref g, 0, 'E', true, nfi);
-                return sb.Build();
-            }
-            if (fmt == 'D' || fmt == 'd' || fmt == 'X' || fmt == 'x' || fmt == 'B' || fmt == 'b') ThrowBadFormat();
-            // "G0" means "as many digits as the decimal has", trailing zeros counted (1e20m.ToString("G0")
-            // stays fixed-point because its 21 digits exceed the exponent) but not printed.
-            if ((fmt == 'G' || fmt == 'g') && precision == 0) precision = g.N > 0 ? g.N : 1;
-            TrimTrailingZeros(ref g);
-            FormatStandard(ref sb, ref g, fmt, precision, false, nfi);
-            return sb.Build();
-        }
 
-        private static void TrimTrailingZeros(ref DigitBuffer g)
-        {
-            while (g.N > 0 && g.D[g.N - 1] == (byte)'0') g.N--;
-            if (g.N == 0) { g.Exp10 = 0; g.Neg = false; }
-        }
 
-        internal static string DecimalToString(decimal value) => FormatDecimalWith(value, null, null);
+        internal static string DecimalToString(decimal value) => UpstreamNumber.FormatDecimal(null, value, null, NumberFormatInfo.CurrentInfo);
 
         /// <summary>Boxed decimal's ToString (the runtime passes the payload's address).</summary>
         [RuntimeExport("csrt_decimal_to_string", "csrt_Boxed_Decimal_MT")]
-        internal static string DecimalToStringAt(ref decimal value) => FormatDecimalWith(value, null, null);
+        internal static string DecimalToStringAt(ref decimal value) => DecimalToString(value);
 
         // ==========================================================================================
         // Custom format strings: .NET's NumberToStringFormat (Number.Formatting.Common.cs, see above)
         // ==========================================================================================
 
-        private static int FindSection(string format, int section)
-        {
-            if (section == 0) return 0;
-            int src = 0;
-            while (true)
-            {
-                if (src >= format.Length) return 0;
-                char ch = format[src++];
-                switch (ch)
-                {
-                    case '\'':
-                    case '"':
-                        while (src < format.Length && format[src++] != ch) { }
-                        break;
-                    case '\\':
-                        if (src < format.Length) src++;
-                        break;
-                    case ';':
-                        if (--section != 0) break;
-                        if (src < format.Length && format[src] != ';') return src;
-                        return 0;
-                }
-            }
-        }
 
-        private static bool HasNegativeSection(string format) => FindSection(format, 1) != 0;
 
-        private static void FormatCustom(ref CharBuilder sb, ref DigitBuffer g, string format, NumberFormatInfo nfi, bool tiesToEven = false)
-        {
-            int digitCount, decimalPos, firstDigit, lastDigit;
-            bool scientific;
-            int thousandPos, thousandCount = 0;
-            bool thousandSeps;
-            int scaleAdjust;
-            int src;
-            int section = FindSection(format, g.N == 0 ? 2 : g.Neg ? 1 : 0);
-            while (true)
-            {
-                digitCount = 0; decimalPos = -1; firstDigit = 0x7FFFFFFF; lastDigit = 0; scientific = false;
-                thousandPos = -1; thousandSeps = false; scaleAdjust = 0;
-                src = section;
-                while (src < format.Length)
-                {
-                    char ch = format[src++];
-                    if (ch == ';') break;
-                    switch (ch)
-                    {
-                        case '#': digitCount++; break;
-                        case '0':
-                            if (firstDigit == 0x7FFFFFFF) firstDigit = digitCount;
-                            digitCount++;
-                            lastDigit = digitCount;
-                            break;
-                        case '.':
-                            if (decimalPos < 0) decimalPos = digitCount;
-                            break;
-                        case ',':
-                            if (digitCount > 0 && decimalPos < 0)
-                            {
-                                if (thousandPos >= 0)
-                                {
-                                    if (thousandPos == digitCount) { thousandCount++; break; }
-                                    thousandSeps = true;
-                                }
-                                thousandPos = digitCount;
-                                thousandCount = 1;
-                            }
-                            break;
-                        case '%': scaleAdjust += 2; break;
-                        case '\x2030': scaleAdjust += 3; break;
-                        case '\'':
-                        case '"':
-                            while (src < format.Length && format[src++] != ch) { }
-                            break;
-                        case '\\':
-                            if (src < format.Length) src++;
-                            break;
-                        case 'E':
-                        case 'e':
-                            if ((src < format.Length && format[src] == '0') ||
-                                (src + 1 < format.Length && (format[src] == '+' || format[src] == '-') && format[src + 1] == '0'))
-                            {
-                                while (++src < format.Length && format[src] == '0') { }
-                                scientific = true;
-                            }
-                            break;
-                    }
-                }
-                if (decimalPos < 0) decimalPos = digitCount;
-                if (thousandPos >= 0)
-                {
-                    if (thousandPos == decimalPos) scaleAdjust -= thousandCount * 3;
-                    else thousandSeps = true;
-                }
-                if (g.N != 0)
-                {
-                    g.Exp10 += scaleAdjust;
-                    int pos = scientific ? digitCount : g.Exp10 + digitCount - decimalPos;
-                    Round(ref g, pos, tiesToEven);
-                    if (g.N == 0)
-                    {
-                        int zero = FindSection(format, 2);
-                        if (zero != section) { section = zero; continue; }
-                    }
-                }
-                else
-                {
-                    if (!g.IsFloat) g.Neg = false;
-                    g.Exp10 = 0;
-                }
-                break;
-            }
-
-            firstDigit = firstDigit < decimalPos ? decimalPos - firstDigit : 0;
-            lastDigit = lastDigit > decimalPos ? decimalPos - lastDigit : 0;
-            int digPos, adjust;
-            if (scientific) { digPos = decimalPos; adjust = 0; }
-            else
-            {
-                digPos = g.Exp10 > decimalPos ? g.Exp10 : decimalPos;
-                adjust = g.Exp10 - decimalPos;
-            }
-            src = section;
-
-            // Where the group separators go (digit positions), from the culture's NumberGroupSizes.
-            Span<int> thousandsSepPos = stackalloc int[4];
-            int thousandsSepCtr = -1;
-            if (thousandSeps && nfi.NumberGroupSeparator.Length > 0)
-            {
-                int[] groupDigits = NumberFormatInfoInternals.NumberGroupSizes(nfi);
-                int groupSizeIndex = 0;
-                int groupTotalSizeCount = 0;
-                int groupSizeLen = groupDigits.Length;
-                if (groupSizeLen != 0) groupTotalSizeCount = groupDigits[groupSizeIndex];
-                int groupSize = groupTotalSizeCount;
-                int totalDigits = digPos + (adjust < 0 ? adjust : 0);
-                int numDigits = firstDigit > totalDigits ? firstDigit : totalDigits;
-                while (numDigits > groupTotalSizeCount)
-                {
-                    if (groupSize == 0) break;
-                    ++thousandsSepCtr;
-                    if (thousandsSepCtr >= thousandsSepPos.Length)
-                    {
-                        int[] grown = new int[thousandsSepPos.Length * 2];
-                        thousandsSepPos.CopyTo(grown);
-                        thousandsSepPos = grown;
-                    }
-                    thousandsSepPos[thousandsSepCtr] = groupTotalSizeCount;
-                    if (groupSizeIndex < groupSizeLen - 1)
-                    {
-                        groupSizeIndex++;
-                        groupSize = groupDigits[groupSizeIndex];
-                    }
-                    groupTotalSizeCount += groupSize;
-                }
-            }
-
-            int start = sb.Length;
-            // A dedicated negative section emits the sign itself; a negative value that rounded to zero
-            // and fell back to the first section gets no extra sign then (.NET 11).
-            if (g.Neg && section == 0 && g.Exp10 != 0 && !HasNegativeSection(format)) sb.Append(nfi.NegativeSign);
-            bool decimalWritten = false;
-            int di = 0;
-            while (src < format.Length)
-            {
-                char ch = format[src++];
-                if (ch == ';') break;
-                if (adjust > 0 && (ch == '#' || ch == '0' || ch == '.'))
-                {
-                    while (adjust > 0)
-                    {
-                        sb.Append(di < g.N ? (char)g.D[di++] : '0');
-                        if (thousandSeps && digPos > 1 && thousandsSepCtr >= 0 && digPos == thousandsSepPos[thousandsSepCtr] + 1)
-                        {
-                            sb.Append(nfi.NumberGroupSeparator);
-                            thousandsSepCtr--;
-                        }
-                        digPos--;
-                        adjust--;
-                    }
-                }
-                switch (ch)
-                {
-                    case '#':
-                    case '0':
-                    {
-                        char c;
-                        if (adjust < 0)
-                        {
-                            adjust++;
-                            c = digPos <= firstDigit ? '0' : '\0';
-                        }
-                        else
-                        {
-                            c = di < g.N ? (char)g.D[di++] : digPos > lastDigit ? '0' : '\0';
-                        }
-                        if (c != '\0')
-                        {
-                            sb.Append(c);
-                            if (thousandSeps && digPos > 1 && thousandsSepCtr >= 0 && digPos == thousandsSepPos[thousandsSepCtr] + 1)
-                            {
-                                sb.Append(nfi.NumberGroupSeparator);
-                                thousandsSepCtr--;
-                            }
-                        }
-                        digPos--;
-                        break;
-                    }
-                    case '.':
-                        if (digPos != 0 || decimalWritten) break;
-                        if (lastDigit < 0 || (decimalPos < digitCount && di < g.N))
-                        {
-                            sb.Append(nfi.NumberDecimalSeparator);
-                            decimalWritten = true;
-                        }
-                        break;
-                    case '\x2030': sb.Append(nfi.PerMilleSymbol); break;
-                    case '%': sb.Append(nfi.PercentSymbol); break;
-                    case ',': break;
-                    case '\'':
-                    case '"':
-                        while (src < format.Length && format[src] != ch) sb.Append(format[src++]);
-                        if (src < format.Length) src++;
-                        break;
-                    case '\\':
-                        if (src < format.Length) sb.Append(format[src++]);
-                        break;
-                    case 'E':
-                    case 'e':
-                    {
-                        bool positiveSign = false;
-                        int i = 0;
-                        if (scientific)
-                        {
-                            if (src < format.Length && format[src] == '0') i++;
-                            else if (src + 1 < format.Length && format[src] == '+' && format[src + 1] == '0') positiveSign = true;
-                            else if (src + 1 < format.Length && format[src] == '-' && format[src + 1] == '0') { }
-                            else { sb.Append(ch); break; }
-                            while (++src < format.Length && format[src] == '0') i++;
-                            if (i > 10) i = 10;
-                            int exp = g.N == 0 ? 0 : g.Exp10 - decimalPos;
-                            FormatExponent(ref sb, exp, ch, i, positiveSign, nfi);
-                            scientific = false;
-                        }
-                        else
-                        {
-                            sb.Append(ch);
-                            if (src < format.Length)
-                            {
-                                if (format[src] == '+' || format[src] == '-') sb.Append(format[src++]);
-                                while (src < format.Length && format[src] == '0') sb.Append(format[src++]);
-                            }
-                        }
-                        break;
-                    }
-                    default:
-                        sb.Append(ch);
-                        break;
-                }
-            }
-            if (g.Neg && section == 0 && g.Exp10 == 0 && sb.Length > start && !HasNegativeSection(format)) sb.Insert(start, nfi.NegativeSign);
-        }
 
         // ==========================================================================================
         // Composite formatting, alignment, objects
@@ -1192,23 +616,11 @@ namespace CsharpcCoreLib
             return value.ToString() ?? "";
         }
 
-        // .NET's ThrowHelper.ThrowFormatInvalidString(offset, reason).
-        internal static void ThrowInvalidComposite(int offset, string reason) =>
-            throw new FormatException("Input string was not in a correct format. Failure to parse near offset " +
-                Int32ToDecStr(offset) + ". " + reason);
 
         private const string UnclosedFormatItem = "Format item ends prematurely.";
         private const string ExpectedAsciiDigit = "Expected an ASCII digit.";
 
-        // Advances to the next character of a format item; running off the end is an unclosed item.
-        private static char MoveNext(string format, ref int pos)
-        {
-            pos++;
-            if (pos >= format.Length) ThrowInvalidComposite(pos, UnclosedFormatItem);
-            return format[pos];
-        }
 
-        internal static char CompositeMoveNext(string format, ref int pos) => MoveNext(format, ref pos);
 
         /// <summary>
         /// string.Format(format, args): "{index[,alignment][:format]}" with "{{" / "}}" escapes. Mirrors
@@ -1220,86 +632,11 @@ namespace CsharpcCoreLib
         /// <summary>string.Format(provider, format, args); an ICustomFormatter from the provider formats each argument first.</summary>
         internal static string FormatCompositeWith(IFormatProvider provider, string format, object[] args)
         {
-            ICustomFormatter customFormatter = provider == null ? null : provider.GetFormat(typeof(ICustomFormatter)) as ICustomFormatter;
             if (format == null) throw new ArgumentNullException("format");
-            const int IndexLimit = 1000000, WidthLimit = 1000000;  // exclusive limits, as in .NET
-            int count = args == null ? 0 : args.Length;
-            Span<char> chars = stackalloc char[256];
-            var sb = new CharBuilder(chars);
-            int pos = 0;
-            char ch;
-            while (true)
-            {
-                // Literal text up to the next unescaped '{'.
-                while (true)
-                {
-                    if (pos >= format.Length) return sb.Build();
-                    char c = format[pos];
-                    if (c != '{' && c != '}') { sb.Append(c); pos++; continue; }
-                    ch = MoveNext(format, ref pos);
-                    if (c == ch) { sb.Append(ch); pos++; continue; }
-                    if (c != '{') ThrowInvalidComposite(pos, "Unexpected closing brace without a corresponding opening brace.");
-                    break;
-                }
-
-                int width = 0;
-                bool leftJustify = false;
-                string spec = null;
-                int index = ch - '0';
-                if ((uint)index >= 10u) ThrowInvalidComposite(pos, ExpectedAsciiDigit);
-                ch = MoveNext(format, ref pos);
-                if (ch != '}')
-                {
-                    while (ch >= '0' && ch <= '9' && index < IndexLimit)
-                    {
-                        index = index * 10 + ch - '0';
-                        ch = MoveNext(format, ref pos);
-                    }
-                    while (ch == ' ') ch = MoveNext(format, ref pos);
-                    if (ch == ',')
-                    {
-                        do { ch = MoveNext(format, ref pos); } while (ch == ' ');
-                        if (ch == '-')
-                        {
-                            leftJustify = true;
-                            ch = MoveNext(format, ref pos);
-                        }
-                        width = ch - '0';
-                        if ((uint)width >= 10u) ThrowInvalidComposite(pos, ExpectedAsciiDigit);
-                        ch = MoveNext(format, ref pos);
-                        while (ch >= '0' && ch <= '9' && width < WidthLimit)
-                        {
-                            width = width * 10 + ch - '0';
-                            ch = MoveNext(format, ref pos);
-                        }
-                        while (ch == ' ') ch = MoveNext(format, ref pos);
-                    }
-                    if (ch != '}')
-                    {
-                        if (ch != ':') ThrowInvalidComposite(pos, UnclosedFormatItem);
-                        int startingPos = pos;
-                        while (true)
-                        {
-                            ch = MoveNext(format, ref pos);
-                            if (ch == '}') break;
-                            if (ch == '{') ThrowInvalidComposite(pos, UnclosedFormatItem);
-                        }
-                        startingPos++;
-                        spec = format.Substring(startingPos, pos - startingPos);
-                    }
-                }
-                pos++;
-                if (index >= count)
-                    throw new FormatException("Index (zero based) must be greater than or equal to zero and less than the size of the argument list.");
-                string piece = null;
-                if (customFormatter != null) piece = customFormatter.Format(spec, args[index], provider);
-                if (piece == null) piece = FormatObjectWith(args[index], spec, provider);
-                int len = piece.Length;
-                if (!leftJustify && width > len) sb.Append(' ', width - len);
-                sb.Append(piece);
-                if (leftJustify && width > len) sb.Append(' ', width - len);
-            }
+            // The framework's StringBuilder.AppendFormat (served from its IL): the same parsing, alignment, ICustomFormatter and error texts.
+            return new System.Text.StringBuilder(format.Length + 16 * (args == null ? 0 : args.Length)).AppendFormat(provider, format, args).ToString();
         }
+
 
         /// <summary>Console.Write(double/float) (formerly csrt_console_write_f64/f32).</summary>
         internal static void ConsoleWriteDouble(double value) => Console.Write(DoubleToString(value));

@@ -40,16 +40,8 @@ internal static class CoreLibRuntime
         ["csrt_format_object"] = ("Number", "FormatObject"),
         ["csrt_string_format"] = ("Number", "FormatComposite"),
         ["csrt_format_i128"] = ("Number", "FormatInt128"),
-        // parsing and rounding (Number.Parsing.cs)
-        ["csrt_int32_parse"] = ("Number", "ParseInt32"),
-        ["csrt_int64_parse"] = ("Number", "ParseInt64"),
-        ["csrt_double_parse"] = ("Number", "ParseDouble"),
-        ["csrt_int32_try_parse"] = ("Number", "TryParseInt32"),
-        ["csrt_int64_try_parse"] = ("Number", "TryParseInt64"),
-        ["csrt_double_try_parse"] = ("Number", "TryParseDouble"),
+        // Enum.Parse's integer reader and rounding (Number.Parsing.cs)
         ["csrt_parse_i64_styled"] = ("Number", "ParseInt64Styled"),
-        ["csrt_parse_f64_styled"] = ("Number", "ParseDoubleStyled"),
-        ["csrt_parse_f64_styled_or_throw"] = ("Number", "ParseDoubleStyledOrThrow"),
         ["csrt_math_round_digits"] = ("Number", "RoundDigits"),
         ["csrt_math_round_mode"] = ("Number", "RoundMode"),
         // System.Decimal operations taking decimals by address (DecimalOps.cs); see also FunctionCodeGen.DecimalCall
