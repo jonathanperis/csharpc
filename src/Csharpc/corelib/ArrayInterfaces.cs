@@ -247,6 +247,10 @@ namespace CsharpcCoreLib
     {
         public static IEnumerator<char> IEnumerable1_GetEnumerator(string s) => new StringEnumerator(s);
 
+        // IComparable<string> and IEquatable<string>: String's own CompareTo (culture-sensitive, as .NET's) and Equals (ordinal).
+        public static int IComparable1_CompareTo(string s, string other) => s.CompareTo(other);
+        public static bool IEquatable1_Equals(string s, string other) => s.Equals(other);
+
         // IConvertible (System.Data's connection string builders convert their values with it): String's own
         // implementation, which parses with the provider (Convert.ToX(string, provider)).
         public static TypeCode IConvertible_GetTypeCode(string s) => TypeCode.String;
