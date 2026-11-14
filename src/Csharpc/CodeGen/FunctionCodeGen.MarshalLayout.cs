@@ -221,7 +221,7 @@ public sealed partial class FunctionCodeGen
     /// <summary>The type an argument of type Type (typeof(X)) or object (the structure) stands for, when it is known statically.</summary>
     private ITypeSymbol? MarshalTypeOf(IOperation argument, bool structure)
     {
-        if (!structure) return TypeOfOperand(argument) is { } typeOf ? S(typeOf) : null;
+        if (!structure) return ExactTypeOf(argument) is { } typeOf ? S(typeOf) : null;
         var value = argument;
         while (value is IConversionOperation { Operand: var operand } conversion && !conversion.Conversion.IsUserDefined && !conversion.Conversion.IsNumeric && !conversion.Conversion.IsNullable)
             value = operand;

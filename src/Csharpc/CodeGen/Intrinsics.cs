@@ -202,7 +202,7 @@ internal static class Intrinsics
         {
             var self = g.EmitValue(inv.Instance!);
             Arg(g, inv, 1); // `inherit`: evaluated, no effect for assemblies
-            return FunctionCodeGen.TypeOfOperand(inv.Arguments.First(a => a.Parameter!.Ordinal == 0).Value) is INamedTypeSymbol attributeType
+            return g.ExactTypeOf(inv.Arguments.First(a => a.Parameter!.Ordinal == 0).Value) is INamedTypeSymbol attributeType
                 ? g.AssemblyCustomAttributes((INamedTypeSymbol)g.Substitution.Apply(attributeType), self, inv)
                 : throw CompileError.Unsupported("Assembly.GetCustomAttributes with a Type that is not typeof(an attribute)", inv);
         };
@@ -238,7 +238,7 @@ internal static class Intrinsics
         };
         t["System.Enum.GetName(System.Type, object)"] = (g, inv) =>
         {
-            if (FunctionCodeGen.TypeOfOperand(inv.Arguments.First(a => a.Parameter!.Ordinal == 0).Value) is not INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType)
+            if (g.ExactTypeOf(inv.Arguments.First(a => a.Parameter!.Ordinal == 0).Value) is not INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType)
                 throw CompileError.Unsupported("Enum.GetName with a non-constant Type", inv);
             var raw = UnboxEnum(inv.Arguments.First(a => a.Parameter!.Ordinal == 1).Value);
             var value = g.Coerce(g.EmitValue(raw), raw.Type, enumType.EnumUnderlyingType!);
