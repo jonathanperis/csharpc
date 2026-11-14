@@ -309,7 +309,7 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
                 if (symbol is not null && Dependent(symbol, op)) return new SharingReason(op + ":", symbol);
             return null;
         }
-        return SlotKeys(definition) is { Count: > 0 } keys ? keys.Min(StringComparer.Ordinal) : null;
+        return SlotKeys(definition) is { Count: > 0 } keys ? new SharingReason(keys.Min(StringComparer.Ordinal)!) : null;
     }
 
     /// <summary>The type-parameter-dependent symbols a definition's body names (null: body not readable).</summary>
@@ -377,6 +377,8 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
                 // (an element of an array over T: a store or a writable reference checks the array's exact element type)
                 IArrayElementReferenceOperation { ArrayReference.Type: IArrayTypeSymbol array } => array,
                 ICatchClauseOperation c => c.ExceptionType,
+                // (foreach over IEnumerable<T>: the shared body dispatches on IEnumerator<T>, an interface the dictionary supplies)
+                IForEachLoopOperation loop when IsInterfaceEnumeration(loop) => EnumeratorOf(loop).ReturnType,
                 _ => null,
             };
             if (symbol is not null && Dependent(symbol, ILOpCode.Nop)) needed.Add(op.Kind + ":" + symbol.ToDisplayString());
@@ -621,6 +623,7 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
                     IIsTypeOperation isType => isType.TypeOperand,
                     IPatternOperation pattern => pattern.NarrowedType,
                     IVariableDeclaratorOperation declarator => declarator.Symbol,
+                    IForEachLoopOperation loop when IsInterfaceEnumeration(loop) => EnumeratorOf(loop),
                     _ => null,
                 });
             }
@@ -773,6 +776,10 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
             }
         return null;
     }
+
+    /// <summary>IEnumerable&lt;X&gt;.GetEnumerator of an interface enumeration (IsInterfaceEnumeration): its return type is IEnumerator&lt;X&gt;.</summary>
+    private static IMethodSymbol EnumeratorOf(IForEachLoopOperation loop) =>
+        ((INamedTypeSymbol)loop.Collection.Type!).GetMembers("GetEnumerator").OfType<IMethodSymbol>().First(m => m.Parameters.IsEmpty);
 
     private static bool IsInterfaceEnumeration(IForEachLoopOperation loop) =>
         loop is { IsAsynchronous: false, LoopControlVariable: IVariableDeclaratorOperation { Symbol: { RefKind: RefKind.None } variable } }
