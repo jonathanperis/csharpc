@@ -47,27 +47,38 @@ public sealed partial class FunctionCodeGen
     private IMethodSymbol? HostedBuiltinMember(IMethodSymbol target, ITypeSymbol? constrainedTo)
     {
         if (!target.IsStatic) return null;
-        var implementation = target;
+        var name = target.MetadataName;
         INamedTypeSymbol owner;
         if (target.ContainingType.TypeKind == TypeKind.Interface)
         {
             if (constrainedTo is null || S(constrainedTo) is not INamedTypeSymbol concrete) return null;
             var member = target.IsGenericMethod ? target.ConstructedFrom : target;
-            if (concrete.FindImplementationForInterfaceMember(member) is not IMethodSymbol found) return null;
-            (implementation, owner) = (found, concrete);
+            // A protected member's explicit implementation (INumberBase<ulong>.TryConvertToChecked<TOther>, which CreateChecked's IL calls on
+            // its TOther) is private, so the reference pack leaves it out: the host class has it under the name C# gives it.
+            name = concrete.FindImplementationForInterfaceMember(member) is IMethodSymbol found ? found.MetadataName : ExplicitImplementationName(target);
+            owner = concrete;
         }
         else owner = target.ContainingType;
         if (!Frontend.UpstreamSlice.MemberClasses.TryGetValue(Mangler.MetadataName(owner.OriginalDefinition), out var classes)) return null;
         var typeArguments = target.TypeArguments.Select(a => S(a)).ToArray();
         foreach (var className in classes)
             foreach (var holder in _m.Compilation.GetTypesByMetadataName(className))
-                foreach (var candidate in holder.GetMembers(implementation.MetadataName).OfType<IMethodSymbol>())
+                foreach (var candidate in holder.GetMembers(name).OfType<IMethodSymbol>())
                 {
                     if (!candidate.IsStatic || candidate.TypeParameters.Length != typeArguments.Length) continue;
                     var constructed = typeArguments.Length > 0 ? candidate.Construct(typeArguments) : candidate;
                     if (SameSignature(constructed, target)) return constructed;
                 }
         return null;
+    }
+
+    /// <summary>"System.Numerics.INumberBase&lt;System.UInt64&gt;.TryConvertToChecked": the metadata name of an explicit implementation of the member.</summary>
+    private string ExplicitImplementationName(IMethodSymbol member)
+    {
+        var type = member.ContainingType;
+        var ns = type.ContainingNamespace is { IsGlobalNamespace: false } n ? n.ToDisplayString() + "." : "";
+        var arguments = type.TypeArguments.Select(a => S(a) is INamedTypeSymbol named ? Mangler.MetadataName(named) : a.ToDisplayString());
+        return ns + type.Name + (type.TypeArguments.Length > 0 ? "<" + string.Join(",", arguments) + ">" : "") + "." + member.Name;
     }
 
     /// <summary>"System.IUtfChar`1": the interface's CoreLib metadata name, without the namespace a slice puts its copy under.</summary>

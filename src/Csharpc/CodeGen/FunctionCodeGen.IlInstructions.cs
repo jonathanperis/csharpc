@@ -266,6 +266,8 @@ public sealed partial class FunctionCodeGen
             case ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj:
                 IlCall(instruction, stack, constrained, isReadonly);
                 return false;
+            case ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld when TryEmitIlInt128Half(op, instruction.Token, stack):
+                return false; // before the symbol lookup below: the reference pack has no such field
             case ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld
                 when IlAssembly.ResolveMember(instruction.Token, IlBody.Context) is IEventSymbol backing:
                 IlEventBackingField(op, backing, stack);
