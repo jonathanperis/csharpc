@@ -22,6 +22,18 @@ class Box<T>
     public override string ToString() => $"Box<{typeof(T).Name}>({Value})";
 }
 
+// Two type parameters, used with the arguments swapped: shared code must still tell List<TKey> from List<TValue>.
+class Pair<TKey, TValue>
+{
+    private readonly List<TKey> _keys = new List<TKey>();
+    private readonly List<TValue> _values = new List<TValue>();
+    public void Add(TKey key, TValue value) { _keys.Add(key); _values.Add(value); }
+    public string Describe() => $"{GetType()} {_keys.GetType()} {_values.GetType()} {new TKey[0].GetType()} {new TValue[0].GetType()} {typeof(TKey).Name}/{typeof(TValue).Name}";
+    public string Tests(object o) => $"{o is TKey} {o is TValue} {o is List<TKey>} {o is List<TValue>}";
+    public object Keys => _keys;
+    public object Values => _values;
+}
+
 static class Generic
 {
     public static string Name<T>() => typeof(T).ToString();
@@ -57,6 +69,17 @@ class Program
         Console.WriteLine(Generic.Name<string>() + " " + Generic.Name<Customer>() + " " + Generic.Name<List<Customer>>() + " " + Generic.Name<int>());
         Console.WriteLine(Generic.Pair("a", new Customer()) + " " + Generic.Pair(new Order(), 3));
         Console.WriteLine(Generic.Make<Customer>() + " " + Generic.Make<List<string>>().GetType());
+        var byName = new Pair<string, Customer>();
+        byName.Add("a", new Customer());
+        var byCustomer = new Pair<Customer, string>();
+        byCustomer.Add(new Customer(), "a");
+        foreach (var o in new object[] { byName, byCustomer })
+        {
+            var describe = o is Pair<string, Customer> p ? p.Describe() + " | " + p.Tests(p.Keys) + " | " + p.Tests(p.Values) + " | " + p.Tests("s")
+                : ((Pair<Customer, string>)o).Describe() + " | " + ((Pair<Customer, string>)o).Tests(((Pair<Customer, string>)o).Keys) + " | "
+                  + ((Pair<Customer, string>)o).Tests(((Pair<Customer, string>)o).Values) + " | " + ((Pair<Customer, string>)o).Tests("s");
+            Console.WriteLine(describe);
+        }
         Console.WriteLine(new Dictionary<string, Customer>().GetType() + " " + new KeyValuePair<Customer, string>(new Customer(), "v"));
     }
 }

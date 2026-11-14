@@ -58,6 +58,7 @@ public sealed partial class ModuleCodeGen
 
     internal void RegisterTypeMethodTable(LLVMValueRef mt, object type)
     {
+        if (!_canonMethodTable.IsNull && mt.Handle == _canonMethodTable.Handle) return; // a canonical form is not a type
         if (_typeMtSeen.Add(mt.Handle)) _typeMts.Add((mt, type));
     }
 

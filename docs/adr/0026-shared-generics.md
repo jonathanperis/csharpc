@@ -25,22 +25,40 @@ arguments and for hot paths that a measured heuristic (below) marks. Build every
 
 ### 1. Canonical forms
 
-- Canonicalization replaces each type argument that is a reference type (class, interface, delegate, string, array, `object`) with
-  `__Canon`, recursively (`List<List<string>>` → `List<__Canon>`; `Dictionary<string, int>` → `Dictionary<__Canon, int>`). Value types
-  stay (`List<int>` is its own form; `KeyValuePair<string, int>` → `KeyValuePair<__Canon, int>`). A method's own type arguments are
-  canonicalized the same way, as are those of every containing type.
-- `__Canon` is a compiler-internal class symbol with `object`'s representation. A canonical body therefore has one LLVM signature for
-  every instantiation it serves, and a generic class's instance layout over `__Canon` is the layout over any reference type: instances of
-  `List<string>` and `List<Customer>` have the same fields at the same offsets.
+- Canonicalization replaces each type argument that is a reference type (class, interface, string, single-dimension array, `object`)
+  with a **positional marker**: `__Canon0`, `__Canon1`, …, where the number is the type parameter's position in the flattened parameter
+  list of its class and the classes that contain it, outermost first (`Pair<string, Customer>` → `Pair<__Canon0, __Canon1>`;
+  `Pair<int, string>` → `Pair<int, __Canon1>`; `Outer<string>.Inner<Customer>` → `Outer<__Canon0>.Inner<__Canon1>`;
+  `Dictionary<string, int>` → `Dictionary<__Canon0, int>`). Value types stay (`List<int>` is its own form). A method's own type arguments
+  are kept as they are until step 4 shares generic methods.
+- *Why markers and not one `__Canon`* (changed in step 3b-1): a canonical body must tell `List<TKey>` from `List<TValue>` when it asks its
+  dictionary for a type handle. With one `__Canon`, `Pair<__Canon, __Canon>` names both `List<__Canon>`, and the two requests would share
+  a slot, so `Pair<string, Customer>` would answer `is List<TValue>` with `List<string>`'s table. A marker per position keeps every type a
+  body names distinct, and the position is stable (it does not depend on which other arguments happen to be reference types), so
+  `C<string, int>` and `C<int, string>` can never collide by accident. Calls out of a canonical body name the callee in terms of the
+  caller's markers and are re-canonicalized to the callee's own positions (`Pair<__Canon0, __Canon1>` creating `Pair<__Canon1, __Canon0>`
+  reaches the same canonical form as any other `Pair` over two references). NativeAOT keys its lookups on the open signature for the same
+  reason.
+- Markers are internal, abstract classes with `object`'s representation, never instantiated and never observable: a canonical form has a
+  layout (field offsets and vtable slots, the same for every instantiation it stands for: instances of `List<string>` and
+  `List<Customer>` have the same fields at the same offsets) but no method table, no type name and no reflection record. Abstract and not
+  sealed: a type parameter stands for any class, so no lowering decision may reason from the marker being a leaf type (#362: a sealed
+  marker made `T[]` look never covariant and dropped the array store check). The guard is twofold: a type that names a marker has a
+  stand-in symbol for its method table, which only the dictionary path may replace, and the end of the module checks that nothing uses
+  that symbol and that no global, type-name string or reflection record names a marker; a hit is an internal error, never a program.
+- Up to eight flattened parameters share; a class with more stays exact. Instantiations whose arguments are delegates (variance is decided
+  by a test function per delegate type) or multi-dimensional arrays stay exact for now.
 - Function, layout and mangling keys (`Generics.cs`, `GetFunction`, the worklist) move from the constructed symbol to its canonical form
-  when the form contains `__Canon`; the mangled name carries `I__CanonE`, as ILC's symbol names do.
+  when the form contains a marker; the mangled name carries the marker (`N14CsharpcCoreLib8__Canon0E`), as ILC's symbol names carry `__Canon`.
 
 ### 2. The generic dictionary
 
 A shared body cannot name `T`; whatever depends on the exact `T` comes from a generic dictionary, one constant per exact instantiation.
 
-- **Where the body finds it.** For instance methods of generic classes: a new method-table header field points at the class's
-  dictionary, and the body loads it from `this` (one load more than a field access). For static methods, generic methods (whose own
+- **Where the body finds it.** For instance methods of generic classes: a vtable slot of the generic class's own section (appended after
+  the virtuals it introduces, so its index is fixed for the canonical class and inherited by derived classes) points at the dictionary,
+  and the body loads it from `this`: method table, slot, entry, three dependent loads of constant data. No header field: non-generic
+  classes pay nothing. For static methods, generic methods (whose own
   arguments the receiver cannot carry), and methods of generic structs (no method table on `this`): a hidden trailing parameter, the
   "instantiating argument", passed by every caller; a caller in shared code passes a pointer it loaded from its own dictionary.
   Interface and virtual calls into shared instance methods need nothing extra: the receiver brings its method table.
@@ -50,9 +68,17 @@ A shared body cannot name `T`; whatever depends on the exact `T` comes from a ge
   addresses that depend on the exact instantiation (delegates to generic methods, generic virtual methods' targets, calls into other
   shared generic methods that themselves need a dictionary); interface method tables over `T` for the call sites that test or dispatch
   on them; reflection records for `MethodBase.GetCurrentMethod()` and `typeof(T)`.
-- **Eager, not lazy.** ILC fills dictionaries lazily through helper stubs because it cannot always know every instantiation. csharpc
-  compiles a closed world (ADR 0006), and its worklist already reaches every exact instantiation; each dictionary is constant data,
-  emitted when the instantiation is reached. No lookup helpers, no locks, no run-time type loading; a slot load is one memory read.
+- **Constant, not lazy at run time.** ILC fills dictionaries lazily through helper stubs because it cannot always know every
+  instantiation. csharpc compiles a closed world (ADR 0006), and its worklist already reaches every exact instantiation; each dictionary
+  is constant data. No lookup helpers, no locks, no run-time type loading.
+- **Slots are assigned during lowering, deterministically** (step 3b-1). Predicting every slot up front would mean a second lowering:
+  intrinsics (`Array.Copy`, the span helpers) ask for handles of types that appear only in signatures. So a canonical body gets a slot the
+  first time its lowering asks for a handle, and every exact instantiation of its class, already reached or reached later, gets that
+  entry filled in the same worklist (filling an entry can reach new method tables and functions). Lowering is single-threaded and the
+  worklist order is fixed, so the slot numbers are too: json and regexoptions compiled twice with the flag on give byte-identical IR. The
+  up-front analysis stays as the eligibility check: a body may ask only for the handle of a type it names (its instructions' operands,
+  the types of the members, locals and parameters it uses, and what those are built from), and any other request is an internal error.
+  So is a request after the dictionaries are emitted.
 - **Layout.** A flat array of pointers per exact instantiation: the class part (shared by all instance methods of the class) then the
   method parts. Nested dictionaries (a generic method in a generic class) chain through one slot. The compiler records the slot map per
   canonical method so the size of every dictionary is known and reported.
@@ -60,14 +86,14 @@ A shared body cannot name `T`; whatever depends on the exact `T` comes from a ge
 ### 3. Method tables, the GC, the unwinder and stack traces
 
 - **Method tables** stay one per exact instantiation (type identity, `GetType()`, `is List<string>`, variance registration and reflection
-  are unchanged), plus the dictionary field in the header; their vtables and interface maps point at the shared code. `csrt.h`,
-  `TypeMapper.MethodTableHeader` and `ModuleCodeGen.EmitMethodTable` change together (the shared-ABI rule).
+  are unchanged), plus the dictionary slot in the generic class's vtable section; their vtables and interface maps point at the shared
+  code. The header does not change.
 - **The GC needs no generic type information from frames.** The collector is conservative and non-moving (ADR 0004;
   `src/runtime/gc.c`, header comment: "Roots are scanned conservatively: the main thread's stack (with callee-saved registers spilled by
   setjmp) and the writable segments", and `scan_range`, which reads every word of a range): it scans stacks, registers and TLS for
   anything that looks like a pointer and never asks a frame what its slots hold; no frame maps exist to extend. A shared frame holding `T` values
   as pointers is scanned like any other frame, and dictionaries are constant data in the image, not heap objects. On wasm32 the roots are
-  spilled to the shadow stack (ADR 0011); a `__Canon` value is a pointer and is spilled like any reference. (ILC needs per-frame generic
+  spilled to the shadow stack (ADR 0011); a value typed by a marker is a pointer and is spilled like any reference. (ILC needs per-frame generic
   context reporting because its GC is precise; that work does not exist here.)
 - **The unwinder and exception dispatch.** Unwinding is DWARF/SEH through libunwind with csharpc's personality (ADR 0005, 0012); frames of
   shared code unwind like any other. The one change: a `catch (T)` (or a filter on `T`) in shared code cannot name `T`'s method table as a
@@ -95,7 +121,7 @@ instantiation, also through the dictionary.
   interface; in shared code they compare against the classes for every instantiation the canonical body serves, still a small set.
 - Casts and type tests on `T` load the target from the dictionary: `csrt_isinst_class(obj, dict[k])`. The compile-time folds that need an
   exact `T` (`typeof(A) == typeof(B)`, `box T; isinst I`, the default-comparer guards of #223/#269, `IsValueType`/`IsEnum`) stay exact
-  for value types (which are not shared) and become dictionary loads plus a compare for `__Canon`.
+  for value types (which are not shared) and become dictionary loads plus a compare for the markers.
 - Generic virtual methods keep their per-instantiation dispatcher (`GenericVirtualCall`), keyed by the canonical form of the method's
   type arguments plus the dictionary for the exact ones.
 
@@ -103,14 +129,20 @@ instantiation, also through the dictionary.
 
 The Roslyn front-end and the IL front-end both lower through `FunctionCodeGen` with the substitution `S(...)` (03-lowering.md). Sharing
 is a property of the substitution and of the key the worklist uses, not of either front-end: the canonical substitution maps `T` to
-`__Canon`, and every place that turns an exact type into code (method-table references, `typeof`, statics, casts, `new`) goes through one
-helper that emits a constant for an exact type and a dictionary load for one that contains `__Canon`. The IL front-end's own folds
+a marker, and every place that turns an exact type into code (method-table references, `typeof`, statics, casts, `new`) goes through one
+helper that emits a constant for an exact type and a dictionary load for one that names a marker. The IL front-end's own folds
 (`IlTypeEqualityConstant`, the `box`/`isinst` folds) consult the same helper. `--via-il` and the Bootstrap (csharpc compiled from IL) test
 the IL path on every step.
 
 ### 7. What stays per instantiation
 
 - Value-type arguments, always (layouts differ; sharing them would mean boxing or size-generic code; ILC does not share them either).
+- **Generic value types over reference types, for now** (open work, step 4). `KeyValuePair<string, int>` as an argument
+  (`List<KeyValuePair<string, int>>`) and the methods of generic structs over reference types (`List<string>.Enumerator`) stay exact: a
+  struct has no method table on `this` to find a dictionary through, so it needs the hidden instantiating argument. On `json.cs` with the
+  flag on (step 3b-1) that is 165 functions of 90 classes with such an argument and 329 functions of generic structs, of 1,482 generic
+  functions; at -O2 most of them are inlined, and 8 KB of the classes' code is left in the binary. The self-compile's count is in the
+  3b-1 PR.
 - `Nullable<T>`, spans and other `ref struct`/by-ref-like generics over reference types stay exact where their lowering depends on `T`'s
   representation (spans of references are still spans of pointers, so most can share).
 - **Hot paths behind a measured heuristic.** A canonical method whose body uses an exact-type optimization on `T` that would become a
@@ -133,7 +165,23 @@ the IL path on every step.
    statics and class initializers, `catch (T)`.
 5. **The per-instantiation heuristic** of section 7, tuned with measurements.
 6. **Flag on by default** once the suite is green on all five platforms with it on and every measurement in section 9 holds; the flag
-   stays for one release as a way back.
+   stays for one release as a way back. Known blockers, each to be closed (not worked around) before then:
+   - **Delegates to virtual methods over shared overrides.** `Delegate.Method` answers from the function a delegate holds. A delegate
+     bound to a shared method directly (`Func<object, bool> f = pair.Produces`) holds an exact entry of its own, a one-call forwarder per
+     instantiation, so it reports `Pair<string, Customer>.Produces` (step 3b-1). This replaced a whole-program "share nothing if
+     `Delegate.Method` is referenced" rule, which the self-compile tripped through Roslyn's own reference to it. A delegate bound
+     through `ldvirtftn` holds the function found in the vtable, the canonical one, which no record describes: its `Delegate.Method`
+     is the explicit NotSupportedException csharpc already gives for a delegate to a virtual method it does not describe. A per-slot
+     description is the remaining work (step 3c).
+   - **Frames.** `StackFrame` and `StackTrace` objects are not supported by csharpc (their constructors throw NotSupportedException),
+     so no frame's method can be read today. Whoever implements them reports a shared frame's exact instantiation, or the definition's,
+     which is what .NET's JIT reports for shared code. `MethodBase.GetCurrentMethod()` keeps the method that calls it exact.
+   - **The staging limits of step 3b-1**, each a named reason in `CSHARPC_GENERIC_REPORT`: classes with a static constructor (step 3c),
+     array copies (`Array.Copy`, `CopyTo`, `SetValue` take the element type from a generic helper), `typeof` over T in source bodies,
+     boxing of value types over T, casts to delegate or interface types over T and interface calls over T (step 3b-2), finalizable classes
+     over T, exception filters, `catch (T)`, statics of generic types. The shared-method count on `json.cs` and on the self-compile is
+     reported as each one is lifted.
+   - **Size and speed**: the size budgets hold with the flag on, and no benchmark is slower with it than without.
 
 ### 9. Measurements (before and after every step, against NativeAOT on the same machine, as ADR 0025 requires)
 

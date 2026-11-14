@@ -105,6 +105,9 @@ public sealed partial class FunctionCodeGen
         if (TypeLoadedAt(callIndex - 4, callIndex - 3) is not { } left || TypeLoadedAt(callIndex - 2, callIndex - 1) is not { } right) return null;
         if (left is ITypeParameterSymbol || right is ITypeParameterSymbol) return null;
         var same = SymbolEqualityComparer.Default.Equals(left, right);
+        // Shared generic code: a marker stands for any reference type, so two different types that name one are only known to differ when
+        // one is a value type and the other a reference type.
+        if (!same && (_m.IsCanonDependent(left) || _m.IsCanonDependent(right)) && left.IsReferenceType == right.IsReferenceType) return null;
         return equality.Name == "op_Equality" ? same : !same;
     }
 

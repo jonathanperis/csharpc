@@ -369,6 +369,7 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     public LLVMValueRef StructMethodTable(INamedTypeSymbol type)
     {
+        if (IsCanonDependent(type)) return CanonMethodTable; // shared generic code: the exact table comes from a dictionary
         var layout = GetStructLayout(type);
         if (!layout.MethodTable.IsNull) return layout.MethodTable;
 
@@ -471,6 +472,7 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     public LLVMValueRef MemoryMethodTable(INamedTypeSymbol memory)
     {
+        if (IsCanonDependent(memory)) return CanonMethodTable; // shared generic code: the exact table comes from a dictionary
         if (_memoryMethodTables.TryGetValue(memory, out var existing)) return existing;
         var index = _memoryMethodTables.Count;
         var mtType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32, LlvmContext.Array(Llvm.Ptr, ClassLayout.ObjectSlotCount));
@@ -505,6 +507,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>Method table for boxed tuples: { header, [ToString, Equals, GetHashCode] } with element-wise thunks.</summary>
     public LLVMValueRef TupleMethodTable(INamedTypeSymbol tuple, FunctionCodeGen _)
     {
+        if (IsCanonDependent(tuple)) return CanonMethodTable; // shared generic code: the exact table comes from a dictionary
         if (_tupleMethodTables.TryGetValue(tuple, out var existing)) return existing;
         var index = _tupleMethodTables.Count;
         var mtType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32, LlvmContext.Array(Llvm.Ptr, ClassLayout.ObjectSlotCount));

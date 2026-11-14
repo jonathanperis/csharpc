@@ -37,7 +37,7 @@ public sealed partial class ModuleCodeGen
         var which = fn.Param(1);
         foreach (var (type, layout) in _layouts.ToList())
         {
-            if (layout.MethodTable.IsNull) continue;
+            if (layout.MethodTable.IsNull || IsCanonDependent(type)) continue;
             var attribute = type.GetAttributes().FirstOrDefault(a => a.AttributeClass is { Name: "EventSourceAttribute" } c
                 && c.ContainingNamespace?.ToDisplayString() == "System.Diagnostics.Tracing");
             string? Named(string name) => attribute?.NamedArguments.FirstOrDefault(n => n.Key == name).Value.Value as string;

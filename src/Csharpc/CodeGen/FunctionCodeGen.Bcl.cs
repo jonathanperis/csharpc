@@ -220,7 +220,7 @@ public sealed partial class FunctionCodeGen
         // typeof(SomeAttribute) may reach GetCustomAttributes(typeof(A)), which returns an A[]: keep that array type.
         if (type is INamedTypeSymbol { TypeKind: TypeKind.Class, IsAbstract: false } named && DerivesFromAttribute(named)) _m.ArrayMethodTable(named);
         if (type is INamedTypeSymbol { TypeKind: TypeKind.Delegate } delegateType) _m.NoteDelegateType(delegateType);
-        var typeObject = CallRuntime("csrt_type_from_mt", L.Ptr, [L.Ptr], _m.TypeMethodTable(type, at));
+        var typeObject = CallRuntime("csrt_type_from_mt", L.Ptr, [L.Ptr], SharedHandleOf(SharedHandle.TypeOf, type) ?? _m.TypeMethodTable(type, at));
         _eraseIfUnused.Add(typeObject);
         return typeObject;
     }
@@ -283,7 +283,7 @@ public sealed partial class FunctionCodeGen
 
     /// <summary>Gives a freshly allocated array its element-specific method table ("System.Int32[]").</summary>
     internal void TagArray(LLVMValueRef array, ITypeSymbol elementType) =>
-        _b.Store(_m.ArrayMethodTable(elementType), array);
+        _b.Store(SharedHandleOf(SharedHandle.Array, elementType) ?? _m.ArrayMethodTable(elementType), array);
 
     // ======================================================================================
     // Small IR building blocks for library helpers

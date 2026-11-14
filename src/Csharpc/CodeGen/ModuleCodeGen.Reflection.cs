@@ -239,6 +239,9 @@ public sealed partial class ModuleCodeGen
     /// <summary>A generic method or type instantiation: its annotated type parameters keep members of their arguments.</summary>
     internal void NoteDynamicallyAccessedInstantiation(ISymbol symbol)
     {
+        // A canonical form stands for instantiations, each noted itself (GetFunction notes the exact method before it redirects to the
+        // shared one, GetLayout every exact class): [DynamicallyAccessedMembers] on a marker would describe nothing real.
+        if (symbol is ITypeSymbol canonicalType ? IsCanonDependent(canonicalType) : symbol.ContainingType is { } owner0 && IsCanonDependent(owner0)) return;
         switch (symbol)
         {
             case IMethodSymbol { IsGenericMethod: true } method when !method.IsDefinition && !TypeSubstitution.IsOpen(method):
@@ -706,6 +709,7 @@ public sealed partial class ModuleCodeGen
     private void Describe(ITypeSymbol type, int kinds, string? name)
     {
         if (type is not INamedTypeSymbol named || named.TypeKind is TypeKind.Error) return;
+        CheckNotCanonical(type, "reflection metadata");
         var real = RealType(named) as INamedTypeSymbol ?? named;
         if (!_reflectionEntries.TryGetValue(type, out var entry))
         {

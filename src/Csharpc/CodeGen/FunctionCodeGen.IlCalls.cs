@@ -510,7 +510,8 @@ public sealed partial class FunctionCodeGen
                 return IlPush(_b.ICmp(LLVMIntPredicate.EQ, _b.BinOp(LLVMOpcode.And, v, f), f), Special(SpecialType.System_Boolean));
             }
             case ("System.Type", "GetTypeFromHandle") when args is [{ Kind: IlKind.Token, Symbol: ITypeSymbol type }]:
-                return new IlEntry(IlKind.Ref, TypeObject(S(type), IlAt()), method.ReturnType) { NonNull = true, Symbol = S(type) };
+                // (in shared generic code typeof(T) is a run-time value: nothing may resolve reflection against the marker)
+                return new IlEntry(IlKind.Ref, TypeObject(S(type), IlAt()), method.ReturnType) { NonNull = true, Symbol = _m.IsCanonDependent(S(type)) ? null : S(type) };
             // typeof(X).GetTypeInfo() is the Type object itself: X stays known for the reflection that follows.
             case ("System.Reflection.IntrospectionExtensions", "GetTypeInfo") when args is [{ Kind: IlKind.Ref, NonNull: true, Symbol: ITypeSymbol known } typeObject]:
                 return new IlEntry(IlKind.Ref, IlRef(typeObject), method.ReturnType) { NonNull = true, Symbol = known };
