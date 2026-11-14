@@ -127,6 +127,8 @@ public sealed partial class FunctionCodeGen
         if (TryEmitLibraryExceptionCall(inv, out var result)) return result;
         if (BclValueTypes.TryGetRaw(target, out var raw)) return raw(this, inv);
         if (BclValueTypes.TryGet(target, out var bcl)) return CallBcl(bcl, target, inv.Instance, inv.Arguments, inv);
+        // Last: a built-in type's member from its own CoreLib IL (every lowering above keeps priority).
+        if (HostedBuiltinMember(target, inv.ConstrainedToType) is { } hosted) return EmitUserCall(hosted, default, true, inv.Arguments, isVirtual: false);
         throw CompileError.MissingIntrinsic(target, inv);
     }
 
