@@ -34,7 +34,7 @@ public sealed partial class FunctionCodeGen
 
     /// <summary>The method table an array of static type <paramref name="arrayType"/> carries when its runtime type is that.</summary>
     private LLVMValueRef StaticArrayMethodTable(IArrayTypeSymbol arrayType) =>
-        arrayType.IsSZArray ? _m.ArrayMethodTable(arrayType.ElementType) : _m.MdArrayMethodTable(arrayType);
+        arrayType.IsSZArray ? SharedHandleOf(SharedHandle.Array, arrayType.ElementType) ?? _m.ArrayMethodTable(arrayType.ElementType) : _m.MdArrayMethodTable(arrayType);
 
     /// <summary>
     /// `if (array->mt != static T[]'s) slow(...)`: the slow call sits in its own block after the test.
@@ -57,6 +57,7 @@ public sealed partial class FunctionCodeGen
     internal void ArrayStoreCheck(LLVMValueRef array, IArrayTypeSymbol arrayType, LLVMValueRef value)
     {
         if (!NeedsCovarianceCheck(arrayType.ElementType) || IsNullConstant(value)) return;
+        if (arrayType.IsSZArray && _m.IsCanonDependent(arrayType.ElementType)) { SharedArrayStoreCheck(array, value); return; }
         IfNotStaticArrayType(array, arrayType, "csrt_array_store_check", [L.Ptr, L.Ptr], array, value);
     }
 

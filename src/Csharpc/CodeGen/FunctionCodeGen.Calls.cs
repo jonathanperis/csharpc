@@ -508,7 +508,10 @@ public sealed partial class FunctionCodeGen
         // the library's (bodiless) constructor.
         if (!_m.IsUserMethod(constructor)) throw CompileError.MissingIntrinsic(creation.Constructor!, creation);
         var layout = _m.GetLayout(type);
-        var obj = Allocate(layout.MethodTable, L.ConstInt(L.I64, (long)layout.InstanceSize));
+        // (shared generic code: the exact class's table from the dictionary; its finalizer, if any, kept the method exact)
+        var obj = SharedHandleOf(SharedHandle.Alloc, type) is { } sharedMt
+            ? CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], sharedMt, L.ConstInt(L.I64, (long)layout.InstanceSize))
+            : Allocate(layout.MethodTable, L.ConstInt(L.I64, (long)layout.InstanceSize));
         EmitUserCall(constructor, obj, selfIsNonNull: true, creation.Arguments, isVirtual: false);
         return obj;
     }
@@ -624,6 +627,7 @@ public sealed partial class FunctionCodeGen
     /// <summary>isinst: the object if it is a <paramref name="target"/>, else null.</summary>
     internal LLVMValueRef IsInst(LLVMValueRef value, ITypeSymbol target, IOperation at)
     {
+        if (SharedHandleOf(SharedHandle.Cast, target) is { } shared) return CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], value, shared);
         if (IsDelegateBase(target)) return _b.Select(IsDelegateObject(value), value, LlvmContext.Null(L.Ptr));
         if (IsVariantDelegate(target, out var d))
         {
@@ -635,6 +639,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef CastClass(LLVMValueRef value, ITypeSymbol target, IOperation at)
     {
+        if (SharedHandleOf(SharedHandle.Cast, target) is { } shared) return CallRuntime("csrt_castclass", L.Ptr, [L.Ptr, L.Ptr], value, shared);
         if (IsDelegateBase(target))
         {
             // null or a delegate passes; anything else fails with .NET's message (csrt_castclass, which
@@ -720,7 +725,10 @@ public sealed partial class FunctionCodeGen
         or SpecialType.System_Byte or SpecialType.System_SByte or SpecialType.System_Double or SpecialType.System_Single
         or SpecialType.System_Boolean or SpecialType.System_Char or SpecialType.System_IntPtr or SpecialType.System_UIntPtr;
 
-    private LLVMValueRef MethodTableFor(ITypeSymbol type, IOperation at) => _m.CoreLib.Map(type) switch
+    private LLVMValueRef MethodTableFor(ITypeSymbol type, IOperation at) => MethodTableFor(_m, type, at);
+
+    /// <summary>The method table a type test, cast, box or unbox of <paramref name="type"/> uses (also what a generic dictionary holds for it).</summary>
+    internal static LLVMValueRef MethodTableFor(ModuleCodeGen _m, ITypeSymbol type, IOperation at) => _m.CoreLib.Map(type) switch
     {
         { SpecialType: SpecialType.System_String } => _m.ExternalGlobal("csrt_String_MT"),
         { SpecialType: SpecialType.System_Object } => _m.ExternalGlobal("csrt_Object_MT"),
@@ -775,7 +783,7 @@ public sealed partial class FunctionCodeGen
             _m.GetLayout(named).MethodTable,
         INamedTypeSymbol { TypeKind: TypeKind.Struct } named when _m.IsUserType(named) => _m.StructMethodTable(named),
         INamedTypeSymbol { TypeKind: TypeKind.Interface } itf => _m.InterfaceMethodTable(itf),
-        INamedTypeSymbol { IsTupleType: true } tuple => _m.TupleMethodTable(tuple, this),
+        INamedTypeSymbol { IsTupleType: true } tuple => _m.TupleMethodTable(tuple, null!),
         INamedTypeSymbol memory when TypeMapper.IsMemory(memory) => _m.MemoryMethodTable(memory),
         // Every delegate of a type shares that type's method table (DelegateMethodTable), so a type test is an
         // identity test — except where generic variance would also accept other instantiations.

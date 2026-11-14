@@ -49,6 +49,7 @@ public sealed partial class ModuleCodeGen
 
     internal void KeepReflectionType(ITypeSymbol type)
     {
+        CheckNotCanonical(type, "a reflection root");
         if (type is ITypeParameterSymbol || !_reflectionKept.Add(type)) return;
         NoteReflectionRoot(type);
         // object: the resolver asks for its (public, parameterless) constructor too, to create the instances of an object-typed value.
@@ -123,6 +124,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>A type a call to a [RequiresUnreferencedCode] method names (or reaches from one that it names).</summary>
     internal void NoteReflectionRoot(ITypeSymbol type)
     {
+        CheckNotCanonical(type, "a reflection root");
         if (type is ITypeParameterSymbol || TypeSubstitution.IsOpen(type) || type.TypeKind == TypeKind.Error || !_reflectionRoots.Add(type)) return;
         if (type.SpecialType == SpecialType.System_Object) _objectRooted = true;
         if (s_traceDam) Console.Error.WriteLine($"[csharpc] root {type}");

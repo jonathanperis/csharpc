@@ -29,4 +29,6 @@ at Box`1.Throw()
 System.String Customer System.Collections.Generic.List`1[Customer] System.Int32
 String/Customer String/Customer Order/Int32 Order/Int32
 customer System.Collections.Generic.List`1[System.String]
+Pair`2[System.String,Customer] System.Collections.Generic.List`1[System.String] System.Collections.Generic.List`1[Customer] System.String[] Customer[] String/Customer | False False True False | False False False True | True False False False
+Pair`2[Customer,System.String] System.Collections.Generic.List`1[Customer] System.Collections.Generic.List`1[System.String] Customer[] System.String[] Customer/String | False False True False | False False False True | False True False False
 System.Collections.Generic.Dictionary`2[System.String,Customer] [customer, v]
