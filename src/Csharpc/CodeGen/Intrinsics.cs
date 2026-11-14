@@ -649,6 +649,13 @@ internal static class Intrinsics
         $"{Rcs}.ConfiguredValueTaskAwaitable.ConfiguredValueTaskAwaiter",
     ];
 
+    /// <summary>
+    /// TResult of a Task&lt;TResult&gt; / TaskCompletionSource&lt;TResult&gt; member, from the method's own type: the receiver's static type can be a
+    /// class deriving from either (a TaskCompletionSource subclass, CoreLib's SemaphoreSlim.TaskNode : Task&lt;bool&gt;), which has no type argument.
+    /// </summary>
+    private static ITypeSymbol ResultTypeOf(FunctionCodeGen g, IInvocationOperation inv) =>
+        ((INamedTypeSymbol)g.S(inv.TargetMethod.ContainingType)).TypeArguments[0];
+
     private static void AddTaskMethods(Dictionary<string, IntrinsicHandler> t)
     {
         static LLVMValueRef Wait(FunctionCodeGen g, LLVMValueRef task)
@@ -699,7 +706,7 @@ internal static class Intrinsics
                 {
                     var self = g.EmitValue(inv.Instance!);
                     if (!generic) return g.SetTaskResult(self, null, null, tryMode);
-                    var type = ((INamedTypeSymbol)g.TypeOf(inv.Instance!)!).TypeArguments[0];
+                    var type = ResultTypeOf(g, inv);
                     return g.SetTaskResult(self, Arg(g, inv, 0), type, tryMode);
                 };
                 t[$"{tcs}.{prefix}Exception(System.Exception)"] = (g, inv) =>
@@ -771,7 +778,7 @@ internal static class Intrinsics
                     args.Add(token >= 0 ? Arg(g, inv, first + token) : LlvmContext.Null(l.Ptr));
                     args.Add(options >= 0 ? Arg(g, inv, first + options) : l.ConstInt(l.I32, 0));
                     args.Add(scheduler >= 0 ? Arg(g, inv, first + scheduler) : g.CallCoreLib("TaskSchedulerImpl", "get_Current"));
-                    var result = ((INamedTypeSymbol)g.TypeOf(inv.Instance!)!).TypeArguments[0];
+                    var result = ResultTypeOf(g, inv);
                     ITypeSymbol[] typeArguments = generic ? [result, g.S(inv.TargetMethod.TypeArguments[0])] : [result];
                     return g.CallCoreLibGenericMethod("TaskResultContinuations", target, typeArguments, [.. args]);
                 };
@@ -788,7 +795,7 @@ internal static class Intrinsics
                 g.NullCheck(receiver);
                 var span = timeout >= 0 ? Arg(g, inv, timeout) : l.ConstInt(l.I64, -TimeSpan.TicksPerMillisecond);
                 var cancel = token >= 0 ? Arg(g, inv, token) : LlvmContext.Null(l.Ptr);
-                var result = ((INamedTypeSymbol)g.TypeOf(inv.Instance!)!).TypeArguments[0];
+                var result = ResultTypeOf(g, inv);
                 return g.CallCoreLibGenericMethod("TaskResultContinuations", "WaitAsync", [result], receiver, span, cancel);
             };
         }
@@ -855,8 +862,8 @@ internal static class Intrinsics
 
         t[$"{Tasks}.Task.Delay(int)"] = (g, inv) => g.CallRuntime("csrt_task_delay", g.Module.Llvm.Ptr, [g.Module.Llvm.I32], Arg(g, inv, 0));
         t[$"{Tasks}.Task.Yield()"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
-        t[$"{Tasks}.Task.FromResult(TResult)"] = (g, inv) =>
-            g.CompletedTask(Arg(g, inv, 0), ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0]);
+        // .NET's cache first (corelib/Tasks/TaskCache.cs: true/false, -1..8, default values share one task), else a new completed task.
+        t[$"{Tasks}.Task.FromResult(TResult)"] = (g, inv) => g.CachedOrCompletedTask(Arg(g, inv, 0), ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0]);
 
         IntrinsicHandler whenAll = (g, inv) =>
         {
@@ -1097,6 +1104,12 @@ internal static class Intrinsics
                 : g.CallCoreLib("ColdTasks", withState ? "CreateWithState" : "Create", args);
         };
         const string token = "System.Threading.CancellationToken", options = $"{Tasks}.TaskCreationOptions";
+        // Task<TResult>(bool canceled, TResult result, TaskCreationOptions, CancellationToken) (internal): a task completed at creation,
+        // which CoreLib caches (SemaphoreSlim's s_trueTask). Only the public creation options are visible through CreationOptions,
+        // as .NET masks its internal ones (DoNotDispose).
+        t[$"{Tasks}.Task<TResult>..ctor(bool, TResult, {options}, {token})"] = (g, c) =>
+            g.CallCoreLibGenericMethod("ColdTasks", "Completed", [((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments[0]],
+                CtorArg(g, c, 0), CtorArg(g, c, 1), CtorArg(g, c, 2), CtorArg(g, c, 3));
         foreach (var (type, plain, stateful) in new[] { ("Task", "System.Action", "System.Action<object>"), ("Task<TResult>", "System.Func<TResult>", "System.Func<object, TResult>") })
             foreach (var parameters in new[] { plain, $"{plain}, {token}", $"{plain}, {options}", $"{plain}, {token}, {options}",
                          $"{stateful}, object", $"{stateful}, object, {token}", $"{stateful}, object, {options}", $"{stateful}, object, {token}, {options}" })
