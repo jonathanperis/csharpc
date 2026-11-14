@@ -135,6 +135,11 @@ public sealed partial class ModuleCodeGen
             .First(m => SymbolEqualityComparer.Default.Equals(m.OriginalDefinition, target.OriginalDefinition));
         NoteInterfaceDispatch(exactInterface, index);
         NoteVirtualCall(exactTarget);
+        // The receiver is a T: it may be a string or an array, whose interface maps hold only what the program converts them to. Exact
+        // code calls string.CompareTo directly where shared code dispatches through IComparable<string>, so the maps must hold it.
+        if (Compilation.GetSpecialType(SpecialType.System_String).AllInterfaces.Contains(exactInterface, SymbolEqualityComparer.Default))
+            RequestStringInterface(exactInterface);
+        RequestArrayInterface(exactInterface);
     }
 
     /// <summary>
