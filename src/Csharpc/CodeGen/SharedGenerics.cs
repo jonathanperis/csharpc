@@ -760,6 +760,11 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
                     case IPatternOperation p when p.NarrowedType is { } narrowed && MentionsTypeParameter(narrowed) && narrowed is not ITypeParameterSymbol
                         && (narrowed.IsValueType || !IsPlainReference(narrowed)) && !SymbolEqualityComparer.Default.Equals(narrowed, p.InputType):
                         return new SharingReason("pattern over ", narrowed);
+                    // Step 3b-2: foreach over an IEnumerable<X> interface whose element is the loop variable's own type is GetEnumerator,
+                    // MoveNext, Current and Dispose through interfaces, which shared code dispatches on its dictionary. Other shapes (a
+                    // struct enumerator over T, a cast per element, deconstruction) stay exact.
+                    case IForEachLoopOperation f when IsInterfaceEnumeration(f):
+                        break;
                     case IForEachLoopOperation or IUsingOperation or IUsingDeclarationOperation or IAwaitOperation or IInterpolatedStringOperation or IRangeOperation
                         or IDeconstructionAssignmentOperation or IWithOperation or ICollectionExpressionOperation or ISpreadOperation or IEventAssignmentOperation
                         when op.DescendantsAndSelf().Any(o => o.Type is { } t && MentionsTypeParameter(t)):
@@ -768,6 +773,12 @@ internal sealed class SharedGenerics(Compilation compilation, IlAssemblySet? il,
             }
         return null;
     }
+
+    private static bool IsInterfaceEnumeration(IForEachLoopOperation loop) =>
+        loop is { IsAsynchronous: false, LoopControlVariable: IVariableDeclaratorOperation { Symbol: { RefKind: RefKind.None } variable } }
+        && loop.Collection.Type is INamedTypeSymbol { TypeKind: TypeKind.Interface, IsGenericType: true } enumerable
+        && enumerable.OriginalDefinition.SpecialType == SpecialType.System_Collections_Generic_IEnumerable_T
+        && SymbolEqualityComparer.Default.Equals(enumerable.TypeArguments[0], variable.Type);
 
     // (types served from the framework's IL are named as their real types: the slice's namespaces carry a prefix, Frontend.UpstreamSlice)
     private static string MetadataNameOf(INamedTypeSymbol type) =>
