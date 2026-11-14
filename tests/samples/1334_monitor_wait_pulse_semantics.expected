@@ -1,0 +1,15 @@
+after one Pulse: woken [0], still waiting 2
+after two Pulses: woken [0,1], still waiting 1
+after PulseAll: woken [0,1,2,3], still waiting 0
+Wait(20) after an unawaited Pulse: False, still entered True
+another thread entered during a recursive Wait: True
+entered after both exits: False
+a third Exit: SynchronizationLockException
+TryEnter(0) on a held lock: False
+TryEnter(30) on a held lock: False
+TryEnter after the owner left: True
+interrupted in Wait, entered True
+pending interrupt ends the next Wait, entered True
+Wait(0) on 0: False, Wait(20) on 0: False
+blocked Wait got the released count: 1, count now 0
+Release past the maximum: SemaphoreFullException, count 2

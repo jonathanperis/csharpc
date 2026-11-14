@@ -2,7 +2,7 @@
 // under a monitor; synchronous waiters wait on it, asynchronous ones are a FIFO list of tasks that
 // Release completes once no synchronous waiter takes the count. Timeouts and cancellation of an
 // asynchronous wait race the waiter task against Task.Delay, as .NET does. (csharpc: the waiters are
-// TaskCompletionSources rather than Task subclasses; no spinning before blocking.)
+// TaskCompletionSources rather than Task subclasses, because Task is the runtime's; the spin before blocking is .NET's.)
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
 #nullable disable
@@ -96,7 +96,21 @@ namespace CsharpcCoreLib
             CheckDispose();
             cancellationToken.ThrowIfCancellationRequested();
             if (millisecondsTimeout == 0 && _currentCount == 0) return false;
+            // The timeout counts from before the spin, as in .NET.
             long startTime = millisecondsTimeout > 0 ? Environment.TickCount64 : 0;
+            // .NET's spin before the monitor wait (SemaphoreSlim.Wait): a count released within a few hundred cycles to a few yields
+            // is taken without Monitor.Wait and the wakeup it costs. BlockingCollection's bounded hand-offs live in that window (#350:
+            // without it every full or empty slot was a futex sleep and wake, 3 million futex calls where NativeAOT made 2 thousand).
+            if (_currentCount == 0)
+            {
+                int spinCount = SpinWaitImpl.SpinCountForSpinBeforeWait * 4;
+                SpinWaitImpl spinner = default;
+                while (spinner.Count < spinCount)
+                {
+                    spinner.SpinOnce(sleep1Threshold: -1);
+                    if (_currentCount != 0) break;
+                }
+            }
             Task<bool> asyncWaitTask = null;
             bool waitSuccessful = false;
             // A canceled token wakes the waiters so this one can throw.
