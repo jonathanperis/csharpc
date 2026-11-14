@@ -64,6 +64,16 @@ namespace CsharpcCoreLib
         });
     }
 
+    [ShadowMembers("System.Runtime.CompilerServices.RuntimeHelpers")]
+    internal static class RuntimeHelpersAsyncMembers
+    {
+        /// <summary>
+        /// RuntimeHelpers.IsRuntimeAsync: CoreLib's IL body is `return false`, which a runtime that compiles the calling method as runtime-async
+        /// replaces with true. StreamReader/StreamWriter choose their task-tracking path with it; csharpc takes the IL's own answer.
+        /// </summary>
+        public static bool IsRuntimeAsync() => false;
+    }
+
     [ShadowMembers("System.Text.Encoding")]
     internal static class EncodingCodePageMembers
     {
