@@ -1,0 +1,32 @@
+byte.Sign(5): 1
+byte.Sign(200): 1
+short.Sign(5): 1
+short.Sign(-300): -1
+ushort.Sign(40000): 1
+sbyte.Sign(-7): -1
+int.Sign(-9): -1
+Math.Sign((short)-300): -1
+Math.Clamp(int): ArgumentException '9' cannot be greater than 1.
+Math.Clamp(long): ArgumentException '9' cannot be greater than 1.
+Math.Clamp(short): ArgumentException '9' cannot be greater than 1.
+Math.Clamp(sbyte): ArgumentException '9' cannot be greater than -1.
+Math.Clamp(uint): ArgumentException '9' cannot be greater than 1.
+Math.Clamp(ulong): ArgumentException '9' cannot be greater than 1.
+Math.Clamp(byte): ArgumentException '9' cannot be greater than 1.
+Math.Clamp(ushort): ArgumentException '9' cannot be greater than 1.
+Math.Clamp(nint): ArgumentException '9' cannot be greater than 1.
+Math.Clamp(nuint): ArgumentException '9' cannot be greater than 1.
+Math.Clamp(double): ArgumentException '9.5' cannot be greater than 1.25.
+Math.Clamp(float): ArgumentException '9.5' cannot be greater than 1.25.
+Math.Clamp(decimal): ArgumentException '9' cannot be greater than 1.
+int.Clamp: ArgumentException '9' cannot be greater than 1.
+byte.Clamp: ArgumentException '9' cannot be greater than 1.
+long.Clamp: ArgumentException '9' cannot be greater than 1.
+T.Clamp<int>: ArgumentException '9' cannot be greater than 1.
+T.Clamp<ushort>: ArgumentException '9' cannot be greater than 1.
+T.Clamp<double>: ArgumentException '9' cannot be greater than 1.
+Math.Clamp(int, equal bounds): 3
+Math.Clamp(int, in range): (5, 1, 9)
+Math.Clamp(uint, in range): (5, 1, 9)
+Math.Clamp(double, NaN bounds): (1, 9)
+Math.Clamp(double, NaN value): NaN

@@ -148,20 +148,17 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   are the framework's own code, served from System.Private.CoreLib's IL (`src/Csharpc/upstream-types/`, ADR 0023);
   `Stack<T>`, `LinkedList<T>`, the sorted collections and `PriorityQueue` come from System.Collections.dll's IL.
   `ArrayList`, `BitArray` and `Hashtable` are still corelib shadows (#372, `docs/il-first/System.Collections.Hashtable.md`).
-* **Concurrent collections** (`corelib/Concurrent/`): `ConcurrentDictionary<TKey,TValue>` is a port of .NET's
-  (same striped-lock table, lock count from `Environment.ProcessorCount`, per-lock budget, growth to the next
-  prime of twice the size, nodes prepended to their bucket, non-randomized hashing of string keys under the
-  default/Ordinal/OrdinalIgnoreCase comparers), so it enumerates in .NET's order on the same machine (.NET's
-  own order depends on the processor count unless a concurrency level is given); `ConcurrentStack<T>` is a
-  port; `ConcurrentQueue<T>` and `ConcurrentBag<T>` are lock-based with .NET's observable order (FIFO; per
-  thread LIFO, stealing oldest-first from other threads, snapshots newest queue first) and snapshot
-  enumeration. `BlockingCollection<T>` is a port (its blocking waits are cancelable SemaphoreSlim waits
-  over the runtime's events; `AddToAny`/`TakeFromAny` wait on several of them with
+* **Concurrent collections** are the framework's own code: `ConcurrentDictionary<TKey,TValue>` and `ConcurrentQueue<T>`
+  are System.Private.CoreLib types served from its IL (`src/Csharpc/upstream-types/System.Collections.Concurrent.txt`, #399), so
+  `ConcurrentDictionary` enumerates in .NET's order (striped locks from `Environment.ProcessorCount`, non-randomized hashing of string
+  keys under the default/Ordinal/OrdinalIgnoreCase comparers through the contract's `UpstreamNonRandomizedStringEqualityComparer`);
+  `BlockingCollection<T>`, `ConcurrentBag<T>`, `ConcurrentStack<T>` and the partitioners come from System.Collections.Concurrent.dll's IL
+  (`docs/il-first/System.Collections.md`). `BlockingCollection`'s waits are SemaphoreSlim waits over the runtime's events;
+  `AddToAny`/`TakeFromAny` wait on several of them with
   `WaitHandle.WaitAny`, `corelib/Threading/WaitHandles.cs`: the runtime has no multi-object wait, so a wait that
   has to block sleeps on the first handle in 1-4 ms slices and re-checks the others, and `WaitAll` takes an
   auto-reset event back (`Set`) when another handle isn't signaled yet; `CancellationToken.WaitHandle` and
-  `SemaphoreSlim.AvailableWaitHandle` are `ManualResetEvent`s kept in step as .NET's). `Partitioner`,
-  `OrderablePartitioner<T>` and the range/array/list/enumerable partitioners are ports (`corelib/Concurrent/Partitioner.cs`).
+  `SemaphoreSlim.AvailableWaitHandle` are `ManualResetEvent`s kept in step as .NET's).
   `Parallel.For` / `ForEach` with a `ParallelLoopState`, an index, thread-local state, `ParallelOptions` or a
   partitioner, `Parallel.Invoke(options, ...)`, `ForEachAsync` and `ForAsync` are corelib C#
   (`corelib/Tasks/ParallelState.cs`: .NET's flags: `Stop` starts nothing new, `Break` lets lower iterations finish and
