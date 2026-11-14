@@ -511,7 +511,8 @@ internal static class Intrinsics
         t["System.Math.Log(double)"] = (g, inv) => logOf(g, inv, "log");
         t["System.Math.Log2(double)"] = (g, inv) => logOf(g, inv, "llvm.log2.f64");
         // Math.Sign(double/float) is corelib C# (FloatingPointMath.cs): NaN throws ArithmeticException with .NET's message.
-        foreach (var type in new[] { "int", "long", "short", "sbyte" })
+        // (nint at the target's pointer width: the comparisons are on the value's own LLVM type.)
+        foreach (var type in new[] { "int", "long", "short", "sbyte", "nint" })
             t[$"System.Math.Sign({type})"] = (g, inv) =>
             {
                 var b = g.Builder;
@@ -529,11 +530,13 @@ internal static class Intrinsics
         t["System.Math.Max(double, double)"] = (g, inv) => CallBinaryF64(g, "llvm.maximum.f64", Arg(g, inv, 0), Arg(g, inv, 1));
         t["System.Math.Min(double, double)"] = (g, inv) => CallBinaryF64(g, "llvm.minimum.f64", Arg(g, inv, 0), Arg(g, inv, 1));
 
-        // Math.Clamp for the other numeric types: value < min ? min : value > max ? max : value.
-        foreach (var (type, signed) in new[] { ("long", true), ("short", true), ("sbyte", true), ("uint", false), ("ulong", false), ("byte", false), ("ushort", false) })
+        // Math.Clamp: ArgumentException when min > max (FunctionCodeGen.ClampBounds.cs, #392), then value < min ? min : value > max ? max : value.
+        foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("short", true), ("sbyte", true), ("uint", false), ("ulong", false), ("byte", false), ("ushort", false),
+                     ("nint", true), ("nuint", false) })
             t[$"System.Math.Clamp({type}, {type}, {type})"] = (g, inv) =>
             {
                 var (v, lo, hi) = (Arg(g, inv, 0), Arg(g, inv, 1), Arg(g, inv, 2));
+                g.ClampBoundsCheck(lo, hi, inv.TargetMethod.Parameters[1].Type);
                 return SelectCompare(g, SelectCompare(g, v, lo, signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT), hi, signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT);
             };
         foreach (var type in new[] { "double", "float" })
@@ -541,16 +544,10 @@ internal static class Intrinsics
             {
                 var b = g.Builder;
                 var (v, lo, hi) = (Arg(g, inv, 0), Arg(g, inv, 1), Arg(g, inv, 2));
+                g.ClampBoundsCheck(lo, hi, inv.TargetMethod.Parameters[1].Type);
                 var low = b.Select(b.FCmp(LLVMRealPredicate.OLT, v, lo), lo, v);   // NaN stays NaN
                 return b.Select(b.FCmp(LLVMRealPredicate.OGT, low, hi), hi, low);
             };
-        t["System.Math.Clamp(int, int, int)"] = (g, inv) =>
-        {
-            var v = Arg(g, inv, 0);
-            var lo = Arg(g, inv, 1);
-            var hi = Arg(g, inv, 2);
-            return SelectCompare(g, SelectCompare(g, v, lo, LLVMIntPredicate.SGT), hi, LLVMIntPredicate.SLT);
-        };
 
         // ---- foreach over arrays (see FunctionCodeGen.ArrayGetEnumerator) ------------------------
         t["System.Collections.Generic.IEnumerable<T>.GetEnumerator()"] = (g, inv) => g.ArrayGetEnumerator(inv.Instance!, inv);

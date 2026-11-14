@@ -189,7 +189,7 @@ five steps. Nothing is pushed to `main` directly.
 - Keep `tests/run.sh --all-opts` and `tests/conformance.sh` green on every commit to `main`.
 - CI's merge bar is the five `test (<platform>)` jobs and, for a PR that touches `src/**`, the Bootstrap
   checks on the same head ("Roslyn hosted from IL", "csharpc compiles csharpc" at -O0 and -O2; the native
-  suite shards run on `main` and `ci/m6-**` pushes). Docs-only pushes skip the suite only when
+  suite shards run nightly on `main` and on `ci/m6-**` pushes). Docs-only pushes skip the suite only when
   those checks are already green on an ancestor, and the same job names still pass. A targeted run
   (`CI-Only:` trailer or `ci/targets` on a `ci/**` branch, or the "CI (targeted)" workflow) is
   labeled partial and is not that gate. `gh workflow run` is HTTP 403 from this checkout. See

@@ -163,6 +163,12 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Math")]
     internal static class MathMoreMembers
     {
+        // Math's internal throw helpers, which the integer types' own generic-math IL calls (Clamp, Abs; upstream-types/System.IntegerMembers.txt).
+        [System.Diagnostics.CodeAnalysis.DoesNotReturn]
+        public static void ThrowMinMaxException<T>(T min, T max) => throw new ArgumentException("'" + min + "' cannot be greater than " + max + ".");
+        [System.Diagnostics.CodeAnalysis.DoesNotReturn]
+        public static void ThrowNegateTwosCompOverflow() => throw new OverflowException("Negating the minimum value of a twos complement number is invalid.");
+
         public static double BitDecrement(double x)
         {
             ulong bits = BitConverter.DoubleToUInt64Bits(x);

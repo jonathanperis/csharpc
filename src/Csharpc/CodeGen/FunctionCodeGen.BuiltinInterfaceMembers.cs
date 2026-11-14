@@ -38,6 +38,38 @@ public sealed partial class FunctionCodeGen
                 + "the slice must carry the implementation: tools/il-first/slicer)", target);
     }
 
+    /// <summary>
+    /// A built-in type's static member csharpc has no lowering of its own for (no intrinsic, shadow or generic-math path), served from
+    /// the type's own CoreLib IL in its host class (the slicer's `host:` roots, src/Csharpc/upstream-types/System.IntegerMembers.txt): called
+    /// directly (`int.Log2(x)`) or through generic code (`T.Log2(x)` with T = int: the interface member is mapped to the type's
+    /// implementation, `System.Numerics.INumberBase&lt;System.Int32&gt;.IsNegative` for an explicit one). Null when the slice carries none.
+    /// </summary>
+    private IMethodSymbol? HostedBuiltinMember(IMethodSymbol target, ITypeSymbol? constrainedTo)
+    {
+        if (!target.IsStatic) return null;
+        var implementation = target;
+        INamedTypeSymbol owner;
+        if (target.ContainingType.TypeKind == TypeKind.Interface)
+        {
+            if (constrainedTo is null || S(constrainedTo) is not INamedTypeSymbol concrete) return null;
+            var member = target.IsGenericMethod ? target.ConstructedFrom : target;
+            if (concrete.FindImplementationForInterfaceMember(member) is not IMethodSymbol found) return null;
+            (implementation, owner) = (found, concrete);
+        }
+        else owner = target.ContainingType;
+        if (!Frontend.UpstreamSlice.MemberClasses.TryGetValue(Mangler.MetadataName(owner.OriginalDefinition), out var classes)) return null;
+        var typeArguments = target.TypeArguments.Select(a => S(a)).ToArray();
+        foreach (var className in classes)
+            foreach (var holder in _m.Compilation.GetTypesByMetadataName(className))
+                foreach (var candidate in holder.GetMembers(implementation.MetadataName).OfType<IMethodSymbol>())
+                {
+                    if (!candidate.IsStatic || candidate.TypeParameters.Length != typeArguments.Length) continue;
+                    var constructed = typeArguments.Length > 0 ? candidate.Construct(typeArguments) : candidate;
+                    if (SameSignature(constructed, target)) return constructed;
+                }
+        return null;
+    }
+
     /// <summary>"System.IUtfChar`1": the interface's CoreLib metadata name, without the namespace a slice puts its copy under.</summary>
     private static string RealInterfaceName(INamedTypeSymbol type)
     {

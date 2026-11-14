@@ -22,7 +22,12 @@ sealed class Emitter
         "System.FlagsAttribute", "System.Diagnostics.StackTraceHiddenAttribute",
         // [ThreadStatic] is the field's semantics: one copy per thread (ThreadLocal<T>'s slot arrays, Random.Shared's t_random); without it the
         // field is shared across threads.
-        "System.ThreadStaticAttribute"];
+        "System.ThreadStaticAttribute",
+        // A state machine's MoveNext frame is named after the method that carries one of these (Ns.Type.Method(), as .NET's StackTrace
+        // prints it; CodeGen/StackTraces.cs reads them from the slice's metadata). The typeof argument is serialized as the nested
+        // state-machine type's name, which the slice keeps (ConcurrentQueue<T>.Enumerate, #399).
+        "System.Runtime.CompilerServices.AsyncStateMachineAttribute", "System.Runtime.CompilerServices.IteratorStateMachineAttribute",
+        "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute"];
 
     /// <summary>
     /// Attributes that change what a member means at run time or how csharpc lowers it (thread-local storage, fixed buffers, decoded constants,
@@ -280,9 +285,19 @@ sealed class Emitter
             _hostClass[stop] = host;
             foreach (var m in methods)
             {
-                var declared = m.Overrides.Select(o => o.Resolve()).First(d => d is not null && _types.ContainsKey(d.DeclaringType));
-                var nm = new MethodDefinition(declared.DeclaringType.FullName.Replace('/', '+') + "." + declared.Name, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, _m.TypeSystem.Void)
+                // A member of an interface the slice carries (IUtfChar<TChar>.CastFrom): named after that interface's member. Anything else (a
+                // `host:` root: `Log2`, or `System.Numerics.INumberBase<System.Int32>.IsNegative` implementing a reference-pack interface) keeps its
+                // own metadata name, which is what the compiler looks up.
+                var declared = m.Overrides.Select(o => o.Resolve()).FirstOrDefault(d => d is not null && _types.ContainsKey(d.DeclaringType));
+                var hostName = declared is not null ? declared.DeclaringType.FullName.Replace('/', '+') + "." + declared.Name : m.Name;
+                var nm = new MethodDefinition(hostName, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, _m.TypeSystem.Void)
                     { ImplAttributes = m.ImplAttributes, CallingConvention = m.CallingConvention };
+                // Generic members (CreateTruncating<TOther>) keep their type parameters and constraints.
+                foreach (var gp in m.GenericParameters)
+                {
+                    var copy = new GenericParameter(gp.Name, nm) { Attributes = gp.Attributes };
+                    nm.GenericParameters.Add(copy);
+                }
                 host.Methods.Add(nm);
                 _methods[m] = nm;
             }
@@ -291,6 +306,9 @@ sealed class Emitter
                 var nm = _methods[m];
                 nm.ReturnType = Type(m.ReturnType);
                 foreach (var p in m.Parameters) nm.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, Type(p.ParameterType)));
+                foreach (var (g, i) in m.GenericParameters.Select((g, i) => (g, i)))
+                    if (i < nm.GenericParameters.Count && nm.GenericParameters[i].Constraints.Count == 0)
+                        foreach (var c in g.Constraints) nm.GenericParameters[i].Constraints.Add(new GenericParameterConstraint(Type(c.ConstraintType)));
             }
             result.Add(stop);
         }

@@ -87,7 +87,7 @@ namespace CsharpcCoreLib
 
         // Span keys hash as the string with those chars, so either finds the other's entries.
         public virtual bool Equals(ReadOnlySpan<char> alternate, string other) => other != null && alternate.SequenceEqual(other.AsSpan());
-        public virtual int GetHashCode(ReadOnlySpan<char> alternate) => NonRandomizedStringComparer.Hash(alternate);
+        public virtual int GetHashCode(ReadOnlySpan<char> alternate) => NonRandomizedStringHash.Hash(alternate);
         public string Create(ReadOnlySpan<char> alternate) => new string(alternate);
 
         public System.Collections.Generic.IEqualityComparer<string> GetUnderlyingEqualityComparer() => _underlying;
@@ -98,9 +98,82 @@ namespace CsharpcCoreLib
         private sealed class IgnoreCase(System.Collections.Generic.IEqualityComparer<string> underlying) : UpstreamNonRandomizedStringEqualityComparer(underlying)
         {
             public override bool Equals(string x, string y) => string.Equals(x, y, StringComparison.OrdinalIgnoreCase);
-            public override int GetHashCode(string obj) => NonRandomizedStringComparer.HashOrdinalIgnoreCase(obj);
+            public override int GetHashCode(string obj) => NonRandomizedStringHash.HashOrdinalIgnoreCase(obj);
             public override bool Equals(ReadOnlySpan<char> alternate, string other) => other != null && alternate.Equals(other.AsSpan(), StringComparison.OrdinalIgnoreCase);
-            public override int GetHashCode(ReadOnlySpan<char> alternate) => NonRandomizedStringComparer.HashOrdinalIgnoreCase(alternate);
+            public override int GetHashCode(ReadOnlySpan<char> alternate) => NonRandomizedStringHash.HashOrdinalIgnoreCase(alternate);
+        }
+    }
+
+    /// <summary>
+    /// string.GetNonRandomizedHashCode / GetNonRandomizedHashCodeOrdinalIgnoreCase (dotnet/runtime String.Comparison.cs) for span keys and the
+    /// OrdinalIgnoreCase wrapper: two lanes over the chars two at a time, so a span hashes like the string with those chars. Bucket order of the
+    /// collections served from IL depends on it.
+    /// </summary>
+    internal static class NonRandomizedStringHash
+    {
+        private const uint NormalizeToLowercase = 0x0020_0020u;
+
+        // Chars are read two at a time (one uint); an odd tail reads a zero in place of upstream's terminator.
+        private static uint Pair(ReadOnlySpan<char> s, int i) => (uint)s[i] | (i + 1 < s.Length ? (uint)s[i + 1] << 16 : 0u);
+        private static uint Rol5(uint v) => (v << 5) | (v >> 27);
+        private static bool AllAscii(uint value) => (value & ~0x007F_007Fu) == 0;
+
+        internal static int Hash(ReadOnlySpan<char> s)
+        {
+            uint hash1 = (5381 << 16) + 5381;
+            uint hash2 = hash1;
+            int length = s.Length, i = 0;
+            while (length > 2)
+            {
+                length -= 4;
+                hash1 = (Rol5(hash1) + hash1) ^ Pair(s, i);
+                hash2 = (Rol5(hash2) + hash2) ^ Pair(s, i + 2);
+                i += 4;
+            }
+            if (length > 0) hash2 = (Rol5(hash2) + hash2) ^ Pair(s, i);
+            return (int)(hash1 + (hash2 * 1566083941));
+        }
+
+        internal static int HashOrdinalIgnoreCase(string s) => HashOrdinalIgnoreCase(s.AsSpan());
+
+        internal static int HashOrdinalIgnoreCase(ReadOnlySpan<char> s)
+        {
+            uint hash1 = (5381 << 16) + 5381;
+            uint hash2 = hash1;
+            int length = s.Length, i = 0;
+            while (length > 2)
+            {
+                uint p0 = Pair(s, i), p1 = Pair(s, i + 2);
+                if (!AllAscii(p0 | p1)) return HashOrdinalIgnoreCaseSlow(hash1, hash2, s.Slice(i));
+                length -= 4;
+                hash1 = (Rol5(hash1) + hash1) ^ (p0 | NormalizeToLowercase);
+                hash2 = (Rol5(hash2) + hash2) ^ (p1 | NormalizeToLowercase);
+                i += 4;
+            }
+            if (length > 0)
+            {
+                uint p0 = Pair(s, i);
+                if (!AllAscii(p0)) return HashOrdinalIgnoreCaseSlow(hash1, hash2, s.Slice(i));
+                hash2 = (Rol5(hash2) + hash2) ^ (p0 | NormalizeToLowercase);
+            }
+            return (int)(hash1 + (hash2 * 1566083941));
+        }
+
+        // The rest upper-cased (Ordinal.ToUpperOrdinal), then the same loop.
+        private static int HashOrdinalIgnoreCaseSlow(uint hash1, uint hash2, ReadOnlySpan<char> rest)
+        {
+            string upper = OrdinalCasing.ToUpperOrdinal(new string(rest));
+            int length = upper.Length, i = 0;
+            ReadOnlySpan<char> u = upper.AsSpan();
+            while (length > 2)
+            {
+                length -= 4;
+                hash1 = (Rol5(hash1) + hash1) ^ (Pair(u, i) | NormalizeToLowercase);
+                hash2 = (Rol5(hash2) + hash2) ^ (Pair(u, i + 2) | NormalizeToLowercase);
+                i += 4;
+            }
+            if (length > 0) hash2 = (Rol5(hash2) + hash2) ^ (Pair(u, i) | NormalizeToLowercase);
+            return (int)(hash1 + (hash2 * 1566083941));
         }
     }
 
