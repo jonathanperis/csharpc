@@ -910,8 +910,12 @@ public sealed partial class ModuleCodeGen
                 return FullNameOf(pointer.PointedAtType, ref unknown) is { } p ? p + "*" : null;
             case INamedTypeSymbol named:
             {
-                if (CoreLib.IsCoreLib(named.OriginalDefinition)) unknown = true;  // corelib-internal: no .NET counterpart
                 var definition = Mangler.MetadataName(named.OriginalDefinition);
+                // A type of a framework slice (ADR 0023) the reference pack doesn't name, such as a private nested type
+                // (SemaphoreSlim+TaskNode): the slice copies CoreLib's types under a namespace prefix, so the name is .NET's without it.
+                // Any other corelib-internal type has no .NET counterpart.
+                // (Mangler.MetadataName already gives the name without the prefix.)
+                if (CoreLib.IsCoreLib(named.OriginalDefinition) && !IsSliceType(named.OriginalDefinition)) unknown = true;
                 var arguments = ChainArguments(named);
                 if (arguments.Count == 0 || IsDef(named)) return definition;
                 if (arguments.Any(TypeSubstitution.IsOpen)) return null;
@@ -928,6 +932,12 @@ public sealed partial class ModuleCodeGen
             default:
                 return null;
         }
+    }
+
+    private static bool IsSliceType(INamedTypeSymbol type)
+    {
+        while (type.ContainingType is { } outer) type = outer;
+        return type.ContainingNamespace.ToDisplayString().StartsWith(Frontend.UpstreamSlice.Prefix + ".", StringComparison.Ordinal);
     }
 
     private static string ArraySuffix(IArrayTypeSymbol array) =>
