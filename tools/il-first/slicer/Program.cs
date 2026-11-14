@@ -275,6 +275,24 @@ sealed class Slice
         var methodRoots = new List<MethodDefinition>();
         foreach (var name in Cli.Roots)
         {
+            // "host:System.Int32,System.Int64::Log2,PopCount": static members of built-in types the slice carries in their host classes
+            // (DeclareHosted), every overload, public ones and explicit interface implementations alike ("...INumberBase<System.Int32>.IsNegative").
+            // The compiler calls them where it has no lowering of its own (FunctionCodeGen.BuiltinInterfaceMembers.cs).
+            if (name.StartsWith("host:", StringComparison.Ordinal))
+            {
+                var parts = name["host:".Length..].Split("::");
+                var members = parts[1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                foreach (var typeName in parts[0].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    var stop = Core.GetType(typeName) ?? throw new ArgumentException($"{typeName} is not a type of {Cli.CoreLib}");
+                    if (!IsStop(stop)) throw new ArgumentException($"host: {typeName} is not a built-in type the slice stops at");
+                    var found = stop.Methods.Where(m => m.IsStatic && m.HasBody && members.Any(n => m.Name == n || m.Name.EndsWith("." + n, StringComparison.Ordinal))).ToList();
+                    if (found.Count == 0) throw new ArgumentException($"host: {typeName} has none of {parts[1]}");
+                    if (!Hosted.TryGetValue(stop, out var list)) Hosted[stop] = list = [];
+                    foreach (var m in found.Where(m => !list.Contains(m))) { list.Add(m); methodRoots.Add(m); }
+                }
+                continue;
+            }
             // "System.Number::Dragon4": a method root, every overload of it; its declaring type is not a root (only what it reaches is cut).
             if (name.IndexOf("::", StringComparison.Ordinal) is var sep and > 0)
             {
