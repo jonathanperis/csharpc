@@ -103,7 +103,7 @@ namespace CsharpcCoreLib
             // without it every full or empty slot was a futex sleep and wake, 3 million futex calls where NativeAOT made 2 thousand).
             if (_currentCount == 0)
             {
-                int spinCount = SpinWaitImpl.SpinCountforSpinBeforeWait * 4;
+                int spinCount = SpinWaitImpl.SpinCountForSpinBeforeWait * 4;
                 SpinWaitImpl spinner = default;
                 while (spinner.Count < spinCount)
                 {

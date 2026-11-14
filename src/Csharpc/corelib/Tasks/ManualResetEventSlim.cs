@@ -18,7 +18,7 @@ namespace CsharpcCoreLib
         public ManualResetEventSlimImpl(bool initialState)
         {
             _event = CoreIntrinsics.csrt_event_new(0, initialState ? 1 : 0, 0);
-            _spinCount = Environment.ProcessorCount == 1 ? 1 : 35; // SpinWait.SpinCountforSpinBeforeWait
+            _spinCount = Environment.ProcessorCount == 1 ? 1 : 35; // SpinWait.SpinCountForSpinBeforeWait
         }
 
         public ManualResetEventSlimImpl(bool initialState, int spinCount)
