@@ -27,3 +27,8 @@ ParseExact 'X': 0f8fad5b-d9cb-469f-a165-70867728950e
 ToString("Z"): Format string can be only "D", "d", "N", "n", "P", "p", "B", "b", "X" or "x".
 15 bytes: Byte array for Guid must be exactly 16 bytes long. (Parameter 'b')
 hash equal for equal: True
+IEquatable: True, IComparable<Guid>: 1
+boxed is IEquatable<Guid> True, IComparable<Guid> True, ISpanFormattable True, IUtf8SpanFormattable True
+boxed dispatch: Equals True, CompareTo 1, ToString 0f8fad5bd9cb469fa16570867728950e
+EqualityComparer: True, Comparer: -1
+HashSet count 3, contains True; sorted 00000000 00000001 0f8fad5b, IndexOf 2

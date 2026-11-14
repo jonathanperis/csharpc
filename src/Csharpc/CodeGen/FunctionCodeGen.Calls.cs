@@ -612,7 +612,10 @@ public sealed partial class FunctionCodeGen
                     || SymbolEqualityComparer.Default.Equals(S(type), S(target))
                     // A T value tested against T? (a T? input's payload, the pattern typed by a type parameter = T?).
                     || (TypeMapper.IsNullable(S(target)) && SymbolEqualityComparer.Default.Equals(S(type), S(TypeMapper.NullableUnderlying(S(target)))))
-                    || ((Microsoft.CodeAnalysis.CSharp.CSharpCompilation)_m.Compilation).ClassifyConversion(type, target) is { IsImplicit: true, IsBoxing: true };
+                    || ((Microsoft.CodeAnalysis.CSharp.CSharpCompilation)_m.Compilation).ClassifyConversion(type, target) is { IsImplicit: true, IsBoxing: true }
+                    // A framework slice's struct (Guid) implements its interfaces over its own copy of itself (IComparable<its Guid>) while
+                    // the tested interface names the real one (IComparable<System.Guid> for T = Guid): decide it on the real types.
+                    || ((Microsoft.CodeAnalysis.CSharp.CSharpCompilation)_m.Compilation).ClassifyConversion(_m.CoreLib.Unmap(type), _m.CoreLib.Unmap(target)) is { IsImplicit: true, IsBoxing: true };
                 if (!TypeMapper.IsNullable(from)) return Boxes(from) ? L.True : L.False;
                 var (has, _, underlying) = NullableParts(value, from); // a null T? boxes to null
                 return Boxes(underlying) ? has : L.False;

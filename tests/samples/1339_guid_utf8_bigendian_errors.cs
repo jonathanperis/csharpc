@@ -53,5 +53,17 @@ static class Program
         try { g.ToString("Z"); } catch (FormatException e) { Console.WriteLine($"ToString(\"Z\"): {e.Message}"); }
         try { new Guid(new byte[15]); } catch (ArgumentException e) { Console.WriteLine($"15 bytes: {e.Message}"); }
         Console.WriteLine($"hash equal for equal: {g.GetHashCode() == new Guid(g.ToByteArray()).GetHashCode()}");
+
+        // Through its interfaces, statically and on a boxed Guid.
+        Console.WriteLine($"IEquatable: {((IEquatable<Guid>)g).Equals(g)}, IComparable<Guid>: {((IComparable<Guid>)g).CompareTo(b)}");
+        object boxed = g;
+        Console.WriteLine($"boxed is IEquatable<Guid> {boxed is IEquatable<Guid>}, IComparable<Guid> {boxed is IComparable<Guid>}, ISpanFormattable {boxed is ISpanFormattable}, IUtf8SpanFormattable {boxed is IUtf8SpanFormattable}");
+        if (boxed is IEquatable<Guid> eq && boxed is IComparable<Guid> cmp && boxed is IFormattable fmt)
+            Console.WriteLine($"boxed dispatch: Equals {eq.Equals(g)}, CompareTo {cmp.CompareTo(a)}, ToString {fmt.ToString("N", null)}");
+        Console.WriteLine($"EqualityComparer: {System.Collections.Generic.EqualityComparer<Guid>.Default.Equals(g, parsed)}, Comparer: {System.Collections.Generic.Comparer<Guid>.Default.Compare(a, b)}");
+        var set = new System.Collections.Generic.HashSet<Guid> { g, a, b, g };
+        var list = new System.Collections.Generic.List<Guid> { b, g, a };
+        list.Sort();
+        Console.WriteLine($"HashSet count {set.Count}, contains {set.Contains(parsed)}; sorted {string.Join(" ", list.ConvertAll(x => x.ToString("N")[..8]))}, IndexOf {list.IndexOf(g)}");
     }
 }

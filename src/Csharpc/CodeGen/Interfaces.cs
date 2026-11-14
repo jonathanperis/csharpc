@@ -160,9 +160,20 @@ public sealed partial class FunctionCodeGen
     /// A struct's public method matching an interface member by name and arity. Corelib shadow structs
     /// (List&lt;T&gt;.Enumerator...) implement the BCL interfaces by pattern rather than declaration.
     /// </summary>
-    private static IMethodSymbol? PatternImplementation(ITypeSymbol type, IMethodSymbol member) =>
-        type.GetMembers(member.Name).OfType<IMethodSymbol>()
-            .FirstOrDefault(m => !m.IsStatic && m.DeclaredAccessibility == Accessibility.Public && m.Parameters.Length == member.Parameters.Length);
+    /// <summary>
+    /// The public instance method of a value type that implements an interface member by name and signature. A framework slice's struct
+    /// implements the interface over its own copy of the type (Guid : IEquatable&lt;its Guid&gt;), which Roslyn does not match with the
+    /// reference's IEquatable&lt;System.Guid&gt;; the overload whose parameter types are the member's (through the corelib's type map) is the
+    /// implementation, never another overload of the same arity (Equals(object) is not IEquatable&lt;Guid&gt;.Equals).
+    /// </summary>
+    private IMethodSymbol? PatternImplementation(ITypeSymbol type, IMethodSymbol member)
+    {
+        var candidates = type.GetMembers(member.Name).OfType<IMethodSymbol>()
+            .Where(m => !m.IsStatic && m.DeclaredAccessibility == Accessibility.Public && m.Parameters.Length == member.Parameters.Length).ToList();
+        ITypeSymbol Mapped(ITypeSymbol t) => S(t) is INamedTypeSymbol n ? _m.CoreLib.TryMap(n) ?? n : S(t);
+        return candidates.FirstOrDefault(m => m.Parameters.Select(p => Mapped(p.Type)).SequenceEqual(member.Parameters.Select(p => Mapped(p.Type)), SymbolEqualityComparer.Default))
+            ?? (candidates.Count == 1 ? candidates[0] : null);
+    }
 
     /// <summary>Peels implicit conversions (boxing, upcasts to the interface) off a receiver.</summary>
     internal IOperation ConcreteReceiver(IOperation receiver)
