@@ -211,9 +211,21 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitSimpleAssignment(ISimpleAssignmentOperation a)
     {
         if (a.IsRef) return EmitRefAssignment(a);
-        if (a.Target is IPropertyReferenceOperation { Property.RefKind: RefKind.None } p) return EmitPropertySet(p, () => EmitValue(a.Value), TypeOf(a.Value));
+        if (a.Target is IPropertyReferenceOperation { Property.RefKind: RefKind.None } p)
+        {
+            // An assignment is the setter's call: an annotated value parameter (or property) keeps the assigned typeof's members.
+            if (p.Property.SetMethod is { } setter && KnownTypeofValues(a.Value) is { Count: > 0 } assigned)
+                foreach (var known in assigned)
+                    _m.NoteDynamicallyAccessedArguments(S(setter), i => i == setter.Parameters.Length - 1 ? S(known) : null);
+            return EmitPropertySet(p, () => EmitValue(a.Value), TypeOf(a.Value));
+        }
         if (a.Target is IFlowCaptureReferenceOperation r && _cfg!.PropertyCaptures.TryGetValue(r.Id, out var pc))
             return SetCapturedProperty(pc, Coerce(EmitValue(a.Value), TypeOf(a.Value), pc.Property.Type));
+        // `[DynamicallyAccessedMembers(K)] Type field = typeof(X)` (an initializer or an assignment): X keeps its members of
+        // kinds K, as the IL front-end's NoteDynamicallyAccessedField does.
+        if (a.Target is IFieldReferenceOperation { Field: var annotatedField } && IsSystemType(annotatedField.Type)
+            && ModuleCodeGen.DamKindsOf(annotatedField.OriginalDefinition.GetAttributes()) is var fieldKinds and not 0)
+            foreach (var known in KnownTypeofValues(a.Value)) _m.MarkDynamicallyAccessed(S(known), fieldKinds);
 
         var targetType = TypeOf(a.Target)!;
         var address = StoreAddress(a.Target, out var covariant); // C#: target sub-expressions are evaluated first
