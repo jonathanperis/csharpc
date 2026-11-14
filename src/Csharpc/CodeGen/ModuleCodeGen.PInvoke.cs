@@ -42,7 +42,7 @@ public sealed partial class ModuleCodeGen
 
     public static bool IsPInvoke(IMethodSymbol method) => method.OriginalDefinition.GetDllImportData() is not null;
 
-    private enum ParamKind { Direct, Bool, Char, String, Array, ByRef, Struct, StructByVal }
+    private enum ParamKind { Direct, Bool, Char, String, Array, ByRef, Struct, StructByVal, Delegate }
 
     /// <summary>
     /// Native string encodings (csrt_pinvoke_string_to/from_native): Ansi is the system ANSI code page
@@ -191,6 +191,18 @@ public sealed partial class ModuleCodeGen
                     var nativeString = b.Call(toNative.Type, toNative.Fn, [value, Llvm.ConstInt(Llvm.I32, p.StringEncoding)]);
                     temps.Add(nativeString);
                     args.Add(nativeString);
+                    break;
+                }
+                case ParamKind.Delegate:
+                {
+                    // One of the delegate type's reverse thunks, the pointer Marshal.GetFunctionPointerForDelegate hands out; null
+                    // stays null. The argument keeps the delegate alive for the call, as .NET's marshaller does; a callback kept
+                    // past the call is the caller's to keep alive, as in .NET.
+                    var thunks = Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".DelegateThunks")!
+                        .GetMembers("GetPointerOrNull").OfType<IMethodSymbol>().Single();
+                    var getPointer = GetFunction(thunks);
+                    var table = b.Cast(LLVMOpcode.PtrToInt, ReverseThunkTable((INamedTypeSymbol)p.Type, null!), Types.NativeInt);
+                    args.Add(b.Cast(LLVMOpcode.IntToPtr, b.Call(getPointer.Type, getPointer.Fn, [value, table]), Llvm.Ptr));
                     break;
                 }
                 case ParamKind.Array:
@@ -398,8 +410,11 @@ public sealed partial class ModuleCodeGen
                     ? new NativeParam(ParamKind.Struct, type, eightbytes, StructType: llvmType)
                     : new NativeParam(ParamKind.StructByVal, type, [Llvm.Ptr], StructType: llvmType);
             }
+            // A delegate is passed as a native-callable pointer to it (ModuleCodeGen.ReverseThunks.cs).
+            case INamedTypeSymbol { TypeKind: TypeKind.Delegate } marshalled when CanMarshalDelegate(marshalled):
+                return new NativeParam(ParamKind.Delegate, type, [Llvm.Ptr]);
             case INamedTypeSymbol { TypeKind: TypeKind.Delegate }:
-                throw CompileError.Unsupported("delegate P/Invoke parameters (use [UnmanagedCallersOnly] + function pointers)", p);
+                throw CompileError.Unsupported("generic delegate P/Invoke parameters (use [UnmanagedCallersOnly] + function pointers)", p);
             default:
                 if (type.IsReferenceType && type.SpecialType != SpecialType.None)
                     throw CompileError.Unsupported($"P/Invoke parameter of type '{type}'", p);

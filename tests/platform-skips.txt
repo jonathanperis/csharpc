@@ -40,6 +40,7 @@ windows 729_dllimport_resolver           live: .NET names the library kind "DLL"
 windows 731_process_start                runs a POSIX sh; csharpc's Process.Start on Windows is an explicit NotSupportedException (not implemented yet)
 windows 860_console_autoflush_pipe       starts itself with Process.Start, an explicit NotSupportedException on Windows in csharpc (not implemented yet); SIGPIPE is POSIX
 windows 286_pinvoke_portable_abi        live: imports from "libc", which doesn't exist on Windows
+windows 1347_pinvoke_delegate_parameters live: imports from "libc", which doesn't exist on Windows
 windows 295_regex_charclass             live: prints matched text that contains a bare "\n" (from the input string)
 windows 303_regex_options               live: prints matched text that contains a bare "\n" (from the input string)
 windows 194_marshal_strings              live: GetPInvokeErrorMessage is the Win32 FormatMessage text, not strerror
