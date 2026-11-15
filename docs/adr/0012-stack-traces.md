@@ -109,6 +109,12 @@ unwinder does anyway.
   optimizer (tail-call and accumulator-recursion elimination don't apply to invokes, which is also
   what keeps recursive frames). LLVM deletes landing pads that only `resume` — catch clauses and
   all — so record-only pads call an empty `asm sideeffect ""` (no code; never executed anyway).
+  A handler in an inlined method splits its frame's clauses: the first search stops at the handler,
+  having recorded the frames up to the handler's method, and a rethrow from the handler searches the
+  same physical frame again (same CFA). The trace keeps the outermost site recorded in that frame
+  (`TraceData.frame_last`), and the second search records the sites past it — the inlined callers —
+  instead of none (sample 1393; before, `throw;` from an inlined `catch` at -O2 lost every caller
+  inlined into the same function).
 - **No frame twice.** csharpc's own propagation re-raises (finally blocks, handlers whose type or
   filter doesn't match, `throw;`), and a new search would walk frames already recorded. The trace
   keeps the highest frame (CFA) recorded, and the search records only frames above it. An await, an
