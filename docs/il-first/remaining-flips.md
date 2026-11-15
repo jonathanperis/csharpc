@@ -19,6 +19,6 @@ OS boundary) and the contract layer (reflection/type system, task/async glue, in
 | DateTime, calendars, TimeSpan parsing and formatting | to do | |
 | Text and encoding, Convert, string helpers, hashing, BigInteger, floating-point math | to do | |
 | Tracing | to do | |
-| IO above the libc boundary | to do | #315 |
+| IO above the libc boundary | part 1 (streams, readers, writers: [System.IO.md](System.IO.md)) done; part 2 (the file system over a C# libSystem.Native contract) in progress | #315 |
 | Net/Http above csharpc's socket engine | to do | |
 | Crypto, X.509, SslStream (the OS-native TLS default stays the owner's call, #143, #144) | to do | |
