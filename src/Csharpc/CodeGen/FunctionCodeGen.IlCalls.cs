@@ -337,18 +337,6 @@ public sealed partial class FunctionCodeGen
                 values[1] = ConvertNumeric(values[1], types[1], types[0], IlAt(), isChecked: false);
                 types[1] = types[0];
             }
-            // byte/sbyte/short/ushort's IShiftOperators members (generic code over T : IShiftOperators<T, int, T>, Number.BinaryParser<T>):
-            // the count is masked to the type's width and the shift happens in it, as their IL (`(sbyte)(value << (count & 7))`) does.
-            if (binary.Kind is BinaryOperatorKind.LeftShift or BinaryOperatorKind.RightShift or BinaryOperatorKind.UnsignedRightShift
-                && values[0].Type.IsInteger && values[0].Type.IntWidth < 32 && values[1].Type.IsInteger)
-            {
-                var width = values[0].Type.IntWidth;
-                var count = values[1].Type.IntWidth == 32 ? values[1] : _b.Cast(LLVMOpcode.Trunc, values[1], L.I32);
-                count = _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.And, count, L.ConstInt(L.I32, width - 1)), values[0].Type);
-                var opcode = binary.Kind == BinaryOperatorKind.LeftShift ? LLVMOpcode.Shl
-                    : binary.Kind == BinaryOperatorKind.RightShift && TypeMapper.IsSigned(types[0]) ? LLVMOpcode.AShr : LLVMOpcode.LShr;
-                return IlPush(_b.BinOp(opcode, values[0], count), method.ReturnType);
-            }
             return IlPush(Arithmetic(binary.Kind, values[0], values[1], types[0], types[1], IlAt(), binary.Checked), method.ReturnType);
         }
         if (values.Length != 1) return null;

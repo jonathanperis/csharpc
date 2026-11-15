@@ -362,6 +362,8 @@ sealed class Emitter
                 var typeName = forward[(colon + 1)..sep]; var dot = typeName.LastIndexOf('.');
                 var scope = AsmRef(new AssemblyNameReference(forward[..colon], new Version(1, 0, 0, 0)));
                 var call = new MethodReference(forward[(sep + 2)..], nm.ReturnType, new TypeReference(typeName[..dot], typeName[(dot + 1)..], _m, scope, false));
+                // An instance method forwards its receiver as the first argument (CultureInfo.GetFormat -> GetFormat(CultureInfo, Type)).
+                if (nm.HasThis) call.Parameters.Add(new ParameterDefinition(nm.DeclaringType.IsValueType ? new ByReferenceType(nm.DeclaringType) : nm.DeclaringType));
                 foreach (var p in nm.Parameters) call.Parameters.Add(new ParameterDefinition(p.ParameterType));
                 MethodReference target = call;
                 if (nm.HasGenericParameters)

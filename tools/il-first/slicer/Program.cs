@@ -186,8 +186,10 @@ sealed class Cli
                     // Invariant mode and ICU loading stay the corelib's: the project's InvariantGlobalization is compiled into the program, WASI is
                     // always invariant, and ICU is loaded by the first call that needs it (corelib/Globalization/GlobalizationMode.cs).
                     // The current cultures flow with the execution context through an AsyncLocal (corelib/UpstreamGlobalization.cs).
-                    c.Replace["System.Globalization.CultureInfo::get_CurrentCulture"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamCultureFlow::GetCurrentCulture";
-                    c.Replace["System.Globalization.CultureInfo::get_CurrentUICulture"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamCultureFlow::GetCurrentUICulture";
+                    c.Replace["System.Globalization.CultureInfo::get_CurrentCulture"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamCultureInfo::GetCurrentCulture";
+                    c.Replace["System.Globalization.CultureInfo::get_CurrentUICulture"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamCultureInfo::GetCurrentUICulture";
+                    // GetFormat's DateTimeFormatInfo case through the runtime, so formatting a number doesn't link DateTimeFormatInfo and the calendars.
+                    c.Replace["System.Globalization.CultureInfo::GetFormat"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamCultureInfo::GetFormat";
                     c.Redirect["System.TimeZoneInfoOptions"] = "CsharpcCoreLib:CsharpcCoreLib.Globalization.TimeZoneInfoOptions";
                     c.Redirect["System.Globalization.GlobalizationMode"] = "CsharpcCoreLib:CsharpcCoreLib.Globalization.GlobalizationMode";
                     break;

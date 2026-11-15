@@ -171,7 +171,7 @@ namespace CsharpcCoreLib
     /// handlers, so the getters read the AsyncLocal itself: the same culture, flowing the same way (a thread or a task sees the culture its
     /// creator had set), then DefaultThreadCurrentCulture and the user's default, as CoreLib's getters fall back.
     /// </summary>
-    public static class UpstreamCultureFlow
+    public static class UpstreamCultureInfo
     {
         [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "s_asyncLocalCurrentCulture")]
         private static extern ref AsyncLocal<CultureInfo> AsyncLocalCurrentCulture(CultureInfo type);
@@ -193,5 +193,25 @@ namespace CsharpcCoreLib
 
         public static CultureInfo GetCurrentUICulture() =>
             AsyncLocalCurrentUICulture(null)?.Value ?? CultureInfo.DefaultThreadCurrentUICulture ?? UserDefaultUICulture(null);
+
+        /// <summary>
+        /// CultureInfo.GetFormat, as CoreLib's: the culture's NumberFormat or DateTimeFormat (both virtual) for those types, null otherwise.
+        /// The DateTimeFormatInfo case goes through the runtime (csrt_culture_format_dtfi), whose real implementation is exported only by
+        /// programs that use DateTimeFormatInfo (its method table is the trigger): formatting a number through the current culture would
+        /// otherwise link DateTimeFormatInfo, every calendar and their data (half a megabyte); no other program can have its Type.
+        /// </summary>
+        public static object GetFormat(CultureInfo culture, Type formatType)
+        {
+            if (formatType == typeof(System.Globalization.NumberFormatInfo)) return culture.NumberFormat;
+            IntPtr result = FormatDateTimeFormat(CoreIntrinsics.ObjectToPointer(culture), CoreIntrinsics.ObjectToPointer(formatType));
+            return result == IntPtr.Zero ? null : CoreIntrinsics.PointerToObject(result);
+        }
+
+        [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_culture_format_dtfi")]
+        private static extern IntPtr FormatDateTimeFormat(IntPtr culture, IntPtr formatType);
+
+        [RuntimeExport("csrt_culture_get_format_dtfi", "_CN14CsharpcCoreLib8Upstream6System13Globalization18DateTimeFormatInfo2MTE")]
+        internal static object GetFormatDateTimeFormat(CultureInfo culture, Type formatType) =>
+            formatType == typeof(System.Globalization.DateTimeFormatInfo) ? culture.DateTimeFormat : null;
     }
 }
