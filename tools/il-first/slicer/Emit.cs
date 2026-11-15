@@ -33,7 +33,10 @@ sealed class Emitter
         "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute",
         // A method the native side calls through a function pointer (Interop.Sys.AddMountPoint, GetAllMountPoints' callback): csharpc
         // gives it the C calling convention and an exception barrier only when it carries the attribute.
-        "System.Runtime.InteropServices.UnmanagedCallersOnlyAttribute"];
+        "System.Runtime.InteropServices.UnmanagedCallersOnlyAttribute",
+        // A switch's name on its getter (LocalAppContextSwitches.EnableUnsafeUTF7Encoding, which Encoding.GetEncoding(65000) tests): csharpc folds
+        // the getter to the runtimeconfig's value when the program sets one (ModuleCodeGen.FeatureSwitchDefinitionValue), as ILCompiler does.
+        "System.Diagnostics.CodeAnalysis.FeatureSwitchDefinitionAttribute"];
 
     /// <summary>
     /// Attributes that change what a member means at run time or how csharpc lowers it (thread-local storage, fixed buffers, decoded constants,
@@ -516,6 +519,13 @@ sealed class Emitter
                     var other => other,
                 };
             }
+            // A folded getter (Cli.Fold) loads its constant: csharpc then never lowers the branch it rules out, which the slice does not carry.
+            foreach (var i in ob.Instructions)
+                if (i.Operand is MethodReference getter && i.OpCode == OpCodes.Call && _cli.FoldedValue(getter) is { } value)
+                {
+                    map[i].OpCode = value ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0;
+                    map[i].Operand = null;
+                }
             // A callvirt of an instance member the slice hosts as a static (`this.` host roots) is a call of that static.
             foreach (var ni in nb.Instructions)
                 if (ni.OpCode == OpCodes.Callvirt && ni.Operand is MethodDefinition target && !target.HasThis && target.IsStatic) ni.OpCode = OpCodes.Call;

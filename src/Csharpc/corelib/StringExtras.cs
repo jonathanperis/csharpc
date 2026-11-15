@@ -59,6 +59,32 @@ namespace CsharpcCoreLib
         /// <summary>The hash string.GetHashCode() gives the same characters.</summary>
         public static int GetHashCode(ReadOnlySpan<char> value) => new string(value).GetHashCode();
 
+        /// <summary>CoreLib-internal: a one- or two-char string (Rune.ToString of a BMP or supplementary scalar).</summary>
+        public static string CreateFromChar(char c) => new string(c, 1);
+
+        public static string CreateFromChar(char c1, char c2)
+        {
+            string s = CoreIntrinsics.FastAllocateString(2);
+            Span<char> chars = CoreIntrinsics.StringChars(s);
+            chars[0] = c1;
+            chars[1] = c2;
+            return s;
+        }
+
+        /// <summary>CoreLib-internal string.CompareOrdinal over spans (EncodingTable's name lookup): SpanHelpers.SequenceCompareTo, as CoreLib's.</summary>
+        public static int CompareOrdinal(ReadOnlySpan<char> strA, ReadOnlySpan<char> strB) => strA.SequenceCompareTo(strB);
+
+        /// <summary>CoreLib-internal: the string an encoding decodes from native bytes (the framework's Encoding.GetString overloads).</summary>
+        public static unsafe string CreateStringFromEncoding(byte* bytes, int byteLength, System.Text.Encoding encoding)
+        {
+            int stringLength = encoding.GetCharCount(bytes, byteLength);
+            if (stringLength == 0) return string.Empty;
+            string s = CoreIntrinsics.FastAllocateString(stringLength);
+            fixed (char* chars = CoreIntrinsics.StringChars(s))
+                encoding.GetChars(bytes, byteLength, chars, stringLength);
+            return s;
+        }
+
         public static int GetHashCode(ReadOnlySpan<char> value, StringComparison comparisonType) => StringComparer.FromComparison(comparisonType).GetHashCode(new string(value));
 
         [ShadowInstance]
@@ -983,28 +1009,6 @@ namespace CsharpcCoreLib
                 if (a[j] != b[j] && char.ToUpperInvariant(a[j]) != char.ToUpperInvariant(b[j])) return false;
             return true;
         }
-    }
-
-    [ShadowMembers("System.Text.Ascii")]
-    internal static class AsciiExtras
-    {
-        public static bool IsValid(ReadOnlySpan<char> value)
-        {
-            for (int i = 0; i < value.Length; i++)
-                if (value[i] > 0x7F) return false;
-            return true;
-        }
-
-        public static bool IsValid(ReadOnlySpan<byte> value)
-        {
-            for (int i = 0; i < value.Length; i++)
-                if (value[i] > 0x7F) return false;
-            return true;
-        }
-
-        public static bool IsValid(char value) => value <= 0x7F;
-
-        public static bool IsValid(byte value) => value <= 0x7F;
     }
 
 }

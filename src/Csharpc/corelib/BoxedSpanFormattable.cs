@@ -18,6 +18,8 @@ namespace CsharpcCoreLib
             // program that only boxes a UInt128 (System.Net.IPNetwork) would carry.
             if (typeof(T) == typeof(Int128)) return Int128TryFormat((Int128)self, destination, out charsWritten, format, provider);
             if (typeof(T) == typeof(UInt128)) return UInt128TryFormat((UInt128)self, destination, out charsWritten, format, provider);
+            // BigInteger (a runtime value csharpc formats with its own BigIntegerOps): the text IFormattable.ToString gives, if it fits.
+            if (typeof(T) == typeof(System.Numerics.BigInteger)) return CopyFormatted((IFormattable)self, destination, out charsWritten, format, provider);
             return CoreIntrinsics.Unbox<T>(self).TryFormat(destination, out charsWritten, format, provider);
         }
 
@@ -25,7 +27,24 @@ namespace CsharpcCoreLib
             where T : IUtf8SpanFormattable
         {
             if (typeof(T) == typeof(char)) return CharTryFormat.TryFormat((char)self, utf8Destination, out bytesWritten, format, provider);
+            if (typeof(T) == typeof(System.Numerics.BigInteger))
+            {
+                string text = ((IFormattable)self).ToString(format.IsEmpty ? null : format.ToString(), provider);
+                return System.Text.Encoding.UTF8.TryGetBytes(text, utf8Destination, out bytesWritten);
+            }
             return CoreIntrinsics.Unbox<T>(self).TryFormat(utf8Destination, out bytesWritten, format, provider);
+        }
+
+        private static bool CopyFormatted(IFormattable self, Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider provider)
+        {
+            string text = self.ToString(format.IsEmpty ? null : format.ToString(), provider);
+            if (text.AsSpan().TryCopyTo(destination))
+            {
+                charsWritten = text.Length;
+                return true;
+            }
+            charsWritten = 0;
+            return false;
         }
 
         public static bool TryFormat(object self, Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider provider)

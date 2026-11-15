@@ -8,4 +8,9 @@
 # that formats a number carries the framework's culture initialization (culture data over ICU  its locale tables  the culture caches). linux-x86_64
 # measured 931 120 B (budget 826 368 -> 935 936; NativeAOT carries the same code); the other platforms moved by the same 109 568 B until CI measures them.
 # #426 merged with the IO and Hashtable flips: linux-x86_64 measured 936 992 B (budget 935 936 -> 942 080); the other platforms moved by the same 6 144 B.
-linux-x86_64 jsonwriter 942080
+# Encoding, Utf8, Ascii and Base64 from CoreLib IL (#423): System.Text.Json transcodes through the framework's own Utf8Utility, Ascii and Base64
+# code (vector and scalar paths) instead of the corelib's smaller copies, which runs 3.1x (encoding) and 5x (Ascii/Base64) faster. linux-x86_64 measured
+# 951 520 B against 937 192 B on the integration head (+14 328 B); budget 942080 -> 954368.
+# Convert from CoreLib IL (#423), measured after merging the integration branch at 61211692: linux-x86_64 827 624 B; budget lowered to
+# measured + max(4 KiB, 3 %), rounded up to 4 KiB.
+linux-x86_64 jsonwriter 856064

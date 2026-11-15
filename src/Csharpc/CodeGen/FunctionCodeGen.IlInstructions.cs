@@ -373,7 +373,7 @@ public sealed partial class FunctionCodeGen
                 // null, which a non-nullable value never is. Skip the allocation, as the source path folds it.
                 if (st.IsValueType && !TypeMapper.IsNullable(st) && IlBoxOnlyNullTested(block))
                 {
-                    Push(new IlEntry(IlKind.Ref, _m.ExternalGlobal("csrt_Object_MT"), Special(SpecialType.System_Object)) { NonNull = true });
+                    Push(new IlEntry(IlKind.Ref, _m.ExternalGlobal("csrt_Object_MT"), Special(SpecialType.System_Object)) { NonNull = true, Unboxed = value with { Type = st } });
                     return false;
                 }
                 // `box T; unbox.any T` — `(char)(object)value` in generic code once T is char: the JIT
@@ -445,12 +445,8 @@ public sealed partial class FunctionCodeGen
                 var st = S(type);
                 // `box T; isinst I` in generic code (`value is IFormattable` in the framework's AppendFormatted<T>, string.Format ...): once T is known
                 // the answer is a constant, so neither a run-time interface lookup nor a branch on it is left. The boxed value stays as it is.
-                if (value is { Kind: IlKind.Ref, Unboxed: { Type: { } boxedType } } && S(boxedType) is { IsValueType: true } boxedValue && !TypeMapper.IsNullable(boxedValue)
-                    && st is INamedTypeSymbol { TypeKind: TypeKind.Interface or TypeKind.Class } target && !TypeMapper.IsNullable(st))
+                if (value is { Kind: IlKind.Ref, Unboxed: { Type: { } boxedType } } && BoxedIsInstance(S(boxedType), st) is { } isInstance)
                 {
-                    var isInstance = SymbolEqualityComparer.Default.Equals(boxedValue, target) || ImplementsInterface(boxedValue, target)
-                        || target.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType
-                        || (boxedValue.TypeKind == TypeKind.Enum && target.SpecialType == SpecialType.System_Enum);
                     Push(isInstance ? value : new IlEntry(IlKind.Ref, LlvmContext.Null(L.Ptr), Special(SpecialType.System_Object)));
                     return false;
                 }
@@ -672,12 +668,30 @@ public sealed partial class FunctionCodeGen
         catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { return null; }
     }
 
+    /// <summary>
+    /// Whether a boxed non-nullable value of <paramref name="boxed"/> is an instance of <paramref name="target"/>, when that is known at
+    /// compile time (`box T; isinst X` in generic code once T is a known value type); null when it is not decided here.
+    /// </summary>
+    private bool? BoxedIsInstance(ITypeSymbol boxed, ITypeSymbol target)
+    {
+        if (boxed is not { IsValueType: true } || TypeMapper.IsNullable(boxed) || boxed is ITypeParameterSymbol || TypeMapper.IsNullable(target)) return null;
+        if (target is not INamedTypeSymbol { TypeKind: TypeKind.Interface or TypeKind.Class or TypeKind.Struct or TypeKind.Enum } named) return null;
+        // (`decoder is Base64DecoderByte` in Base64Helper's generic decoder: a struct target is the boxed type itself or nothing)
+        if (named.TypeKind is TypeKind.Struct or TypeKind.Enum) return SymbolEqualityComparer.Default.Equals(boxed, named);
+        return SymbolEqualityComparer.Default.Equals(boxed, named) || ImplementsInterface(boxed, named)
+            || named.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType
+            || (boxed.TypeKind == TypeKind.Enum && named.SpecialType == SpecialType.System_Enum);
+    }
+
     private bool IlBoxOnlyNullTested(IlBlock block)
     {
         var instructions = IlBody.Instructions;
         if (_ilIndex + 1 > block.Last) return false;
         var next = instructions[_ilIndex + 1].OpCode;
         if (next is ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s) return true;
+        // `box T; isinst X; brtrue`: Isinst folds the type test from the boxed type (BoxedIsInstance), so the box is only tested too.
+        if (next == ILOpCode.Isinst && _ilIndex + 2 <= block.Last && instructions[_ilIndex + 2].OpCode is ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s)
+            return BoxedIsInstance(S(ResolveIlType(instructions[_ilIndex].Token)), S(ResolveIlType(instructions[_ilIndex + 1].Token))) is not null;
         return next == ILOpCode.Ldnull && _ilIndex + 2 <= block.Last
             && instructions[_ilIndex + 2].OpCode is ILOpCode.Ceq or ILOpCode.Cgt_un;
     }
@@ -1359,9 +1373,23 @@ public sealed partial class FunctionCodeGen
     {
         var t = Special(type);
         var pointer = IlAddress(address);
-        // ldind on a pointer to bool/char/enum: keep the pointee's type when the storage matches.
-        var pointee = address.Type is { } pt && T.Storage(S(pt)).Handle == T.Storage(t).Handle && !S(pt).IsReferenceType ? pt : t;
+        // ldind on a pointer to bool/char/enum: keep the pointee's type when the storage matches. Not an integer of the other signedness:
+        // the opcode decides the extension (`ldind.i1` through a byte* sign-extends: Ascii.GetIndexOfFirstNonAsciiByte tests `*(sbyte*)p < 0`).
+        var pointee = address.Type is { } pt && T.Storage(S(pt)).Handle == T.Storage(t).Handle && !S(pt).IsReferenceType
+            && !ExtendsDifferently(S(pt), type) ? pt : t;
         return IlPush(isVolatile ? VolatileLoad(pointer, S(pointee)) : LoadValue(pointer, S(pointee)), pointee);
+    }
+
+    /// <summary>Whether a 1- or 2-byte <paramref name="pointee"/> widens to the evaluation stack differently from the ldind opcode's type.</summary>
+    private static bool ExtendsDifferently(ITypeSymbol pointee, SpecialType opcodeType)
+    {
+        static bool? Signed(SpecialType s) => s switch
+        {
+            SpecialType.System_SByte or SpecialType.System_Int16 => true,
+            SpecialType.System_Byte or SpecialType.System_UInt16 or SpecialType.System_Char => false,
+            _ => null,
+        };
+        return Signed(pointee.SpecialType) is { } a && Signed(opcodeType) is { } b && a != b;
     }
 
     private void IlStoreIndirect(Stack<IlEntry> stack, SpecialType type, bool isVolatile)
