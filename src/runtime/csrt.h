@@ -469,6 +469,7 @@ void csrt_array_copy_checked(void* source, int64_t source_index, void* destinati
                              const csrt_MethodTable* destination_type);
 // The same through a call site's cache (a zero-initialized uint64_t per site).
 void* const* csrt_interface_slots_cached(void* obj, const csrt_MethodTable* interface_type, uint64_t* site);
+void* const* csrt_interface_slots_cached_shared(void* obj, const csrt_MethodTable* interface_type, uint64_t* site);
 csrt_String* csrt_object_to_string(void* obj);                      // virtual ToString(); null -> ""
 csrt_String* csrt_object_to_string_default(void* obj);              // System.Object.ToString()
 bool csrt_object_equals_default(void* self, void* other);

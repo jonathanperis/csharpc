@@ -55,6 +55,11 @@ sealed class Emitter
         {
             var name = a.AttributeType.FullName;
             if (CopiedAttributes.Contains(name)) to.CustomAttributes.Add(new CustomAttribute(MethodRef(a.Constructor), a.GetBlob()));
+            // [AsyncMethodBuilder] on a method tells a C# compiler which builder to generate the state machine with. On a compiled async
+            // method (it carries [AsyncStateMachine]) that choice is already in the IL: the stub and MoveNext call the builder by name, and
+            // csharpc reads the attribute only on methods it lowers from source (Coroutines.UsesPoolingBuilder). Stream.ReadAtLeastAsyncCore.
+            else if (name == "System.Runtime.CompilerServices.AsyncMethodBuilderAttribute" && from is MethodDefinition { HasBody: true } compiled
+                && compiled.CustomAttributes.Any(c => c.AttributeType.FullName == "System.Runtime.CompilerServices.AsyncStateMachineAttribute")) { }
             else if (SemanticAttributes.Contains(name)) _droppedSemantics.Add($"{where}: [{name}]");
         }
     }
@@ -356,6 +361,9 @@ sealed class Emitter
                 var typeName = forward[(colon + 1)..sep]; var dot = typeName.LastIndexOf('.');
                 var scope = AsmRef(new AssemblyNameReference(forward[..colon], new Version(1, 0, 0, 0)));
                 var call = new MethodReference(forward[(sep + 2)..], nm.ReturnType, new TypeReference(typeName[..dot], typeName[(dot + 1)..], _m, scope, false));
+                // An instance member forwards `this` as a leading object parameter (the slice's own type has no name csharpc's corelib can use
+                // in a signature; Stream.BeginRead -> UpstreamStreamSupport.BeginRead(object, ...)).
+                if (nm.HasThis) call.Parameters.Add(new ParameterDefinition(_m.TypeSystem.Object));
                 foreach (var p in nm.Parameters) call.Parameters.Add(new ParameterDefinition(p.ParameterType));
                 MethodReference target = call;
                 if (nm.HasGenericParameters)
