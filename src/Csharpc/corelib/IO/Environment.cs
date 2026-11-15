@@ -282,8 +282,8 @@ namespace CsharpcCoreLib
 
         public static string CurrentDirectory
         {
-            get => DirectoryImpl.GetCurrentDirectory();
-            set => DirectoryImpl.SetCurrentDirectory(value);
+            get => System.IO.Directory.GetCurrentDirectory();
+            set => System.IO.Directory.SetCurrentDirectory(value);
         }
 
         public static bool Is64BitProcess => true;

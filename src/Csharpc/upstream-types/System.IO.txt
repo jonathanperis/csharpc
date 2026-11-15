@@ -28,3 +28,6 @@ System.IO.Enumeration.FileSystemEnumerable`1
 System.IO.Enumeration.FileSystemEnumerator`1
 System.IO.Enumeration.FileSystemName
 System.IO.EnumerationOptions
+System.IO.Enumeration.FileSystemEntry
+System.Threading.ThreadPoolBoundHandle
+System.Runtime.InteropServices.Marshalling.SpanOfCharAsUtf8StringMarshaller

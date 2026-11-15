@@ -209,13 +209,13 @@ namespace CsharpcCoreLib
         /// <summary>The exception .NET throws for an errno on a path (System.IO's Unix error mapping).</summary>
         public static Exception IOError(int errno, string path, bool isDirectory)
         {
-            string full = path == null ? null : PathImpl.GetFullPath(path);
+            string full = path == null ? null : System.IO.Path.GetFullPath(path);
             switch (errno)
             {
                 case ENOENT:
                     if (!isDirectory)
                     {
-                        string parent = PathImpl.GetDirectoryName(full);
+                        string parent = System.IO.Path.GetDirectoryName(full);
                         if (parent == null || IsDirectory(parent))
                             return new FileNotFoundException("Could not find file '" + full + "'.", full);
                     }

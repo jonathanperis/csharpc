@@ -74,6 +74,28 @@ namespace CsharpcCoreLib
         public static bool IsRuntimeAsync() => false;
     }
 
+    [ShadowMembers("System.Boolean")]
+    internal static class BooleanTrueFalseText
+    {
+        /// <summary>bool.IsTrueStringIgnoreCase (AppContextConfigHelper's switches): "true" in ASCII letters of either case, as upstream's test.</summary>
+        public static bool IsTrueStringIgnoreCase(ReadOnlySpan<char> value) =>
+            value.Length == 4 && (value[0] | 0x20) == 't' && (value[1] | 0x20) == 'r' && (value[2] | 0x20) == 'u' && (value[3] | 0x20) == 'e';
+
+        public static bool IsFalseStringIgnoreCase(ReadOnlySpan<char> value) =>
+            value.Length == 5 && (value[0] | 0x20) == 'f' && (value[1] | 0x20) == 'a' && (value[2] | 0x20) == 'l' && (value[3] | 0x20) == 's'
+            && (value[4] | 0x20) == 'e';
+    }
+
+    [ShadowMembers("System.Runtime.Serialization.SerializationInfo")]
+    internal static class SerializationGuardMembers
+    {
+        /// <summary>
+        /// SerializationInfo.ThrowIfDeserializationInProgress (FileStream's serialization guard): throws only while BinaryFormatter-style
+        /// deserialization is running, which csharpc has no way to start (BinaryFormatter is gone from .NET too), so it never throws.
+        /// </summary>
+        public static void ThrowIfDeserializationInProgress(string switchSuffix, ref int cachedValue) { }
+    }
+
     [ShadowMembers("System.Text.Encoding")]
     internal static class EncodingCodePageMembers
     {
