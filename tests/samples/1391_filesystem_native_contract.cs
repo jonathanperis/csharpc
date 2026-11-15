@@ -88,6 +88,11 @@ try
     Try("create dir over a file", () => Directory.CreateDirectory(a));
     Try("FileMode.CreateNew on existing", () => new FileStream(a, FileMode.CreateNew).Dispose());
 
+    // Path validation before the native layer: an embedded NUL, a component longer than NAME_MAX (ENAMETOOLONG).
+    Console.WriteLine("exists with NUL: " + File.Exists(a + "\0x"));
+    Try("read with NUL", () => File.ReadAllText(a + "\0x"));
+    Try("long component", () => File.WriteAllText(Path.Combine(root, new string('x', 300)), ""));
+
     // Links (symlink/readlink/lstat).
     if (!OperatingSystem.IsWindows())
     {

@@ -4,11 +4,15 @@
 // framework's `[DllImport("libSystem.Native", EntryPoint = "SystemNative_X")]` to it), so the framework's marshalling, SafeHandle
 // reference counting and error mapping (Interop.GetExceptionForIoErrno) run unchanged; only the native layer is csharpc's.
 //
-// The semantics are pal_io.c's and pal_errno.c's (dotnet/runtime src/native/libs/System.Native, release/11.0): EINTR is retried where
-// they retry it, errno is left as the failing call set it (the framework reads it with Marshal.GetLastSystemError), PAL flags and enums are
-// converted to the target's values (never the host's), and struct layouts (FileStatus, DirectoryEntry, TimeSpec, IOVector) are the
-// framework's. Security: every descriptor the framework opens carries O_CLOEXEC (it always passes PAL_O_CLOEXEC; mkstemps and pipe add it
-// here), paths are passed as the framework's NUL-terminated UTF-8, and nothing here follows a symlink the call does not follow in C.
+// The semantics are pal_io.c's, pal_mount.c's, pal_time.c's and pal_errno.c's (dotnet/runtime src/native/libs/System.Native, release/11.0),
+// function by function: EINTR is retried where they retry it (and a close/closedir interrupted by a signal is success, as there), errno is
+// left as the failing call set it (the framework reads it with Marshal.GetLastSystemError), PAL flags and enums are converted to the
+// target's values (never the host's), and struct layouts (FileStatus, DirectoryEntry, TimeSpec, IOVector) are the framework's.
+// Security (docs/il-first/System.IO.md, "Security review"): every descriptor the framework opens carries O_CLOEXEC (it always passes
+// PAL_O_CLOEXEC; mkstemps and pipe add it here) and O_NOCTTY; new files and directories get the framework's mode through the umask;
+// symbolic links are followed exactly where the C calls follow them (stat/open/chmod do, lstat/utimensat/readlink/unlink/rename do not);
+// paths are the framework's NUL-terminated UTF-8 (it rejects embedded NULs first) and are never copied into fixed buffers here; every
+// buffer written is bounded by the size the caller passed.
 // Only the entry points the slice's IL references are here; a new one shows up as an unresolved P/Invoke at compile time.
 #if !CSHARPC_TARGET_WINDOWS
 #nullable disable
@@ -44,8 +48,11 @@ namespace CsharpcCoreLib
         [DllImport("libc")] private static extern void* opendir(byte* path);
         [DllImport("libc")] private static extern byte* readdir(void* dir);
         [DllImport("libc")] private static extern int closedir(void* dir);
-        [DllImport("libc")] private static extern byte* strerror(int error);
-        [DllImport("libc")] private static extern nuint strlen(byte* s);
+#if CSHARPC_TARGET_MACOS || CSHARPC_TARGET_WASI
+        [DllImport("libc")] private static extern int strerror_r(int error, byte* buffer, nuint size);
+#else
+        [DllImport("libc")] private static extern byte* strerror_r(int error, byte* buffer, nuint size);   // glibc's GNU strerror_r
+#endif
         [DllImport("libc")] private static extern int poll(void* fds, nuint count, int timeout);
         [DllImport("libc")] private static extern int symlink(byte* target, byte* linkPath);
         [DllImport("libc")] private static extern int link(byte* target, byte* linkPath);
@@ -67,7 +74,7 @@ namespace CsharpcCoreLib
 
         // ---- target constants ------------------------------------------------------------------------------------
 #if CSHARPC_TARGET_WASI
-        private const int EINTR = 27, EINVAL = 28, ENOTSUP = 58, EBADF = 8, EAGAIN = 6, EPIPE = 64, EPERM = 63;
+        private const int EINTR = 27, EINVAL = 28, ENOTSUP = 58, EBADF = 8, EAGAIN = 6, EPIPE = 64, EPERM = 63, ERANGE = 68;
         private const int O_RDONLY = 0x4000000, O_WRONLY = 0x10000000, O_RDWR = 0x14000000;
         // (no O_NOCTTY: WASI has no controlling terminal, and pal_io.c leaves it out on WASM)
         private const int O_CREAT = 0x1000, O_EXCL = 0x4000, O_TRUNC = 0x8000, O_SYNC = 0x10, O_NOFOLLOW = 0x1000000, O_DIRECTORY = 0x2000, O_CLOEXEC = 0, O_NOCTTY = 0;
@@ -76,7 +83,7 @@ namespace CsharpcCoreLib
         private const int AT_FDCWD = -2, AT_SYMLINK_NOFOLLOW = 0x1;
         private const short POLLIN = 0x1, POLLOUT = 0x2, POLLERR = 0x1000, POLLHUP = 0x2000;
 #elif CSHARPC_TARGET_MACOS
-        private const int EINTR = 4, EINVAL = 22, ENOTSUP = 45, EBADF = 9, EAGAIN = 35, EPIPE = 32, EPERM = 1;
+        private const int EINTR = 4, EINVAL = 22, ENOTSUP = 45, EBADF = 9, EAGAIN = 35, EPIPE = 32, EPERM = 1, ERANGE = 34;
         private const int O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2;
         private const int O_CREAT = 0x200, O_EXCL = 0x800, O_TRUNC = 0x400, O_SYNC = 0x80, O_NOFOLLOW = 0x100, O_DIRECTORY = 0x100000, O_CLOEXEC = 0x1000000, O_NOCTTY = 0x20000;
         private const int O_NONBLOCK = 0x4;
@@ -131,17 +138,21 @@ namespace CsharpcCoreLib
         [RuntimeExport("SystemNative_ConvertErrorPalToPlatform", Trigger + "SystemNative_ConvertErrorPalToPlatform")]
         public static int ConvertErrorPalToPlatform(int error) => ToPlatform(error);
 
-        /// <summary>The message of a platform errno copied into the caller's buffer (strerror_r's), NUL-terminated and truncated to it.</summary>
+        /// <summary>
+        /// SystemNative_StrErrorR: the message of a platform errno, through strerror_r (strerror is not thread-safe), as pal_error_common.h:
+        /// glibc's GNU variant returns the message (in the buffer or a static string); the POSIX variant (macOS, WASI) fills the buffer, and
+        /// a message the buffer truncates is null.
+        /// </summary>
         [RuntimeExport("SystemNative_StrErrorR", Trigger + "SystemNative_StrErrorR")]
         public static byte* StrErrorR(int platformErrno, byte* buffer, int bufferSize)
         {
             if (buffer == null || bufferSize <= 0) return null;
-            byte* message = strerror(platformErrno);
-            nuint length = message == null ? 0 : strlen(message);
-            if (length > (nuint)(bufferSize - 1)) length = (nuint)(bufferSize - 1);
-            for (nuint i = 0; i < length; i++) buffer[i] = message[i];
-            buffer[length] = 0;
-            return buffer;
+#if CSHARPC_TARGET_MACOS || CSHARPC_TARGET_WASI
+            int error = strerror_r(platformErrno, buffer, (nuint)bufferSize);
+            return error == ERANGE ? null : buffer;
+#else
+            return strerror_r(platformErrno, buffer, (nuint)bufferSize);
+#endif
         }
 
         // ---- descriptors (pal_io.c) ------------------------------------------------------------------------------

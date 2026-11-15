@@ -24,6 +24,9 @@ open in missing dir: System.IO.DirectoryNotFoundException: Could not find a part
 create file under a file: System.IO.DirectoryNotFoundException: Could not find a part of the path '<root>/a.bin/f'.
 create dir over a file: System.IO.IOException: The file '<root>/a.bin' already exists.
 FileMode.CreateNew on existing: System.IO.IOException: The file '<root>/a.bin' already exists.
+exists with NUL: False
+read with NUL: System.ArgumentException: Null character in path. (Parameter 'path')
+long component: System.IO.PathTooLongException: The path '<root>/xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' is too long, or a component of the specified path is too long.
 link target <root>/a.bin resolved <root>/a.bin
 dangling: exists True target <root>/a.bin
 read dangling link: System.IO.FileNotFoundException: Could not find file '<root>/link'.
