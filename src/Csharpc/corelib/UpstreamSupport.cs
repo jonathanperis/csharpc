@@ -230,6 +230,21 @@ namespace CsharpcCoreLib
             if (length > 0) CoreIntrinsics.csrt_os_random(buffer, (nuint)length);
         }
 
+        /// <summary>
+        /// Interop.Ole32.CoCreateGuid, which the Windows CoreLib's Guid.NewGuid calls: a version 4 GUID from the operating system's CSPRNG
+        /// (csrt_os_random: rand_s on Windows), with the version and variant bits set exactly as the Unix CoreLib's Guid.NewGuid sets them
+        /// (_c = (_c &amp; ~0xF000) | 0x4000; _d = (_d &amp; ~0xC0) | 0x80). Always succeeds (S_OK); the program stops if the OS has no entropy.
+        /// </summary>
+        public static int CoCreateGuid(Guid* guid)
+        {
+            byte* p = (byte*)guid;
+            CoreIntrinsics.csrt_os_random(p, (nuint)sizeof(Guid));
+            short* c = (short*)(p + 6); // Guid._c (after int _a, short _b)
+            *c = (short)((*c & ~0xF000) | 0x4000);
+            p[8] = (byte)((p[8] & ~0xC0) | 0x80); // Guid._d
+            return 0;
+        }
+
         private static ResourceManager s_strings;
 
         /// <summary>
