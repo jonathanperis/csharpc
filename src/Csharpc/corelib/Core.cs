@@ -227,6 +227,10 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_event_reset(object e);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_event_is_set(object e);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_event_wait(object e, int milliseconds);
+        // System.Threading.Lock's CoreLib-internal condition (runtime/threads.c; Tasks/LockConditions.cs).
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_lock_wait(object lockObject, int milliseconds);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_lock_pulse(object lockObject);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_lock_pulse_all(object lockObject);
         // Mutex handles (runtime/threads.c): an unnamed mutex; a handle onto the named one in `scope` (null: no such mutex and
         // `create` is off), after which csrt_mutex_created_new tells whether the call created it.
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_mutex_new();

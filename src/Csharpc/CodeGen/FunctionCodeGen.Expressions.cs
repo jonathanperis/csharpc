@@ -682,6 +682,9 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitUnary(IUnaryOperation op)
     {
+        // A type implementing a static abstract operator (`-x` with T a user or IL-served struct): as for binary operators.
+        if (op.OperatorMethod is { } staticOp && ResolveStaticInterfaceMember(S(staticOp), op.ConstrainedToType) is { } opImpl)
+            return EmitDirectCall(opImpl, [op.Operand]);
         if (op.OperatorMethod is { } om0 && !IsGenericMathOnPrimitive(om0, op.Operand))
         {
             var om = S(om0);
@@ -693,7 +696,7 @@ public sealed partial class FunctionCodeGen
         if (BclValueTypes.IsDecimal(TypeOf(op.Operand)))
             return op.OperatorKind == UnaryOperatorKind.Minus ? DecimalNegate(v) : v;
         if (op.IsChecked && op.OperatorKind == UnaryOperatorKind.Minus && v.Type.IsInteger)
-            return CheckedArithmetic("sub", L.ConstInt(v.Type, 0), v, TypeMapper.IsSigned(op.Operand.Type!));
+            return CheckedArithmetic("sub", L.ConstInt(v.Type, 0), v, TypeMapper.IsSigned(TypeOf(op.Operand)!)); // TypeOf: T substituted (checked(-x) with T = int)
         return op.OperatorKind switch
         {
             UnaryOperatorKind.Plus => v,

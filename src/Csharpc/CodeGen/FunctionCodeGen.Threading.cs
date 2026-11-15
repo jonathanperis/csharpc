@@ -20,14 +20,14 @@ public sealed partial class FunctionCodeGen
     [
         "System.Threading.Tasks.Parallel", "System.Threading.Thread", "System.Threading.Monitor", "System.Threading.Lock",
         "System.Threading.Interlocked", "System.Threading.Volatile", "System.Threading.ManualResetEvent", "System.Threading.AutoResetEvent",
-        "System.Threading.CountdownEvent", "System.Threading.EventWaitHandle", "System.Threading.WaitHandle",
+        "System.Threading.EventWaitHandle", "System.Threading.WaitHandle",
         "System.Threading.Mutex", "System.Threading.Semaphore",
     ];
 
     /// <summary>The wait handles the runtime implements as its one event object (src/runtime/threads.c).</summary>
     private static bool IsRuntimeWaitHandle(ITypeSymbol owner) =>
         owner is INamedTypeSymbol { ContainingNamespace: { } ns } && ns.ToDisplayString() == "System.Threading"
-        && owner.Name is "ManualResetEvent" or "AutoResetEvent" or "CountdownEvent" or "EventWaitHandle" or "WaitHandle" or "Mutex" or "Semaphore";
+        && owner.Name is "ManualResetEvent" or "AutoResetEvent" or "EventWaitHandle" or "WaitHandle" or "Mutex" or "Semaphore";
 
     private LLVMValueRef TArg(IInvocationOperation inv, int ordinal)
     {
@@ -73,9 +73,6 @@ public sealed partial class FunctionCodeGen
                 return true;
             case "AutoResetEvent" when IsThreading(type, "AutoResetEvent"):
                 result = Event(1, BoolCount(0), I32(1));
-                return true;
-            case "CountdownEvent" when IsThreading(type, "CountdownEvent"):
-                result = Event(3, CtorArg(0), I32(0));
                 return true;
             case "Mutex" when IsThreading(type, "Mutex"):
                 result = EmitMutexCreation(creation);
@@ -211,7 +208,7 @@ public sealed partial class FunctionCodeGen
                 case "TrySetApartmentState" when n == 1:
                     Self(); result = CallCoreLib("ThreadApartment", "TrySet", TArg(inv, 0)); return true;
                 case "Yield": result = Rt("csrt_thread_yield", L.I1, []); return true;
-                case "SpinWait": EmitValue(inv.Arguments[0].Value); return true;
+                case "SpinWait": Rt("csrt_thread_spin_wait", L.Void, [L.I32], TArg(inv, 0)); return true;
                 case "MemoryBarrier": Native.LLVMBuildFence(_b.Ref, LLVMAtomicOrdering.SequentiallyConsistent, 0, ""); return true;
             }
             return false;
@@ -286,10 +283,6 @@ public sealed partial class FunctionCodeGen
                     result = CallCoreLib("SemaphoreHandles", "Release", self, n > 0 ? arg0 : I32(1)); return true;
                 case "Release": result = Rt("csrt_event_set", L.I32, [L.Ptr, L.I32], self, n > 0 ? arg0 : I32(1)); return true;
                 case "ReleaseMutex": Rt("csrt_event_set", L.I32, [L.Ptr, L.I32], self, I32(1)); return true;
-                case "Signal":
-                    result = _b.ICmp(LLVMIntPredicate.NE, Rt("csrt_event_set", L.I32, [L.Ptr, L.I32], self, n > 0 ? arg0 : I32(1)), I32(0));
-                    return true;
-                case "AddCount": Rt("csrt_countdown_add", L.Void, [L.Ptr, L.I32], self, n > 0 ? arg0 : I32(1)); return true;
                 // Mutexes and semaphores are really disposable (ObjectDisposedException afterwards, a named mutex's name
                 // is dropped with its last handle); for the other handles it does nothing.
                 case "Dispose" or "Close" when n == 0: Rt("csrt_event_dispose", L.Void, [L.Ptr], self); return true;

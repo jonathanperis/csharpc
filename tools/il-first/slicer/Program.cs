@@ -171,6 +171,8 @@ sealed class Cli
                         c.Replace["System.IO.Stream::" + member] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamStreamSupport::" + member;
                     // (Stream.Null's BeginRead hands out Task<int>.s_defaultResultTask, a field of the runtime's Task<int> csharpc does not have)
                     c.Replace["System.IO.Stream/NullStream::BeginRead"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamStreamSupport::NullStreamBeginRead";
+                    // Guid.NewGuid / CreateVersion7: the same OS CSPRNG (getentropy, BCryptGenRandom-equivalent rand_s, WASI random_get).
+                    c.Replace["Interop::GetCryptographicallySecureRandomBytes"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetCryptographicallySecureRandomBytes";
                     c.Redirect["System.Collections.Generic.NonRandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer";
                     c.Redirect["System.Collections.Generic.IInternalStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamInternalStringEqualityComparer";
                     c.Redirect["System.Collections.Generic.RandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamRandomizedStringEqualityComparer";
@@ -249,7 +251,7 @@ sealed class Slice
             foreach (var f in Directory.GetFiles(shadowDir, "*.cs", SearchOption.AllDirectories))
             {
                 var text = File.ReadAllText(f);
-                HashSet<string>? words = null;
+                HashSet<string> words = null;
                 foreach (Match m in rx.Matches(text))
                 {
                     var name = m.Groups[2].Value.Replace('+', '/');

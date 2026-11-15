@@ -31,11 +31,30 @@ internal static partial class BclValueTypes
     public static bool IsBigInteger(ITypeSymbol? t) =>
         t is INamedTypeSymbol { Name: "BigInteger", ContainingNamespace: { Name: "Numerics", ContainingNamespace: { Name: "System" } } };
 
+    /// <summary>The size of a built-in integer type in bytes; -1 for the pointer-sized ones, 0 for any other type.</summary>
+    private static int IntegerByteCount(ITypeSymbol type) => type.SpecialType switch
+    {
+        SpecialType.System_Byte or SpecialType.System_SByte => 1,
+        SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Char => 2,
+        SpecialType.System_Int32 or SpecialType.System_UInt32 => 4,
+        SpecialType.System_Int64 or SpecialType.System_UInt64 => 8,
+        SpecialType.System_IntPtr or SpecialType.System_UIntPtr => -1,
+        _ => Int128Support.Is128(type) ? 16 : 0,
+    };
+
     public static bool TryGet(IMethodSymbol method, out BclHandler handler)
     {
         var key = Intrinsics.Key(method.OriginalDefinition);
         if (s_methods.TryGetValue(key, out handler!)) return true;
         if (Int128Support.TryGet(method, out handler)) return true;
+        // IBinaryInteger<T>.GetByteCount() on a built-in integer (an explicit implementation; the framework's generic number code over
+        // TSignificand = UInt128, Decimal128's, calls it through `constrained.`): the type's size, a constant.
+        if (!method.IsStatic && method.Parameters.IsEmpty && method.ExplicitInterfaceImplementations is [{ Name: "GetByteCount" } explicitMember]
+            && explicitMember.ContainingType is { Name: "IBinaryInteger", ContainingNamespace.Name: "Numerics" } && IntegerByteCount(method.ContainingType) is var bytes and not 0)
+        {
+            handler = (g, _, _, _, _) => g.Llvm.ConstInt(g.Llvm.I32, bytes < 0 ? (long)g.Types.PointerSize : bytes);
+            return true;
+        }
         // TimeSpan.FromDays/Hours/.../Microseconds integer overloads (.NET 9): sum of named units.
         if (IsTimeSpan(method.ContainingType) && method.IsStatic && method.Name.StartsWith("From", StringComparison.Ordinal)
             && method.Parameters.All(p => p.Type.SpecialType is SpecialType.System_Int32 or SpecialType.System_Int64))

@@ -2,4 +2,7 @@
 # (shadow before the flip: json 369 432 B, jsonwriter 275 352 B); measured 6 656 792 and 953 456 B on linux-x86_64 (on top of the Linq and Dictionary/HashSet flips), the only platform with budgets for them so far.
 # SR getters as string literals (#272): linux-x86_64 measured json 1 567 872 (main's CI: 1 769 784), jsonwriter 801 560 (1 015 400), regex 818 312 (925 312),
 # regexoptions 2 046 216 (2 153 144); those four budgets lowered to measured + max(4 KiB, 3 %).
-linux-x86_64 json 1615872
+# BFloat16 and Decimal32/64/128 from CoreLib IL (#405): json measured 1 643 496 B on linux-x86_64 (1 571 032 before), budget raised to measured + 3 %.
+# The program only names the four types in typeof (System.Text.Json's NumberHandingIsApplicable), but a struct's method table lowers its
+# ToString/Equals/GetHashCode and dispatched interface slots without a box (#420), which now pulls in upstream's IEEE formatting.
+linux-x86_64 json 1693696

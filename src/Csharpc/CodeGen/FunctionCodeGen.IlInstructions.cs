@@ -266,7 +266,7 @@ public sealed partial class FunctionCodeGen
             case ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj:
                 IlCall(instruction, stack, constrained, isReadonly);
                 return false;
-            case ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld when TryEmitIlInt128Half(op, instruction.Token, stack):
+            case ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld when TryEmitIlBuiltinPrivateField(op, instruction.Token, stack):
                 return false; // before the symbol lookup below: the reference pack has no such field
             case ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld
                 when IlAssembly.ResolveMember(instruction.Token, IlBody.Context) is IEventSymbol backing:
@@ -300,6 +300,10 @@ public sealed partial class FunctionCodeGen
                 else StoreValue(ToStorage(typed, S(field.Type)), address);
                 return false;
             }
+            case ILOpCode.Ldsfld when IlAssembly.ResolveMember(instruction.Token, IlBody.Context) is IMethodSymbol getter:
+                // A static field the corelib's replacement of the type keeps as a lazily initialized property (IlAssembly.ShadowedStaticProperty).
+                if (IlInvoke(getter, null, [], isVirtual: false, constrained: null) is { } gotten) Push(gotten);
+                return false;
             case ILOpCode.Ldsfld:
             {
                 var field = IlField(instruction.Token);
@@ -426,7 +430,7 @@ public sealed partial class FunctionCodeGen
                 // `box T; castclass I` with T known to implement I: the cast cannot fail, and the entry stays a box of T, so a call through I on it is
                 // T's own (IlCall).
                 if (value is { Kind: IlKind.Ref, Unboxed: { Type: { } castBoxed } } && !value.Value.IsNull && S(castBoxed) is { IsValueType: true } castValue && !TypeMapper.IsNullable(castValue)
-                    && S(type) is INamedTypeSymbol { TypeKind: TypeKind.Interface } castTarget && castValue.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, castTarget)))
+                    && S(type) is INamedTypeSymbol { TypeKind: TypeKind.Interface } castTarget && ImplementsInterface(castValue, castTarget))
                 {
                     Push(value);
                     return false;
@@ -444,7 +448,7 @@ public sealed partial class FunctionCodeGen
                 if (value is { Kind: IlKind.Ref, Unboxed: { Type: { } boxedType } } && S(boxedType) is { IsValueType: true } boxedValue && !TypeMapper.IsNullable(boxedValue)
                     && st is INamedTypeSymbol { TypeKind: TypeKind.Interface or TypeKind.Class } target && !TypeMapper.IsNullable(st))
                 {
-                    var isInstance = SymbolEqualityComparer.Default.Equals(boxedValue, target) || boxedValue.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, target))
+                    var isInstance = SymbolEqualityComparer.Default.Equals(boxedValue, target) || ImplementsInterface(boxedValue, target)
                         || target.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType
                         || (boxedValue.TypeKind == TypeKind.Enum && target.SpecialType == SpecialType.System_Enum);
                     Push(isInstance ? value : new IlEntry(IlKind.Ref, LlvmContext.Null(L.Ptr), Special(SpecialType.System_Object)));

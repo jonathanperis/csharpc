@@ -287,7 +287,10 @@ sealed class Emitter
         var result = new List<TypeDefinition>();
         foreach (var (stop, methods) in _s.Hosted.OrderBy(kv => kv.Key.FullName, StringComparer.Ordinal))
         {
-            var host = new TypeDefinition(_cli.Prefix + "." + stop.Namespace, stop.Name + "InterfaceMembers",
+            // A generic interface's default members (INumberBase<TSelf>.TryParse over UTF-8) are hosted as generic methods of a non-generic
+            // class: the interface's type parameters come first, then the member's own (HostedTypeArity).
+            var shift = stop.GenericParameters.Count;
+            var host = new TypeDefinition(_cli.Prefix + "." + stop.Namespace, stop.Name.Split('`')[0] + "InterfaceMembers",
                 TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit, _m.TypeSystem.Object);
             _m.Types.Add(host);
             _hostClass[stop] = host;
@@ -299,7 +302,8 @@ sealed class Emitter
                 var declared = m.Overrides.Select(o => o.Resolve()).FirstOrDefault(d => d is not null && _types.ContainsKey(d.DeclaringType));
                 var hostName = declared is not null ? declared.DeclaringType.FullName.Replace('/', '+') + "." + declared.Name : m.Name;
                 var nm = new MethodDefinition(hostName, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, _m.TypeSystem.Void)
-                    { ImplAttributes = m.ImplAttributes, CallingConvention = m.CallingConvention };
+                    { ImplAttributes = m.ImplAttributes, CallingConvention = shift > 0 ? MethodCallingConvention.Generic : m.CallingConvention };
+                foreach (var gp in stop.GenericParameters) nm.GenericParameters.Add(new GenericParameter(gp.Name, nm) { Attributes = gp.Attributes });
                 // Generic members (CreateTruncating<TOther>) keep their type parameters and constraints.
                 foreach (var gp in m.GenericParameters)
                 {
@@ -312,11 +316,13 @@ sealed class Emitter
             foreach (var m in methods)
             {
                 var nm = _methods[m];
+                _hostedTypeArity = shift;
                 nm.ReturnType = Type(m.ReturnType);
                 foreach (var p in m.Parameters) nm.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, Type(p.ParameterType)));
-                foreach (var (g, i) in m.GenericParameters.Select((g, i) => (g, i)))
+                foreach (var (g, i) in stop.GenericParameters.Concat(m.GenericParameters).Select((g, i) => (g, i)))
                     if (i < nm.GenericParameters.Count && nm.GenericParameters[i].Constraints.Count == 0)
                         foreach (var c in g.Constraints) nm.GenericParameters[i].Constraints.Add(new GenericParameterConstraint(Type(c.ConstraintType)));
+                _hostedTypeArity = 0;
             }
             result.Add(stop);
         }
@@ -330,6 +336,13 @@ sealed class Emitter
     // ---------------------------------------------------------------------------------------------------------------
 
     void Bodies(TypeDefinition t)
+    {
+        // A built-in generic type's hosted members (DeclareHosted) read its type parameters as their own leading method ones.
+        _hostedTypeArity = _hostClass.ContainsKey(t) ? t.GenericParameters.Count : 0;
+        try { BodiesOf(t); } finally { _hostedTypeArity = 0; }
+    }
+
+    void BodiesOf(TypeDefinition t)
     {
         foreach (var m in t.Methods.Where(_methods.ContainsKey))
         {
@@ -424,6 +437,8 @@ sealed class Emitter
         switch (t)
         {
             case null: return null;
+            case GenericParameter gp when _hostedTypeArity > 0:
+                return Positional(gp.Type == GenericParameterType.Type ? gp.Position : gp.Position + _hostedTypeArity, GenericParameterType.Method);
             case GenericParameter gp: return Positional(gp.Position, gp.Type);
             case GenericInstanceType g:
             {
@@ -507,6 +522,20 @@ sealed class Emitter
         return r;
     }
 
+    /// <summary>
+    /// Non-zero while copying a member hosted from a generic built-in type (DeclareHosted): its <c>!n</c> becomes <c>!!n</c> and its own
+    /// <c>!!n</c> becomes <c>!!(n + arity)</c>. Only in its own context (body types, declaring types, generic arguments): the signature of a
+    /// member it references names that member's parameters (<see cref="Signature"/>).
+    /// </summary>
+    int _hostedTypeArity;
+
+    TypeReference Signature(TypeReference t)
+    {
+        var saved = _hostedTypeArity;
+        _hostedTypeArity = 0;
+        try { return Type(t); } finally { _hostedTypeArity = saved; }
+    }
+
     // Signatures name generic parameters by kind and position only; the owners here are stand-ins that carry enough parameters.
     TypeReference _typeOwner; MethodReference _methodOwner;
 
@@ -536,12 +565,12 @@ sealed class Emitter
             var colon = forward.IndexOf(':'); var sep = forward.IndexOf("::", StringComparison.Ordinal);
             var typeName = forward[(colon + 1)..sep]; var dot = typeName.LastIndexOf('.');
             var scope = AsmRef(new AssemblyNameReference(forward[..colon], new Version(1, 0, 0, 0)));
-            var call = new MethodReference(forward[(sep + 2)..], Type(mr.ReturnType), new TypeReference(typeName[..dot], typeName[(dot + 1)..], _m, scope, false));
-            foreach (var p in mr.Parameters) call.Parameters.Add(new ParameterDefinition(Type(p.ParameterType)));
+            var call = new MethodReference(forward[(sep + 2)..], Signature(mr.ReturnType), new TypeReference(typeName[..dot], typeName[(dot + 1)..], _m, scope, false));
+            foreach (var p in mr.Parameters) call.Parameters.Add(new ParameterDefinition(Signature(p.ParameterType)));
             return call;
         }
-        var r = new MethodReference(mr.Name, Type(mr.ReturnType), Type(mr.DeclaringType)) { HasThis = mr.HasThis, ExplicitThis = mr.ExplicitThis, CallingConvention = mr.CallingConvention };
-        foreach (var p in mr.Parameters) r.Parameters.Add(new ParameterDefinition(Type(p.ParameterType)));
+        var r = new MethodReference(mr.Name, Signature(mr.ReturnType), Type(mr.DeclaringType)) { HasThis = mr.HasThis, ExplicitThis = mr.ExplicitThis, CallingConvention = mr.CallingConvention };
+        foreach (var p in mr.Parameters) r.Parameters.Add(new ParameterDefinition(Signature(p.ParameterType)));
         for (int i = 0; i < mr.GenericParameters.Count; i++) r.GenericParameters.Add(new GenericParameter("M" + i, r));
         return r;
     }
@@ -663,6 +692,6 @@ sealed class Emitter
     FieldReference FieldRef(FieldReference fr)
     {
         if (fr is FieldDefinition fd && _fields.TryGetValue(fd, out var copied)) return copied;
-        return new FieldReference(fr.Name, Type(fr.FieldType), Type(fr.DeclaringType));
+        return new FieldReference(fr.Name, Signature(fr.FieldType), Type(fr.DeclaringType));
     }
 }
