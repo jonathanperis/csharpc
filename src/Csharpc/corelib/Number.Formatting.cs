@@ -13,7 +13,7 @@
 #nullable disable
 using System;
 using System.Runtime.CompilerServices;
-using NumberFormatInfo = CsharpcCoreLib.Globalization.NumberFormatInfo;
+using NumberFormatInfo = System.Globalization.NumberFormatInfo;
 
 namespace CsharpcCoreLib
 {
@@ -500,7 +500,7 @@ namespace CsharpcCoreLib
             {
                 switch (fmt[i])
                 {
-                    case '#': FormatFixed(ref sb, ref g, decimals, nfi._currencyGroupSizes, nfi.CurrencyDecimalSeparator, nfi.CurrencyGroupSeparator); break;
+                    case '#': FormatFixed(ref sb, ref g, decimals, NumberFormatInfoInternals.CurrencyGroupSizes(nfi), nfi.CurrencyDecimalSeparator, nfi.CurrencyGroupSeparator); break;
                     case '-': sb.Append(nfi.NegativeSign); break;
                     case '$': sb.Append(nfi.CurrencySymbol); break;
                     default: sb.Append(fmt[i]); break;
@@ -515,7 +515,7 @@ namespace CsharpcCoreLib
             {
                 switch (fmt[i])
                 {
-                    case '#': FormatFixed(ref sb, ref g, decimals, nfi._numberGroupSizes, nfi.NumberDecimalSeparator, nfi.NumberGroupSeparator); break;
+                    case '#': FormatFixed(ref sb, ref g, decimals, NumberFormatInfoInternals.NumberGroupSizes(nfi), nfi.NumberDecimalSeparator, nfi.NumberGroupSeparator); break;
                     case '-': sb.Append(nfi.NegativeSign); break;
                     default: sb.Append(fmt[i]); break;
                 }
@@ -529,7 +529,7 @@ namespace CsharpcCoreLib
             {
                 switch (fmt[i])
                 {
-                    case '#': FormatFixed(ref sb, ref g, decimals, nfi._percentGroupSizes, nfi.PercentDecimalSeparator, nfi.PercentGroupSeparator); break;
+                    case '#': FormatFixed(ref sb, ref g, decimals, NumberFormatInfoInternals.PercentGroupSizes(nfi), nfi.PercentDecimalSeparator, nfi.PercentGroupSeparator); break;
                     case '-': sb.Append(nfi.NegativeSign); break;
                     case '%': sb.Append(nfi.PercentSymbol); break;
                     default: sb.Append(fmt[i]); break;
@@ -996,7 +996,7 @@ namespace CsharpcCoreLib
             int thousandsSepCtr = -1;
             if (thousandSeps && nfi.NumberGroupSeparator.Length > 0)
             {
-                int[] groupDigits = nfi._numberGroupSizes;
+                int[] groupDigits = NumberFormatInfoInternals.NumberGroupSizes(nfi);
                 int groupSizeIndex = 0;
                 int groupTotalSizeCount = 0;
                 int groupSizeLen = groupDigits.Length;

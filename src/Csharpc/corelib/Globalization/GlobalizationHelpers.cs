@@ -139,7 +139,7 @@ namespace CsharpcCoreLib.Globalization
 
         internal static UnicodeCategory GetUnicodeCategory(string s, int index) => GetUnicodeCategoryInternal(s, index, out _);
 
-        internal static int GetDecimalDigitValue(string s, int index) => CharUnicodeInfoExtras.GetDecimalDigitValue(s, index);
+        internal static int GetDecimalDigitValue(string s, int index) => System.Globalization.CharUnicodeInfo.GetDecimalDigitValue(s, index);
 
         internal static UnicodeCategory GetUnicodeCategoryInternal(string value, int index, out int charLength)
         {
@@ -157,7 +157,8 @@ namespace CsharpcCoreLib.Globalization
             GetUnicodeCategoryInternal(value, index, out _);
     }
 
-    internal enum TimeZoneInfoOptions
+    // System.TimeZoneInfoOptions: the slicer's csharpc profile points the framework's references to it here (#426).
+    public enum TimeZoneInfoOptions
     {
         None = 1,
         NoThrowOnInvalidTime = 2,

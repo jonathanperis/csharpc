@@ -229,12 +229,12 @@ namespace CsharpcCoreLib
 
         // ---- parsing (.NET's DateTimeParse, capturing the offset) -----------------------------------
 
-        private static Globalization.DateTimeFormatInfo Dtfi(IFormatProvider provider) => Globalization.DateTimeFormatInfo.GetInstance(provider);
+        private static System.Globalization.DateTimeFormatInfo Dtfi(IFormatProvider provider) => System.Globalization.DateTimeFormatInfo.GetInstance(provider);
 
         public static DateTimeOffset Parse(string input)
         {
             if (input == null) throw new ArgumentNullException("input");
-            DateTime dateResult = Globalization.DateTimeParse.Parse(input, Globalization.DateTimeFormatInfo.CurrentInfo, DateTimeStyles.None, out TimeSpan offset);
+            DateTime dateResult = Globalization.DateTimeParse.Parse(input, System.Globalization.DateTimeFormatInfo.CurrentInfo, DateTimeStyles.None, out TimeSpan offset);
             return CreateValidateOffset(dateResult, offset);
         }
 
@@ -353,14 +353,14 @@ namespace CsharpcCoreLib
 
         public static bool TryParse(string input, out DateTimeOffset result)
         {
-            bool parsed = Globalization.DateTimeParse.TryParse(input, Globalization.DateTimeFormatInfo.CurrentInfo, DateTimeStyles.None, out DateTime dateResult, out TimeSpan offset);
+            bool parsed = Globalization.DateTimeParse.TryParse(input, System.Globalization.DateTimeFormatInfo.CurrentInfo, DateTimeStyles.None, out DateTime dateResult, out TimeSpan offset);
             result = CreateValidateOffset(dateResult, offset);
             return parsed;
         }
 
         public static bool TryParse(ReadOnlySpan<char> input, out DateTimeOffset result)
         {
-            bool parsed = Globalization.DateTimeParse.TryParse(input, Globalization.DateTimeFormatInfo.CurrentInfo, DateTimeStyles.None, out DateTime dateResult, out TimeSpan offset);
+            bool parsed = Globalization.DateTimeParse.TryParse(input, System.Globalization.DateTimeFormatInfo.CurrentInfo, DateTimeStyles.None, out DateTime dateResult, out TimeSpan offset);
             result = CreateValidateOffset(dateResult, offset);
             return parsed;
         }

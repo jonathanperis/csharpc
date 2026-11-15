@@ -158,6 +158,11 @@ public sealed partial class FunctionCodeGen
     {
         if (IsVector128Struct(owner)) return owner;
         if (owner is { TypeKind: TypeKind.Interface, Name: "ISimdVector" } && constrainedTo is not null && S(constrainedTo) is INamedTypeSymbol concrete && IsVector128Struct(concrete)) return concrete;
+        // The generic-math operator interfaces ISimdVector inherits (IBitwiseOperators<TSelf, TSelf, TSelf>.op_BitwiseOr, IEqualityOperators...),
+        // which the framework's generic code calls the same way (Ordinal.EqualsIgnoreCase_Vector<TVector>): Vector128's own operators.
+        if (owner is { TypeKind: TypeKind.Interface } && (owner.ContainingNamespace?.ToDisplayString() == "System.Numerics" && owner.Name.EndsWith("Operators", StringComparison.Ordinal)
+                || owner is { Name: "IEquatable", ContainingNamespace.Name: "System" })
+            && constrainedTo is not null && S(constrainedTo) is INamedTypeSymbol vector && IsVector128Struct(vector)) return vector;
         return null;
     }
 
@@ -334,6 +339,9 @@ public sealed partial class FunctionCodeGen
                 return default;
             }
             case "Equals" when a.Length == 2: return Compare(e, "eq", a[0], a[1]);
+            // The instance Equals(Vector128<T>) (IEquatable<T>, which the framework's generic span code calls constrained): every lane equal.
+            // For floating-point lanes .NET also counts NaN equal to NaN, which a lane compare doesn't: explicit until it is needed.
+            case "Equals" when a.Length == 1 && instance.Handle != 0 && !e.IsFloat: return AllSet(Compare(e, "eq", instance, a[0]), e);
             case "op_Equality": return AllSet(Compare(e, "eq", a[0], a[1]), e);
             case "op_Inequality": return _b.Not(AllSet(Compare(e, "eq", a[0], a[1]), e));
             case "EqualsAll": return AllSet(Compare(e, "eq", a[0], a[1]), e);

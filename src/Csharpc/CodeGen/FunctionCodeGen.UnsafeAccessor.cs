@@ -40,7 +40,12 @@ public sealed partial class FunctionCodeGen
             && ResolveAccessorType(typeName) is { } namedOwner)
         {
             var parameters = target.Parameters.Skip(1).ToArray();
-            var method = namedOwner.GetMembers(name).OfType<IMethodSymbol>().FirstOrDefault(m => m.IsStatic && m.Parameters.Length == parameters.Length
+            // A generic accessor (`static extern bool TryFormat<TChar>(object type, ..., Span<TChar> destination, ...)`, called as
+            // TryFormat<char>) stands for the generic method of the same arity, instantiated with the accessor's type arguments.
+            var typeArguments = target.TypeArguments.Select(a => S(a)).ToArray();
+            var method = namedOwner.GetMembers(name).OfType<IMethodSymbol>()
+                .Where(m => m.Arity == typeArguments.Length).Select(m => typeArguments.Length > 0 ? m.Construct(typeArguments) : m)
+                .FirstOrDefault(m => m.IsStatic && m.Parameters.Length == parameters.Length
                     && m.Parameters.Zip(parameters).All(x => x.First.RefKind == x.Second.RefKind && SymbolEqualityComparer.Default.Equals(S(x.First.Type), S(x.Second.Type)))
                     && SymbolEqualityComparer.Default.Equals(S(m.ReturnType), S(target.ReturnType)))
                 ?? throw CompileError.Unsupported($"[UnsafeAccessor] static method '{name}' not found on '{namedOwner}'", inv);
@@ -109,7 +114,9 @@ public sealed partial class FunctionCodeGen
         var typeName = assemblyQualified[..comma].Trim();
         var assembly = assemblyQualified[(comma + 1)..].Split(',')[0].Trim();
         foreach (var candidate in _m.Compilation.GetTypesByMetadataName(typeName))
-            if (candidate.ContainingAssembly?.Name == assembly && candidate.DeclaredAccessibility == Accessibility.Public) return candidate;
+            // Any accessibility: reaching a type its caller cannot name (an internal type of another assembly, the slice's DateTimeFormat) is
+            // what the attribute is for.
+            if (candidate.ContainingAssembly?.Name == assembly) return candidate;
         return null;
     }
 

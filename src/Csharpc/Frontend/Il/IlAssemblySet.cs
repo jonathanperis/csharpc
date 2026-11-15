@@ -452,7 +452,7 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         var reference = Reader.GetMemberReference((MemberReferenceHandle)handle);
         if (reference.GetKind() != MemberReferenceKind.Field || reference.Parent.Kind is not (HandleKind.TypeReference or HandleKind.TypeDefinition)) return false;
         var name = Reader.GetString(reference.Name);
-        if (name is not ("_lower" or "_upper" or "_flags" or "_hi32" or "_lo64")) return false;
+        if (name is not ("_lower" or "_upper" or "_flags" or "_hi32" or "_lo64" or "m_value" or "_dateData" or "_ticks")) return false;
         var owner = ResolveType(reference.Parent, context).Type;
         (offset, type) = (owner, name) switch
         {
@@ -461,6 +461,11 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
             ({ SpecialType: SpecialType.System_Decimal }, "_flags") => (0, SpecialType.System_Int32),
             ({ SpecialType: SpecialType.System_Decimal }, "_hi32") => (4, SpecialType.System_UInt32),
             ({ SpecialType: SpecialType.System_Decimal }, "_lo64") => (8, SpecialType.System_UInt64),
+            // A primitive's own value (int.m_value, which the members hosted from its IL read through `this`), DateTime's _dateData and
+            // TimeSpan's _ticks: csharpc's representation of each is that value itself.
+            ({ SpecialType: >= SpecialType.System_Boolean and <= SpecialType.System_Double or SpecialType.System_IntPtr or SpecialType.System_UIntPtr }, "m_value") => (0, owner.SpecialType),
+            ({ SpecialType: SpecialType.System_DateTime }, "_dateData") => (0, SpecialType.System_UInt64),
+            (_, "_ticks") when CodeGen.BclValueTypes.IsTimeSpan(owner) => (0, SpecialType.System_Int64),
             _ => (0, SpecialType.None),
         };
         return type != SpecialType.None;
@@ -638,6 +643,18 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         foreach (var declaration in CoreLibAssembly.ShadowsOf(Compilation))
         {
             if (declaration.Real != full || Compilation.GetTypeByMetadataName(declaration.Shadow) is not { } container) continue;
+            // An internal constructor of a value type whose shadow carries only members: a [ShadowConstructor] static factory with the
+            // constructor's parameters; `newobj` takes the factory's result as the new value (FunctionCodeGen.IlCalls.cs).
+            if (name == ".ctor" && header.IsInstance && declaration.MembersOnly && definition.IsValueType && arity == 0)
+            {
+                var ctorSignature = reference.DecodeMethodSignature(this, new IlGenericContext([], []));
+                foreach (var factory in container.GetMembers().OfType<IMethodSymbol>())
+                    if (factory.IsStatic && SameType(factory.ReturnType, definition) && factory.GetAttributes().Any(a => a.AttributeClass?.Name == "ShadowConstructorAttribute")
+                        && factory.Parameters.Length == ctorSignature.ParameterTypes.Length
+                        && factory.Parameters.Zip(ctorSignature.ParameterTypes).All(p => (p.First.RefKind != RefKind.None) == p.Second.IsByRef && SameType(p.First.Type, p.Second.Type)))
+                        return factory;
+                continue;
+            }
             var typeContext = new IlGenericContext(IlGenericContext.TypeParametersOf(container), []);
             foreach (var candidate in container.GetMembers(name).OfType<IMethodSymbol>())
             {
