@@ -19,6 +19,6 @@ OS boundary) and the contract layer (reflection/type system, task/async glue, in
 | DateTime, calendars, TimeSpan parsing and formatting | done locally with culture: `DateTimeFormatInfo`, every calendar, `DateTimeFormat`, `DateTimeParse`, `TimeSpanFormat`/`TimeSpanParse`; DateOnly/TimeOnly/TimeSpan parsing hosted from IL; the corelib keeps those types' representation and their formatting members (TimeSpan's own formatter still the corelib's) | #426 |
 | Text and encoding, Convert, string helpers, hashing, BigInteger, floating-point math | to do | |
 | Tracing | to do | |
-| IO above the libc boundary | part 1 (streams, readers, writers: [System.IO.md](System.IO.md)) done; part 2 (the file system over a C# libSystem.Native contract) in progress | #315 |
+| IO above the libc boundary | done locally: part 1 (streams, readers, writers) and part 2 (`File`, `Directory`, `FileInfo`/`DirectoryInfo`, `FileStream`, `Path`, `RandomAccess`, `SafeFileHandle`, enumeration over the C# libSystem.Native contract `corelib/IO/SystemNative.cs`; security review and measurements in [System.IO.md](System.IO.md)); Windows (the Windows CoreLib slice over kernel32) waits for CI; linking the pack's libSystem.Native instead stays the owner's decision ([21-ownership.md](../21-ownership.md)) | #315 |
 | Net/Http above csharpc's socket engine | to do | |
 | Crypto, X.509, SslStream (the OS-native TLS default stays the owner's call, #143, #144) | to do | |

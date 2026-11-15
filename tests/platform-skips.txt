@@ -302,3 +302,6 @@ wasi 1339_ieee_types_culture_formatting     needs a named culture (de-DE): WebAs
 wasi 1334_monitor_wait_pulse_semantics   needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 1337_manualreseteventslim_semantics   needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 1338_spinwait_countdown_barrier   needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+macos 1391_filesystem_native_contract  live: FileStream.Lock/Unlock are a PlatformNotSupportedException on macOS, and its file system reports its own preallocation and modes
+windows 1391_filesystem_native_contract  live: Windows has no Unix modes, symbolic links need privileges, and its error texts and lock semantics are Win32's
+wasi 1391_filesystem_native_contract   WASI has no permission bits (.NET throws PlatformNotSupportedException from SetUnixFileMode) and wasmtime refuses symbolic links that leave the preopened directory

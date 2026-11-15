@@ -40,7 +40,7 @@ What .NET prints, measured against .NET 11 RC2 (the oracle):
   114, as the runtime reads them for the profiler), matches CoreLib's frames from the slice and the
   corelib to System.Private.CoreLib's methods by their text, and emits the (inlinee, inliner) pairs of
   the program's frames; the runtime leaves out a frame when it and the frames above it up to some frame
-  were all inlined into that frame's method (`trace_inlined` in `src/runtime/eh.c`). Inlining across
+  were all inlined into that frame's method (`trace_physical` in `src/runtime/eh.c`, walking from the outermost frame inward). Inlining across
   assemblies is not read, and a generic method the JIT instantiates over a value type at run time (not
   precompiled, so not inlined) is treated as precompiled. Likewise for **implicit tail calls**: optimized
   framework code turns a call in tail position into a jump (`File.ReadAllText(String path)` forwarding to

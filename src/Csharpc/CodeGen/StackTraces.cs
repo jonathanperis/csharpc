@@ -344,7 +344,7 @@ public sealed class StackTraceInfo
     /// <summary>
     /// (inlinee frame, inliner frame) pairs: framework methods that .NET's ReadyToRun code inlined into another framework method
     /// (<see cref="ReadyToRunInlines"/>), both frames of this program. The runtime leaves an inlinee's frame out where the frames
-    /// above it, up to the method it was inlined into, were all inlined there too (src/runtime/eh.c, trace_inlined): the frames
+    /// above it, up to the method it was inlined into, were all inlined there too (src/runtime/eh.c, trace_physical): the frames
     /// .NET prints for an exception thrown through precompiled framework code. CoreLib's frames come from the slice
     /// (CsharpcUpstream) or the corelib and are matched to System.Private.CoreLib's methods by their text; the other framework
     /// assemblies' frames are their own methods. (A generic method the JIT instantiates over a program's value type at run time

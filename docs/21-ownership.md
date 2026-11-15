@@ -218,6 +218,21 @@ Console, Sockets and Cryptography IL bind to them, and would make `IO/Posix.cs`,
 `Net/SocketEngine.cs` and the Crypto glue (about 2,900 lines of GLUE) deletable; the cost is that the OS boundary
 then follows upstream's shim API (and its size) instead of libc directly. Part B does not decide this.
 
+**libSystem.Native for the file system: option (b) is implemented; option (a) stays open (the owner's decision).**
+The file-system flip (#315 part 2, [il-first/System.IO.md](il-first/System.IO.md)) serves CoreLib's `File`, `Directory`,
+`FileStream`, `Path`, `RandomAccess`, `SafeFileHandle` and enumeration from the framework's IL, `Interop`/`Interop.Sys`
+included, and binds their 57 libSystem.Native entry points to a C# contract over csharpc's libc layer
+(`corelib/IO/SystemNative.cs`, 1 166 lines, `pal_io.c`'s behaviour function by function) — option **(b)**. Option **(a)**,
+building upstream's `src/native/libs/System.Native` C sources into the runtime and linking them as the globalization shim
+is, has not been tried and is not decided here. Measured for (b) on x86-64 Linux (`tools/il-first/bench/io_filesystem_throughput.cs`):
+947 808 B against NativeAOT's 1 593 336 B; run 1 419 ms against NativeAOT's 1 399 ms (1.01x, median of 9 interleaved runs,
+the same system calls); compile cpu 20.5 s against NativeAOT's 13.0 s publish. Against the deleted shadows (#438): 1.31x run time
+(kernel time: .NET's own system calls, which the shadows skipped) and 2.67x size (IConvertible slots of a boxed value type rooting
+parsing code, a compiler-side cost). What (a) would change: the same entry points from upstream's C (no C# copy to keep in
+step with `pal_io.c`), more native code linked (the shim is one library), and the OS boundary following upstream's shim API.
+`IO/Posix.cs` (now only Process, Console, Environment, time, entropy, FileSystemWatcher's and MemoryMappedFiles' needs) and
+`IO/Win32.cs` stay for the corelib code not yet from the IL.
+
 ## Verification of the classification
 
 46 files were opened and checked (header and the coupling to the contract: `CoreIntrinsics`, `Unsafe`,
