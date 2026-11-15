@@ -288,8 +288,10 @@ typedef struct {
     uint32_t names_size;         // compressed bytes
     uint32_t names_length;       // inflated bytes
     uint32_t method_count;
-    uint32_t unused;
+    uint32_t inlined_count;
     const char* const* files;    // document paths, as the PDB records them
+    const uint64_t* inlined;     // inlinee << 32 | inliner, sorted: framework methods .NET's ReadyToRun code inlined into
+                                 // another (CodeGen/ReadyToRunInlines.cs), whose frames .NET therefore doesn't print
 } csrt_TraceTables;
 
 // preset: the frames are library frames set before the throw (csrt_trace_preset), kept by it.
@@ -596,6 +598,31 @@ static void trace_check_first_pass(csrt_Exception* e) {
 static void trace_check_first_pass(csrt_Exception* e) { (void)e; }
 #endif
 
+/// Whether `inlinee`'s code was inlined into `inliner` in .NET's precompiled framework (csrt_TraceTables.inlined).
+static bool trace_inlined_into(uint32_t inlinee, uint32_t inliner) {
+    uint64_t key = (uint64_t)inlinee << 32 | inliner;
+    uint32_t lo = 0, hi = s_trace->inlined_count;
+    while (lo < hi) {
+        uint32_t mid = lo + (hi - lo) / 2;
+        if (s_trace->inlined[mid] < key) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo < s_trace->inlined_count && s_trace->inlined[lo] == key;
+}
+
+/// Frame i was inlined, in .NET, into a method further out: frames i..j-1 were all inlined into frame j's method (the
+/// ReadyToRun compiler records each inlinee against the method it compiled, however deep), so .NET's stack has only j.
+static bool trace_inlined(const csrt_TraceSite* const* entries, int32_t i, int32_t last) {
+    if (s_trace->inlined_count == 0) return false;
+    for (int32_t j = i + 1; j <= last && entries[j] != TRACE_PREVIOUS_LOCATION; j++) {
+        uint32_t root = trace_method(entries[j]);
+        int32_t t = i;
+        while (t < j && trace_inlined_into(trace_method(entries[t]), root)) t++;
+        if (t == j) return true;
+    }
+    return false;
+}
+
 /// Exception.StackTrace: null until the exception is thrown (or when no frame was recorded).
 /// System.Diagnostics.StackTrace.ToString's rules: hidden frames ([StackTraceHidden], AggressiveInlining)
 /// aren't listed, except the last one; the "--- End of stack trace from previous location ---" line
@@ -620,6 +647,7 @@ csrt_String* csrt_exception_get_stack_trace(void* exception) {
             continue;
         }
         if ((trace_flags(site) & TRACE_HIDDEN) && i != last) continue;
+        if (trace_inlined(entries, i, last)) continue;
         if (!first) text_append_str(&text, CSRT_NEWLINE);
         first = false;
         text_append_str(&text, "   at ");

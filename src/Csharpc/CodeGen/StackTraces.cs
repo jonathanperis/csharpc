@@ -308,7 +308,80 @@ public sealed class StackTraceInfo
         var token = method.OriginalDefinition.MetadataToken;
         if (module.Frames.TryGetValue(token, out var known)) return known;
         var (name, flags) = FormatIlFrame(module, MetadataTokens.MethodDefinitionHandle(token & 0xFFFFFF));
-        return module.Frames[token] = Intern(_methods, _methodIndex, name, flags);
+        var frame = module.Frames[token] = Intern(_methods, _methodIndex, name, flags);
+        _ilFrameOrigins.Add((frame, owner, token & 0xFFFFFF));
+        return frame;
+    }
+
+    /// <summary>Every IL frame with the assembly and method it was made from, for <see cref="InlinedFramePairs"/>.</summary>
+    private readonly List<(int Frame, Frontend.Il.IlAssembly Owner, int Rid)> _ilFrameOrigins = [];
+
+    /// <summary>
+    /// (inlinee frame, inliner frame) pairs: framework methods that .NET's ReadyToRun code inlined into another framework method
+    /// (<see cref="ReadyToRunInlines"/>), both frames of this program. The runtime leaves an inlinee's frame out where the frames
+    /// above it, up to the method it was inlined into, were all inlined there too (src/runtime/eh.c, trace_inlined): the frames
+    /// .NET prints for an exception thrown through precompiled framework code. CoreLib's frames come from the slice
+    /// (CsharpcUpstream) or the corelib and are matched to System.Private.CoreLib's methods by their text; the other framework
+    /// assemblies' frames are their own methods. (A generic method the JIT instantiates over a program's value type at run time
+    /// is not precompiled and keeps its frames there; its R2R inlining is applied all the same.)
+    /// </summary>
+    private List<(int Inlinee, int Inliner)> InlinedFramePairs()
+    {
+        var pairs = new HashSet<(int, int)>();
+        var coreLib = SharedFramework.Directory is { } dir ? Path.Combine(dir, "System.Private.CoreLib.dll") : null;
+        Dictionary<string, List<int>>? coreLibByText = null;
+        var byAssembly = new Dictionary<string, Dictionary<int, List<int>>>(StringComparer.Ordinal);
+        foreach (var (frame, owner, rid) in _ilFrameOrigins)
+        {
+            string path;
+            IEnumerable<int> rids;
+            if (owner.IsCoreLib || owner.Name == "CsharpcUpstream")
+            {
+                if (coreLib is null || !File.Exists(coreLib)) continue;
+                coreLibByText ??= FrameTextIndex(coreLib);
+                if (!coreLibByText.TryGetValue(_methods[frame], out var matches)) continue;
+                (path, rids) = (coreLib, matches);
+            }
+            else if (owner.IsFramework) (path, rids) = (owner.Path, [rid]);
+            else continue;
+            if (!byAssembly.TryGetValue(path, out var frames)) byAssembly[path] = frames = [];
+            foreach (var r in rids)
+            {
+                if (!frames.TryGetValue(r, out var list)) frames[r] = list = [];
+                if (!list.Contains(frame)) list.Add(frame);
+            }
+        }
+        foreach (var (path, frames) in byAssembly)
+        {
+            var inlines = ReadyToRunInlines.Of(path);
+            foreach (var (rid, inlinees) in frames)
+            {
+                if (!inlines.TryGetValue(rid, out var inliners)) continue;
+                foreach (var inliner in inliners)
+                    if (frames.TryGetValue(inliner, out var inlinerFrames))
+                        foreach (var a in inlinees)
+                            foreach (var b in inlinerFrames)
+                                if (a != b) pairs.Add((a, b));
+            }
+        }
+        return [.. pairs.OrderBy(p => p.Item1).ThenBy(p => p.Item2)];
+    }
+
+    /// <summary>Frame text → method RIDs of an assembly (several where a state machine's MoveNext prints as its kickoff method).</summary>
+    private static Dictionary<string, List<int>> FrameTextIndex(string path)
+    {
+        var index = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        using var pe = new PEReader(File.OpenRead(path));
+        var module = new IlModule(pe.GetMetadataReader());
+        foreach (var handle in module.Metadata.MethodDefinitions)
+        {
+            string name;
+            try { name = FormatIlFrame(module, handle).Name; }
+            catch (BadImageFormatException) { continue; }
+            if (!index.TryGetValue(name, out var list)) index[name] = list = [];
+            list.Add(MetadataTokens.GetRowNumber(handle));
+        }
+        return index;
     }
 
     private static (string Name, FrameFlags Flags) FormatIlFrame(IlModule module, MethodDefinitionHandle handle)
@@ -858,7 +931,7 @@ public sealed class StackTraceInfo
     internal Dictionary<string, (LLVMValueRef Table, int Count)> LibraryTables { get; } = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// { names, names_size, names_length, method_count, unused, files } (csrt_TraceTables): the frame names,
+    /// { names, names_size, names_length, method_count, inlined_count, files, inlined } (csrt_TraceTables): the frame names,
     /// '\0'-terminated one after the other and DEFLATE-compressed (the runtime inflates them the first time it
     /// formats a trace: a program that records the frames of whole IL libraries has thousands, ~1.2 MB of
     /// text that compresses ~8:1), and the documents' paths.
@@ -877,8 +950,12 @@ public sealed class StackTraceInfo
             deflate.Write(text.GetBuffer(), 0, (int)text.Length);
         LLVMValueRef Global(string name, LLVMValueRef init) =>
             m.Module.AddGlobal(name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Internal);
+        // The inlined frames (InlinedFramePairs): inlinee << 32 | inliner, sorted, for a binary search.
+        var inlined = InlinedFramePairs();
+        var pairs = inlined.Count == 0 ? LlvmContext.Null(l.Ptr)
+            : Global("csharpc.trace.inlined", LlvmContext.ConstArray(l.I64, [.. inlined.Select(p => l.ConstUInt(l.I64, (ulong)(uint)p.Inlinee << 32 | (uint)p.Inliner))]));
         return l.ConstStruct(Global("csharpc.trace.names", l.ConstBytes(compressed.ToArray())),
-            l.ConstInt(l.I32, compressed.Length), l.ConstInt(l.I32, text.Length), l.ConstInt(l.I32, _methods.Count), l.ConstInt(l.I32, 0),
-            Global("csharpc.trace.files", LlvmContext.ConstArray(l.Ptr, [.. _files.Select(m.CString)])));
+            l.ConstInt(l.I32, compressed.Length), l.ConstInt(l.I32, text.Length), l.ConstInt(l.I32, _methods.Count), l.ConstInt(l.I32, inlined.Count),
+            Global("csharpc.trace.files", LlvmContext.ConstArray(l.Ptr, [.. _files.Select(m.CString)])), pairs);
     }
 }
