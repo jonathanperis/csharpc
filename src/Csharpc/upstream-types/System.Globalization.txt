@@ -50,6 +50,8 @@ host:System.DateOnly,System.TimeOnly,System.TimeSpan::Parse,TryParse,ParseExact,
 host:System.Runtime.Intrinsics.Vector128,System.Runtime.Intrinsics.Vector256::LoadUnsafe
 host:System.Numerics.BitOperations::ResetLowestSetBit
 host:System.ArgumentNullException::ThrowIfNull
+# The Windows CoreLib's CultureData.ConvertWin32GroupString (grouping sizes from the user's regional settings) calls it.
+host:System.Char::IsBetween
 # Number formatting and parsing: CoreLib's System.Number, and the primitives' own ToString/TryFormat (instance members, `this.` roots)
 # and Parse/TryParse, hosted from their IL. The corelib's Number class keeps the compiler's entry points (concatenation, interpolation,
 # boxed values), which call System.Number through corelib/NumberUpstream.cs.

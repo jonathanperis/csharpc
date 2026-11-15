@@ -520,6 +520,13 @@ public sealed partial class FunctionCodeGen
                 var (v, f) = (IlTyped(value, e), IlTyped(flag, e));
                 return IlPush(_b.ICmp(LLVMIntPredicate.EQ, _b.BinOp(LLVMOpcode.And, v, f), f), Special(SpecialType.System_Boolean));
             }
+            // `typeof(A) == typeof(B)` guarding a branch folded at compile time (IlTypeEqualityConstant): neither Type object is
+            // materialized, so a struct named only there does not get the method table (and the slots) its boxes would carry (#420).
+            case ("System.Type", "GetTypeFromHandle") when args is [{ Kind: IlKind.Token, Symbol: ITypeSymbol }] && IlTypeofFoldedAt(_ilIndex):
+                return new IlEntry(IlKind.Ref, LlvmContext.Null(L.Ptr), method.ReturnType);
+            case ("System.Type", "op_Equality" or "op_Inequality") when _il?.CurrentBlock is { } current && IlTypeEqualityConstant(current, _ilIndex, method) is { } equal
+                && IlTypeofFoldedAt(_ilIndex - 1):
+                return I4(equal ? 1 : 0);
             case ("System.Type", "GetTypeFromHandle") when args is [{ Kind: IlKind.Token, Symbol: ITypeSymbol type }]:
                 // (in shared generic code typeof(T) is a run-time value: nothing may resolve reflection against the marker)
                 return new IlEntry(IlKind.Ref, TypeObject(S(type), IlAt()), method.ReturnType) { NonNull = true, Symbol = _m.IsCanonDependent(S(type)) ? null : S(type) };

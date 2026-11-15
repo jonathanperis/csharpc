@@ -1,0 +1,3 @@
+byte[B:7:ByteDecoder] is-byte not-char True ByteDecoder
+url[U:9] other url True UrlDecoder
+char[C:300] is-char char True CharDecoder
