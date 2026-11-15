@@ -19,4 +19,4 @@ Compiler work this flip needed, each general and covered by a regression sample:
 - `box T; isinst S; brtrue` with T a known value type and S a struct folds like the interface case already did, and `typeof(A) == typeof(B)`
   guarding a folded branch no longer materializes the two `Type` objects: Base64's decoder structs no longer get box method tables, so their
   AVX2/AVX-512/AdvSimd members are not compiled (they produced CSLLVM0007 warnings and dead code). A narrow part of #420. Sample 1402.
-- CoreLib-internal members hosted from their own IL: `Vector128.StoreLowerUnsafe`, `Unsafe.OpportunisticMisalignment`.
+- A CoreLib-internal member hosted from its own IL: `Vector128.StoreLowerUnsafe`.

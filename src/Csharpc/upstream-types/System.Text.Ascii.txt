@@ -3,7 +3,6 @@ System.Text.CompositeFormat
 System.Buffers.StandardFormat
 System.Text.Ascii
 System.Buffers.Text.Base64
-# CoreLib-internal helpers of reference-pack types that Ascii's IL calls, hosted from their own IL: the 8-byte store of a vector's lower
-# half (the narrowing loops) and the misalignment of an address (the vector loops' alignment step).
+# A CoreLib-internal helper of a reference-pack type that Ascii's IL calls, hosted from its own IL: the 8-byte store of a vector's lower
+# half (the narrowing loops). Unsafe.OpportunisticMisalignment is the corelib's (RuntimeServices.cs).
 host:System.Runtime.Intrinsics.Vector128::StoreLowerUnsafe
-host:System.Runtime.CompilerServices.Unsafe::OpportunisticMisalignment
