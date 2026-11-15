@@ -17,4 +17,6 @@
 # Globalization from the framework's IL (#426): CultureInfo  CultureData  NumberFormatInfo  TextInfo and CompareInfo are CoreLib's own  so a program
 # that formats a number carries the framework's culture initialization (culture data over ICU  its locale tables  the culture caches). linux-x86_64
 # measured 2 202 640 B (budget 2 108 416 -> 2 207 744; NativeAOT carries the same code); the other platforms moved by the same 99 328 B until CI measures them.
-linux-x86_64 regexoptions 2207744
+# Convert from CoreLib IL (#423), measured after merging the integration branch at 61211692: linux-x86_64 2 117 408 B; budget lowered to
+# measured + max(4 KiB, 3 %), rounded up to 4 KiB.
+linux-x86_64 regexoptions 2183168
