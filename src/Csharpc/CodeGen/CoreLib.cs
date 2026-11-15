@@ -257,8 +257,15 @@ public sealed class CoreLib
             || (IsCoreLib(r) ? r : TryMap(r)) is not { } shadow)
             return null;
         var mappedOwner = TryMap(owner) ?? owner;
+        // A corelib class may derive from the library class itself rather than from its mapping: ConsoleOutWriter : System.IO.TextWriter, which
+        // is served from the framework's IL (upstream-types). Its `base(...)` and `base.ReadLine()` then bind normally; matching them against the
+        // receiver's own members would make each call itself.
+        // (The call's target has been through the redirection already, so `owner` may be the framework's type while the corelib class names the
+        // reference assembly's: compare each base class mapped too.)
         for (INamedTypeSymbol? t = shadow; t is not null; t = t.BaseType)
-            if (SymbolEqualityComparer.Default.Equals(t.OriginalDefinition, mappedOwner.OriginalDefinition)) return null;
+            if (SymbolEqualityComparer.Default.Equals(t.OriginalDefinition, mappedOwner.OriginalDefinition)
+                || SymbolEqualityComparer.Default.Equals(t.OriginalDefinition, owner.OriginalDefinition)
+                || (TryMap(t) is { } mappedBase && SymbolEqualityComparer.Default.Equals(mappedBase.OriginalDefinition, owner.OriginalDefinition))) return null;
         for (INamedTypeSymbol? t = shadow; t is not null && IsCoreLib(t); t = t.BaseType)
             if (MatchDefinition(method.OriginalDefinition, t.OriginalDefinition) is IMethodSymbol { IsStatic: false } match)
                 return InConstructed(match, t);

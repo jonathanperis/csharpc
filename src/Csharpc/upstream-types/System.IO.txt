@@ -1,0 +1,15 @@
+# Streams and text readers/writers above the OS boundary (ADR 0023, #315; docs/il-first/System.IO.md). The file system types
+# (FileStream, File, Directory, Path, FileSystemInfo) are the next part of this flip.
+System.IO.Stream
+System.IO.MemoryStream
+System.IO.UnmanagedMemoryStream
+System.IO.BufferedStream
+System.IO.TextReader
+System.IO.TextWriter
+System.IO.StreamReader
+System.IO.StreamWriter
+System.IO.StringReader
+System.IO.StringWriter
+System.IO.BinaryReader
+System.IO.BinaryWriter
+System.CodeDom.Compiler.IndentedTextWriter

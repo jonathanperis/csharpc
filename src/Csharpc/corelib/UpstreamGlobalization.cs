@@ -200,8 +200,9 @@ namespace CsharpcCoreLib
         /// programs that use DateTimeFormatInfo (its method table is the trigger): formatting a number through the current culture would
         /// otherwise link DateTimeFormatInfo, every calendar and their data (half a megabyte); no other program can have its Type.
         /// </summary>
-        public static object GetFormat(CultureInfo culture, Type formatType)
+        public static object GetFormat(object self, Type formatType)
         {
+            var culture = (CultureInfo)self;
             if (formatType == typeof(System.Globalization.NumberFormatInfo)) return culture.NumberFormat;
             IntPtr result = FormatDateTimeFormat(CoreIntrinsics.ObjectToPointer(culture), CoreIntrinsics.ObjectToPointer(formatType));
             return result == IntPtr.Zero ? null : CoreIntrinsics.PointerToObject(result);

@@ -705,6 +705,22 @@ __attribute__((noinline)) void* const* csrt_interface_slots_cached(void* obj, co
     return interface_lookup(obj, itf, site);
 }
 
+/// An interface call in shared generic code (ADR 0026): the interface comes from the generic dictionary, so one
+/// site asks for IComparer<string> on one call and IComparer<Animal> on the next, possibly on the same receiver
+/// class (a class implementing both). A hit is therefore valid only if the cached map entry is that interface.
+__attribute__((noinline)) void* const* csrt_interface_slots_cached_shared(void* obj, const csrt_MethodTable* itf, uint64_t* site) {
+    const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
+#ifdef CSRT_ALLOC_PROFILE
+    note_dispatch(itf, mt);
+#endif
+    uint64_t w = __atomic_load_n(site, __ATOMIC_RELAXED);
+    if (__builtin_expect((w & ICACHE_MT_MASK) == (uint64_t)(uintptr_t)mt, 1)) {
+        const csrt_InterfaceMapEntry* entry = &mt->interfaces[w >> 48];
+        if (__builtin_expect(entry->interface_type == itf, 1)) return entry->slots;
+    }
+    return interface_lookup(obj, itf, site);
+}
+
 /// The uncommon outcomes of a type test (variance, arrays, ValueType/Enum/Array targets, failures), out
 /// of line so that the common ones need no callee-saved registers: csrt_isinst_class used to spill six
 /// of them before its first test (3 % of the TechEmpower plaintext profile, most of it the prologue).

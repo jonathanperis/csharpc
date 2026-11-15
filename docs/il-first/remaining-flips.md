@@ -13,12 +13,12 @@ OS boundary) and the contract layer (reflection/type system, task/async glue, in
 |---|---|---|
 | ManualResetEventSlim, SpinWait, Barrier, other sync types | done locally: ManualResetEventSlim, SpinWait, CountdownEvent, Barrier, ReaderWriterLock, LockCookie from the framework (SemaphoreSlim in #419); docs/il-first/System.Threading.md | #414 |
 | BFloat16, Decimal32/64/128 | done: `docs/il-first/System.Numerics.IeeeTypes.md` (also hosts every generic-math interface's static defaults; follow-ups #420, #425) | #405 |
-| Hashtable, ArrayList, BitArray | to do | #372, #373 |
+| Hashtable, ArrayList, BitArray | done: `docs/il-first/System.Collections.Hashtable.md`, `System.Collections.ArrayList.md` (SR.Format contract for every slice) | #372, #373 |
 | Guid | done locally: from the framework; docs/il-first/System.Guid.md | #416 |
 | Culture, number formatting and parsing (deletes the digits bridge) | culture done locally: cultures, culture data, casing, collation, `CharUnicodeInfo`, `IdnMapping`, `StringInfo` from the framework (docs/il-first/System.Globalization.md); number formatting and parsing in progress on topic/flip-number | #426 |
 | DateTime, calendars, TimeSpan parsing and formatting | done locally with culture: `DateTimeFormatInfo`, every calendar, `DateTimeFormat`, `DateTimeParse`, `TimeSpanFormat`/`TimeSpanParse`; DateOnly/TimeOnly/TimeSpan parsing hosted from IL; the corelib keeps those types' representation and their formatting members (TimeSpan's own formatter still the corelib's) | #426 |
 | Text and encoding, Convert, string helpers, hashing, BigInteger, floating-point math | to do | |
 | Tracing | to do | |
-| IO above the libc boundary | to do | #315 |
+| IO above the libc boundary | part 1 (streams, readers, writers: [System.IO.md](System.IO.md)) done; part 2 (the file system over a C# libSystem.Native contract) in progress | #315 |
 | Net/Http above csharpc's socket engine | to do | |
 | Crypto, X.509, SslStream (the OS-native TLS default stays the owner's call, #143, #144) | to do | |

@@ -119,6 +119,12 @@ sealed class Cli
     public Dictionary<string, string> Replace = new();
     /// <summary>Emit csharpc's NumberBridge (Emit.EmitNumberBridge) when the slice holds the shortest-digit members (the csharpc profile).</summary>
     public bool NumberBridge;
+    /// <summary>
+    /// "Assembly:Ns.Type::Method": SR.Format's replacement, a formatter of `{n}` / `{n:spec}` items only (Emit.SrFormatIsSimple). Used only
+    /// when the slice proves that every SR.Format call it carries formats a CoreLib resource text of that form; otherwise SR.Format keeps
+    /// its IL (string.Format, full composite formatting).
+    /// </summary>
+    public string SrFormat;
     /// <summary>"Ns.Type`1" -> "Assembly:Ns.Type`1": references to this (stop) type point at csharpc's own type of the same shape instead.</summary>
     public Dictionary<string, string> Redirect = new();
     public string Replacement(Mono.Cecil.MethodDefinition m) => Replace.GetValueOrDefault(m.DeclaringType.FullName + "::" + m.Name);
@@ -163,8 +169,17 @@ sealed class Cli
                     c.Replace["System.ThrowHelper::ThrowKeyNotFoundException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::ThrowKeyNotFoundException";
                     c.Replace["System.ThrowHelper::ThrowAddingDuplicateWithKeyArgumentException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::ThrowAddingDuplicateWithKeyArgumentException";
                     c.Replace["System.ThrowHelper::GetAddingDuplicateWithKeyArgumentException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetAddingDuplicateWithKeyArgumentException";
+                    // SR.Format(text, args) is string.Format: composite formatting, culture data and every number formatter for any message
+                    // with an argument (Hashtable's duplicate key, #373). The texts CoreLib formats use `{n}` and `{n:spec}` only.
+                    c.SrFormat = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::Format";
                     // Random's default seed: the OS RNG the runtime seeds string hashing with (csrt_os_random), where CoreLib calls libSystem.Native.
                     c.Replace["Interop::GetRandomBytes"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetRandomBytes";
+                    // Stream's asynchronous defaults run as Stream.ReadWriteTask over Task's internals and test for BeginRead/BeginWrite overrides in
+                    // the method table's auxiliary data; csharpc's tasks are the runtime's (corelib/IO/StreamContract.cs).
+                    foreach (var member in new[] { "BeginRead", "EndRead", "BeginWrite", "EndWrite", "BeginEndReadAsync", "BeginEndWriteAsync" })
+                        c.Replace["System.IO.Stream::" + member] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamStreamSupport::" + member;
+                    // (Stream.Null's BeginRead hands out Task<int>.s_defaultResultTask, a field of the runtime's Task<int> csharpc does not have)
+                    c.Replace["System.IO.Stream/NullStream::BeginRead"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamStreamSupport::NullStreamBeginRead";
                     // Guid.NewGuid / CreateVersion7: the same OS CSPRNG (getentropy, BCryptGenRandom-equivalent rand_s, WASI random_get).
                     c.Replace["Interop::GetCryptographicallySecureRandomBytes"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetCryptographicallySecureRandomBytes";
                     c.Redirect["System.Collections.Generic.NonRandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer";

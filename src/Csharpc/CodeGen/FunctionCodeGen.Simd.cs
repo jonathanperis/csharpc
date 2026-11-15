@@ -137,6 +137,14 @@ public sealed partial class FunctionCodeGen
             return EmitSimd(property.GetMethod!, property.ContainingType.TypeArguments[0], EmitValue(p.Instance), [EmitValue(p.Arguments[0].Value)], p);
         if (!property.IsStatic) return null;
         if (IsVector128Class(property.ContainingType) && property.Name == "IsHardwareAccelerated") return Vector128Accelerated ? L.True : L.False;
+        // Vector64/256/512<T>.Count: their lane count, a constant, which the framework's code reads next to an IsHardwareAccelerated test
+        // (false here) to size buffers and loop bounds (BitArray.CreateArray); their operations stay opaque.
+        if (property.Name == "Count" && property.ContainingType is INamedTypeSymbol { Name: "Vector64" or "Vector256" or "Vector512", Arity: 1 } wide
+            && InIntrinsicsNamespace(wide))
+        {
+            var bits = wide.Name switch { "Vector64" => 64, "Vector256" => 256, _ => 512 };
+            return L.ConstInt(L.I32, bits / ElementOf(wide.TypeArguments[0], p).Bits);
+        }
         var vector = SimdVectorOf(property.ContainingType, p.ConstrainedToType);
         if (vector is null) return null;
         if (property.Name == "IsHardwareAccelerated") return Vector128Accelerated ? L.True : L.False;
@@ -157,12 +165,9 @@ public sealed partial class FunctionCodeGen
     private INamedTypeSymbol? SimdVectorOf(INamedTypeSymbol owner, ITypeSymbol? constrainedTo)
     {
         if (IsVector128Struct(owner)) return owner;
-        if (owner is { TypeKind: TypeKind.Interface, Name: "ISimdVector" } && constrainedTo is not null && S(constrainedTo) is INamedTypeSymbol concrete && IsVector128Struct(concrete)) return concrete;
-        // The generic-math operator interfaces ISimdVector inherits (IBitwiseOperators<TSelf, TSelf, TSelf>.op_BitwiseOr, IEqualityOperators...),
-        // which the framework's generic code calls the same way (Ordinal.EqualsIgnoreCase_Vector<TVector>): Vector128's own operators.
-        if (owner is { TypeKind: TypeKind.Interface } && (owner.ContainingNamespace?.ToDisplayString() == "System.Numerics" && owner.Name.EndsWith("Operators", StringComparison.Ordinal)
-                || owner is { Name: "IEquatable", ContainingNamespace.Name: "System" })
-            && constrainedTo is not null && S(constrainedTo) is INamedTypeSymbol vector && IsVector128Struct(vector)) return vector;
+        // A constrained call on any interface Vector128<T> implements (ISimdVector<TSelf, T>, and the generic-math operator interfaces:
+        // `constrained. TVector call IBitwiseOperators<...>::op_BitwiseAnd` in BitArray's IL) is the vector's own member of that name.
+        if (owner.TypeKind == TypeKind.Interface && constrainedTo is not null && S(constrainedTo) is INamedTypeSymbol concrete && IsVector128Struct(concrete)) return concrete;
         return null;
     }
 
