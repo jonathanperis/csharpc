@@ -203,6 +203,11 @@ public sealed partial class FunctionCodeGen
             && (staticType.FindImplementationForInterfaceMember(target) as IMethodSymbol
                 ?? (staticType.IsValueType ? PatternImplementation(staticType, target) : null)) is IMethodSymbol impl)
         {
+            // A generic virtual method (`constrained. TDecoder callvirt IBase64Decoder<T>::Wrapper<TDecoder>` in Base64's IL): Roslyn answers
+            // with the implementing method's definition, which takes the call's own type arguments, or its body would be lowered open.
+            if (impl.IsGenericMethod && target.IsGenericMethod && SymbolEqualityComparer.Default.Equals(impl, impl.ConstructedFrom)
+                && impl.TypeParameters.Length == target.TypeArguments.Length)
+                impl = impl.Construct([.. target.TypeArguments.Select(a => S(a))]);
             if (_m.IsUserMethod(impl) && impl.ContainingType.TypeKind == TypeKind.Class)
             {
                 var self = EmitValue(concrete);
@@ -213,6 +218,10 @@ public sealed partial class FunctionCodeGen
             if (_m.IsUserMethod(impl) && impl.ContainingType.IsValueType)
                 return EmitUserCall(impl, AddressOrSpill(concrete), selfIsNonNull: true, arguments, isVirtual: false, extra.Length > 0 ? extra : null);
             if (invocation is not null && Intrinsics.TryGet(impl, out var handler)) return handler(this, invocation);
+            // Vector128<T> through an interface it implements (IEquatable<Vector128<T>>.Equals over a TVector in generic code): its own lowering.
+            if (invocation is not null && IsVector128Struct(staticType))
+                return EmitSimd(impl, ((INamedTypeSymbol)staticType).TypeArguments[0], EmitValue(concrete),
+                    [.. invocation.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a => EmitArgument(a, impl))], invocation);
             if (invocation is not null && BclValueTypes.TryGet(impl, out var bcl)) return CallBcl(bcl, impl, concrete, invocation.Arguments, invocation);
             // A corelib [ShadowInstance] member implementing it (int.TryFormat for ISpanFormattable...).
             // (Value types only: a class's shadow member may itself make the interface call, as Array.GetEnumerator does.)

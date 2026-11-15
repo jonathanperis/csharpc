@@ -950,28 +950,6 @@ namespace CsharpcCoreLib
         }
     }
 
-    [ShadowMembers("System.Text.Ascii")]
-    internal static class AsciiExtras
-    {
-        public static bool IsValid(ReadOnlySpan<char> value)
-        {
-            for (int i = 0; i < value.Length; i++)
-                if (value[i] > 0x7F) return false;
-            return true;
-        }
-
-        public static bool IsValid(ReadOnlySpan<byte> value)
-        {
-            for (int i = 0; i < value.Length; i++)
-                if (value[i] > 0x7F) return false;
-            return true;
-        }
-
-        public static bool IsValid(char value) => value <= 0x7F;
-
-        public static bool IsValid(byte value) => value <= 0x7F;
-    }
-
     [ShadowMembers("System.Globalization.CharUnicodeInfo")]
     internal static class CharUnicodeInfoExtras
     {
