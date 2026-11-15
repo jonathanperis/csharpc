@@ -1,0 +1,3 @@
+# Convert, served from the framework's CoreLib IL (ADR 0023, #423; docs/il-first/System.Convert.md). Boxed values reach their IConvertible
+# through corelib/BoxedConvertible.cs (the box method tables' contract).
+System.Convert
