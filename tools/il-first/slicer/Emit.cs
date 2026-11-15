@@ -513,6 +513,13 @@ sealed class Emitter
                     var other => other,
                 };
             }
+            // A folded getter (Cli.Fold) loads its constant: csharpc then never lowers the branch it rules out, which the slice does not carry.
+            foreach (var i in ob.Instructions)
+                if (i.Operand is MethodReference getter && i.OpCode == OpCodes.Call && _cli.FoldedValue(getter) is { } value)
+                {
+                    map[i].OpCode = value ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0;
+                    map[i].Operand = null;
+                }
             // A callvirt of an instance member the slice hosts as a static (`this.` host roots) is a call of that static.
             foreach (var ni in nb.Instructions)
                 if (ni.OpCode == OpCodes.Callvirt && ni.Operand is MethodDefinition target && !target.HasThis && target.IsStatic) ni.OpCode = OpCodes.Call;
