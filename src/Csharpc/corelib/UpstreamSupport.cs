@@ -284,6 +284,61 @@ namespace CsharpcCoreLib
             return KeyText((object)key);
         }
 
+        // SR.Format's overloads (the slicer's csharpc profile forwards them here when it has proven every SR.Format call of the slice formats a
+        // CoreLib resource text whose items are `{n}` or `{n:spec}`: tools/il-first/slicer Emit.SrFormatIsSimple). string.Format for those texts,
+        // without composite formatting's parser and its per-type formatting switch, which reach every primitive's formatter and the culture
+        // data whatever the arguments are. The arguments are formatted as string.Format formats them: an ICustomFormatter of the provider
+        // first, then ISpanFormattable, IFormattable (with the provider; null is the current culture), ToString(), and "" for null.
+        public static string Format(string format, object arg0) => FormatItems(null, format, [arg0]);
+        public static string Format(string format, object arg0, object arg1) => FormatItems(null, format, [arg0, arg1]);
+        public static string Format(string format, object arg0, object arg1, object arg2) => FormatItems(null, format, [arg0, arg1, arg2]);
+        public static string Format(string format, object[] args) => args is null ? format : FormatItems(null, format, args);
+        public static string Format(IFormatProvider provider, string format, object arg0) => FormatItems(provider, format, [arg0]);
+        public static string Format(IFormatProvider provider, string format, object arg0, object arg1) => FormatItems(provider, format, [arg0, arg1]);
+
+        private static string FormatItems(IFormatProvider provider, string format, ReadOnlySpan<object> args)
+        {
+            ArgumentNullException.ThrowIfNull(format);
+            var custom = provider?.GetFormat(typeof(ICustomFormatter)) as ICustomFormatter;
+            var result = new System.Text.StringBuilder(format.Length + 16 * args.Length);
+            for (int i = 0; i < format.Length; i++)
+            {
+                char c = format[i];
+                if (c == '}' && i + 1 < format.Length && format[i + 1] == '}') { result.Append('}'); i++; continue; }
+                if (c != '{') { result.Append(c); continue; }
+                if (i + 1 < format.Length && format[i + 1] == '{') { result.Append('{'); i++; continue; }
+                // {n} or {n:spec}: the only items the slicer lets through (Emit.SimpleCompositeFormat).
+                int j = i + 1, index = 0;
+                while (j < format.Length && char.IsAsciiDigit(format[j])) index = index * 10 + (format[j++] - '0');
+                string spec = null;
+                if (j < format.Length && format[j] == ':')
+                {
+                    int start = ++j;
+                    while (j < format.Length && format[j] != '}') j++;
+                    spec = format.Substring(start, j - start);
+                }
+                if (index >= args.Length) throw new FormatException("Index (zero based) must be greater than or equal to zero and less than the size of the argument list.");
+                result.Append(FormatItem(custom, provider, spec, args[index]));
+                i = j;
+            }
+            return result.ToString();
+        }
+
+        private static string FormatItem(ICustomFormatter custom, IFormatProvider provider, string spec, object arg)
+        {
+            if (custom is not null && custom.Format(spec, arg, provider) is { } customText) return customText;
+            if (arg is ISpanFormattable spanFormattable)
+            {
+                for (int size = 64; ; size *= 2)
+                {
+                    char[] buffer = new char[size];
+                    if (spanFormattable.TryFormat(buffer, out int written, spec, provider)) return new string(buffer, 0, written);
+                }
+            }
+            if (arg is IFormattable formattable) return formattable.ToString(spec, provider) ?? "";
+            return arg?.ToString() ?? "";
+        }
+
         private static string KeyText(object key) =>
             key as string ?? (key is IFormattable formattable ? formattable.ToString(null, System.Globalization.CultureInfo.CurrentCulture) : key?.ToString()) ?? "";
     }
