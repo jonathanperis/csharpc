@@ -302,3 +302,4 @@ wasi 1339_ieee_types_culture_formatting     needs a named culture (de-DE): WebAs
 wasi 1334_monitor_wait_pulse_semantics   needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 1337_manualreseteventslim_semantics   needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 1338_spinwait_countdown_barrier   needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi   1420_icu_first_use_from_threads      needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
