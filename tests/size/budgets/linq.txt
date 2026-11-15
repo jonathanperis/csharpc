@@ -9,8 +9,12 @@
 # collections, linq and numbers budgets moved by the same number of bytes until the CI rounds of that PR give their own measurements.
 # #290 (ComponentModel from IL; [FeatureSwitchDefinition] folding makes single files' System.Linq.Enumerable.IsSizeOptimized=true take effect): linux-x86_64 measured
 # linq 233 096 (budget lowered from 285 696), async 177 808, collections 167 336, regex 926 032, regexoptions 2 162 536 (+4.5 KB with the hash-flooding merge, over its old budget).
-linux-x86_64 linq 240640
-linux-aarch64 linq 260096
-macos-arm64 linq 285696
-windows-x86_64 linq 295936
-wasi-wasm32 linq 295936
+# Globalization from the framework's IL (#426): CultureInfo  CultureData  NumberFormatInfo  TextInfo and CompareInfo are CoreLib's own  so a program
+# that formats a number carries the framework's culture initialization (culture data over ICU  its locale tables  the culture caches). linux-x86_64
+# measured 336 544 B (budget 240 640 -> 340 992; NativeAOT carries the same code); the other platforms moved by the same 100 352 B until CI measures them.
+# #426 merged with the IO and Hashtable flips: linux-x86_64 measured 341 288 B (budget 340 992 -> 346 112); the other platforms moved by the same 5 120 B.
+linux-x86_64 linq 346112
+linux-aarch64 linq 365568
+macos-arm64 linq 391168
+windows-x86_64 linq 401408
+wasi-wasm32 linq 401408

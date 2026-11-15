@@ -2,22 +2,22 @@
 // way CoreLib routes them (String.Comparison.cs, String.Searching.cs, String.Manipulation.cs, Char.cs in
 // dotnet/runtime): CurrentCulture* to CultureInfo.CurrentCulture's CompareInfo / TextInfo, InvariantCulture*
 // to the invariant culture's, Ordinal* without globalization. CompareInfo and TextInfo are the port of .NET's
-// (ICU, or ordinal operations in globalization-invariant mode).
+// (ICU, or ordinal operations in globalization-invariant mode), served from the framework's IL (#426).
 #nullable disable
 using System;
 using System.Globalization;
-using CompareInfo = CsharpcCoreLib.Globalization.CompareInfo;
-using CultureInfo = CsharpcCoreLib.Globalization.CultureInfo;
-using TextInfo = CsharpcCoreLib.Globalization.TextInfo;
+using CompareInfo = System.Globalization.CompareInfo;
+using CultureInfo = System.Globalization.CultureInfo;
+using TextInfo = System.Globalization.TextInfo;
 
 namespace CsharpcCoreLib
 {
     // (repeated inside the namespace: they must win over global-namespace types of the program)
     using System;
     using System.Globalization;
-    using CompareInfo = CsharpcCoreLib.Globalization.CompareInfo;
-    using CultureInfo = CsharpcCoreLib.Globalization.CultureInfo;
-    using TextInfo = CsharpcCoreLib.Globalization.TextInfo;
+    using CompareInfo = System.Globalization.CompareInfo;
+    using CultureInfo = System.Globalization.CultureInfo;
+    using TextInfo = System.Globalization.TextInfo;
     internal static class CultureStrings
     {
         private const string NotSupportedComparison = "The string comparison type passed in is currently not supported.";
@@ -26,12 +26,6 @@ namespace CsharpcCoreLib
             comparisonType == StringComparison.Ordinal || comparisonType == StringComparison.OrdinalIgnoreCase;
 
         /// <summary>The CompareInfo of a culture StringComparison (throws for unknown values, like .NET).</summary>
-        /// <summary>CultureInfo.GetFormat(typeof(DateTimeFormatInfo)), exported to the runtime only for programs that
-        /// use DateTimeFormatInfo (its method table is the trigger; see CultureInfo.GetFormat).</summary>
-        [RuntimeExport("csrt_culture_get_format_dtfi", "_CN14CsharpcCoreLib13Globalization18DateTimeFormatInfo2MTE")]
-        internal static object? GetFormatDateTimeFormat(CultureInfo culture, Type? formatType) =>
-            formatType == typeof(DateTimeFormatInfo) ? culture.DateTimeFormat : null;
-
         internal static CompareInfo CompareInfoFor(StringComparison comparisonType)
         {
             switch (comparisonType)
@@ -41,7 +35,7 @@ namespace CsharpcCoreLib
                     return CultureInfo.CurrentCulture.CompareInfo;
                 case StringComparison.InvariantCulture:
                 case StringComparison.InvariantCultureIgnoreCase:
-                    return CompareInfo.Invariant;
+                    return CultureInfo.InvariantCulture.CompareInfo;
                 default:
                     throw new ArgumentException(NotSupportedComparison, "comparisonType");
             }
@@ -138,9 +132,9 @@ namespace CsharpcCoreLib
             switch (comparisonType)
             {
                 case StringComparison.Ordinal:
-                    return CompareInfo.Invariant.LastIndexOf(s, value, startIndex, count, CompareOptions.Ordinal);
+                    return CultureInfo.InvariantCulture.CompareInfo.LastIndexOf(s, value, startIndex, count, CompareOptions.Ordinal);
                 case StringComparison.OrdinalIgnoreCase:
-                    return CompareInfo.Invariant.LastIndexOf(s, value, startIndex, count, CompareOptions.OrdinalIgnoreCase);
+                    return CultureInfo.InvariantCulture.CompareInfo.LastIndexOf(s, value, startIndex, count, CompareOptions.OrdinalIgnoreCase);
                 case StringComparison.CurrentCulture:
                 case StringComparison.CurrentCultureIgnoreCase:
                 case StringComparison.InvariantCulture:
@@ -170,8 +164,8 @@ namespace CsharpcCoreLib
         internal static string ToLower(string s) => CultureInfo.CurrentCulture.TextInfo.ToLower(s);
         internal static string ToUpper(string s, System.Globalization.CultureInfo culture) => Culture(culture).TextInfo.ToUpper(s);
         internal static string ToLower(string s, System.Globalization.CultureInfo culture) => Culture(culture).TextInfo.ToLower(s);
-        internal static string ToUpperInvariant(string s) => TextInfo.Invariant.ToUpper(s);
-        internal static string ToLowerInvariant(string s) => TextInfo.Invariant.ToLower(s);
+        internal static string ToUpperInvariant(string s) => CultureInfo.InvariantCulture.TextInfo.ToUpper(s);
+        internal static string ToLowerInvariant(string s) => CultureInfo.InvariantCulture.TextInfo.ToLower(s);
 
         internal static char ToUpper(char c) => CultureInfo.CurrentCulture.TextInfo.ToUpper(c);
         internal static char ToLower(char c) => CultureInfo.CurrentCulture.TextInfo.ToLower(c);
@@ -185,8 +179,8 @@ namespace CsharpcCoreLib
             if (culture == null) throw new ArgumentNullException("culture");
             return Culture(culture).TextInfo.ToLower(c);
         }
-        internal static char ToUpperInvariant(char c) => TextInfo.ToUpperInvariant(c);
-        internal static char ToLowerInvariant(char c) => TextInfo.ToLowerInvariant(c);
+        internal static char ToUpperInvariant(char c) => CultureInfo.InvariantCulture.TextInfo.ToUpper(c);
+        internal static char ToLowerInvariant(char c) => CultureInfo.InvariantCulture.TextInfo.ToLower(c);
 
         // Thread.CurrentCulture / CurrentUICulture (Thread.cs): the calling thread's culture.
         internal static System.Globalization.CultureInfo GetThreadCulture(bool isCurrentThread, bool ui)

@@ -14,4 +14,7 @@
 # Hashtable from the framework's IL (#373; Regex keeps its capture names in one): upstream's reader-consistency loop and the duplicate-key message
 # formatted as string.Format does (UpstreamSupport.Format: ICustomFormatter, ISpanFormattable, IFormattable, ToString), which brings the boxed
 # primitives' TryFormat. linux-x86_64 measured regexoptions 2 112 808 B; budget raised to measured + 3 %.
-linux-x86_64 regexoptions 2177024
+# Globalization from the framework's IL (#426): CultureInfo  CultureData  NumberFormatInfo  TextInfo and CompareInfo are CoreLib's own  so a program
+# that formats a number carries the framework's culture initialization (culture data over ICU  its locale tables  the culture caches). linux-x86_64
+# measured 2 202 640 B (budget 2 108 416 -> 2 207 744; NativeAOT carries the same code); the other platforms moved by the same 99 328 B until CI measures them.
+linux-x86_64 regexoptions 2207744

@@ -10,7 +10,7 @@
 #nullable disable
 using System;
 using System.Globalization;
-using NumberFormatInfo = CsharpcCoreLib.Globalization.NumberFormatInfo;
+using NumberFormatInfo = System.Globalization.NumberFormatInfo;
 
 namespace CsharpcCoreLib
 {
@@ -71,13 +71,13 @@ namespace CsharpcCoreLib
         private static int MatchNegativeSignChars(string s, int p, int end, NumberFormatInfo info)
         {
             int ret = MatchChars(s, p, end, info.NegativeSign);
-            if (ret < 0 && info.AllowHyphenDuringParsing() && p < end && s[p] == '-') ret = p + 1;
+            if (ret < 0 && NumberFormatInfoInternals.AllowHyphenDuringParsing(info) && p < end && s[p] == '-') ret = p + 1;
             return ret;
         }
 
         private static int MatchSignChars(string s, int p, int end, NumberFormatInfo info, out bool isNegative)
         {
-            if (info.HasInvariantNumberSigns)
+            if (NumberFormatInfoInternals.HasInvariantNumberSigns(info))
             {
                 if (p < end)
                 {
@@ -544,7 +544,7 @@ namespace CsharpcCoreLib
         internal static long ParseIntegerWith(string s, int styles, IFormatProvider provider, int bits, bool isSigned)
         {
             NumberStyles style = (NumberStyles)styles;
-            NumberFormatInfo.ValidateParseStyleInteger(style);
+            NumberFormatInfoInternals.ValidateParseStyleInteger(null, style);
             if (s == null) throw new ArgumentNullException("s");
             int status = TryParseInteger(s, style, NumberFormatInfo.GetInstance(provider), bits, isSigned, out long result);
             if (status == ParseOverflow)
@@ -556,7 +556,7 @@ namespace CsharpcCoreLib
         internal static bool TryParseIntegerWith(string s, int styles, IFormatProvider provider, int bits, bool isSigned, out long result)
         {
             NumberStyles style = (NumberStyles)styles;
-            NumberFormatInfo.ValidateParseStyleInteger(style);
+            NumberFormatInfoInternals.ValidateParseStyleInteger(null, style);
             if (s == null) { result = 0; return false; }
             bool ok = TryParseInteger(s, style, NumberFormatInfo.GetInstance(provider), bits, isSigned, out result) == ParseOK;
             if (!ok) result = 0;
@@ -608,7 +608,7 @@ namespace CsharpcCoreLib
             if (negativeSign.Length > 0 && valueTrim.StartsWith(negativeSign, StringComparison.OrdinalIgnoreCase))
             {
                 if (TryMatchSpecialValueSymbol(valueTrim.Substring(negativeSign.Length), info.NaNSymbol)) { result = double.NaN; return true; }
-                if (info.AllowHyphenDuringParsing() && valueTrim.Length > 0 && valueTrim[0] == '-'
+                if (NumberFormatInfoInternals.AllowHyphenDuringParsing(info) && valueTrim.Length > 0 && valueTrim[0] == '-'
                     && TryMatchSpecialValueSymbol(valueTrim.Substring(1), info.NaNSymbol)) { result = double.NaN; return true; }
             }
 
@@ -629,7 +629,7 @@ namespace CsharpcCoreLib
         internal static double ParseDoubleWith(string s, int styles, IFormatProvider provider)
         {
             NumberStyles style = (NumberStyles)styles;
-            NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
+            NumberFormatInfoInternals.ValidateParseStyleFloatingPoint(null, style);
             if (s == null) throw new ArgumentNullException("s");
             if (!TryParseDoubleCore(s, style, NumberFormatInfo.GetInstance(provider), out double result)) ThrowParseFormat(s);
             return result;
@@ -638,7 +638,7 @@ namespace CsharpcCoreLib
         internal static bool TryParseDoubleWith(string s, int styles, IFormatProvider provider, out double result)
         {
             NumberStyles style = (NumberStyles)styles;
-            NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
+            NumberFormatInfoInternals.ValidateParseStyleFloatingPoint(null, style);
             return TryParseDoubleCore(s, style, NumberFormatInfo.GetInstance(provider), out result);
         }
 
@@ -646,7 +646,7 @@ namespace CsharpcCoreLib
         internal static float ParseSingleWith(string s, int styles, IFormatProvider provider)
         {
             NumberStyles style = (NumberStyles)styles;
-            NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
+            NumberFormatInfoInternals.ValidateParseStyleFloatingPoint(null, style);
             if (s == null) throw new ArgumentNullException("s");
             if (!TryParseDoubleCore(s, style, NumberFormatInfo.GetInstance(provider), out double result, single: true)) ThrowParseFormat(s);
             return (float)result;
@@ -655,7 +655,7 @@ namespace CsharpcCoreLib
         internal static bool TryParseSingleWith(string s, int styles, IFormatProvider provider, out float result)
         {
             NumberStyles style = (NumberStyles)styles;
-            NumberFormatInfo.ValidateParseStyleFloatingPoint(style);
+            NumberFormatInfoInternals.ValidateParseStyleFloatingPoint(null, style);
             bool ok = TryParseDoubleCore(s, style, NumberFormatInfo.GetInstance(provider), out double d, single: true);
             result = (float)d;
             return ok;
@@ -787,7 +787,7 @@ namespace CsharpcCoreLib
         internal static decimal ParseDecimalWith(string s, int styles, IFormatProvider provider)
         {
             NumberStyles style = (NumberStyles)styles;
-            NumberFormatInfo.ValidateParseStyleDecimal(style);
+            NumberFormatInfoInternals.ValidateParseStyleDecimal(null, style);
             if (s == null) throw new ArgumentNullException("s");
             int status = TryParseDecimalCore(s, style, NumberFormatInfo.GetInstance(provider), out decimal result);
             if (status == ParseOverflow) throw new OverflowException("Value was either too large or too small for a Decimal.");
@@ -798,7 +798,7 @@ namespace CsharpcCoreLib
         internal static bool TryParseDecimalWith(string s, int styles, IFormatProvider provider, out decimal result)
         {
             NumberStyles style = (NumberStyles)styles;
-            NumberFormatInfo.ValidateParseStyleDecimal(style);
+            NumberFormatInfoInternals.ValidateParseStyleDecimal(null, style);
             bool ok = TryParseDecimalCore(s, style, NumberFormatInfo.GetInstance(provider), out result) == ParseOK;
             if (!ok) result = 0;
             return ok;

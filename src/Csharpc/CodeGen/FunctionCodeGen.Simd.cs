@@ -202,7 +202,8 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef? TrySimdCall(IInvocationOperation inv, IMethodSymbol target)
     {
         var owner = target.ContainingType;
-        var constrained = SimdVectorOf(owner, inv.ConstrainedToType);
+        // A C# generic method instantiated with a Vector128 (`a.Equals(b)` with T : IEquatable<T>) names no constrained type: the receiver's is it.
+        var constrained = SimdVectorOf(owner, inv.ConstrainedToType ?? (owner.TypeKind == TypeKind.Interface && inv.Instance is { } receiver ? TypeOf(receiver) : null));
         if (!IsVector128Class(owner) && constrained is null) return null;
         var arguments = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a => EmitArgument(a, target)).ToArray();
         // The element type: the vector the operation produces or takes first, else its type argument.
@@ -344,6 +345,9 @@ public sealed partial class FunctionCodeGen
                 return default;
             }
             case "Equals" when a.Length == 2: return Compare(e, "eq", a[0], a[1]);
+            // The instance Equals(Vector128<T>) (IEquatable<T>, which the framework's generic span code calls constrained): every lane equal.
+            // For floating-point lanes .NET also counts NaN equal to NaN, which a lane compare doesn't: explicit until it is needed.
+            case "Equals" when a.Length == 1 && instance.Handle != 0 && !e.IsFloat: return AllSet(Compare(e, "eq", instance, a[0]), e);
             case "op_Equality": return AllSet(Compare(e, "eq", a[0], a[1]), e);
             case "op_Inequality": return _b.Not(AllSet(Compare(e, "eq", a[0], a[1]), e));
             case "EqualsAll": return AllSet(Compare(e, "eq", a[0], a[1]), e);
