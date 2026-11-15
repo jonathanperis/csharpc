@@ -90,10 +90,23 @@ namespace CsharpcCoreLib
     internal static class SerializationGuardMembers
     {
         /// <summary>
-        /// SerializationInfo.ThrowIfDeserializationInProgress (FileStream's serialization guard): throws only while BinaryFormatter-style
-        /// deserialization is running, which csharpc has no way to start (BinaryFormatter is gone from .NET too), so it never throws.
+        /// SerializationInfo.ThrowIfDeserializationInProgress (FileStream's guard against writing files while deserializing), as upstream:
+        /// throws while SerializationInfo.StartDeserialization is in effect (framework IL such as System.Data's DataSet starts it) unless the
+        /// AppContext switch Switch.System.Runtime.Serialization.SerializationGuard.{switchSuffix} is true. cachedValue: 0 not read yet,
+        /// 1 the switch is true, -1 it is not.
         /// </summary>
-        public static void ThrowIfDeserializationInProgress(string switchSuffix, ref int cachedValue) { }
+        public static void ThrowIfDeserializationInProgress(string switchSuffix, ref int cachedValue)
+        {
+            const string SwitchPrefix = "Switch.System.Runtime.Serialization.SerializationGuard.";
+            if (cachedValue == 0)
+                cachedValue = AppContext.TryGetSwitch(SwitchPrefix + switchSuffix, out bool isEnabled) && isEnabled ? 1 : -1;
+            if (cachedValue == 1) return;
+            if (cachedValue != -1) throw new ArgumentOutOfRangeException(nameof(cachedValue));
+            if (SerializationInfoImpl.DeserializationInProgress)
+                throw new System.Runtime.Serialization.SerializationException("An action was attempted during deserialization that could lead to a "
+                    + "security vulnerability. The action has been aborted. To allow the action, set the '" + SwitchPrefix + switchSuffix
+                    + "' AppContext switch to true.");
+        }
     }
 
     [ShadowMembers("System.Text.Encoding")]

@@ -1,0 +1,34 @@
+preallocated length 0
+written length 5 position 5
+file length 5
+vectored read 8: 1,2,3,10 | 11,12,13,14
+handle length 8
+truncated 2
+unlock twice: ok
+lock negative: System.ArgumentOutOfRangeException: Non-negative number required. (Parameter 'position')
+open while FileShare.None: System.IO.IOException: The process cannot access the file '<root>/a.bin' because it is being used by another process.
+copy: copy me 2001-02-03T04:05:06.0000000Z
+copy mode OtherExecute, GroupRead, UserExecute, UserWrite, UserRead
+copy onto existing: System.IO.IOException: The file '<root>/b.bin' already exists.
+  dir deeper 0
+  dir sub 0
+  file a.bin 7
+  file c.txt 1
+  file d.txt 2
+txt files 2
+moved: True False
+move missing: System.IO.DirectoryNotFoundException: Could not find a part of the path '<root>/sub'.
+delete non-empty: System.IO.IOException: Directory not empty : '<root>/moved'
+read a directory: System.UnauthorizedAccessException: Access to the path '<root>/moved' is denied.
+open in missing dir: System.IO.DirectoryNotFoundException: Could not find a part of the path '<root>/nope/f'.
+create file under a file: System.IO.DirectoryNotFoundException: Could not find a part of the path '<root>/a.bin/f'.
+create dir over a file: System.IO.IOException: The file '<root>/a.bin' already exists.
+FileMode.CreateNew on existing: System.IO.IOException: The file '<root>/a.bin' already exists.
+link target <root>/a.bin resolved <root>/a.bin
+dangling: exists True target <root>/a.bin
+read dangling link: System.IO.FileNotFoundException: Could not find file '<root>/link'.
+temp file: True 0 True
+temp dir: True True
+temp dir mode UserExecute, UserWrite, UserRead
+logical drives include root: True
+cleaned True

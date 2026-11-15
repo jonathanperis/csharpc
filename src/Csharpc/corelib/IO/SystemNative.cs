@@ -46,16 +46,18 @@ namespace CsharpcCoreLib
         [DllImport("libc")] private static extern int closedir(void* dir);
         [DllImport("libc")] private static extern byte* strerror(int error);
         [DllImport("libc")] private static extern nuint strlen(byte* s);
+        [DllImport("libc")] private static extern int poll(void* fds, nuint count, int timeout);
+        [DllImport("libc")] private static extern int symlink(byte* target, byte* linkPath);
+        [DllImport("libc")] private static extern int link(byte* target, byte* linkPath);
+        [DllImport("libc")] private static extern int futimens(int fd, long* times);
+        [DllImport("libc")] private static extern int utimensat(int dirfd, byte* path, long* times, int flags);
 #if !CSHARPC_TARGET_WASI
         [DllImport("libc")] private static extern nint preadv(int fd, void* iov, int count, long offset);
         [DllImport("libc")] private static extern nint pwritev(int fd, void* iov, int count, long offset);
-        [DllImport("libc")] private static extern int symlink(byte* target, byte* linkPath);
-        [DllImport("libc")] private static extern int link(byte* target, byte* linkPath);
         [DllImport("libc")] private static extern int chmod(byte* path, int mode);
         [DllImport("libc")] private static extern int fchmod(int fd, int mode);
-        [DllImport("libc")] private static extern int futimens(int fd, long* times);
-        [DllImport("libc")] private static extern int utimensat(int dirfd, byte* path, long* times, int flags);
         [DllImport("libc")] private static extern int flock(int fd, int operation);
+        [DllImport("libc")] private static extern int fstatfs(int fd, byte* buffer);
         [DllImport("libc")] private static extern uint geteuid();
         [DllImport("libc")] private static extern uint getegid();
         [DllImport("libc")] private static extern int getgroups(int size, uint* list);
@@ -65,17 +67,23 @@ namespace CsharpcCoreLib
 
         // ---- target constants ------------------------------------------------------------------------------------
 #if CSHARPC_TARGET_WASI
-        private const int EINTR = 27, EINVAL = 28, ENOTSUP = 58, EBADF = 8;
+        private const int EINTR = 27, EINVAL = 28, ENOTSUP = 58, EBADF = 8, EAGAIN = 6, EPIPE = 64, EPERM = 63;
         private const int O_RDONLY = 0x4000000, O_WRONLY = 0x10000000, O_RDWR = 0x14000000;
-        private const int O_CREAT = 0x1000, O_EXCL = 0x4000, O_TRUNC = 0x8000, O_SYNC = 0x10, O_NOFOLLOW = 0x1000000, O_DIRECTORY = 0x2000, O_CLOEXEC = 0;
+        // (no O_NOCTTY: WASI has no controlling terminal, and pal_io.c leaves it out on WASM)
+        private const int O_CREAT = 0x1000, O_EXCL = 0x4000, O_TRUNC = 0x8000, O_SYNC = 0x10, O_NOFOLLOW = 0x1000000, O_DIRECTORY = 0x2000, O_CLOEXEC = 0, O_NOCTTY = 0;
         private const int O_NONBLOCK = 0x4;
-        private const int F_GETFL = 3;
+        private const int F_GETFL = 3, F_SETFL = 4;
+        private const int AT_FDCWD = -2, AT_SYMLINK_NOFOLLOW = 0x1;
+        private const short POLLIN = 0x1, POLLOUT = 0x2, POLLERR = 0x1000, POLLHUP = 0x2000;
 #elif CSHARPC_TARGET_MACOS
-        private const int EINTR = 4, EINVAL = 22, ENOTSUP = 45, EBADF = 9;
+        private const int EINTR = 4, EINVAL = 22, ENOTSUP = 45, EBADF = 9, EAGAIN = 35, EPIPE = 32, EPERM = 1;
         private const int O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2;
-        private const int O_CREAT = 0x200, O_EXCL = 0x800, O_TRUNC = 0x400, O_SYNC = 0x80, O_NOFOLLOW = 0x100, O_DIRECTORY = 0x100000, O_CLOEXEC = 0x1000000;
+        private const int O_CREAT = 0x200, O_EXCL = 0x800, O_TRUNC = 0x400, O_SYNC = 0x80, O_NOFOLLOW = 0x100, O_DIRECTORY = 0x100000, O_CLOEXEC = 0x1000000, O_NOCTTY = 0x20000;
         private const int O_NONBLOCK = 0x4;
-        private const int F_GETFL = 3, F_SETLK = 8, F_FULLFSYNC = 51;
+        private const int F_GETFL = 3, F_SETFL = 4, F_SETLK = 8, F_FULLFSYNC = 51, F_PREALLOCATE = 42;
+        private const short POLLIN = 0x1, POLLOUT = 0x4, POLLERR = 0x8, POLLHUP = 0x10;
+        [DllImport("libc")] private static extern int fcopyfile(int from, int to, void* state, uint flags);
+        [DllImport("libc")] private static extern int getfsstat(byte* buffer, int bufferSize, int mode);
         private const int AT_FDCWD = -2, AT_SYMLINK_NOFOLLOW = 0x20;
         private const int IOV_MAX = 1024;
         private const uint UF_HIDDEN = 0x8000;
@@ -85,11 +93,20 @@ namespace CsharpcCoreLib
         [DllImport("libc")] private static extern int ioctl(int fd, nuint request);
         private const nuint FIOCLEX = 0x20006601;
 #else
-        private const int EINTR = 4, EINVAL = 22, ENOTSUP = 95, EBADF = 9;
+        private const int EINTR = 4, EINVAL = 22, ENOTSUP = 95, EBADF = 9, EAGAIN = 11, EPIPE = 32, EPERM = 1, ENOSYS = 38;
         private const int O_RDONLY = 0, O_WRONLY = 1, O_RDWR = 2;
-        private const int O_CREAT = 0x40, O_EXCL = 0x80, O_TRUNC = 0x200, O_SYNC = 0x101000, O_NOFOLLOW = 0x20000, O_DIRECTORY = 0x10000, O_CLOEXEC = 0x80000;
+        private const int O_CREAT = 0x40, O_EXCL = 0x80, O_TRUNC = 0x200, O_SYNC = 0x101000, O_NOFOLLOW = 0x20000, O_DIRECTORY = 0x10000, O_CLOEXEC = 0x80000, O_NOCTTY = 0x100;
         private const int O_NONBLOCK = 0x800;
-        private const int F_GETFL = 3, F_SETLK = 6;
+        private const int F_GETFL = 3, F_SETFL = 4, F_SETLK = 6;
+        private const short POLLIN = 0x1, POLLOUT = 0x4, POLLERR = 0x8, POLLHUP = 0x10;
+        [DllImport("libc")] private static extern int ioctl(int fd, nuint request, int argument);
+        [DllImport("libc")] private static extern nint copy_file_range(int inFd, long* inOffset, int outFd, long* outOffset, nuint length, uint flags);
+        [DllImport("libc")] private static extern nint sendfile(int outFd, int inFd, long* offset, nuint count);
+        [DllImport("libc")] private static extern int uname(byte* buffer);
+        [DllImport("libc")] private static extern void* setmntent(byte* file, byte* mode);
+        [DllImport("libc")] private static extern void* getmntent_r(void* stream, byte* entry, byte* buffer, int bufferSize);
+        [DllImport("libc")] private static extern int endmntent(void* stream);
+        private const nuint FICLONE = 0x40049409;
         private const int AT_FDCWD = -100, AT_SYMLINK_NOFOLLOW = 0x100;
         private const int IOV_MAX = 1024;
         [DllImport("libc")] private static extern int pipe2(int* fds, int flags);
@@ -152,14 +169,22 @@ namespace CsharpcCoreLib
             if ((flags & 0x100) != 0) native |= O_SYNC;
             if ((flags & 0x200) != 0) native |= O_NOFOLLOW;
             if ((flags & 0x1000) != 0) native |= O_DIRECTORY;
+            native |= O_NOCTTY; // a terminal device opened by path never becomes the controlling terminal (pal_io.c's default)
             int fd;
             while ((fd = open(path, native, mode)) < 0 && Errno == EINTR) { }
             return fd;
         }
 
-        /// <summary>SystemNative_Close: close(2), not retried (a retry after EINTR could close a descriptor another thread just got).</summary>
+        /// <summary>
+        /// SystemNative_Close: close(2), not retried (a retry after EINTR could close a descriptor another thread just got); EINTR is
+        /// success, as pal_io.c: on every supported kernel the descriptor is released by then.
+        /// </summary>
         [RuntimeExport("SystemNative_Close", Trigger + "SystemNative_Close")]
-        public static int Close(nint fd) => close(Fd(fd));
+        public static int Close(nint fd)
+        {
+            int r = close(Fd(fd));
+            return r < 0 && Errno == EINTR ? 0 : r;
+        }
 
         [RuntimeExport("SystemNative_Read", Trigger + "SystemNative_Read")]
         public static int Read(nint fd, byte* buffer, int count)
@@ -179,12 +204,51 @@ namespace CsharpcCoreLib
             return (int)n;
         }
 
-        // (Non-blocking descriptors: the same calls; EAGAIN is the caller's to handle, as in pal_io.c.)
+        // Non-blocking descriptors (an anonymous pipe's async end): on EAGAIN wait in poll(2) until the descriptor is ready, then retry; a
+        // hang-up with nothing to read is the end of the stream (0), one with no room to write is EPIPE, as pal_io.c.
         [RuntimeExport("SystemNative_ReadFromNonblocking", Trigger + "SystemNative_ReadFromNonblocking")]
-        public static int ReadFromNonblocking(nint fd, byte* buffer, int count) => Read(fd, buffer, count);
+        public static int ReadFromNonblocking(nint fd, byte* buffer, int count)
+        {
+            while (true)
+            {
+                int r = Read(fd, buffer, count);
+                if (r != -1 || Errno != EAGAIN) return r;
+                int ready = WaitReady(fd, POLLIN);
+                if (ready <= 0) return ready;
+            }
+        }
 
         [RuntimeExport("SystemNative_WriteToNonblocking", Trigger + "SystemNative_WriteToNonblocking")]
-        public static int WriteToNonblocking(nint fd, byte* buffer, int count) => Write(fd, buffer, count);
+        public static int WriteToNonblocking(nint fd, byte* buffer, int count)
+        {
+            while (true)
+            {
+                int r = Write(fd, buffer, count);
+                if (r != -1 || Errno != EAGAIN) return r;
+                int ready = WaitReady(fd, POLLOUT);
+                if (ready <= 0) return ready;
+            }
+        }
+
+        /// <summary>
+        /// Blocks until fd is ready for <paramref name="events"/>: 1 to retry, -1 with errno set (poll failed, or EPIPE for a hung-up write
+        /// end), 0 for a hung-up read end with no data (end of stream).
+        /// </summary>
+        private static int WaitReady(nint fd, short events)
+        {
+            // struct pollfd { int fd; short events; short revents; }
+            byte* pfd = stackalloc byte[8];
+            *(int*)pfd = Fd(fd);
+            *(short*)(pfd + 4) = events;
+            *(short*)(pfd + 6) = 0;
+            int r;
+            while ((r = poll(pfd, 1, -1)) < 0 && Errno == EINTR) { }
+            if (r < 0) return -1;
+            short revents = *(short*)(pfd + 6);
+            if ((revents & (POLLHUP | POLLERR)) != 0 && (revents & events) == 0)
+                return events == POLLIN ? 0 : Fail(EPIPE);
+            return 1;
+        }
 
         [RuntimeExport("SystemNative_PRead", Trigger + "SystemNative_PRead")]
         public static int PRead(nint fd, byte* buffer, int count, long offset)
@@ -204,30 +268,62 @@ namespace CsharpcCoreLib
             return (int)n;
         }
 
-        // Vectored I/O: Interop.Sys.IOVector is struct iovec (a pointer and a size_t). More vectors than IOV_MAX are done in batches, as
-        // pal_io.c's SystemNative_PReadV/PWriteV do; a short transfer ends the operation, as one call would.
+        // Vectored I/O: Interop.Sys.IOVector is struct iovec (a pointer and a size_t). At most IOV_MAX vectors per call, and on macOS no more
+        // than INT_MAX bytes in all (preadv/pwritev fail with EINVAL past it there): pal_io.c's GetAllowedVectorCount. The framework handles
+        // the short transfer. WASI's preadv/pwritev are done one vector at a time, as pal_io.c does on WASM.
+        private static int AllowedVectorCount(byte* vectors, int count)
+        {
+            int allowed = Math.Min(count, IovMax);
+#if CSHARPC_TARGET_MACOS
+            ulong total = 0;
+            for (int i = 0; i < allowed; i++)
+            {
+                total += *(ulong*)(vectors + i * 16 + 8);
+                if (total > int.MaxValue) return i;
+            }
+#endif
+            return allowed;
+        }
+
         [RuntimeExport("SystemNative_ReadV", Trigger + "SystemNative_ReadV")]
         public static long ReadV(nint fd, byte* vectors, int count)
         {
             if (count < 0) return Fail(EINVAL);
-            nint n;
-            while ((n = readv(Fd(fd), vectors, Math.Min(count, IovMax))) < 0 && Errno == EINTR) { }
-            return n;
+            int allowed = AllowedVectorCount(vectors, count);
+            while (true)
+            {
+                nint n;
+                while ((n = readv(Fd(fd), vectors, allowed)) < 0 && Errno == EINTR) { }
+                if (n != -1 || Errno != EAGAIN) return n;
+                int ready = WaitReady(fd, POLLIN);
+                if (ready <= 0) return ready;
+            }
         }
 
         [RuntimeExport("SystemNative_WriteV", Trigger + "SystemNative_WriteV")]
         public static long WriteV(nint fd, byte* vectors, int count)
         {
             if (count < 0) return Fail(EINVAL);
-            nint n;
-            while ((n = writev(Fd(fd), vectors, Math.Min(count, IovMax))) < 0 && Errno == EINTR) { }
-            return n;
+            int allowed = AllowedVectorCount(vectors, count);
+            while (true)
+            {
+                nint n;
+                while ((n = writev(Fd(fd), vectors, allowed)) < 0 && Errno == EINTR) { }
+                if (n != -1 || Errno != EAGAIN) return n;
+                int ready = WaitReady(fd, POLLOUT);
+                if (ready <= 0) return ready;
+            }
         }
 
         [RuntimeExport("SystemNative_PReadV", Trigger + "SystemNative_PReadV")]
         public static long PReadV(nint fd, byte* vectors, int count, long offset)
         {
             if (count < 0) return Fail(EINVAL);
+#if !CSHARPC_TARGET_WASI
+            nint r;
+            while ((r = preadv(Fd(fd), vectors, AllowedVectorCount(vectors, count), offset)) < 0 && Errno == EINTR) { }
+            return r;
+#else
             long total = 0;
             int vectorSize = 2 * IntPtr.Size;
             for (int i = 0; i < count; i++)
@@ -241,12 +337,18 @@ namespace CsharpcCoreLib
                 if ((nuint)n != length) break;
             }
             return total;
+#endif
         }
 
         [RuntimeExport("SystemNative_PWriteV", Trigger + "SystemNative_PWriteV")]
         public static long PWriteV(nint fd, byte* vectors, int count, long offset)
         {
             if (count < 0) return Fail(EINVAL);
+#if !CSHARPC_TARGET_WASI
+            nint r;
+            while ((r = pwritev(Fd(fd), vectors, AllowedVectorCount(vectors, count), offset)) < 0 && Errno == EINTR) { }
+            return r;
+#else
             long total = 0;
             int vectorSize = 2 * IntPtr.Size;
             for (int i = 0; i < count; i++)
@@ -260,6 +362,7 @@ namespace CsharpcCoreLib
                 if ((nuint)n != length) break;
             }
             return total;
+#endif
         }
 
 #if CSHARPC_TARGET_WASI
@@ -298,30 +401,42 @@ namespace CsharpcCoreLib
             return r;
         }
 
+        /// <summary>
+        /// SystemNative_FAllocate (FileStreamOptions.PreallocationSize): reserves the blocks without changing the file's length — Linux's
+        /// fallocate with FALLOC_FL_KEEP_SIZE, macOS's F_PREALLOCATE (all or nothing, from the physical end of the file) — as pal_io.c.
+        /// </summary>
         [RuntimeExport("SystemNative_FAllocate", Trigger + "SystemNative_FAllocate")]
         public static int FAllocate(nint fd, long offset, long length)
         {
-#if CSHARPC_TARGET_LINUX || (!CSHARPC_TARGET_MACOS && !CSHARPC_TARGET_WASI)
             int r;
-            while ((r = fallocate(Fd(fd), 0 /* FALLOC_FL_KEEP_SIZE off: the file grows, as .NET's preallocationSize */, offset, length)) < 0 && Errno == EINTR) { }
+#if CSHARPC_TARGET_MACOS
+            byte* store = stackalloc byte[32];  // fstore_t: fst_flags @0, fst_posmode @4, fst_offset @8, fst_length @16, fst_bytesalloc @24
+            *(uint*)store = 0x4;                // F_ALLOCATEALL
+            *(int*)(store + 4) = 3;             // F_PEOFPOSMODE
+            *(long*)(store + 8) = offset;
+            *(long*)(store + 16) = length;
+            *(long*)(store + 24) = 0;
+            while ((r = fcntl_ptr(Fd(fd), F_PREALLOCATE, store)) == -1 && Errno == EINTR) { }
             return r;
+#elif CSHARPC_TARGET_WASI
+            return Fail(ENOTSUP);   // EOPNOTSUPP, the same number on WASI
 #else
-            // pal_io.c on targets without fallocate: no preallocation, and the framework treats ENOTSUP as "not supported here".
-            return Fail(ENOTSUP);
+            while ((r = fallocate(Fd(fd), 1 /* FALLOC_FL_KEEP_SIZE */, offset, length)) == -1 && Errno == EINTR) { }
+            return r;
 #endif
         }
 
+        /// <summary>SystemNative_PosixFAdvise: returns the error number (0 on success), not -1; ENOTSUP where there is no posix_fadvise (macOS).</summary>
         [RuntimeExport("SystemNative_PosixFAdvise", Trigger + "SystemNative_PosixFAdvise")]
         public static int PosixFAdvise(nint fd, long offset, long length, int advice)
         {
-#if CSHARPC_TARGET_MACOS || CSHARPC_TARGET_WASI
-            // pal_io.c: no posix_fadvise, nothing to advise (0).
-            return 0;
+#if CSHARPC_TARGET_MACOS
+            return ENOTSUP;
+#elif CSHARPC_TARGET_WASI
+            return 0;   // a hint; the framework ignores ENOTSUP here as it would ignore success
 #else
             if ((uint)advice > 5) return EINVAL; // the PAL values are Linux's POSIX_FADV_* (0..5)
-            int r;
-            while ((r = posix_fadvise(Fd(fd), offset, length, advice)) == EINTR) { }
-            return r; // posix_fadvise returns the error number, not -1 + errno
+            return posix_fadvise(Fd(fd), offset, length, advice);
 #endif
         }
 
@@ -329,7 +444,7 @@ namespace CsharpcCoreLib
         public static int FLock(nint fd, int operation)
         {
 #if CSHARPC_TARGET_WASI
-            return Fail(ENOTSUP);
+            return EINTR;   // pal_io.c on WASI: no locking, a non-negative result (FileSystemSupportsLocking says 0 there first)
 #else
             // LOCK_SH/EX/NB/UN have the same values (1, 2, 4, 8) on Linux and macOS.
             int r;
@@ -345,10 +460,11 @@ namespace CsharpcCoreLib
         [RuntimeExport("SystemNative_LockFileRegion", Trigger + "SystemNative_LockFileRegion")]
         public static int LockFileRegion(nint fd, long offset, long length, int lockType)
         {
-            if (offset < 0 || length < 0) return Fail(EINVAL);
 #if CSHARPC_TARGET_WASI
-            return Fail(ENOTSUP);
-#elif CSHARPC_TARGET_MACOS
+            return EINTR;   // pal_io.c on WASI: a non-negative result, no lock
+#else
+            if (offset < 0 || length < 0) return Fail(EINVAL);
+#if CSHARPC_TARGET_MACOS
             short type = lockType switch { 0 => 1, 1 => 3, 2 => 2, _ => (short)-1 };
             if (type < 0) return Fail(EINVAL);
             byte* lockData = stackalloc byte[24];   // struct flock: l_start @0, l_len @8, l_pid @16, l_type @20, l_whence @22
@@ -370,21 +486,49 @@ namespace CsharpcCoreLib
             while ((r = fcntl_ptr(Fd(fd), F_SETLK, lockData)) < 0 && Errno == EINTR) { }
             return r;
 #endif
+#endif
         }
 
         /// <summary>
-        /// SystemNative_FileSystemSupportsLocking: pal_io.c answers whether a failed flock means "locked by someone" or "this file system
-        /// can't lock" only on Linux, by the file system's magic; csharpc's answer is that every local file system supports it, which is what
-        /// pal_io.c returns for all but NFS and CIFS (where flock is emulated or a no-op).
+        /// SystemNative_FileSystemSupportsLocking: whether FileStream takes the advisory flock for FileShare. A shared lock on a writable
+        /// descriptor is skipped on NFS, CIFS and SMB, where LOCK_SH drops writes silently (dotnet/runtime#44546, #53182): Linux tells them by
+        /// the file system's magic (fstatfs f_type), macOS by its name (f_fstypename), as pal_io.c. WASI has no locking (0).
         /// </summary>
         [RuntimeExport("SystemNative_FileSystemSupportsLocking", Trigger + "SystemNative_FileSystemSupportsLocking")]
-        public static int FileSystemSupportsLocking(nint fd, int lockOperation, int accessWrite) => 1;
+        public static int FileSystemSupportsLocking(nint fd, int lockOperation, int accessWrite)
+        {
+#if CSHARPC_TARGET_WASI
+            return 0;
+#else
+            if (lockOperation == 2 /* PAL_LOCK_EX */ || accessWrite == 0) return 1;
+            byte* st = stackalloc byte[2168];   // struct statfs: 120 bytes on Linux, 2168 on macOS
+            int r;
+            while ((r = fstatfs(Fd(fd), st)) == -1 && Errno == EINTR) { }
+            if (r == -1) return 0;
+#if CSHARPC_TARGET_MACOS
+            byte* name = st + 72;               // f_fstypename[16]
+            return NameIs(name, "nfs") || NameIs(name, "cifs") || NameIs(name, "smb") || NameIs(name, "smb2") ? 0 : 1;
+#else
+            uint type = (uint)*(long*)st;       // f_type (__fsword_t, the first field)
+            return type == 0x6969 || type == 0xFF534D42 || type == 0x517B || type == 0xFE534D42 ? 0 : 1;   // NFS, CIFS, SMB, SMB2
+#endif
+#endif
+        }
+
+#if CSHARPC_TARGET_MACOS
+        private static bool NameIs(byte* name, string expected)
+        {
+            for (int i = 0; i < expected.Length; i++)
+                if (name[i] != (byte)expected[i]) return false;
+            return name[expected.Length] == 0;
+        }
+#endif
 
         [RuntimeExport("SystemNative_FChMod", Trigger + "SystemNative_FChMod")]
         public static int FChMod(nint fd, int mode)
         {
 #if CSHARPC_TARGET_WASI
-            return Fail(ENOTSUP);
+            return EINTR;   // pal_io.c without fchmod (WASI has no permission bits): a non-negative result
 #else
             int r;
             while ((r = fchmod(Fd(fd), mode)) < 0 && Errno == EINTR) { }
@@ -396,7 +540,7 @@ namespace CsharpcCoreLib
         public static int ChMod(byte* path, int mode)
         {
 #if CSHARPC_TARGET_WASI
-            return Fail(ENOTSUP);
+            return EINTR;   // pal_io.c without chmod (WASI has no permission bits): a non-negative result
 #else
             int r;
             while ((r = chmod(path, mode)) < 0 && Errno == EINTR) { }
@@ -408,65 +552,79 @@ namespace CsharpcCoreLib
         [RuntimeExport("SystemNative_FUTimens", Trigger + "SystemNative_FUTimens")]
         public static int FUTimens(nint fd, long* times)
         {
-#if CSHARPC_TARGET_WASI
-            return Fail(ENOTSUP);
-#else
+            // TimeSpec { long sec; long nsec; } is struct timespec on LP64 and, little-endian with nanoseconds below 2^31, on wasm32 too.
             int r;
             while ((r = futimens(Fd(fd), times)) < 0 && Errno == EINTR) { }
             return r;
-#endif
         }
 
         /// <summary>SystemNative_UTimensat: a path's times, the link itself for a symbolic link (AT_SYMLINK_NOFOLLOW, as pal_io.c).</summary>
         [RuntimeExport("SystemNative_UTimensat", Trigger + "SystemNative_UTimensat")]
         public static int UTimensat(byte* path, long* times)
         {
-#if CSHARPC_TARGET_WASI
-            return Fail(ENOTSUP);
-#else
             int r;
             while ((r = utimensat(AT_FDCWD, path, times, AT_SYMLINK_NOFOLLOW)) < 0 && Errno == EINTR) { }
             return r;
-#endif
         }
 
         [RuntimeExport("SystemNative_Fcntl_GetIsNonBlocking", Trigger + "SystemNative_Fcntl_GetIsNonBlocking")]
         public static int GetIsNonBlocking(nint fd, int* isNonBlocking)
         {
+            if (isNonBlocking == null) return 0x10015; // Error_EFAULT
             int flags = fcntl_int(Fd(fd), F_GETFL, 0);
-            if (flags < 0) return -1;
+            if (flags < 0) { *isNonBlocking = 0; return -1; }
             *isNonBlocking = (flags & O_NONBLOCK) != 0 ? 1 : 0;
             return 0;
         }
 
-        /// <summary>SystemNative_Pipe: both ends close-on-exec when PAL_O_CLOEXEC (0x10) is asked, atomically where the target can (pipe2).</summary>
+        /// <summary>
+        /// SystemNative_Pipe: both ends close-on-exec when PAL_O_CLOEXEC (0x10) is asked, atomically where the target can (pipe2); then
+        /// O_NONBLOCK on the read end (PAL_O_NONBLOCK_READ 0x400) and the write end (PAL_O_NONBLOCK_WRITE 0x800), as pal_io.c. On failure
+        /// after the pipe exists both ends are closed and errno is the failing call's.
+        /// </summary>
         [RuntimeExport("SystemNative_Pipe", Trigger + "SystemNative_Pipe")]
         public static int Pipe(int* fds, int flags)
         {
-            if ((flags & ~0x10) != 0) return Fail(EINVAL);
 #if CSHARPC_TARGET_WASI
             return Fail(ENOTSUP);
-#elif CSHARPC_TARGET_MACOS
+#else
+            if ((flags & ~(0x10 | 0x400 | 0x800)) != 0) return Fail(EINVAL);
             int r;
+#if CSHARPC_TARGET_MACOS
             while ((r = pipe(fds)) < 0 && Errno == EINTR) { }
             if (r == 0 && (flags & 0x10) != 0)
             {
                 // FIOCLEX: no variadic argument, unlike fcntl(F_SETFD, FD_CLOEXEC).
                 if (ioctl(fds[0], FIOCLEX) < 0 || ioctl(fds[1], FIOCLEX) < 0)
-                {
-                    int e = Errno;
-                    close(fds[0]);
-                    close(fds[1]);
-                    return Fail(e);
-                }
+                    return CloseBoth(fds);
             }
-            return r;
 #else
-            int r;
             while ((r = pipe2(fds, (flags & 0x10) != 0 ? O_CLOEXEC : 0)) < 0 && Errno == EINTR) { }
+#endif
+            if (r == 0 && (flags & (0x400 | 0x800)) != 0)
+            {
+                if ((flags & 0x400) != 0 && SetNonBlocking(fds[0]) != 0) return CloseBoth(fds);
+                if ((flags & 0x800) != 0 && SetNonBlocking(fds[1]) != 0) return CloseBoth(fds);
+            }
             return r;
 #endif
         }
+
+#if !CSHARPC_TARGET_WASI
+        private static int SetNonBlocking(int fd)
+        {
+            int flags = fcntl_int(fd, F_GETFL, 0);
+            return flags == -1 ? -1 : fcntl_int(fd, F_SETFL, flags | O_NONBLOCK);
+        }
+
+        private static int CloseBoth(int* fds)
+        {
+            int e = Errno;
+            close(fds[0]);
+            close(fds[1]);
+            return Fail(e);
+        }
+#endif
 
         // ---- paths -----------------------------------------------------------------------------------------------
         [RuntimeExport("SystemNative_MkDir", Trigger + "SystemNative_MkDir")]
@@ -504,23 +662,17 @@ namespace CsharpcCoreLib
         [RuntimeExport("SystemNative_Link", Trigger + "SystemNative_Link")]
         public static int Link(byte* source, byte* linkPath)
         {
-#if CSHARPC_TARGET_WASI
-            return Fail(ENOTSUP);
-#else
             int r;
             while ((r = link(source, linkPath)) < 0 && Errno == EINTR) { }
             return r;
-#endif
         }
 
         [RuntimeExport("SystemNative_SymLink", Trigger + "SystemNative_SymLink")]
         public static int SymLink(byte* target, byte* linkPath)
         {
-#if CSHARPC_TARGET_WASI
-            return Fail(ENOTSUP);
-#else
-            return symlink(target, linkPath);
-#endif
+            int r;
+            while ((r = symlink(target, linkPath)) < 0 && Errno == EINTR) { }
+            return r;
         }
 
         /// <summary>SystemNative_ReadLink: readlink(2); the framework grows the buffer while the result fills it.</summary>
@@ -567,11 +719,22 @@ namespace CsharpcCoreLib
         }
 
         // ---- directories -----------------------------------------------------------------------------------------
+        /// <summary>SystemNative_OpenDir: opendir(3), retried on EINTR (undocumented, but macOS returns it), as pal_io.c.</summary>
         [RuntimeExport("SystemNative_OpenDir", Trigger + "SystemNative_OpenDir")]
-        public static nint OpenDir(byte* path) => (nint)opendir(path);
+        public static nint OpenDir(byte* path)
+        {
+            void* d;
+            while ((d = opendir(path)) == null && Errno == EINTR) { }
+            return (nint)d;
+        }
 
+        /// <summary>SystemNative_CloseDir: closedir(3); EINTR is success (the stream is released), as pal_io.c.</summary>
         [RuntimeExport("SystemNative_CloseDir", Trigger + "SystemNative_CloseDir")]
-        public static int CloseDir(nint dir) => closedir((void*)dir);
+        public static int CloseDir(nint dir)
+        {
+            int r = closedir((void*)dir);
+            return r < 0 && Errno == EINTR ? 0 : r;
+        }
 
         /// <summary>
         /// SystemNative_ReadDir: the next entry as Interop.Sys.DirectoryEntry { byte* Name; int NameLength; int InodeType } (Name points into
@@ -798,99 +961,190 @@ namespace CsharpcCoreLib
 
         // ---- copy ------------------------------------------------------------------------------------------------
         /// <summary>
-        /// SystemNative_CopyFile: the source's bytes into the destination (both open; the destination new or truncated by the framework), then
-        /// the source's permission bits (pal_io.c: fchmod with st_mode's 07777 bits) and its access and modification times, as File.Copy keeps them.
+        /// SystemNative_CopyFile (File.Copy; both descriptors open, the destination new or truncated by the framework), as pal_io.c:
+        /// macOS: fcopyfile(COPYFILE_ALL), data and metadata in the kernel.
+        /// Linux: a copy-on-write clone (FICLONE), else copy_file_range (kernel 5.3+), else sendfile, else read/write; then the source's
+        /// access and modification times and its permission bits (rwx for user, group and other only: never setuid, setgid or sticky),
+        /// a failure to copy either tolerated only as EPERM (a file system without POSIX ownership).
+        /// WASI: read/write and the times (no permission bits there).
         /// </summary>
         [RuntimeExport("SystemNative_CopyFile", Trigger + "SystemNative_CopyFile")]
         public static int CopyFile(nint source, nint destination, long sourceLength)
         {
             int inFd = Fd(source), outFd = Fd(destination);
-            byte* buffer = stackalloc byte[64 * 1024];
-            while (true)
-            {
-                nint n;
-                while ((n = read(inFd, buffer, 64 * 1024)) < 0 && Errno == EINTR) { }
-                if (n < 0) return -1;
-                if (n == 0) break;
-                for (nint written = 0; written < n;)
-                {
-                    nint w;
-                    while ((w = write(outFd, buffer + written, (nuint)(n - written))) < 0 && Errno == EINTR) { }
-                    if (w < 0) return -1;
-                    written += w;
-                }
-            }
-#if !CSHARPC_TARGET_WASI
-            byte* status = stackalloc byte[FileStatusSize];
-            if (FStat(source, status) != 0) return -1;
+#if CSHARPC_TARGET_MACOS
+            return fcopyfile(inFd, outFd, null, 15 /* COPYFILE_ALL */) == 0 ? 0 : -1;
+#else
             int r;
-            while ((r = fchmod(outFd, *(int*)(status + 4) & 0xFFF)) < 0 && Errno == EINTR) { }
-            if (r != 0) return -1;
-            long* times = stackalloc long[4];
-            times[0] = *(long*)(status + 24); times[1] = *(long*)(status + 32);
-            times[2] = *(long*)(status + 40); times[3] = *(long*)(status + 48);
-            while ((r = futimens(outFd, times)) < 0 && Errno == EINTR) { }
-            // (pal_io.c ignores a failure to copy the times: the data and permissions are what matter)
+            bool copied = false;
+#if !CSHARPC_TARGET_WASI
+            bool trySendFile = true;
+            if (sourceLength != 0)
+            {
+                while ((r = ioctl(outFd, FICLONE, inFd)) < 0 && Errno == EINTR) { }
+                copied = r == 0;
+            }
+            if (!copied && sourceLength != 0 && SupportsCopyFileRange())
+            {
+                do
+                {
+                    nint sent = copy_file_range(inFd, null, outFd, null, (nuint)sourceLength, 0);
+                    if (sent <= 0) { trySendFile = false; break; }
+                    sourceLength -= sent;
+                } while (sourceLength > 0);
+                copied = sourceLength == 0;
+            }
+            if (trySendFile && !copied && sourceLength != 0)
+            {
+                do
+                {
+                    nint sent = sendfile(outFd, inFd, null, (nuint)sourceLength);
+                    if (sent < 0)
+                    {
+                        int e = Errno;
+                        if (e != EINVAL && e != ENOSYS) return -1;
+                        break;
+                    }
+                    if (sent == 0) break;   // truncated meanwhile: the rest by read/write
+                    sourceLength -= sent;
+                } while (sourceLength > 0);
+                copied = sourceLength == 0;
+            }
+#endif
+            if (!copied && CopyReadWrite(inFd, outFd) != 0) return -1;
+
+            byte* status = stackalloc byte[FileStatusSize];
+            r = FStat(source, status);
+            if (r == 0)
+            {
+                long* times = stackalloc long[4];
+                times[0] = *(long*)(status + 24); times[1] = *(long*)(status + 32);
+                times[2] = *(long*)(status + 40); times[3] = *(long*)(status + 48);
+                while ((r = futimens(outFd, times)) < 0 && Errno == EINTR) { }
+            }
+            if (r != 0 && Errno != EPERM) return -1;
+#if !CSHARPC_TARGET_WASI
+            // The mode the framework created the file with went through the umask; copy the source's rwx bits explicitly.
+            while ((r = fchmod(outFd, *(int*)(status + 4) & 0x1FF)) < 0 && Errno == EINTR) { }
+            if (r != 0 && Errno != EPERM) return -1;
 #endif
             return 0;
+#endif
         }
+
+#if !CSHARPC_TARGET_MACOS
+        private static int CopyReadWrite(int inFd, int outFd)
+        {
+            const int BufferLength = 80 * 1024;
+            byte* buffer = (byte*)NativeMemory.Alloc(BufferLength);
+            try
+            {
+                while (true)
+                {
+                    nint n;
+                    while ((n = read(inFd, buffer, BufferLength)) < 0 && Errno == EINTR) { }
+                    if (n < 0) return -1;
+                    if (n == 0) return 0;
+                    for (nint written = 0; written < n;)
+                    {
+                        nint w;
+                        while ((w = write(outFd, buffer + written, (nuint)(n - written))) < 0 && Errno == EINTR) { }
+                        if (w < 0) return -1;
+                        written += w;
+                    }
+                }
+            }
+            finally
+            {
+                int e = Errno;
+                NativeMemory.Free(buffer);
+                Marshal.SetLastSystemError(e);
+            }
+        }
+#endif
+
+#if !CSHARPC_TARGET_MACOS && !CSHARPC_TARGET_WASI
+        private static int s_copyFileRange; // 0 unknown, 1 supported, -1 not
+
+        /// <summary>copy_file_range only on Linux 5.3+ (earlier kernels have known problems with it, https://lwn.net/Articles/789527/), as pal_io.c.</summary>
+        private static bool SupportsCopyFileRange()
+        {
+            int supported = s_copyFileRange;
+            if (supported == 0)
+            {
+                supported = -1;
+                byte* name = stackalloc byte[390];  // struct utsname: six 65-byte fields; release @130
+                if (uname(name) == 0)
+                {
+                    byte* p = name + 130;
+                    uint major = 0, minor = 0;
+                    while (*p >= (byte)'0' && *p <= (byte)'9') major = major * 10 + (uint)(*p++ - '0');
+                    if (*p == (byte)'.')
+                    {
+                        p++;
+                        while (*p >= (byte)'0' && *p <= (byte)'9') minor = minor * 10 + (uint)(*p++ - '0');
+                    }
+                    if (major > 5 || (major == 5 && minor >= 3))
+                        supported = copy_file_range(-1, null, -1, null, 0, 0) == -1 && Errno != ENOSYS ? 1 : -1;
+                }
+                s_copyFileRange = supported;
+            }
+            return supported == 1;
+        }
+#endif
 
         // ---- mount points ----------------------------------------------------------------------------------------
         /// <summary>
-        /// SystemNative_GetAllMountPoints: calls onFound(context, mountPoint) for each mounted file system (Directory.GetLogicalDrives). Linux
-        /// reads /proc/self/mounts as pal_mount.c does (setmntent/getmntent); macOS and WASI have only "/".
+        /// SystemNative_GetAllMountPoints: calls onFound(context, mountPoint) for each mounted file system (Directory.GetLogicalDrives,
+        /// DriveInfo.GetDrives), as pal_mount.c: Linux reads /proc/mounts with glibc's setmntent/getmntent_r (its escape handling and
+        /// O_CLOEXEC stream), macOS lists them with getfsstat (thread-safe, unlike getmntinfo); WASI has only "/".
         /// </summary>
         [RuntimeExport("SystemNative_GetAllMountPoints", Trigger + "SystemNative_GetAllMountPoints")]
         public static int GetAllMountPoints(delegate* unmanaged<void*, byte*, void> onFound, void* context)
         {
-#if CSHARPC_TARGET_MACOS || CSHARPC_TARGET_WASI
+#if CSHARPC_TARGET_WASI
             byte* root = stackalloc byte[2];
             root[0] = (byte)'/'; root[1] = 0;
             onFound(context, root);
             return 0;
-#else
-            byte* path = stackalloc byte[] { (byte)'/', (byte)'p', (byte)'r', (byte)'o', (byte)'c', (byte)'/', (byte)'s', (byte)'e', (byte)'l', (byte)'f',
-                (byte)'/', (byte)'m', (byte)'o', (byte)'u', (byte)'n', (byte)'t', (byte)'s', 0 };
-            nint fd = Open(path, 0x10 /* PAL_O_CLOEXEC, O_RDONLY */, 0);
-            if (fd < 0) return -1;
-            var text = new System.Collections.Generic.List<byte>();
-            byte* chunk = stackalloc byte[4096];
-            int n;
-            while ((n = Read(fd, chunk, 4096)) > 0) for (int i = 0; i < n; i++) text.Add(chunk[i]);
-            close((int)fd);
-            if (n < 0) return -1;
-            // Each line: device, mount point (with \040-style octal escapes), type, options, two numbers.
-            var line = text.ToArray();
-            byte* point = stackalloc byte[4096];
-            for (int start = 0; start < line.Length;)
+#elif CSHARPC_TARGET_MACOS
+            const int StatfsSize = 2168, MntOnNameOffset = 88, MNT_NOWAIT = 2;
+            byte* mounts = null;
+            int count, capacity = 0;
+            while (true)
             {
-                int end = start;
-                while (end < line.Length && line[end] != (byte)'\n') end++;
-                int field = start;
-                while (field < end && line[field] != (byte)' ') field++;
-                field++;
-                int length = 0;
-                for (int i = field; i < end && line[i] != (byte)' ' && length < 4095; i++)
+                count = getfsstat(null, 0, MNT_NOWAIT);
+                if (count < 0) { NativeMemory.Free(mounts); return -1; }
+                if (count >= capacity)
                 {
-                    if (line[i] == (byte)'\\' && i + 3 < end && IsOctal(line[i + 1]) && IsOctal(line[i + 2]) && IsOctal(line[i + 3]))
-                    {
-                        point[length++] = (byte)(((line[i + 1] - '0') << 6) | ((line[i + 2] - '0') << 3) | (line[i + 3] - '0'));
-                        i += 3;
-                    }
-                    else point[length++] = line[i];
+                    NativeMemory.Free(mounts);
+                    capacity = count + 1;   // one extra, to see mounts added between the two calls
+                    if ((long)capacity * StatfsSize > int.MaxValue) { mounts = null; return Fail(12 /* ENOMEM */); }
+                    mounts = (byte*)NativeMemory.Alloc((nuint)(capacity * StatfsSize));
                 }
-                if (length > 0)
-                {
-                    point[length] = 0;
-                    onFound(context, point);
-                }
-                start = end + 1;
+                if (count == 0) break;
+                count = getfsstat(mounts, capacity * StatfsSize, MNT_NOWAIT);
+                if (count < 0) { NativeMemory.Free(mounts); return -1; }
+                if (count < capacity) break;
             }
+            for (int i = 0; i < count; i++) onFound(context, mounts + (long)i * StatfsSize + MntOnNameOffset);
+            NativeMemory.Free(mounts);
+            return 0;
+#else
+            byte* path = stackalloc byte[] { (byte)'/', (byte)'p', (byte)'r', (byte)'o', (byte)'c', (byte)'/', (byte)'m', (byte)'o', (byte)'u', (byte)'n', (byte)'t', (byte)'s', 0 };
+            byte* mode = stackalloc byte[] { (byte)'r', 0 };
+            void* stream = setmntent(path, mode);
+            if (stream == null) return -1;
+            const int BufferSize = 8192;    // pal_mount.c's STRING_BUFFER_SIZE
+            byte* entry = stackalloc byte[48];  // struct mntent: mnt_fsname, mnt_dir @8, mnt_type, mnt_opts, mnt_freq, mnt_passno
+            byte* buffer = (byte*)NativeMemory.Alloc(BufferSize);
+            while (getmntent_r(stream, entry, buffer, BufferSize) != null)
+                onFound(context, *(byte**)(entry + 8));
+            NativeMemory.Free(buffer);
+            endmntent(stream);
             return 0;
 #endif
         }
-
-        private static bool IsOctal(byte b) => b >= (byte)'0' && b <= (byte)'7';
 
         // ---- errno <-> Interop.Error (pal_errno.c; PAL values are the framework's Interop.Error) --------------------
         private static int ToPal(int platform) => PalTables.ToPal(platform);
