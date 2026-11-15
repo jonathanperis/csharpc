@@ -50,7 +50,6 @@ internal static class CoreLibRuntime
         ["csrt_decimal_to_f64"] = ("DecimalOps", "ToDoubleAt"),
         ["csrt_decimal_to_f32"] = ("DecimalOps", "ToSingleAt"),
         ["csrt_decimal_to_integer"] = ("DecimalOps", "ToIntegerAt"),
-        ["csrt_decimal_try_parse"] = ("DecimalOps", "TryParse"),
         // System.Numerics.BigInteger (BigIntegerOps.cs)
         ["csrt_bigint_abs"] = ("BigIntegerOps", "Abs"),
         ["csrt_bigint_add"] = ("BigIntegerOps", "Add"),

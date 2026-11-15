@@ -445,7 +445,7 @@ internal static class Intrinsics
 
         // ---- parsing (src/runtime/strings.c) ---------------------------------------------------------
         // System.Char classification/casing: src/Csharpc/corelib/StringOps.cs (CharOps).
-        // Numeric Parse/TryParse: corelib NumberParsingMembers.cs (culture-aware, Number.Parsing.Culture.cs).
+        // Numeric Parse/TryParse: the framework's own, hosted from the primitives' IL (upstream-types/System.Globalization.txt).
 
         // System.Text.StringBuilder: the framework's own IL (src/Csharpc/upstream-types/System.Text.StringBuilder.txt); StringBuilderRuntime.cs has the entry points of synthesized code.
 
