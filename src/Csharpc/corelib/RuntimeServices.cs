@@ -375,6 +375,18 @@ namespace CsharpcCoreLib
 #endif
     }
 
+    /// <summary>
+    /// CoreLib-internal members of Unsafe that the reference pack leaves out but the framework's own IL calls.
+    /// OpportunisticMisalignment (SpanHelpers.Memmove, which Buffer.Memmove and every span copy in the sliced IL reach) is CoreLib's
+    /// own body: the low bits of the address below the given power-of-two alignment.
+    /// </summary>
+    [ShadowMembers("System.Runtime.CompilerServices.Unsafe")]
+    internal static unsafe class UnsafeMembers
+    {
+        public static nuint OpportunisticMisalignment<T>(ref T address, nuint alignment) =>
+            (nuint)System.Runtime.CompilerServices.Unsafe.AsPointer(ref address) & (alignment - 1);
+    }
+
     [ShadowMembers("System.Runtime.CompilerServices.RuntimeHelpers")]
     internal static unsafe class RuntimeHelpersMembers
     {
