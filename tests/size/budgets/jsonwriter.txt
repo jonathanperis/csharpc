@@ -7,4 +7,5 @@
 # Globalization from the framework's IL (#426): CultureInfo  CultureData  NumberFormatInfo  TextInfo and CompareInfo are CoreLib's own  so a program
 # that formats a number carries the framework's culture initialization (culture data over ICU  its locale tables  the culture caches). linux-x86_64
 # measured 931 120 B (budget 826 368 -> 935 936; NativeAOT carries the same code); the other platforms moved by the same 109 568 B until CI measures them.
-linux-x86_64 jsonwriter 935936
+# #426 merged with the IO and Hashtable flips: linux-x86_64 measured 936 992 B (budget 935 936 -> 942 080); the other platforms moved by the same 6 144 B.
+linux-x86_64 jsonwriter 942080
