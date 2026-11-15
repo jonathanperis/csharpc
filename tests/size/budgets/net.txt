@@ -3,4 +3,7 @@
 # The shortest round-trip digits of double and float come from CoreLib's Grisu3/Dragon4 (the framework's IL, #348), a measured speed gain paid in size:
 # the StringBuilder throughput program runs in 1 299 ms where it took 3 721 (NativeAOT 1 761); net 255 704 to 267 992 B on linux-x86_64 (+12 288: Dragon4's
 # big-integer code and power tables, reached by every program that formats a number). Budget = measured + 3 %.
-linux-x86_64 net 276480
+# Globalization from the framework's IL (#426): CultureInfo  CultureData  NumberFormatInfo  TextInfo and CompareInfo are CoreLib's own  so a program
+# that formats a number carries the framework's culture initialization (culture data over ICU  its locale tables  the culture caches). linux-x86_64
+# measured 278 232 B (budget 276 480 -> 282 624; NativeAOT carries the same code); the other platforms moved by the same 6 144 B until CI measures them.
+linux-x86_64 net 282624

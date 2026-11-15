@@ -7,8 +7,11 @@
 # linux-aarch64 async measured 173 592 on the first CI round of #285.
 # #290 (ComponentModel from IL; [FeatureSwitchDefinition] folding makes single files' System.Linq.Enumerable.IsSizeOptimized=true take effect): linux-x86_64 measured
 # linq 233 096 (budget lowered from 285 696), async 177 808, collections 167 336, regex 926 032, regexoptions 2 162 536 (+4.5 KB with the hash-flooding merge, over its old budget).
-linux-x86_64 async 183296
-linux-aarch64 async 179200
-macos-arm64 async 196608
-windows-x86_64 async 191488
-wasi-wasm32 async 178176
+# Globalization from the framework's IL (#426): CultureInfo  CultureData  NumberFormatInfo  TextInfo and CompareInfo are CoreLib's own  so a program
+# that formats a number carries the framework's culture initialization (culture data over ICU  its locale tables  the culture caches). linux-x86_64
+# measured 261 664 B (budget 183 296 -> 266 240; NativeAOT carries the same code); the other platforms moved by the same 82 944 B until CI measures them.
+linux-x86_64 async 266240
+linux-aarch64 async 262144
+macos-arm64 async 279552
+windows-x86_64 async 274432
+wasi-wasm32 async 261120
