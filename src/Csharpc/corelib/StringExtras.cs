@@ -43,6 +43,20 @@ namespace CsharpcCoreLib
         /// <summary>The hash string.GetHashCode() gives the same characters.</summary>
         public static int GetHashCode(ReadOnlySpan<char> value) => new string(value).GetHashCode();
 
+        /// <summary>CoreLib-internal string.CompareOrdinal over spans (EncodingTable's name lookup): SpanHelpers.SequenceCompareTo, as CoreLib's.</summary>
+        public static int CompareOrdinal(ReadOnlySpan<char> strA, ReadOnlySpan<char> strB) => strA.SequenceCompareTo(strB);
+
+        /// <summary>CoreLib-internal: the string an encoding decodes from native bytes (the framework's Encoding.GetString overloads).</summary>
+        public static unsafe string CreateStringFromEncoding(byte* bytes, int byteLength, System.Text.Encoding encoding)
+        {
+            int stringLength = encoding.GetCharCount(bytes, byteLength);
+            if (stringLength == 0) return string.Empty;
+            string s = CoreIntrinsics.FastAllocateString(stringLength);
+            fixed (char* chars = CoreIntrinsics.StringChars(s))
+                encoding.GetChars(bytes, byteLength, chars, stringLength);
+            return s;
+        }
+
         public static int GetHashCode(ReadOnlySpan<char> value, StringComparison comparisonType) => StringComparer.FromComparison(comparisonType).GetHashCode(new string(value));
 
         [ShadowInstance]
