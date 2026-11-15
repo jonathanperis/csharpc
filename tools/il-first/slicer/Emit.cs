@@ -30,7 +30,10 @@ sealed class Emitter
         // prints it; CodeGen/StackTraces.cs reads them from the slice's metadata). The typeof argument is serialized as the nested
         // state-machine type's name, which the slice keeps (ConcurrentQueue<T>.Enumerate, #399).
         "System.Runtime.CompilerServices.AsyncStateMachineAttribute", "System.Runtime.CompilerServices.IteratorStateMachineAttribute",
-        "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute"];
+        "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute",
+        // A switch's name on its getter (LocalAppContextSwitches.EnableUnsafeUTF7Encoding, which Encoding.GetEncoding(65000) tests): csharpc folds
+        // the getter to the runtimeconfig's value when the program sets one (ModuleCodeGen.FeatureSwitchDefinitionValue), as ILCompiler does.
+        "System.Diagnostics.CodeAnalysis.FeatureSwitchDefinitionAttribute"];
 
     /// <summary>
     /// Attributes that change what a member means at run time or how csharpc lowers it (thread-local storage, fixed buffers, decoded constants,
