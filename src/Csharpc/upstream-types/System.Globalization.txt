@@ -44,3 +44,10 @@ System.Globalization.TimeSpanParse
 # representation. DateTime's and DateTimeOffset's corelib members call DateTimeParse and DateTimeFormat through
 # corelib/Globalization/DateTimeFormatting.cs.
 host:System.DateOnly,System.TimeOnly,System.TimeSpan::Parse,TryParse,ParseExact,TryParseExact
+# CoreLib-internal helpers of reference-pack types that the code above calls, hosted from their own IL: UTF-8 decoding that keeps an
+# existing U+FFFD (CompareInfo/TextInfo over UTF-8 input), the internal Vector128 load from a char reference (Ordinal's vector paths;
+# the generic loads stay the compiler's own), the null-free pinnable reference of a span, and ArgumentNullException's internal overloads.
+host:System.Text.Unicode.Utf8::ToUtf16PreservingReplacement
+host:System.Runtime.Intrinsics.Vector128,System.Runtime.Intrinsics.Vector256::LoadUnsafe
+host:System.Runtime.InteropServices.MemoryMarshal::GetNonNullPinnableReference
+host:System.ArgumentNullException::ThrowIfNull

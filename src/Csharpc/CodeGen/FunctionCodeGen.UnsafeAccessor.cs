@@ -51,6 +51,25 @@ public sealed partial class FunctionCodeGen
                 ?? throw CompileError.Unsupported($"[UnsafeAccessor] static method '{name}' not found on '{namedOwner}'", inv);
             return DirectCall(method, [.. args.Skip(1).Select(a => EmitArgument(a, target))]);
         }
+        // A static field (kind 4) or static method (kind 2) of the type the first parameter names, by its own type (`CultureInfo? _`) or by
+        // [UnsafeAccessorType]: the field's address, or a direct call without that first argument (the corelib's contract with the
+        // framework's CultureInfo, corelib/UpstreamGlobalization.cs).
+        if (kind is 2 or 4 && target.Parameters.Length > 0
+            && (AccessorTypeName(target.Parameters[0].GetAttributes()) is { } ownerName ? ResolveAccessorType(ownerName) : S(target.Parameters[0].Type) as INamedTypeSymbol) is { } staticOwner
+            && !target.Parameters.Skip(1).Any(p => HasAccessorTypeName(p.GetAttributes())) && !HasAccessorTypeName(target.GetReturnTypeAttributes()))
+        {
+            if (kind == 4)
+            {
+                var staticField = FindMember<IFieldSymbol>(staticOwner, name, f => f.IsStatic)
+                    ?? throw CompileError.Unsupported($"[UnsafeAccessor] static field '{name}' not found on '{staticOwner}'", inv);
+                return StaticFieldAddress(staticField);
+            }
+            var staticParameters = target.Parameters.Skip(1).ToArray();
+            if (FindMember<IMethodSymbol>(staticOwner, name, m => m.IsStatic && m.Arity == 0 && m.Parameters.Length == staticParameters.Length
+                    && m.Parameters.Zip(staticParameters).All(x => x.First.RefKind == x.Second.RefKind && SymbolEqualityComparer.Default.Equals(S(x.First.Type), S(x.Second.Type)))
+                    && SymbolEqualityComparer.Default.Equals(S(m.ReturnType), S(target.ReturnType))) is { } staticMethod)
+                return DirectCall(staticMethod, [.. args.Skip(1).Select(a => EmitArgument(a, target))]);
+        }
         if (kind is 0 or 1 or 2 && (HasAccessorTypeName(target.GetReturnTypeAttributes()) || target.Parameters.Any(p => HasAccessorTypeName(p.GetAttributes())))
             && !(kind == 2 && name == "CreateObjectArrayDelegate"))
         {

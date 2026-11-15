@@ -157,3 +157,41 @@ namespace CsharpcCoreLib
         internal static extern void ValidateParseStyleDecimal([UnsafeAccessorType(Type)] object nfi, System.Globalization.NumberStyles style);
     }
 }
+
+namespace CsharpcCoreLib
+{
+    using System.Runtime.CompilerServices;
+    using System.Threading;
+    using CultureInfo = System.Globalization.CultureInfo;
+
+    /// <summary>
+    /// CultureInfo.CurrentCulture and CurrentUICulture (the slicer's csharpc profile points the framework's getters here, #426). CoreLib keeps
+    /// the current thread's culture in a [ThreadStatic] field that an AsyncLocal&lt;CultureInfo&gt; change handler sets whenever the execution
+    /// context switches (a thread starts, a work item or a continuation runs). csharpc's runtime switches its flows without running managed
+    /// handlers, so the getters read the AsyncLocal itself: the same culture, flowing the same way (a thread or a task sees the culture its
+    /// creator had set), then DefaultThreadCurrentCulture and the user's default, as CoreLib's getters fall back.
+    /// </summary>
+    public static class UpstreamCultureFlow
+    {
+        [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "s_asyncLocalCurrentCulture")]
+        private static extern ref AsyncLocal<CultureInfo> AsyncLocalCurrentCulture(CultureInfo type);
+
+        [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "s_asyncLocalCurrentUICulture")]
+        private static extern ref AsyncLocal<CultureInfo> AsyncLocalCurrentUICulture(CultureInfo type);
+
+        [UnsafeAccessor(UnsafeAccessorKind.StaticField, Name = "s_userDefaultCulture")]
+        private static extern ref CultureInfo UserDefaultCulture(CultureInfo type);
+
+        [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "InitializeUserDefaultCulture")]
+        private static extern CultureInfo InitializeUserDefaultCulture(CultureInfo type);
+
+        [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "get_UserDefaultUICulture")]
+        private static extern CultureInfo UserDefaultUICulture(CultureInfo type);
+
+        public static CultureInfo GetCurrentCulture() =>
+            AsyncLocalCurrentCulture(null)?.Value ?? CultureInfo.DefaultThreadCurrentCulture ?? UserDefaultCulture(null) ?? InitializeUserDefaultCulture(null);
+
+        public static CultureInfo GetCurrentUICulture() =>
+            AsyncLocalCurrentUICulture(null)?.Value ?? CultureInfo.DefaultThreadCurrentUICulture ?? UserDefaultUICulture(null);
+    }
+}

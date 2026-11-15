@@ -37,6 +37,9 @@ namespace CsharpcCoreLib
         [ShadowInstance]
         public static ref byte GetRawStringDataAsUInt8(string s) => ref System.Runtime.CompilerServices.Unsafe.As<char, byte>(ref System.Runtime.CompilerServices.Unsafe.AsRef(in System.Runtime.InteropServices.MemoryMarshal.GetReference(CoreIntrinsics.StringChars(s))));
 
+        /// <summary>string.GetHashCodeOrdinalIgnoreCase (CompareInfo.GetHashCode with OrdinalIgnoreCase, #426): StringComparer.OrdinalIgnoreCase's hash of the same text.</summary>
+        public static int GetHashCodeOrdinalIgnoreCase(ReadOnlySpan<char> value) => StringComparer.OrdinalIgnoreCase.GetHashCode(new string(value));
+
         /// <summary>string.TryGetSpan: the slice when the range is inside the string (CompareInfo's IL, #426).</summary>
         [ShadowInstance]
         public static bool TryGetSpan(string s, int startIndex, int count, out ReadOnlySpan<char> slice)
