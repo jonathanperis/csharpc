@@ -340,12 +340,87 @@ namespace CsharpcCoreLib
         public static void Sort(Array array, System.Collections.IComparer comparer)
         {
             if (array == null) ThrowHelper.ArgumentNull("array");
-            if (array.Rank != 1) throw new RankException("Only single dimensional arrays are supported for the requested action.");
+            if (array.Rank != 1) throw new RankException("Only single dimension arrays are supported here.");
             var items = new object[array.Length];
             for (int i = 0; i < items.Length; i++) items[i] = array.GetValue(i);
             comparer ??= System.Collections.Comparer.Default;
             SortHelper<object>.Sort(items, 0, items.Length, new ComparerAdapter(comparer));
             for (int i = 0; i < items.Length; i++) array.SetValue(items[i], i);
+        }
+
+        /// <summary>
+        /// Array.Sort(Array, int, int, IComparer) for an element type known only at run time (ArrayList.Sort's object[], #372): .NET's
+        /// checks in its order, then the range sorted as objects (the same introsort, so equal elements end where .NET puts them).
+        /// </summary>
+        public static void Sort(Array keys, int index, int length, System.Collections.IComparer comparer)
+        {
+            if (keys == null) ThrowHelper.ArgumentNull("keys");
+            if (keys.Rank != 1) throw new RankException("Only single dimension arrays are supported here.");
+            if (index < 0) throw new ArgumentOutOfRangeException("index", "Non-negative number required.");
+            if (length < 0) throw new ArgumentOutOfRangeException("length", "Non-negative number required.");
+            if (keys.Length - index < length)
+                throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+            if (length <= 1) return;
+            comparer ??= System.Collections.Comparer.Default;
+            if (keys is object[] objects)
+            {
+                SortHelper<object>.Sort(objects, index, length, new ComparerAdapter(comparer));
+                return;
+            }
+            var items = new object[length];
+            for (int i = 0; i < length; i++) items[i] = keys.GetValue(index + i);
+            SortHelper<object>.Sort(items, 0, length, new ComparerAdapter(comparer));
+            for (int i = 0; i < length; i++) keys.SetValue(items[i], index + i);
+        }
+
+        /// <summary>
+        /// Array.IndexOf(Array, object, int, int) for an element type known only at run time (ArrayList.IndexOf, #372). .NET's checks in
+        /// its order; then the first element in the range for which element.Equals(value) holds (or that is null when value is), which
+        /// is what each of .NET's paths (object[], the primitive fast paths, GetValue) computes.
+        /// </summary>
+        public static int IndexOf(Array array, object value, int startIndex, int count)
+        {
+            if (array == null) ThrowHelper.ArgumentNull("array");
+            if (array.Rank != 1) throw new RankException("Only single dimension arrays are supported here.");
+            if (startIndex < 0 || startIndex > array.Length)
+                throw new ArgumentOutOfRangeException("startIndex", "Index was out of range. Must be non-negative and less than or equal to the size of the collection.");
+            if (count < 0 || count > array.Length - startIndex)
+                throw new ArgumentOutOfRangeException("count", "Count must be positive and count must refer to a location within the string/array/collection.");
+            int end = startIndex + count;
+            for (int i = startIndex; i < end; i++)
+                if (ElementMatches(array, i, value)) return i;
+            return -1;
+        }
+
+        public static int IndexOf(Array array, object value) => IndexOf(array, value, 0, array == null ? 0 : array.Length);
+
+        public static int IndexOf(Array array, object value, int startIndex) => IndexOf(array, value, startIndex, array == null ? 0 : array.Length - startIndex);
+
+        /// <summary>Array.LastIndexOf(Array, object, int, int): .NET's checks in its order (the empty array first), then the range from the end.</summary>
+        public static int LastIndexOf(Array array, object value, int startIndex, int count)
+        {
+            if (array == null) ThrowHelper.ArgumentNull("array");
+            if (array.Length == 0) return -1;
+            if (startIndex < 0 || startIndex >= array.Length)
+                throw new ArgumentOutOfRangeException("startIndex", "Index was out of range. Must be non-negative and less than the size of the collection.");
+            if (count < 0)
+                throw new ArgumentOutOfRangeException("count", "Count must be positive and count must refer to a location within the string/array/collection.");
+            if (count > startIndex + 1) throw new ArgumentOutOfRangeException("endIndex", "endIndex cannot be greater than startIndex.");
+            if (array.Rank != 1) throw new RankException("Only single dimension arrays are supported here.");
+            int end = startIndex - count + 1;
+            for (int i = startIndex; i >= end; i--)
+                if (ElementMatches(array, i, value)) return i;
+            return -1;
+        }
+
+        public static int LastIndexOf(Array array, object value) => LastIndexOf(array, value, array == null ? 0 : array.Length - 1, array == null ? 0 : array.Length);
+
+        public static int LastIndexOf(Array array, object value, int startIndex) => LastIndexOf(array, value, startIndex, startIndex + 1);
+
+        private static bool ElementMatches(Array array, int index, object value)
+        {
+            object element = array is object[] objects ? objects[index] : array.GetValue(index);
+            return element == null ? value == null : element.Equals(value);
         }
 
         private sealed class ComparerAdapter : IComparer<object>
@@ -368,7 +443,7 @@ namespace CsharpcCoreLib
         public static int BinarySearch(Array array, int index, int length, object value, System.Collections.IComparer comparer)
         {
             if (array == null) ThrowHelper.ArgumentNull("array");
-            if (array.Rank != 1) throw new RankException("Only single dimensional arrays are supported for the requested action.");
+            if (array.Rank != 1) throw new RankException("Only single dimension arrays are supported here.");
             if (index < 0 || length < 0) throw new ArgumentOutOfRangeException(index < 0 ? "index" : "length", "Non-negative number required.");
             if (array.Length - index < length)
                 throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");

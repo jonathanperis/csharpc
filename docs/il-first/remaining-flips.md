@@ -13,7 +13,7 @@ OS boundary) and the contract layer (reflection/type system, task/async glue, in
 |---|---|---|
 | ManualResetEventSlim, SpinWait, Barrier, other sync types | done locally: ManualResetEventSlim, SpinWait, CountdownEvent, Barrier, ReaderWriterLock, LockCookie from the framework (SemaphoreSlim in #419); docs/il-first/System.Threading.md | #414 |
 | BFloat16, Decimal32/64/128 | done: `docs/il-first/System.Numerics.IeeeTypes.md` (also hosts every generic-math interface's static defaults; follow-ups #420, #425) | #405 |
-| Hashtable, ArrayList, BitArray | to do | #372, #373 |
+| Hashtable, ArrayList, BitArray | done: `docs/il-first/System.Collections.Hashtable.md`, `System.Collections.ArrayList.md` (SR.Format contract for every slice) | #372, #373 |
 | Guid | done locally: from the framework; docs/il-first/System.Guid.md | #416 |
 | Culture, number formatting and parsing (deletes the digits bridge) | planned (#426) | #426 |
 | DateTime, calendars, TimeSpan parsing and formatting | to do | |
