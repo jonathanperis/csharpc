@@ -204,7 +204,8 @@ public sealed partial class FunctionCodeGen
         var owner = target.ContainingType;
         if (IsVector64Class(owner) && target.IsStatic)
             return TryVector64(target, inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a => EmitArgument(a, target)).ToArray(), inv);
-        var constrained = SimdVectorOf(owner, inv.ConstrainedToType);
+        // A C# generic method instantiated with a Vector128 (`a.Equals(b)` with T : IEquatable<T>) names no constrained type: the receiver's is it.
+        var constrained = SimdVectorOf(owner, inv.ConstrainedToType ?? (owner.TypeKind == TypeKind.Interface && inv.Instance is { } receiver ? TypeOf(receiver) : null));
         if (!IsVector128Class(owner) && constrained is null) return null;
         var arguments = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a => EmitArgument(a, target)).ToArray();
         // The element type: the vector the operation produces or takes first, else its type argument.

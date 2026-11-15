@@ -1,4 +1,7 @@
+using System.Collections.Immutable;
+using Csharpc.Llvm;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Operations;
 
 namespace Csharpc.CodeGen;
 
@@ -46,7 +49,7 @@ public sealed partial class FunctionCodeGen
     /// </summary>
     private IMethodSymbol? HostedBuiltinMember(IMethodSymbol target, ITypeSymbol? constrainedTo)
     {
-        if (!target.IsStatic) return null;
+        if (!target.IsStatic) return HostedBuiltinInstanceMember(target);
         var name = target.MetadataName;
         INamedTypeSymbol owner;
         if (target.ContainingType.TypeKind == TypeKind.Interface)
@@ -70,6 +73,42 @@ public sealed partial class FunctionCodeGen
                     if (SameSignature(constructed, target)) return constructed;
                 }
         return null;
+    }
+
+    /// <summary>
+    /// An instance member of a built-in value type served from its own CoreLib IL (`this.` host roots: int.ToString(string, IFormatProvider),
+    /// whose IL reads `this` as int&amp; and calls Number.FormatInt32): hosted as a static whose first parameter is `ref T`, the receiver's address.
+    /// Null when the slice carries none.
+    /// </summary>
+    private IMethodSymbol? HostedBuiltinInstanceMember(IMethodSymbol target)
+    {
+        var owner = target.ContainingType;
+        if (!owner.IsValueType || target.MethodKind is not (MethodKind.Ordinary or MethodKind.ExplicitInterfaceImplementation or MethodKind.PropertyGet)) return null;
+        if (!Frontend.UpstreamSlice.MemberClasses.TryGetValue(Mangler.MetadataName(owner.OriginalDefinition), out var classes)) return null;
+        var typeArguments = target.TypeArguments.Select(a => S(a)).ToArray();
+        foreach (var className in classes)
+            foreach (var holder in _m.Compilation.GetTypesByMetadataName(className))
+                foreach (var candidate in holder.GetMembers(target.MetadataName).OfType<IMethodSymbol>())
+                {
+                    if (!candidate.IsStatic || candidate.TypeParameters.Length != typeArguments.Length || candidate.Parameters.Length != target.Parameters.Length + 1) continue;
+                    if (candidate.Parameters[0] is not { RefKind: RefKind.Ref } self || !SymbolEqualityComparer.Default.Equals(S(self.Type), S(owner))) continue;
+                    var constructed = typeArguments.Length > 0 ? candidate.Construct(typeArguments) : candidate;
+                    if (constructed.Parameters.Skip(1).Zip(target.Parameters).All(p => p.First.RefKind == p.Second.RefKind
+                            && SymbolEqualityComparer.Default.Equals(S(p.First.Type), S(p.Second.Type))))
+                        return constructed;
+                }
+        return null;
+    }
+
+    /// <summary>A call of a hosted instance member (HostedBuiltinInstanceMember): the receiver's address first, then the arguments.</summary>
+    private LLVMValueRef EmitHostedInstanceCall(IMethodSymbol hosted, IMethodSymbol target, IOperation instance, ImmutableArray<IArgumentOperation> arguments)
+    {
+        var receiverType = S(target.ContainingType);
+        var self = Spill(Coerce(EmitValue(instance), TypeOf(instance), receiverType));
+        var args = new LLVMValueRef[hosted.Parameters.Length];
+        args[0] = self;
+        foreach (var argument in arguments) args[1 + argument.Parameter!.Ordinal] = EmitArgument(argument, target);
+        return DirectCall(hosted, args);
     }
 
     /// <summary>

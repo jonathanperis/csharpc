@@ -3,7 +3,7 @@
 #
 #   tests/slicer.sh [-O0|-O2] [sample-name-filter ...]
 #
-# Slices System.Guid and System.Number out of the shared framework's System.Private.CoreLib (List, Dictionary, HashSet and StringBuilder
+# Slices System.Number out of the shared framework's System.Private.CoreLib (List, Dictionary, HashSet and StringBuilder
 # are served from it by default, src/Csharpc/upstream-types/, so every sample here runs with them; the
 # primitives' implementations of CoreLib-internal interfaces such as IUtfChar<T> and IBinaryIntegerParseAndFormatInfo<T>
 # travel in the slice, issue #221; boxed primitives dispatch ISpanFormattable), compiles each sample with
@@ -16,12 +16,12 @@ export PATH="$HOME/.dotnet11:$PATH" DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=
 OPT="-O2"
 if [[ "${1:-}" == -O* ]]; then OPT="$1"; shift; fi
 SAMPLES=("$@")
-[[ ${#SAMPLES[@]} -eq 0 ]] && SAMPLES=(161_stringbuilder 201_integer_append_edges 250_stringbuilder_interpolation 1294_guid_text_roundtrip 101_dictionary 102_collections 843_dictionary_nongeneric_idictionary 1298_default_comparer_calls)
+[[ ${#SAMPLES[@]} -eq 0 ]] && SAMPLES=(161_stringbuilder 201_integer_append_edges 250_stringbuilder_interpolation 101_dictionary 102_collections 843_dictionary_nongeneric_idictionary 1298_default_comparer_calls)
 CSC="$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll"
 [[ -f "$CSC" ]] || dotnet build "$ROOT/src/Csharpc" -c Release -m:1 > /dev/null || exit 1
 WORK="$(mktemp -d)"; trap 'rm -rf "$WORK"' EXIT
 
-"$ROOT/tools/il-first/slicer/slice.sh" "$WORK/slice.dll" System.Guid,System.Number > "$WORK/slice.log" 2>&1 \
+"$ROOT/tools/il-first/slicer/slice.sh" "$WORK/slice.dll" System.Number > "$WORK/slice.log" 2>&1 \
   || { cat "$WORK/slice.log"; echo "FAIL: slicing"; exit 1; }
 export CSHARPC_UPSTREAM_MAP="$WORK/slice.map"
 

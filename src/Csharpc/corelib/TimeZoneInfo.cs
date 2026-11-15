@@ -26,6 +26,20 @@ namespace CsharpcCoreLib
         public TimeSpan GetUtcOffset(DateTimeOffset dateTimeOffset) =>
             _utc ? TimeSpan.Zero : new TimeSpan(DateTimeOps.OffsetFromUtcTicks(dateTimeOffset.UtcTicks, out bool _));
 
+        // CoreLib-internal members that the framework's DateTimeParse and DateTimeFormat call (#426). The options only choose whether an
+        // invalid local time throws, which these offsets never do.
+        internal TimeSpan GetUtcOffset(DateTime dateTime, Globalization.TimeZoneInfoOptions flags) => GetUtcOffset(dateTime);
+
+        internal static TimeSpan GetLocalUtcOffset(DateTime dateTime, Globalization.TimeZoneInfoOptions flags) => Local.GetUtcOffset(dateTime);
+
+        internal static TimeSpan GetUtcOffsetFromUtc(DateTime time, TimeZoneInfo zone, out bool isDaylightSavings, out bool isAmbiguousLocalDst)
+        {
+            isDaylightSavings = false;
+            isAmbiguousLocalDst = false;
+            if (((TimeZoneInfoImpl)(object)zone)._utc) return TimeSpan.Zero;
+            return new TimeSpan(DateTimeOps.OffsetFromUtcTicks(time.Ticks, out isAmbiguousLocalDst));
+        }
+
         public bool IsDaylightSavingTime(DateTime dateTime)
         {
             if (_utc) return false;

@@ -635,7 +635,11 @@ public sealed partial class FunctionCodeGen
                 var count = Coerce(r, rt, width == 64 ? _m.Compilation.GetSpecialType(SpecialType.System_Int64) : _m.Compilation.GetSpecialType(SpecialType.System_Int32));
                 // Int128/UInt128: the int count widened to the operand.
                 if (count.Type.IntWidth < width) count = _b.Cast(LLVMOpcode.ZExt, count, l.Type);
-                count = _b.BinOp(LLVMOpcode.And, count, L.ConstInt(l.Type, width - 1));
+                // byte/sbyte/short/ushort operands reach here only through their generic-math shift operators (T : IShiftOperators<T, int, T>,
+                // CoreLib's Number.BinaryParser<T>), which mask the count to the type's width and shift in it: `(sbyte)(value << (count & 7))`.
+                if (count.Type.IntWidth > width)
+                    count = _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.And, count, L.ConstInt(count.Type, width - 1)), l.Type);
+                else count = _b.BinOp(LLVMOpcode.And, count, L.ConstInt(l.Type, width - 1));
                 var op = kind switch
                 {
                     BinaryOperatorKind.LeftShift => LLVMOpcode.Shl,

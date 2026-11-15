@@ -250,6 +250,15 @@ namespace CsharpcCoreLib
     internal sealed class ShadowInstanceAttribute : Attribute { }
 
     /// <summary>
+    /// On a static method of a [ShadowMembers("T")] class that returns T: implements a constructor of the value type T that the reference
+    /// pack doesn't declare, with this method's parameters (CoreLib's internal DateTime(long ticks, DateTimeKind kind, bool isAmbiguousDst),
+    /// which the framework's own DateTimeParse IL creates values with). The IL front-end's `newobj` calls it and takes its result as the
+    /// new value (Frontend/Il/IlAssemblySet.cs ShadowedMember).
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Method, Inherited = false)]
+    internal sealed class ShadowConstructorAttribute : Attribute { }
+
+    /// <summary>
     /// On a class: its methods are compiled for size (LLVM minsize). For code that runs once per culture
     /// or per process (building culture data), not per operation: smaller, and faster to compile.
     /// </summary>

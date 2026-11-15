@@ -37,6 +37,22 @@ namespace CsharpcCoreLib
         [ShadowInstance]
         public static ref byte GetRawStringDataAsUInt8(string s) => ref System.Runtime.CompilerServices.Unsafe.As<char, byte>(ref System.Runtime.CompilerServices.Unsafe.AsRef(in System.Runtime.InteropServices.MemoryMarshal.GetReference(CoreIntrinsics.StringChars(s))));
 
+        /// <summary>string.GetHashCodeOrdinalIgnoreCase (CompareInfo.GetHashCode with OrdinalIgnoreCase, #426): StringComparer.OrdinalIgnoreCase's hash of the same text.</summary>
+        public static int GetHashCodeOrdinalIgnoreCase(ReadOnlySpan<char> value) => StringComparer.OrdinalIgnoreCase.GetHashCode(new string(value));
+
+        /// <summary>string.TryGetSpan: the slice when the range is inside the string (CompareInfo's IL, #426).</summary>
+        [ShadowInstance]
+        public static bool TryGetSpan(string s, int startIndex, int count, out ReadOnlySpan<char> slice)
+        {
+            if ((uint)startIndex > (uint)s.Length || (uint)count > (uint)(s.Length - startIndex))
+            {
+                slice = default;
+                return false;
+            }
+            slice = s.AsSpan(startIndex, count);
+            return true;
+        }
+
         /// <summary>A string of <paramref name="length"/> chars whose contents are not initialized (the caller fills them before the string escapes).</summary>
         public static string FastAllocateString(nint length) => CoreIntrinsics.FastAllocateString((int)length);
 
@@ -210,13 +226,13 @@ namespace CsharpcCoreLib
         public static int Compare(string strA, string strB, System.Globalization.CultureInfo culture, System.Globalization.CompareOptions options)
         {
             if (culture == null) throw new ArgumentNullException(nameof(culture));
-            return ((CsharpcCoreLib.Globalization.CultureInfo)(object)culture).CompareInfo.Compare(strA, strB, options);
+            return ((System.Globalization.CultureInfo)(object)culture).CompareInfo.Compare(strA, strB, options);
         }
 
         public static int Compare(string strA, string strB, bool ignoreCase, System.Globalization.CultureInfo culture)
         {
             if (culture == null) throw new ArgumentNullException(nameof(culture));
-            return ((CsharpcCoreLib.Globalization.CultureInfo)(object)culture).CompareInfo.Compare(strA, strB,
+            return ((System.Globalization.CultureInfo)(object)culture).CompareInfo.Compare(strA, strB,
                 ignoreCase ? System.Globalization.CompareOptions.IgnoreCase : System.Globalization.CompareOptions.None);
         }
 
@@ -226,7 +242,7 @@ namespace CsharpcCoreLib
             int lengthA = length, lengthB = length;
             if (strA != null) lengthA = Math.Min(lengthA, strA.Length - indexA);
             if (strB != null) lengthB = Math.Min(lengthB, strB.Length - indexB);
-            return ((CsharpcCoreLib.Globalization.CultureInfo)(object)culture).CompareInfo.Compare(strA, indexA, lengthA, strB, indexB, lengthB, options);
+            return ((System.Globalization.CultureInfo)(object)culture).CompareInfo.Compare(strA, indexA, lengthA, strB, indexB, lengthB, options);
         }
 
         public static int Compare(string strA, int indexA, string strB, int indexB, int length, bool ignoreCase, System.Globalization.CultureInfo culture) =>
@@ -964,33 +980,6 @@ namespace CsharpcCoreLib
         }
     }
 
-    [ShadowMembers("System.Globalization.CharUnicodeInfo")]
-    internal static class CharUnicodeInfoExtras
-    {
-        public static System.Globalization.UnicodeCategory GetUnicodeCategory(char ch) => CharOps.GetUnicodeCategory(ch);
-        public static System.Globalization.UnicodeCategory GetUnicodeCategory(string s, int index) => CharOps.CategoryAt(s, index);
-
-        // Decimal digits (category Nd) are encoded in contiguous runs from 0 to 9 (a Unicode stability
-        // guarantee), so a digit's value is the number of Nd characters right before it, modulo 10.
-        public static int GetDecimalDigitValue(char ch)
-        {
-            if (ch >= '0' && ch <= '9') return ch - '0';
-            if (CharOps.GetUnicodeCategory(ch) != System.Globalization.UnicodeCategory.DecimalDigitNumber) return -1;
-            int before = 0;
-            while (before < ch && CharOps.GetUnicodeCategory((char)(ch - before - 1)) == System.Globalization.UnicodeCategory.DecimalDigitNumber) before++;
-            return before % 10;
-        }
-
-        public static int GetDecimalDigitValue(string s, int index)
-        {
-            ArgumentNullException.ThrowIfNull(s);
-            if ((uint)index >= (uint)s.Length) throw new ArgumentOutOfRangeException(nameof(index), "Index was out of range. Must be non-negative and less than the size of the collection.");
-            char c = s[index];
-            if (char.IsHighSurrogate(c) && index + 1 < s.Length && char.IsLowSurrogate(s[index + 1]))
-                throw new NotSupportedException("CharUnicodeInfo.GetDecimalDigitValue of a supplementary-plane character is not supported by csharpc yet.");
-            return GetDecimalDigitValue(c);
-        }
-    }
 }
 
 namespace CsharpcCoreLib
@@ -1026,26 +1015,26 @@ namespace CsharpcCoreLib
         public static StringComparerImpl Ordinal => s_ordinal ??= new Standard(StringComparison.Ordinal);
         public static StringComparerImpl OrdinalIgnoreCase => s_ordinalIgnoreCase ??= new Standard(StringComparison.OrdinalIgnoreCase);
         public static StringComparerImpl InvariantCulture => s_invariant ??=
-            new CultureAware(CsharpcCoreLib.Globalization.CompareInfo.Invariant, System.Globalization.CompareOptions.None);
+            new CultureAware(System.Globalization.CultureInfo.InvariantCulture.CompareInfo, System.Globalization.CompareOptions.None);
         public static StringComparerImpl InvariantCultureIgnoreCase => s_invariantIgnoreCase ??=
-            new CultureAware(CsharpcCoreLib.Globalization.CompareInfo.Invariant, System.Globalization.CompareOptions.IgnoreCase);
+            new CultureAware(System.Globalization.CultureInfo.InvariantCulture.CompareInfo, System.Globalization.CompareOptions.IgnoreCase);
         // .NET creates these on each access, for the culture current at that moment.
         public static StringComparerImpl CurrentCulture =>
-            new CultureAware(CsharpcCoreLib.Globalization.CultureInfo.CurrentCulture.CompareInfo, System.Globalization.CompareOptions.None);
+            new CultureAware(System.Globalization.CultureInfo.CurrentCulture.CompareInfo, System.Globalization.CompareOptions.None);
         public static StringComparerImpl CurrentCultureIgnoreCase =>
-            new CultureAware(CsharpcCoreLib.Globalization.CultureInfo.CurrentCulture.CompareInfo, System.Globalization.CompareOptions.IgnoreCase);
+            new CultureAware(System.Globalization.CultureInfo.CurrentCulture.CompareInfo, System.Globalization.CompareOptions.IgnoreCase);
 
         public static StringComparerImpl Create(System.Globalization.CultureInfo culture, bool ignoreCase)
         {
             if (culture == null) throw new ArgumentNullException(nameof(culture));
-            return new CultureAware(((CsharpcCoreLib.Globalization.CultureInfo)(object)culture).CompareInfo,
+            return new CultureAware(((System.Globalization.CultureInfo)(object)culture).CompareInfo,
                 ignoreCase ? System.Globalization.CompareOptions.IgnoreCase : System.Globalization.CompareOptions.None);
         }
 
         public static StringComparerImpl Create(System.Globalization.CultureInfo culture, System.Globalization.CompareOptions options)
         {
             if (culture == null) throw new ArgumentNullException(nameof(culture));
-            return new CultureAware(((CsharpcCoreLib.Globalization.CultureInfo)(object)culture).CompareInfo, options);
+            return new CultureAware(((System.Globalization.CultureInfo)(object)culture).CompareInfo, options);
         }
 
         /// <summary>
@@ -1061,7 +1050,7 @@ namespace CsharpcCoreLib
                 | System.Globalization.CompareOptions.IgnoreNonSpace | System.Globalization.CompareOptions.IgnoreWidth | System.Globalization.CompareOptions.IgnoreKanaType
                 | System.Globalization.CompareOptions.StringSort | System.Globalization.CompareOptions.NumericOrdering;
             if ((options & ~valid) != 0) throw new ArgumentException("Value of flags is invalid.", nameof(options));
-            return new CultureAware((CsharpcCoreLib.Globalization.CompareInfo)(object)compareInfo, options);
+            return new CultureAware((System.Globalization.CompareInfo)(object)compareInfo, options);
         }
 
         public static StringComparerImpl FromComparison(StringComparison comparisonType) => comparisonType switch
@@ -1124,10 +1113,10 @@ namespace CsharpcCoreLib
         /// <summary>System.CultureAwareComparer: a CompareInfo and CompareOptions.</summary>
         private sealed class CultureAware : StringComparerImpl
         {
-            private readonly CsharpcCoreLib.Globalization.CompareInfo _compareInfo;
+            private readonly System.Globalization.CompareInfo _compareInfo;
             private readonly System.Globalization.CompareOptions _options;
 
-            internal CultureAware(CsharpcCoreLib.Globalization.CompareInfo compareInfo, System.Globalization.CompareOptions options)
+            internal CultureAware(System.Globalization.CompareInfo compareInfo, System.Globalization.CompareOptions options)
             {
                 _compareInfo = compareInfo;
                 _options = options;

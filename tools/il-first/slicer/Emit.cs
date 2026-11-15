@@ -20,6 +20,9 @@ sealed class Emitter
     static readonly HashSet<string> CopiedAttributes = ["System.Runtime.CompilerServices.IsByRefLikeAttribute", "System.Runtime.CompilerServices.ExtensionAttribute",
         "System.Reflection.DefaultMemberAttribute", "System.Runtime.CompilerServices.IsReadOnlyAttribute", "System.Runtime.CompilerServices.InlineArrayAttribute",
         "System.FlagsAttribute", "System.Diagnostics.StackTraceHiddenAttribute",
+        // A callback native code calls through a function pointer (CalendarData.EnumCalendarInfoCallback, which the ICU shim calls per item):
+        // the attribute makes the method natively callable.
+        "System.Runtime.InteropServices.UnmanagedCallersOnlyAttribute",
         // [ThreadStatic] is the field's semantics: one copy per thread (ThreadLocal<T>'s slot arrays, Random.Shared's t_random); without it the
         // field is shared across threads.
         "System.ThreadStaticAttribute",
@@ -295,7 +298,7 @@ sealed class Emitter
             // A generic interface's default members (INumberBase<TSelf>.TryParse over UTF-8) are hosted as generic methods of a non-generic
             // class: the interface's type parameters come first, then the member's own (HostedTypeArity).
             var shift = stop.GenericParameters.Count;
-            var host = new TypeDefinition(_cli.Prefix + "." + stop.Namespace, stop.Name.Split('`')[0] + "InterfaceMembers",
+            var host = new TypeDefinition(stop.Namespace.Length == 0 ? _cli.Prefix : _cli.Prefix + "." + stop.Namespace, stop.Name.Split('`')[0] + "InterfaceMembers",
                 TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit, _m.TypeSystem.Object);
             _m.Types.Add(host);
             _hostClass[stop] = host;
@@ -323,6 +326,9 @@ sealed class Emitter
                 var nm = _methods[m];
                 _hostedTypeArity = shift;
                 nm.ReturnType = Type(m.ReturnType);
+                // An instance member of a value type: `this` (the receiver's address) becomes the first parameter, so the body's ldarg.0 still
+                // reads it and the other arguments keep their numbers (BodiesOf maps the named ones).
+                if (m.HasThis) nm.Parameters.Add(new ParameterDefinition("this", ParameterAttributes.None, new ByReferenceType(Type(stop))));
                 foreach (var p in m.Parameters) nm.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, Type(p.ParameterType)));
                 foreach (var (g, i) in stop.GenericParameters.Concat(m.GenericParameters).Select((g, i) => (g, i)))
                     if (i < nm.GenericParameters.Count && nm.GenericParameters[i].Constraints.Count == 0)
@@ -502,7 +508,7 @@ sealed class Emitter
                     Instruction target => map[target],
                     Instruction[] targets => targets.Select(x => map[x]).ToArray(),
                     VariableDefinition v => vars[v.Index],
-                    ParameterDefinition p => p == ob.ThisParameter ? nb.ThisParameter : nm.Parameters[p.Index],
+                    ParameterDefinition p => p == ob.ThisParameter ? (nm.HasThis ? nb.ThisParameter : nm.Parameters[0]) : nm.Parameters[p.Index + (m.HasThis && !nm.HasThis ? 1 : 0)],
                     MethodReference mr => MethodRef(mr),
                     FieldReference fr => FieldRef(fr),
                     TypeReference tr => Type(tr),
@@ -510,6 +516,9 @@ sealed class Emitter
                     var other => other,
                 };
             }
+            // A callvirt of an instance member the slice hosts as a static (`this.` host roots) is a call of that static.
+            foreach (var ni in nb.Instructions)
+                if (ni.OpCode == OpCodes.Callvirt && ni.Operand is MethodDefinition target && !target.HasThis && target.IsStatic) ni.OpCode = OpCodes.Call;
             foreach (var h in ob.ExceptionHandlers)
             {
                 var nh = new ExceptionHandler(h.HandlerType)

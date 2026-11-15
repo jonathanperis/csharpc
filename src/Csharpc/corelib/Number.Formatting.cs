@@ -13,7 +13,7 @@
 #nullable disable
 using System;
 using System.Runtime.CompilerServices;
-using NumberFormatInfo = CsharpcCoreLib.Globalization.NumberFormatInfo;
+using NumberFormatInfo = System.Globalization.NumberFormatInfo;
 
 namespace CsharpcCoreLib
 {
@@ -500,7 +500,7 @@ namespace CsharpcCoreLib
             {
                 switch (fmt[i])
                 {
-                    case '#': FormatFixed(ref sb, ref g, decimals, nfi._currencyGroupSizes, nfi.CurrencyDecimalSeparator, nfi.CurrencyGroupSeparator); break;
+                    case '#': FormatFixed(ref sb, ref g, decimals, NumberFormatInfoInternals.CurrencyGroupSizes(nfi), nfi.CurrencyDecimalSeparator, nfi.CurrencyGroupSeparator); break;
                     case '-': sb.Append(nfi.NegativeSign); break;
                     case '$': sb.Append(nfi.CurrencySymbol); break;
                     default: sb.Append(fmt[i]); break;
@@ -515,7 +515,7 @@ namespace CsharpcCoreLib
             {
                 switch (fmt[i])
                 {
-                    case '#': FormatFixed(ref sb, ref g, decimals, nfi._numberGroupSizes, nfi.NumberDecimalSeparator, nfi.NumberGroupSeparator); break;
+                    case '#': FormatFixed(ref sb, ref g, decimals, NumberFormatInfoInternals.NumberGroupSizes(nfi), nfi.NumberDecimalSeparator, nfi.NumberGroupSeparator); break;
                     case '-': sb.Append(nfi.NegativeSign); break;
                     default: sb.Append(fmt[i]); break;
                 }
@@ -529,7 +529,7 @@ namespace CsharpcCoreLib
             {
                 switch (fmt[i])
                 {
-                    case '#': FormatFixed(ref sb, ref g, decimals, nfi._percentGroupSizes, nfi.PercentDecimalSeparator, nfi.PercentGroupSeparator); break;
+                    case '#': FormatFixed(ref sb, ref g, decimals, NumberFormatInfoInternals.PercentGroupSizes(nfi), nfi.PercentDecimalSeparator, nfi.PercentGroupSeparator); break;
                     case '-': sb.Append(nfi.NegativeSign); break;
                     case '%': sb.Append(nfi.PercentSymbol); break;
                     default: sb.Append(fmt[i]); break;
@@ -996,7 +996,7 @@ namespace CsharpcCoreLib
             int thousandsSepCtr = -1;
             if (thousandSeps && nfi.NumberGroupSeparator.Length > 0)
             {
-                int[] groupDigits = nfi._numberGroupSizes;
+                int[] groupDigits = NumberFormatInfoInternals.NumberGroupSizes(nfi);
                 int groupSizeIndex = 0;
                 int groupTotalSizeCount = 0;
                 int groupSizeLen = groupDigits.Length;
@@ -1177,17 +1177,9 @@ namespace CsharpcCoreLib
         {
             if (value == null) return "";
             if (format != null && format.Length == 0) format = null;
-            if (value is int i32) return FormatInt64With(i32, format, 32, provider);
-            if (value is long i64) return FormatInt64With(i64, format, 64, provider);
-            if (value is double f64) return FormatDoubleWith(f64, format, false, provider);
-            if (value is float f32) return FormatDoubleWith(f32, format, true, provider);
-            if (value is decimal dec) return FormatDecimalWith(dec, format, provider);
-            if (value is uint u32) return FormatUInt64With(u32, format, 32, provider);
-            if (value is ulong u64) return FormatUInt64With(u64, format, 64, provider);
-            if (value is short i16) return FormatInt64With(i16, format, 16, provider);
-            if (value is ushort u16) return FormatUInt64With(u16, format, 16, provider);
-            if (value is byte u8) return FormatUInt64With(u8, format, 8, provider);
-            if (value is sbyte i8) return FormatInt64With(i8, format, 8, provider);
+            // Boxed numbers format through their IFormattable thunks below (FormatBoxed*), so only the formatters of types the program
+            // boxes are linked: a type switch here linked the double, float and decimal formatters into every program that formats a
+            // message (#426: CoreLib's SR.Format reaches this through string.Format).
             // DateTime / TimeSpan through the runtime (csrt_format_boxed_ticks), so the date formatter is only
             // compiled into programs that box one.
             IntPtr ticksText = FormatBoxedTicks(CoreIntrinsics.ObjectToPointer(value), CoreIntrinsics.ObjectToPointer(format), CoreIntrinsics.ObjectToPointer(provider));
