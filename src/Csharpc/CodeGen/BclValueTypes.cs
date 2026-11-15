@@ -392,11 +392,6 @@ internal static partial class BclValueTypes
         t[$"{D}.get_Scale()"] = (g, _, self, _, _) => g.Builder.Cast(LLVMOpcode.Trunc,
             g.Builder.BinOp(LLVMOpcode.LShr, g.Builder.ExtractValue(self, 0), I32(g, 16)), g.Llvm.I8);
         t[$"{D}.GetHashCode()"] =(g, _, self, _, _) => Rt(g, "csrt_decimal_get_hash_code", g.Llvm.I32, (g.Spill(self), g.Llvm.Ptr));
-        t[$"{D}.ToString()"] = (g, _, self, _, _) => g.CallCoreLib("Number", "DecimalToString", self);
-        t[$"{D}.ToString(string)"] = (g, _, self, a, _) =>
-            g.CallCoreLib("Number", "FormatDecimal", self, a[0]);
-        t[$"{D}.ToString(System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("Number", "FormatDecimalWith", self, LlvmContext.Null(g.Llvm.Ptr), a[0]);
-        t[$"{D}.ToString(string, System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("Number", "FormatDecimalWith", self, a[0], a[1]);
         BclHandler round(int? digits, int? mode) => (g, m, _, a, _) =>
         {
             var l = g.Llvm;
@@ -774,8 +769,6 @@ internal static partial class BclValueTypes
         t["nint.get_Size()"] = t["System.IntPtr.get_Size()"] = t["nuint.get_Size()"] = (g, _, _, _, _) => I32(g, (int)g.Types.PointerSize);
         t["bool.CompareTo(bool)"] = (g, _, self, a, _) => ICompare(g, self, a[0], false);
         t["bool.Parse(string)"] = (g, _, _, a, _) => Rt(g, "csrt_bool_parse", g.Llvm.I1, (a[0], g.Llvm.Ptr));
-        t["double.ToString(System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("Number", "FormatDoubleWith", self, LlvmContext.Null(g.Llvm.Ptr), g.Llvm.False, a[0]);
-        t["double.ToString(string, System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("Number", "FormatDoubleWith", self, a[0], g.Llvm.False, a[1]);
         t["char.GetNumericValue(char)"] = (g, _, _, a, _) =>
         {
             var b = g.Builder;
