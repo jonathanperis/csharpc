@@ -1,0 +1,52 @@
+# Cultures, culture data, casing, collation, calendars and number formatting and parsing, served from the framework's CoreLib IL (ADR 0023,
+# #426; docs/il-first/System.Globalization.md). ICU is reached through the corelib's imports only (the slicer's csharpc profile redirects
+# Interop.Globalization to corelib/UpstreamGlobalization.cs); invariant mode and ICU loading stay the corelib's GlobalizationMode.
+System.Globalization.CultureInfo
+System.Globalization.CultureData
+System.Globalization.CultureNotFoundException
+System.Globalization.NumberFormatInfo
+System.Globalization.TextInfo
+System.Globalization.CompareInfo
+System.Globalization.SortKey
+System.Globalization.SortVersion
+System.Globalization.RegionInfo
+System.Globalization.StringInfo
+System.Globalization.CharUnicodeInfo
+System.Globalization.TextElementEnumerator
+System.Globalization.IdnMapping
+System.Globalization.DateTimeFormatInfo
+System.Globalization.Calendar
+System.Globalization.GregorianCalendar
+System.Globalization.HebrewCalendar
+System.Globalization.HijriCalendar
+System.Globalization.JapaneseCalendar
+System.Globalization.JulianCalendar
+System.Globalization.KoreanCalendar
+System.Globalization.PersianCalendar
+System.Globalization.TaiwanCalendar
+System.Globalization.ThaiBuddhistCalendar
+System.Globalization.UmAlQuraCalendar
+System.Globalization.EastAsianLunisolarCalendar
+System.Globalization.ChineseLunisolarCalendar
+System.Globalization.JapaneseLunisolarCalendar
+System.Globalization.KoreanLunisolarCalendar
+System.Globalization.TaiwanLunisolarCalendar
+# CalendarData's ICU strings come through this generic helper of the Interop class (a stack buffer, then a pooled one while ICU says it is
+# too small); hosted, since the class itself stays outside the slice.
+host:Interop::CallStringMethod
+# Date and time formatting and parsing, which read DateTimeFormatInfo's internals: CoreLib's own, called by the corelib's DateTime, TimeSpan,
+# DateTimeOffset, DateOnly and TimeOnly members.
+System.DateTimeFormat
+System.DateTimeParse
+System.Globalization.TimeSpanFormat
+System.Globalization.TimeSpanParse
+# DateOnly's, TimeOnly's and TimeSpan's parsing members, from their own CoreLib IL (the slicer's `host:` roots); the corelib keeps their
+# representation. DateTime's and DateTimeOffset's corelib members call DateTimeParse and DateTimeFormat through
+# corelib/Globalization/DateTimeFormatting.cs.
+host:System.DateOnly,System.TimeOnly,System.TimeSpan::Parse,TryParse,ParseExact,TryParseExact
+# CoreLib-internal helpers of reference-pack types that the code above calls, hosted from their own IL: the internal Vector128 load
+# from a char reference (Ordinal's vector paths; the generic loads stay the compiler's own), BitOperations.ResetLowestSetBit, and
+# ArgumentNullException's internal overloads.
+host:System.Runtime.Intrinsics.Vector128,System.Runtime.Intrinsics.Vector256::LoadUnsafe
+host:System.Numerics.BitOperations::ResetLowestSetBit
+host:System.ArgumentNullException::ThrowIfNull

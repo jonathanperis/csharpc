@@ -1111,7 +1111,7 @@ __attribute__((weak)) int32_t csrt_bigint_get_hash_code(void* a) { (void)a; miss
 __attribute__((weak)) csrt_String* csrt_timespan_to_string(int64_t ticks) { (void)ticks; missing_export("csrt_timespan_to_string"); }
 __attribute__((weak)) csrt_String* csrt_datetime_to_string(int64_t ticks) { (void)ticks; missing_export("csrt_datetime_to_string"); }
 // CultureInfo.GetFormat(typeof(DateTimeFormatInfo)): only programs that use DateTimeFormatInfo export the
-// real one (corelib CultureInfo.cs); elsewhere no Type object can be DateTimeFormatInfo's.
+// real one (corelib UpstreamGlobalization.cs); elsewhere no Type object can be DateTimeFormatInfo's.
 __attribute__((weak)) void* csrt_culture_get_format_dtfi(void* culture, void* format_type) { (void)culture; (void)format_type; return NULL; }
 // The corelib calls this one (a P/Invoke can't share the export's symbol).
 void* csrt_culture_format_dtfi(void* culture, void* format_type) { return csrt_culture_get_format_dtfi(culture, format_type); }

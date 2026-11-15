@@ -20,6 +20,9 @@ sealed class Emitter
     static readonly HashSet<string> CopiedAttributes = ["System.Runtime.CompilerServices.IsByRefLikeAttribute", "System.Runtime.CompilerServices.ExtensionAttribute",
         "System.Reflection.DefaultMemberAttribute", "System.Runtime.CompilerServices.IsReadOnlyAttribute", "System.Runtime.CompilerServices.InlineArrayAttribute",
         "System.FlagsAttribute", "System.Diagnostics.StackTraceHiddenAttribute",
+        // A callback native code calls through a function pointer (CalendarData.EnumCalendarInfoCallback, which the ICU shim calls per item):
+        // the attribute makes the method natively callable.
+        "System.Runtime.InteropServices.UnmanagedCallersOnlyAttribute",
         // [ThreadStatic] is the field's semantics: one copy per thread (ThreadLocal<T>'s slot arrays, Random.Shared's t_random); without it the
         // field is shared across threads.
         "System.ThreadStaticAttribute",
@@ -93,6 +96,11 @@ sealed class Emitter
         foreach (var t in order.Where(t => t.DeclaringType is not null && !Hoisted(t)).OrderBy(t => Depth(t))) Shell(t);
         foreach (var t in order) Declare(t);
         var hosted = DeclareHosted();
+        if (_cli.SrFormat is { } srFormat)
+        {
+            if (SrFormatIsSimple(out var why)) _cli.Replace["System.SR::Format"] = srFormat;
+            else Console.WriteLine("slicer: SR.Format keeps string.Format: " + why);
+        }
         foreach (var t in order) Bodies(t);
         foreach (var t in hosted) Bodies(t);
 
@@ -290,7 +298,7 @@ sealed class Emitter
             // A generic interface's default members (INumberBase<TSelf>.TryParse over UTF-8) are hosted as generic methods of a non-generic
             // class: the interface's type parameters come first, then the member's own (HostedTypeArity).
             var shift = stop.GenericParameters.Count;
-            var host = new TypeDefinition(_cli.Prefix + "." + stop.Namespace, stop.Name.Split('`')[0] + "InterfaceMembers",
+            var host = new TypeDefinition(stop.Namespace.Length == 0 ? _cli.Prefix : _cli.Prefix + "." + stop.Namespace, stop.Name.Split('`')[0] + "InterfaceMembers",
                 TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit, _m.TypeSystem.Object);
             _m.Types.Add(host);
             _hostClass[stop] = host;
@@ -318,6 +326,9 @@ sealed class Emitter
                 var nm = _methods[m];
                 _hostedTypeArity = shift;
                 nm.ReturnType = Type(m.ReturnType);
+                // An instance member of a value type: `this` (the receiver's address) becomes the first parameter, so the body's ldarg.0 still
+                // reads it and the other arguments keep their numbers (BodiesOf maps the named ones).
+                if (m.HasThis) nm.Parameters.Add(new ParameterDefinition("this", ParameterAttributes.None, new ByReferenceType(Type(stop))));
                 foreach (var p in m.Parameters) nm.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, Type(p.ParameterType)));
                 foreach (var (g, i) in stop.GenericParameters.Concat(m.GenericParameters).Select((g, i) => (g, i)))
                     if (i < nm.GenericParameters.Count && nm.GenericParameters[i].Constraints.Count == 0)
@@ -327,6 +338,104 @@ sealed class Emitter
             result.Add(stop);
         }
         return result;
+    }
+
+    /// <summary>
+    /// Can every SR.Format call of the slice go to csharpc's `{n}` / `{n:spec}` formatter (UpstreamSupport.Format) and print what
+    /// string.Format prints? Yes when each call's format argument is a CoreLib resource text (an SR getter, or a literal) whose items are all
+    /// of those two forms, with `{{` / `}}` escapes and no braces inside a spec: the formatter implements exactly that grammar. The proof
+    /// is over the IL the slice copies: the instruction that pushes the format argument is found by walking back over the arguments pushed
+    /// after it, within straight-line code; anything else (a computed format, a branch in between) keeps string.Format.
+    /// </summary>
+    bool SrFormatIsSimple(out string why)
+    {
+        why = "";
+        foreach (var m in _methods.Keys.Where(m => m.HasBody && m.DeclaringType.FullName != "System.SR"))
+        {
+            var targets = new HashSet<Instruction>();
+            foreach (var i in m.Body.Instructions)
+            {
+                if (i.Operand is Instruction t) targets.Add(t);
+                if (i.Operand is Instruction[] ts) foreach (var x in ts) targets.Add(x);
+            }
+            foreach (var h in m.Body.ExceptionHandlers) { targets.Add(h.TryStart); targets.Add(h.HandlerStart); if (h.FilterStart is not null) targets.Add(h.FilterStart); }
+            foreach (var call in m.Body.Instructions)
+            {
+                if (call.OpCode.Code is not (Code.Call or Code.Callvirt) || call.Operand is not MethodReference { Name: "Format" } mr || mr.DeclaringType.FullName != "System.SR") continue;
+                var formatIndex = mr.Parameters[0].ParameterType.FullName == "System.String" ? 0 : 1;
+                var producer = Producer(call, mr.Parameters.Count - formatIndex - 1, targets);
+                string text = producer switch
+                {
+                    { OpCode.Code: Code.Ldstr, Operand: string literal } => literal,
+                    { OpCode.Code: Code.Call, Operand: MethodReference { Name: var getter } g } when g.DeclaringType.FullName == "System.SR" && getter.StartsWith("get_", StringComparison.Ordinal)
+                        && Strings.TryGetValue(getter[4..], out var resource) => resource,
+                    _ => null,
+                };
+                if (text is null) { why = $"{m.FullName}: the format argument at {call} is not a resource text"; return false; }
+                if (!SimpleCompositeFormat(text)) { why = $"{m.FullName}: \"{text}\" has a format item other than {{n}} / {{n:spec}}"; return false; }
+            }
+        }
+        return true;
+    }
+
+    /// <summary>The instruction that pushed the stack slot <paramref name="below"/> slots under the top before <paramref name="at"/>; null when not straight-line.</summary>
+    static Instruction Producer(Instruction at, int below, HashSet<Instruction> branchTargets)
+    {
+        var need = below;
+        for (var i = at.Previous; i is not null; i = i.Previous)
+        {
+            if (i.OpCode.FlowControl is not (FlowControl.Next or FlowControl.Call)) return null;
+            var (pop, push) = StackEffect(i);
+            if (pop < 0) return null;
+            need -= push;
+            if (need < 0) return push == 1 && need == -1 ? i : null;
+            need += pop;
+            if (branchTargets.Contains(i)) return null;
+        }
+        return null;
+    }
+
+    static (int Pop, int Push) StackEffect(Instruction i)
+    {
+        if (i.OpCode.Code is Code.Call or Code.Callvirt or Code.Newobj)
+        {
+            var mr = (MethodReference)i.Operand;
+            var newobj = i.OpCode.Code == Code.Newobj;
+            return (mr.Parameters.Count + (mr.HasThis && !newobj ? 1 : 0), newobj || mr.ReturnType.MetadataType != MetadataType.Void ? 1 : 0);
+        }
+        int Count(StackBehaviour b) => b switch
+        {
+            StackBehaviour.Pop0 or StackBehaviour.Push0 => 0,
+            StackBehaviour.Pop1 or StackBehaviour.Popi or StackBehaviour.Popref or StackBehaviour.Push1 or StackBehaviour.Pushi or StackBehaviour.Pushi8
+                or StackBehaviour.Pushr4 or StackBehaviour.Pushr8 or StackBehaviour.Pushref => 1,
+            StackBehaviour.Pop1_pop1 or StackBehaviour.Popi_pop1 or StackBehaviour.Popi_popi or StackBehaviour.Popi_popi8 or StackBehaviour.Popi_popr4
+                or StackBehaviour.Popi_popr8 or StackBehaviour.Popref_pop1 or StackBehaviour.Popref_popi or StackBehaviour.Push1_push1 => 2,
+            StackBehaviour.Popi_popi_popi or StackBehaviour.Popref_popi_popi or StackBehaviour.Popref_popi_popi8 or StackBehaviour.Popref_popi_popr4
+                or StackBehaviour.Popref_popi_popr8 or StackBehaviour.Popref_popi_popref => 3,
+            _ => -1,
+        };
+        var pop = Count(i.OpCode.StackBehaviourPop);
+        var push = Count(i.OpCode.StackBehaviourPush);
+        return pop < 0 || push < 0 ? (-1, -1) : (pop, push);
+    }
+
+    /// <summary>Literal text with `{{` / `}}` escapes and items `{n}` or `{n:spec}` (n decimal digits, spec without braces): UpstreamSupport.Format's grammar.</summary>
+    internal static bool SimpleCompositeFormat(string s)
+    {
+        for (var i = 0; i < s.Length; i++)
+        {
+            var c = s[i];
+            if (c == '}') { if (i + 1 < s.Length && s[i + 1] == '}') { i++; continue; } return false; }
+            if (c != '{') continue;
+            if (i + 1 < s.Length && s[i + 1] == '{') { i++; continue; }
+            var j = i + 1;
+            while (j < s.Length && char.IsAsciiDigit(s[j])) j++;
+            if (j == i + 1 || j - i - 1 > 6 || j >= s.Length) return false;
+            if (s[j] == ':') { j++; while (j < s.Length && s[j] is not ('{' or '}')) j++; }
+            if (j >= s.Length || s[j] != '}') return false;
+            i = j;
+        }
+        return true;
     }
 
     ModuleReference AddModuleRef(string name) { var r = new ModuleReference(name); _m.ModuleReferences.Add(r); return r; }
@@ -399,7 +508,7 @@ sealed class Emitter
                     Instruction target => map[target],
                     Instruction[] targets => targets.Select(x => map[x]).ToArray(),
                     VariableDefinition v => vars[v.Index],
-                    ParameterDefinition p => p == ob.ThisParameter ? nb.ThisParameter : nm.Parameters[p.Index],
+                    ParameterDefinition p => p == ob.ThisParameter ? (nm.HasThis ? nb.ThisParameter : nm.Parameters[0]) : nm.Parameters[p.Index + (m.HasThis && !nm.HasThis ? 1 : 0)],
                     MethodReference mr => MethodRef(mr),
                     FieldReference fr => FieldRef(fr),
                     TypeReference tr => Type(tr),
@@ -407,6 +516,9 @@ sealed class Emitter
                     var other => other,
                 };
             }
+            // A callvirt of an instance member the slice hosts as a static (`this.` host roots) is a call of that static.
+            foreach (var ni in nb.Instructions)
+                if (ni.OpCode == OpCodes.Callvirt && ni.Operand is MethodDefinition target && !target.HasThis && target.IsStatic) ni.OpCode = OpCodes.Call;
             foreach (var h in ob.ExceptionHandlers)
             {
                 var nh = new ExceptionHandler(h.HandlerType)

@@ -5,4 +5,7 @@
 # BFloat16 and Decimal32/64/128 from CoreLib IL (#405): json measured 1 643 496 B on linux-x86_64 (1 571 032 before), budget raised to measured + 3 %.
 # The program only names the four types in typeof (System.Text.Json's NumberHandingIsApplicable), but a struct's method table lowers its
 # ToString/Equals/GetHashCode and dispatched interface slots without a box (#420), which now pulls in upstream's IEEE formatting.
-linux-x86_64 json 1693696
+# Globalization from the framework's IL (#426): CultureInfo  CultureData  NumberFormatInfo  TextInfo and CompareInfo are CoreLib's own  so a program
+# that formats a number carries the framework's culture initialization (culture data over ICU  its locale tables  the culture caches). linux-x86_64
+# measured 1 732 152 B (budget 1 693 696 -> 1 736 704; NativeAOT carries the same code); the other platforms moved by the same 43 008 B until CI measures them.
+linux-x86_64 json 1736704

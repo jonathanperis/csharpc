@@ -119,7 +119,7 @@ namespace CsharpcCoreLib
         // non-negative numbers (about 11 instructions more per int.ToString()).
         [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
         private static string NegativeInt64ToDecStrCurrentCulture(long value) =>
-            NegativeInt64ToDecStr(value, CsharpcCoreLib.Globalization.NumberFormatInfo.CurrentInfo.NegativeSign);
+            NegativeInt64ToDecStr(value, System.Globalization.NumberFormatInfo.CurrentInfo.NegativeSign);
 
         /// <summary>.NET's NegativeNumberToDecStr: `sNegative` followed by the digits of |value|.</summary>
         internal static unsafe string NegativeInt64ToDecStr(long value, string sNegative)

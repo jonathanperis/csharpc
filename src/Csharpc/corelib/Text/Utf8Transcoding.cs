@@ -12,6 +12,37 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Text.Unicode.Utf8")]
     internal static unsafe class Utf8TranscodingMembers
     {
+        /// <summary>
+        /// CoreLib-internal Utf8.ToUtf16PreservingReplacement (CompareInfo's UTF-8 comparisons, #426): ToUtf16, except that each byte of an
+        /// invalid sequence becomes the lone surrogate U+DF00 | byte instead of U+FFFD, so no information is lost.
+        /// </summary>
+        public static System.Buffers.OperationStatus ToUtf16PreservingReplacement(ReadOnlySpan<byte> source, Span<char> destination, out int bytesRead,
+            out int charsWritten, bool replaceInvalidSequences = true, bool isFinalBlock = true)
+        {
+            int read = 0, written = 0;
+            System.Buffers.OperationStatus status;
+            while (true)
+            {
+                status = System.Text.Unicode.Utf8.ToUtf16(source, destination, out int r, out int w, replaceInvalidSequences: false, isFinalBlock);
+                read += r;
+                written += w;
+                source = source.Slice(r);
+                destination = destination.Slice(w);
+                if (status <= System.Buffers.OperationStatus.DestinationTooSmall || (status == System.Buffers.OperationStatus.NeedMoreData && !isFinalBlock)) break;
+                if (!replaceInvalidSequences) { status = System.Buffers.OperationStatus.InvalidData; break; }
+                System.Text.Rune.DecodeFromUtf8(source, out _, out int invalid);
+                if (destination.Length < invalid) { status = System.Buffers.OperationStatus.DestinationTooSmall; break; }
+                for (int i = 0; i < invalid; i++) destination[i] = (char)(0xDF00 | source[i]);
+                read += invalid;
+                written += invalid;
+                source = source.Slice(invalid);
+                destination = destination.Slice(invalid);
+            }
+            bytesRead = read;
+            charsWritten = written;
+            return status;
+        }
+
         // ASCII runs go through the C runtime's vector loops (span.c), 8 elements at a time; the collector doesn't
         // move objects, so the spans stay put. Everything else is scalar by scalar, as before.
         [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_narrow_ascii")]

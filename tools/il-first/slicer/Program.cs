@@ -119,6 +119,12 @@ sealed class Cli
     public Dictionary<string, string> Replace = new();
     /// <summary>Emit csharpc's NumberBridge (Emit.EmitNumberBridge) when the slice holds the shortest-digit members (the csharpc profile).</summary>
     public bool NumberBridge;
+    /// <summary>
+    /// "Assembly:Ns.Type::Method": SR.Format's replacement, a formatter of `{n}` / `{n:spec}` items only (Emit.SrFormatIsSimple). Used only
+    /// when the slice proves that every SR.Format call it carries formats a CoreLib resource text of that form; otherwise SR.Format keeps
+    /// its IL (string.Format, full composite formatting).
+    /// </summary>
+    public string SrFormat;
     /// <summary>"Ns.Type`1" -> "Assembly:Ns.Type`1": references to this (stop) type point at csharpc's own type of the same shape instead.</summary>
     public Dictionary<string, string> Redirect = new();
     public string Replacement(Mono.Cecil.MethodDefinition m) => Replace.GetValueOrDefault(m.DeclaringType.FullName + "::" + m.Name);
@@ -163,6 +169,9 @@ sealed class Cli
                     c.Replace["System.ThrowHelper::ThrowKeyNotFoundException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::ThrowKeyNotFoundException";
                     c.Replace["System.ThrowHelper::ThrowAddingDuplicateWithKeyArgumentException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::ThrowAddingDuplicateWithKeyArgumentException";
                     c.Replace["System.ThrowHelper::GetAddingDuplicateWithKeyArgumentException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetAddingDuplicateWithKeyArgumentException";
+                    // SR.Format(text, args) is string.Format: composite formatting, culture data and every number formatter for any message
+                    // with an argument (Hashtable's duplicate key, #373). The texts CoreLib formats use `{n}` and `{n:spec}` only.
+                    c.SrFormat = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::Format";
                     // Random's default seed: the OS RNG the runtime seeds string hashing with (csrt_os_random), where CoreLib calls libSystem.Native.
                     c.Replace["Interop::GetRandomBytes"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetRandomBytes";
                     // Stream's asynchronous defaults run as Stream.ReadWriteTask over Task's internals and test for BeginRead/BeginWrite overrides in
@@ -179,6 +188,27 @@ sealed class Cli
                     // Interop and Interop.Sys come from the IL (the error mapping and the managed wrappers); their libSystem.Native P/Invokes are
                     // csharpc's C# contract over its libc layer (corelib/IO/SystemNative*.cs, ModuleCodeGen.PInvoke), not the pack's shim.
                     c.Stop.AddRange(["Interop/Globalization"]);
+                    // The ICU boundary (#426): CoreLib's globalization IL calls Interop.Globalization; every such call goes to the corelib's
+                    // forwarding class (corelib/UpstreamGlobalization.cs), which calls the corelib's own imports of the runtime's ICU shim, the
+                    // single boundary into native globalization code. The types in those signatures are the corelib's (same values).
+                    foreach (var member in (string[])["GetLocaleName", "GetLocaleInfoString", "GetDefaultLocaleName", "IsPredefinedLocale", "GetLocaleTimeFormat",
+                        "GetLocaleInfoInt", "GetLocaleInfoGroupingSizes", "GetLocales", "GetCalendars", "GetCalendarInfo", "EnumCalendarInfo", "GetLatestJapaneseEra",
+                        "GetJapaneseEraStartDate", "ChangeCase", "ChangeCaseInvariant", "ChangeCaseTurkish", "InitOrdinalCasingPage", "InitOrdinalLowerCasingPage",
+                        "GetSortHandle", "CloseSortHandle", "CompareString", "IndexOf", "LastIndexOf", "StartsWith", "EndsWith", "GetSortKey", "GetSortVersion",
+                        "ToAscii", "ToUnicode"])
+                        c.Replace["Interop/Globalization::" + member] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamGlobalizationInterop::" + member;
+                    c.Redirect["Interop/Globalization/ResultCode"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamGlobalizationResultCode";
+                    c.Redirect["System.Globalization.CalendarId"] = "CsharpcCoreLib:CsharpcCoreLib.Globalization.CalendarId";
+                    c.Redirect["System.Globalization.CalendarDataType"] = "CsharpcCoreLib:CsharpcCoreLib.Globalization.CalendarDataType";
+                    // Invariant mode and ICU loading stay the corelib's: the project's InvariantGlobalization is compiled into the program, WASI is
+                    // always invariant, and ICU is loaded by the first call that needs it (corelib/Globalization/GlobalizationMode.cs).
+                    // The current cultures flow with the execution context through an AsyncLocal (corelib/UpstreamGlobalization.cs).
+                    c.Replace["System.Globalization.CultureInfo::get_CurrentCulture"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamCultureInfo::GetCurrentCulture";
+                    c.Replace["System.Globalization.CultureInfo::get_CurrentUICulture"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamCultureInfo::GetCurrentUICulture";
+                    // GetFormat's DateTimeFormatInfo case through the runtime, so formatting a number doesn't link DateTimeFormatInfo and the calendars.
+                    c.Replace["System.Globalization.CultureInfo::GetFormat"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamCultureInfo::GetFormat";
+                    c.Redirect["System.TimeZoneInfoOptions"] = "CsharpcCoreLib:CsharpcCoreLib.Globalization.TimeZoneInfoOptions";
+                    c.Redirect["System.Globalization.GlobalizationMode"] = "CsharpcCoreLib:CsharpcCoreLib.Globalization.GlobalizationMode";
                     break;
                 case "--out": c.Out = args[++i]; break;
                 case "--corelib": c.CoreLib = args[++i]; break;
@@ -307,7 +337,12 @@ sealed class Slice
                 {
                     var stop = Core.GetType(typeName) ?? throw new ArgumentException($"{typeName} is not a type of {Cli.CoreLib}");
                     if (!IsStop(stop)) throw new ArgumentException($"host: {typeName} is not a built-in type the slice stops at");
-                    var found = stop.Methods.Where(m => m.IsStatic && m.HasBody && members.Any(n => m.Name == n || m.Name.EndsWith("." + n, StringComparison.Ordinal))).ToList();
+                    // "this.ToString": an instance member of a built-in value type, hosted as a static whose first parameter is `ref T` (the
+                    // receiver's address, which `this` is in the member's IL); the compiler passes the receiver's address (#426).
+                    var found = stop.Methods.Where(m => m.HasBody && !m.IsConstructor && members.Any(n =>
+                        n.StartsWith("this.", StringComparison.Ordinal)
+                            ? !m.IsStatic && stop.IsValueType && (m.Name == n[5..] || m.Name.EndsWith("." + n[5..], StringComparison.Ordinal))
+                            : m.IsStatic && (m.Name == n || m.Name.EndsWith("." + n, StringComparison.Ordinal)))).ToList();
                     if (found.Count == 0) throw new ArgumentException($"host: {typeName} has none of {parts[1]}");
                     if (!Hosted.TryGetValue(stop, out var list)) Hosted[stop] = list = [];
                     foreach (var m in found.Where(m => !list.Contains(m))) { list.Add(m); methodRoots.Add(m); }
@@ -458,7 +493,7 @@ sealed class Slice
         {
             // A non-public static helper of a type whose members the slice hosts (UInt128.LeadingZeroCountAsInt32, ulong's private
             // TryConvertFromChecked<TOther>, which the hosted CreateChecked calls): hosted with them, since nothing else provides it.
-            if (def.IsStatic && def.HasBody && Hosted.TryGetValue(def.DeclaringType, out var hosted) && Cli.Replacement(def) is null
+            if ((def.IsStatic || def.DeclaringType.IsValueType && !def.IsConstructor && HostsInstanceMembers(def.DeclaringType)) && def.HasBody && Hosted.TryGetValue(def.DeclaringType, out var hosted) && Cli.Replacement(def) is null
                 && !(RefTypes.TryGetValue(def.DeclaringType.FullName, out var r) && InRef(r, def))
                 && !(ShadowMemberNames.TryGetValue(def.DeclaringType.FullName, out var shadowNames) && shadowNames.Contains(ShadowSignatures.Of(def))))
             {
@@ -476,6 +511,10 @@ sealed class Slice
     {
         try { return r.Resolve(); } catch (AssemblyResolutionException) { return null; }
     }
+
+    /// <summary>Whether the slice hosts instance members of this built-in value type ("this." `host:` roots): its non-public instance helpers
+    /// are hosted with them, as the static ones are.</summary>
+    bool HostsInstanceMembers(TypeDefinition type) => Hosted.TryGetValue(type, out var list) && list.Any(m => !m.IsStatic);
 
     void ReachField(FieldReference fr)
     {
