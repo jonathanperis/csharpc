@@ -1,4 +1,0 @@
-System.Runtime.Serialization.SerializationException: An action was attempted during deserialization that could lead to a security vulnerability. The action has been aborted. To allow the action, set the 'Switch.System.Runtime.Serialization.SerializationGuard.AllowFileWrites' AppContext switch to true.
-System.IO.FileNotFoundException: Could not find file '<path>'.
-1
-after: write allowed

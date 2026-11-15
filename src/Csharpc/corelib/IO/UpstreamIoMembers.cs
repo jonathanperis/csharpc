@@ -93,7 +93,9 @@ namespace CsharpcCoreLib
         /// SerializationInfo.ThrowIfDeserializationInProgress (FileStream's guard against writing files while deserializing), as upstream:
         /// throws while SerializationInfo.StartDeserialization is in effect (framework IL such as System.Data's DataSet starts it) unless the
         /// AppContext switch Switch.System.Runtime.Serialization.SerializationGuard.{switchSuffix} is true. cachedValue: 0 not read yet,
-        /// 1 the switch is true, -1 it is not.
+        /// 1 the switch is true, -1 it is not. (The only framework code that starts deserialization is System.Data's TypeLimiter, during
+        /// DataSet/DataTable.ReadXml and expression conversions; csharpc rejects System.Data today with explicit diagnostics, so this cannot
+        /// throw yet. It is upstream's logic rather than a no-op so that it stays exact when System.Data compiles.)
         /// </summary>
         public static void ThrowIfDeserializationInProgress(string switchSuffix, ref int cachedValue)
         {

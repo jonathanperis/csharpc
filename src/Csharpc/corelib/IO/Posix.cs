@@ -15,14 +15,18 @@ namespace CsharpcCoreLib
         // errno values are per OS. The compiler parses the corelib with CSHARPC_TARGET_LINUX, CSHARPC_TARGET_MACOS or
         // CSHARPC_TARGET_WASI (from the target triple), never the host's.
 #if CSHARPC_TARGET_WASI
-        public const int ENOENT = 44, EPERM = 63, EACCES = 2, EEXIST = 20, ENOTDIR = 54, EISDIR = 31;
+        public const int ENOENT = 44, EPERM = 63, EACCES = 2, EEXIST = 20, ENOTDIR = 54, EBADF = 8, ENAMETOOLONG = 37, EAGAIN = 6, ECANCELED = 11, EFBIG = 22, ERANGE = 68;
+#elif CSHARPC_TARGET_MACOS
+        public const int ENOENT = 2, EPERM = 1, EACCES = 13, EEXIST = 17, ENOTDIR = 20, EBADF = 9, ENAMETOOLONG = 63, EAGAIN = 35, ECANCELED = 89, EFBIG = 27, ERANGE = 34;
 #else
-        public const int ENOENT = 2, EPERM = 1, EACCES = 13, EEXIST = 17, ENOTDIR = 20, EISDIR = 21;
+        public const int ENOENT = 2, EPERM = 1, EACCES = 13, EEXIST = 17, ENOTDIR = 20, EBADF = 9, ENAMETOOLONG = 36, EAGAIN = 11, ECANCELED = 125, EFBIG = 27, ERANGE = 34;
 #endif
 
         [DllImport("libc", SetLastError = true)] public static extern nint read(int fd, byte* buffer, nuint count);
         [DllImport("libc", SetLastError = true)] public static extern nint write(int fd, byte* buffer, nuint count);
         [DllImport("libc", SetLastError = true)] public static extern int close(int fd);
+        [DllImport("libc", SetLastError = true)] public static extern byte* getcwd(byte* buffer, nuint size);
+        [DllImport("libc", SetLastError = true)] public static extern int chdir(byte* path);
         [DllImport("libc")] public static extern byte* getenv(byte* name);
         [DllImport("libc")] public static extern int setenv(byte* name, byte* value, int overwrite);
         [DllImport("libc")] public static extern int unsetenv(byte* name);
@@ -59,31 +63,42 @@ namespace CsharpcCoreLib
 
         public static string ErrorMessage(int errno) => Utf8.FromNative(strerror(errno));
 
-        /// <summary>The exception .NET throws for an errno on a path (System.IO's Unix error mapping, Interop.GetExceptionForIoErrno).</summary>
-        public static Exception IOError(int errno, string path, bool isDirectory)
+        /// <summary>
+        /// The exception .NET throws for an errno on a path: Interop.GetExceptionForIoErrno (Common/src/Interop/Unix/Interop.IOErrors.cs,
+        /// release/11.0), with the path as the caller passes it and CoreLib's resource texts.
+        /// </summary>
+        public static Exception IOError(int errno, string path, bool isDirError)
         {
-            string full = path == null ? null : System.IO.Path.GetFullPath(path);
+            bool hasPath = !string.IsNullOrEmpty(path);
             switch (errno)
             {
                 case ENOENT:
-                    if (!isDirectory)
-                    {
-                        string parent = System.IO.Path.GetDirectoryName(full);
-                        if (parent == null || Directory.Exists(parent))
-                            return new FileNotFoundException("Could not find file '" + full + "'.", full);
-                    }
-                    return new DirectoryNotFoundException("Could not find a part of the path '" + full + "'.", full);
+                    if (!isDirError && (path == null || Directory.Exists(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(path)))))
+                        return hasPath ? new FileNotFoundException("Could not find file '" + path + "'.", path) : new FileNotFoundException("Unable to find the specified file.");
+                    goto case ENOTDIR;
                 case ENOTDIR:
-                    return new DirectoryNotFoundException("Could not find a part of the path '" + full + "'.", full);
+                    return hasPath ? new DirectoryNotFoundException("Could not find a part of the path '" + path + "'.", path)
+                        : new DirectoryNotFoundException("Could not find a part of the path.");
                 case EACCES:
+                case EBADF:
                 case EPERM:
-                case EISDIR:
-                    return new UnauthorizedAccessException("Access to the path '" + full + "' is denied.");
-                // .NET's Interop.GetExceptionForIoErrno: an IOException's HResult is the raw errno.
+                    return new UnauthorizedAccessException(hasPath ? "Access to the path '" + path + "' is denied." : "Access to the path is denied.",
+                        new IOException(ErrorMessage(errno), errno));
+                case ENAMETOOLONG:
+                    return new PathTooLongException(hasPath ? "The path '" + path + "' is too long, or a component of the specified path is too long."
+                        : "The specified file name or path is too long, or a component of the specified path is too long.");
+                case EAGAIN:
+                    return new IOException(hasPath ? "The process cannot access the file '" + path + "' because it is being used by another process."
+                        : "The process cannot access the file because it is being used by another process.", errno);
+                case ECANCELED:
+                    return new OperationCanceledException();
+                case EFBIG:
+                    return new ArgumentOutOfRangeException("value", "Specified file length was too large for the file system.");
                 case EEXIST:
-                    return new IOException("The file '" + full + "' already exists.", errno);
+                    if (hasPath) return new IOException("The file '" + path + "' already exists.", errno);
+                    goto default;
                 default:
-                    return new IOException(full == null ? ErrorMessage(errno) : ErrorMessage(errno) + " : '" + full + "'", errno);
+                    return new IOException(hasPath ? ErrorMessage(errno) + " : '" + path + "'" : ErrorMessage(errno), errno);
             }
         }
     }

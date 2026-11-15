@@ -280,10 +280,38 @@ namespace CsharpcCoreLib
         }
 #endif
 
+        // Environment.CurrentDirectory is where the current directory lives (the framework's Directory.Get/SetCurrentDirectory call it):
+        // getcwd with a buffer grown on ERANGE (Interop.Sys.GetCwd), chdir with the directory error mapping (CurrentDirectoryCore).
         public static string CurrentDirectory
         {
-            get => System.IO.Directory.GetCurrentDirectory();
-            set => System.IO.Directory.SetCurrentDirectory(value);
+            get
+            {
+                nuint size = 256;
+                while (true)
+                {
+                    byte* buffer = (byte*)Libc.malloc(size);
+                    byte* r = Posix.getcwd(buffer, size);
+                    int errno = Posix.Errno;
+                    if (r != null)
+                    {
+                        string s = Utf8.FromNative(buffer);
+                        Libc.free(buffer);
+                        return s;
+                    }
+                    Libc.free(buffer);
+                    if (errno != Posix.ERANGE) throw Posix.IOError(errno, null, false);
+                    size *= 2;
+                }
+            }
+            set
+            {
+                ArgumentException.ThrowIfNullOrEmpty(value);
+                byte* p = Utf8.ToNative(value);
+                int r = Posix.chdir(p);
+                int errno = Posix.Errno;
+                Libc.free(p);
+                if (r != 0) throw Posix.IOError(errno, value, true);
+            }
         }
 
         public static bool Is64BitProcess => true;

@@ -419,8 +419,8 @@ namespace CsharpcCoreLib
         [RuntimeExport("SystemNative_FAllocate", Trigger + "SystemNative_FAllocate")]
         public static int FAllocate(nint fd, long offset, long length)
         {
-            int r;
 #if CSHARPC_TARGET_MACOS
+            int r;
             byte* store = stackalloc byte[32];  // fstore_t: fst_flags @0, fst_posmode @4, fst_offset @8, fst_length @16, fst_bytesalloc @24
             *(uint*)store = 0x4;                // F_ALLOCATEALL
             *(int*)(store + 4) = 3;             // F_PEOFPOSMODE
@@ -432,6 +432,7 @@ namespace CsharpcCoreLib
 #elif CSHARPC_TARGET_WASI
             return Fail(ENOTSUP);   // EOPNOTSUPP, the same number on WASI
 #else
+            int r;
             while ((r = fallocate(Fd(fd), 1 /* FALLOC_FL_KEEP_SIZE */, offset, length)) == -1 && Errno == EINTR) { }
             return r;
 #endif
@@ -469,7 +470,7 @@ namespace CsharpcCoreLib
         /// LockType: F_RDLCK 0, F_WRLCK 1, F_UNLCK 2 (Linux's values; macOS numbers them 1, 3, 2).
         /// </summary>
         [RuntimeExport("SystemNative_LockFileRegion", Trigger + "SystemNative_LockFileRegion")]
-        public static int LockFileRegion(nint fd, long offset, long length, int lockType)
+        public static int LockFileRegion(nint fd, long offset, long length, short lockType)
         {
 #if CSHARPC_TARGET_WASI
             return EINTR;   // pal_io.c on WASI: a non-negative result, no lock
@@ -578,7 +579,7 @@ namespace CsharpcCoreLib
             return r;
         }
 
-        [RuntimeExport("SystemNative_Fcntl_GetIsNonBlocking", Trigger + "SystemNative_Fcntl_GetIsNonBlocking")]
+        [RuntimeExport("SystemNative_FcntlGetIsNonBlocking", Trigger + "SystemNative_FcntlGetIsNonBlocking")]
         public static int GetIsNonBlocking(nint fd, int* isNonBlocking)
         {
             if (isNonBlocking == null) return 0x10015; // Error_EFAULT
