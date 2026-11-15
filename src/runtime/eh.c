@@ -274,11 +274,11 @@ csrt_String* csrt_exception_to_string(void* exception) {
 // ---------------------------------------------------------------------------------------------
 // A site's word: the tag in bits 63-48 (not a canonical address: no method table starts with it; the
 // filters' csrt_EhClause magic has another), the flags in bits 47-44, the method in bits 27-0.
-// flags: TRACE_ASYNC, TRACE_HIDDEN (CodeGen/StackTraces.cs, FrameFlags); TRACE_LOCATED: { file, line } follow.
+// flags: TRACE_ASYNC, TRACE_HIDDEN, TRACE_TAILCALL (CodeGen/StackTraces.cs, FrameFlags); TRACE_LOCATED: { file, line } follow.
 #define CSRT_TRACE_SITE_TAG 0xC5A8u
 typedef struct { uint64_t word; } csrt_TraceSite;
 typedef struct { csrt_TraceSite site; int32_t file, line; } csrt_TraceSiteLocated;
-enum { TRACE_ASYNC = 1, TRACE_HIDDEN = 2, TRACE_LOCATED = 4 };
+enum { TRACE_ASYNC = 1, TRACE_HIDDEN = 2, TRACE_LOCATED = 4, TRACE_TAILCALL = 8 };
 static bool trace_is_site(const void* type) { return (*(const uint64_t*)type >> 48) == CSRT_TRACE_SITE_TAG; }
 static uint32_t trace_flags(const csrt_TraceSite* site) { return (uint32_t)(site->word >> 44) & 0xF; }
 static uint32_t trace_method(const csrt_TraceSite* site) { return (uint32_t)site->word & 0xFFFFFFF; }
@@ -601,6 +601,7 @@ static void trace_check_first_pass(csrt_Exception* e) { (void)e; }
 /// Whether `inlinee`'s code was inlined into `inliner` in .NET's precompiled framework (csrt_TraceTables.inlined).
 static bool trace_inlined_into(uint32_t inlinee, uint32_t inliner) {
     uint64_t key = (uint64_t)inlinee << 32 | inliner;
+    if (s_trace->inlined_count == 0) return false;
     uint32_t lo = 0, hi = s_trace->inlined_count;
     while (lo < hi) {
         uint32_t mid = lo + (hi - lo) / 2;
@@ -648,6 +649,11 @@ csrt_String* csrt_exception_get_stack_trace(void* exception) {
         }
         if ((trace_flags(site) & TRACE_HIDDEN) && i != last) continue;
         if (trace_inlined(entries, i, last)) continue;
+        // A frame whose call in tail position .NET's precompiled framework code turned into a jump: gone from .NET's stack,
+        // unless the callee was inlined into it (no call was made then).
+        if ((trace_flags(site) & TRACE_TAILCALL) && i > 0 && i != last && entries[i - 1] != TRACE_PREVIOUS_LOCATION
+            && !trace_inlined_into(trace_method(entries[i - 1]), trace_method(site)))
+            continue;
         if (!first) text_append_str(&text, CSRT_NEWLINE);
         first = false;
         text_append_str(&text, "   at ");

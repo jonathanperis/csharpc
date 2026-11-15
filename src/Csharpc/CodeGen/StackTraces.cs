@@ -136,6 +136,9 @@ public sealed class StackTraceInfo
         /// <summary>Not listed (System.Diagnostics.StackTrace.ShowInStackTrace): [StackTraceHidden] on the method or
         /// its declaring type, or [MethodImpl(AggressiveInlining)]; still listed as a trace's last frame.</summary>
         Hidden = 2,
+        /// <summary>A call in tail position of optimized framework code (<see cref="TailCallFrame"/>): .NET's precompiled
+        /// code makes it a jump, so the frame is gone by the time the callee throws (src/runtime/eh.c, TRACE_TAILCALL).</summary>
+        TailCall = 8,
     }
 
     /// <summary>One IL assembly whose methods are frames: the program's own (`csharpc app.dll`), or a library.</summary>
@@ -310,8 +313,30 @@ public sealed class StackTraceInfo
         var (name, flags) = FormatIlFrame(module, MetadataTokens.MethodDefinitionHandle(token & 0xFFFFFF));
         var frame = module.Frames[token] = Intern(_methods, _methodIndex, name, flags);
         _ilFrameOrigins.Add((frame, owner, token & 0xFFFFFF));
+        _originOf[frame] = (owner, token & 0xFFFFFF);
         return frame;
     }
+
+    private readonly Dictionary<int, (Frontend.Il.IlAssembly Owner, int Rid)> _originOf = [];
+    private readonly Dictionary<int, int> _tailCallFrames = [];
+
+    /// <summary>
+    /// The entry of <paramref name="frame"/> for its call sites in tail position (<see cref="FrameFlags.TailCall"/>): the same text,
+    /// flagged, and the same method for <see cref="InlinedFramePairs"/>.
+    /// </summary>
+    public int TailCallFrame(int frame)
+    {
+        if (_tailCallFrames.TryGetValue(frame, out var known)) return known;
+        var tail = Intern(_methods, _methodIndex, _methods[frame], _methodFlags.GetValueOrDefault(frame) | FrameFlags.TailCall);
+        if (_originOf.TryGetValue(frame, out var origin)) _ilFrameOrigins.Add((tail, origin.Owner, origin.Rid));
+        return _tailCallFrames[frame] = tail;
+    }
+
+    /// <summary>
+    /// Whether code compiled from <paramref name="owner"/> is .NET's precompiled framework (the shared framework's assemblies and
+    /// the CoreLib slice), whose frames follow ReadyToRun's inlining and tail calls.
+    /// </summary>
+    public static bool IsPrecompiledFramework(Frontend.Il.IlAssembly owner) => owner.IsFramework || owner.Name == "CsharpcUpstream";
 
     /// <summary>Every IL frame with the assembly and method it was made from, for <see cref="InlinedFramePairs"/>.</summary>
     private readonly List<(int Frame, Frontend.Il.IlAssembly Owner, int Rid)> _ilFrameOrigins = [];
