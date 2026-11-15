@@ -59,6 +59,18 @@ namespace CsharpcCoreLib
         /// <summary>The hash string.GetHashCode() gives the same characters.</summary>
         public static int GetHashCode(ReadOnlySpan<char> value) => new string(value).GetHashCode();
 
+        /// <summary>CoreLib-internal: a one- or two-char string (Rune.ToString of a BMP or supplementary scalar).</summary>
+        public static string CreateFromChar(char c) => new string(c, 1);
+
+        public static string CreateFromChar(char c1, char c2)
+        {
+            string s = CoreIntrinsics.FastAllocateString(2);
+            Span<char> chars = CoreIntrinsics.StringChars(s);
+            chars[0] = c1;
+            chars[1] = c2;
+            return s;
+        }
+
         /// <summary>CoreLib-internal string.CompareOrdinal over spans (EncodingTable's name lookup): SpanHelpers.SequenceCompareTo, as CoreLib's.</summary>
         public static int CompareOrdinal(ReadOnlySpan<char> strA, ReadOnlySpan<char> strB) => strA.SequenceCompareTo(strB);
 
