@@ -1,0 +1,28 @@
+BFloat16 de-DE N2: 1.232,00 | utf8 1.232,00 | utf8 matches True
+BFloat16 de-DE C: 1.232,00 € | utf8 1.232,00 € | utf8 matches True
+BFloat16 de-DE E3: 1,232E+003 | utf8 1,232E+003 | utf8 matches True
+BFloat16 de-DE P1: 123.200,0 % | utf8 123.200,0 % | utf8 matches True
+BFloat16 de-DE G: 1230 | utf8 1230 | utf8 matches True
+BFloat16 de-DE round trip '1.232,000': True 1230 utf8 True 1230
+BFloat16 de-DE negative: -1.232,0
+Decimal32 de-DE N2: 1.234,57 | utf8 1.234,57 | utf8 matches True
+Decimal32 de-DE C: 1.234,57 € | utf8 1.234,57 € | utf8 matches True
+Decimal32 de-DE E3: 1,235E+003 | utf8 1,235E+003 | utf8 matches True
+Decimal32 de-DE P1: 123.456,8 % | utf8 123.456,8 % | utf8 matches True
+Decimal32 de-DE G: 1234,568 | utf8 1234,568 | utf8 matches True
+Decimal32 de-DE round trip '1.234,568': True 1234.568 utf8 True 1234.568
+Decimal32 de-DE negative: -1.234,6
+Decimal64 de-DE N2: -98.765,43 | utf8 -98.765,43 | utf8 matches True
+Decimal64 de-DE C: -98.765,43 € | utf8 -98.765,43 € | utf8 matches True
+Decimal64 de-DE E3: -9,877E+004 | utf8 -9,877E+004 | utf8 matches True
+Decimal64 de-DE P1: -9.876.543,2 % | utf8 -9.876.543,2 % | utf8 matches True
+Decimal64 de-DE G: -98765,4321 | utf8 -98765,4321 | utf8 matches True
+Decimal64 de-DE round trip '-98.765,432': True -98765.432 utf8 True -98765.432
+Decimal64 de-DE negative: 98.765,4
+Decimal128 de-DE N2: 12.345.678.901.234.567.890,12 | utf8 12.345.678.901.234.567.890,12 | utf8 matches True
+Decimal128 de-DE C: 12.345.678.901.234.567.890,12 € | utf8 12.345.678.901.234.567.890,12 € | utf8 matches True
+Decimal128 de-DE E3: 1,235E+019 | utf8 1,235E+019 | utf8 matches True
+Decimal128 de-DE P1: 1.234.567.890.123.456.789.012,5 % | utf8 1.234.567.890.123.456.789.012,5 % | utf8 matches True
+Decimal128 de-DE G: 12345678901234567890,125 | utf8 12345678901234567890,125 | utf8 matches True
+Decimal128 de-DE round trip '12.345.678.901.234.567.890,125': True 12345678901234567890.125 utf8 True 12345678901234567890.125
+Decimal128 de-DE negative: -12.345.678.901.234.567.890,1
