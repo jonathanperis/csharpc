@@ -192,6 +192,9 @@ namespace CsharpcCoreLib
         /// <summary>Environment.IsSingleProcessor (internal upstream; ReaderWriterLockSlim and the spin waits read it).</summary>
         public static bool IsSingleProcessor => Environment.ProcessorCount == 1;
 
+        /// <summary>Environment.HasShutdownStarted: always false in .NET Core (finalizers don't run on shutdown); SocketAsyncEventArgs' finalizer asks it.</summary>
+        public static bool HasShutdownStarted => false;
+
         private static Version s_version;
 
         /// <summary>The runtime's major.minor.build ("11.0.0" for 11.0.0-rc.2.*), as .NET reports Environment.Version.</summary>

@@ -16,6 +16,9 @@
 #endif
 #include <errno.h>
 #include <fcntl.h>
+#if !defined(_WIN32) && !defined(__wasi__)
+#include <sys/ioctl.h>
+#endif
 #include "csrt_pthread.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -35,6 +38,10 @@ int32_t csrt_open(const char* path, int32_t flags, int32_t mode) { return open(p
 /// variadic too, for the same reason.
 int32_t csrt_fcntl_int(int32_t fd, int32_t command, int32_t argument) { return fcntl(fd, command, argument); }
 int32_t csrt_fcntl_ptr(int32_t fd, int32_t command, void* argument) { return fcntl(fd, command, argument); }
+#endif
+#if !defined(_WIN32) && !defined(__wasi__)
+/// ioctl(2) with a pointer argument (FIONREAD, SIOCATMARK) for the socket contract (corelib/Net/SystemNative.Net.cs): variadic as well.
+int32_t csrt_ioctl_ptr(int32_t fd, unsigned long request, void* argument) { return ioctl(fd, request, argument); }
 #endif
 
 #ifdef _WIN32
