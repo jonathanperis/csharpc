@@ -195,7 +195,7 @@ public sealed partial class FunctionCodeGen
             {
                 var format = args.FirstOrDefault(a => a.Parameter!.Name == "format" && a.ArgumentKind != ArgumentKind.DefaultValue);
                 var alignment = args.FirstOrDefault(a => a.Parameter!.Name == "alignment" && a.ArgumentKind != ArgumentKind.DefaultValue);
-                piece = format is not null ? FormatWith(args[0].Value, EmitValue(format.Value)) : ToStringValue(args[0].Value);
+                piece = format is not null ? FormatWith(args[0].Value, EmitValue(format.Value)) : InterpolationHole(args[0].Value);
                 // Padding is a separate append, before or after the value as in .NET (it decides where chunks split).
                 if (alignment is not null)
                 {
