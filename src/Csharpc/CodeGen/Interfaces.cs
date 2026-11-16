@@ -199,7 +199,9 @@ public sealed partial class FunctionCodeGen
         var canonicalReceiver = staticType is not null && _m.IsCanonDependent(staticType);
         if (canonicalReceiver && staticType is IArrayTypeSymbol && !_m.IsCanonDependent(target.ContainingType)) _m.RequestArrayInterface(target.ContainingType);
         // Devirtualize when the receiver's type is known to be a class / primitive.
+        // Not when a subclass re-implements the interface: its implementation replaces the static type's for those objects.
         if (staticType is not null && !canonicalReceiver && staticType.TypeKind is not (TypeKind.Interface or TypeKind.TypeParameter)
+            && !(staticType is INamedTypeSymbol { TypeKind: TypeKind.Class } receiverClass && _m.InterfaceReimplementedBelow(receiverClass, target.ContainingType))
             && (staticType.FindImplementationForInterfaceMember(target) as IMethodSymbol
                 ?? (staticType.IsValueType ? PatternImplementation(staticType, target) : null)) is IMethodSymbol impl)
         {
