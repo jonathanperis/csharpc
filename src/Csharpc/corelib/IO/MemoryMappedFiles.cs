@@ -65,7 +65,7 @@ namespace CsharpcCoreLib
                 throw new ArgumentOutOfRangeException("size", "The capacity may not be smaller than the file size.");
             long start = offset - offset % Granularity;
             long delta = offset - start;
-            int fd = ((FileStreamImpl)(object)_stream).Descriptor;
+            int fd = (int)((FileStream)_stream).SafeFileHandle.DangerousGetHandle();
             byte* view = Posix.MapView(fd, start, size + delta);
             if (view == null) throw Posix.IOError(Posix.Errno, null, false);
             var handle = new SafeMemoryMappedViewHandleImpl(view, size + delta);

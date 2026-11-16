@@ -13,6 +13,25 @@ namespace Csharpc.CodeGen;
 public sealed partial class ModuleCodeGen
 {
     private List<(IMethodSymbol Method, string Symbol, string Trigger)>? _runtimeExports;
+    /// <summary>
+    /// "library!entry" triggers of native contracts a P/Invoke bound to: corelib methods that implement a .NET shim's entry point in C#
+    /// ([RuntimeExport("SystemNative_Open", "libSystem.Native!SystemNative_Open")], corelib/IO/SystemNative.cs).
+    /// </summary>
+    private readonly HashSet<string> _requestedNativeContracts = new(StringComparer.Ordinal);
+
+    /// <summary>Does the corelib implement this shim entry point (a [RuntimeExport] whose trigger is "library!entry")? Notes the request if so.</summary>
+    internal bool TryRequestNativeContract(string library, string entry)
+    {
+        _runtimeExports ??= CollectRuntimeExports();
+        var trigger = library + "!" + entry;
+        foreach (var (_, symbol, t) in _runtimeExports)
+            if (t == trigger && symbol == entry)
+            {
+                _requestedNativeContracts.Add(trigger);
+                return true;
+            }
+        return false;
+    }
     private readonly HashSet<string> _emittedExports = [];
 
     private bool EmitRuntimeExports()
@@ -21,11 +40,15 @@ public sealed partial class ModuleCodeGen
         var emitted = false;
         foreach (var (method, symbol, trigger) in _runtimeExports)
         {
-            var referenced = (_globals.ContainsKey(trigger) && !_registrationOnlyGlobals.Contains(trigger)) || !Module.GetFunction(trigger).IsNull
+            var referenced = _requestedNativeContracts.Contains(trigger)
+                || (_globals.ContainsKey(trigger) && !_registrationOnlyGlobals.Contains(trigger)) || !Module.GetFunction(trigger).IsNull
                 || (trigger.EndsWith("MTE", StringComparison.Ordinal) && !Native.LLVMGetNamedGlobal(Module.Ref, trigger).IsNull); // a class's method table
             if (!referenced || !_emittedExports.Add(symbol)) continue;
             var target = GetFunction(method);
-            var wrapper = Module.AddFunction(symbol, target.Type);
+            // A native contract's symbol is already declared by the P/Invoke that binds to it (ModuleCodeGen.PInvoke): define that declaration.
+            var wrapper = Module.GetFunction(symbol);
+            if (wrapper.IsNull) wrapper = Module.AddFunction(symbol, target.Type);
+            else Native.LLVMSetLinkage(wrapper, LLVMLinkage.Internal);
             Llvm.AddFunctionAttribute(wrapper, "uwtable", 2);
             using var b = new IrBuilder(Llvm);
             b.PositionAtEnd(b.AppendBlock(wrapper, "entry"));
