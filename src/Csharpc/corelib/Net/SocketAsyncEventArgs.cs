@@ -4,6 +4,9 @@
 // completes by calling OnCompleted, which raises Completed, on the thread pool — under the execution
 // context captured when it started, unless the instance was created with
 // unsafeSuppressExecutionContextFlow (Kestrel's SocketAwaitableEventArgs).
+// Windows only: on Linux and macOS these types are the framework's IL over the libSystem.Native socket contract
+// (corelib/Net/SystemNative.Net.cs, docs/il-first/System.Net.Sockets.md); Windows keeps them until the IOCP engine exists.
+#if CSHARPC_TARGET_WINDOWS
 #nullable disable
 using System;
 using System.Collections.Generic;
@@ -191,3 +194,4 @@ namespace CsharpcCoreLib
         }
     }
 }
+#endif
