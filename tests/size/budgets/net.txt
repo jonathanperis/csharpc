@@ -7,4 +7,7 @@
 # that formats a number carries the framework's culture initialization (culture data over ICU  its locale tables  the culture caches). linux-x86_64
 # measured 278 232 B (budget 276 480 -> 282 624; NativeAOT carries the same code); the other platforms moved by the same 6 144 B until CI measures them.
 # #426 merged with the IO and Hashtable flips: linux-x86_64 measured 313 480 B (budget 282 624 -> 318 464); the other platforms moved by the same 35 840 B.
-linux-x86_64 net 318464
+# Composite formatting and interpolation call ISpanFormattable.TryFormat as .NET does (#424, #426; sample 1342 regressed without it): string.Format
+# and interpolation now reach the TryFormat of the program's own ISpanFormattable types (IPAddress, IPEndPoint, IPNetwork, their UTF-8 forms).
+# linux-x86_64 measured 326 280 B (base 272 760 on this branch; budget 318 464 -> 331 776); the other platforms print the size until CI measures them.
+linux-x86_64 net 331776
