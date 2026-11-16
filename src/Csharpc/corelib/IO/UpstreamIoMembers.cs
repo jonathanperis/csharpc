@@ -74,6 +74,43 @@ namespace CsharpcCoreLib
         public static bool IsRuntimeAsync() => false;
     }
 
+    [ShadowMembers("System.Boolean")]
+    internal static class BooleanTrueFalseText
+    {
+        /// <summary>bool.IsTrueStringIgnoreCase (AppContextConfigHelper's switches): "true" in ASCII letters of either case, as upstream's test.</summary>
+        public static bool IsTrueStringIgnoreCase(ReadOnlySpan<char> value) =>
+            value.Length == 4 && (value[0] | 0x20) == 't' && (value[1] | 0x20) == 'r' && (value[2] | 0x20) == 'u' && (value[3] | 0x20) == 'e';
+
+        public static bool IsFalseStringIgnoreCase(ReadOnlySpan<char> value) =>
+            value.Length == 5 && (value[0] | 0x20) == 'f' && (value[1] | 0x20) == 'a' && (value[2] | 0x20) == 'l' && (value[3] | 0x20) == 's'
+            && (value[4] | 0x20) == 'e';
+    }
+
+    [ShadowMembers("System.Runtime.Serialization.SerializationInfo")]
+    internal static class SerializationGuardMembers
+    {
+        /// <summary>
+        /// SerializationInfo.ThrowIfDeserializationInProgress (FileStream's guard against writing files while deserializing), as upstream:
+        /// throws while SerializationInfo.StartDeserialization is in effect (framework IL such as System.Data's DataSet starts it) unless the
+        /// AppContext switch Switch.System.Runtime.Serialization.SerializationGuard.{switchSuffix} is true. cachedValue: 0 not read yet,
+        /// 1 the switch is true, -1 it is not. (The only framework code that starts deserialization is System.Data's TypeLimiter, during
+        /// DataSet/DataTable.ReadXml and expression conversions; csharpc rejects System.Data today with explicit diagnostics, so this cannot
+        /// throw yet. It is upstream's logic rather than a no-op so that it stays exact when System.Data compiles.)
+        /// </summary>
+        public static void ThrowIfDeserializationInProgress(string switchSuffix, ref int cachedValue)
+        {
+            const string SwitchPrefix = "Switch.System.Runtime.Serialization.SerializationGuard.";
+            if (cachedValue == 0)
+                cachedValue = AppContext.TryGetSwitch(SwitchPrefix + switchSuffix, out bool isEnabled) && isEnabled ? 1 : -1;
+            if (cachedValue == 1) return;
+            if (cachedValue != -1) throw new ArgumentOutOfRangeException(nameof(cachedValue));
+            if (SerializationInfoImpl.DeserializationInProgress)
+                throw new System.Runtime.Serialization.SerializationException("An action was attempted during deserialization that could lead to a "
+                    + "security vulnerability. The action has been aborted. To allow the action, set the '" + SwitchPrefix + switchSuffix
+                    + "' AppContext switch to true.");
+        }
+    }
+
     [ShadowMembers("System.Text.Encoding")]
     internal static class EncodingCodePageMembers
     {

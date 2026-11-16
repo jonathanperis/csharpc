@@ -221,6 +221,25 @@ namespace CsharpcCoreLib
         public static string Concat(ReadOnlySpan<char> str0, ReadOnlySpan<char> str1, ReadOnlySpan<char> str2, ReadOnlySpan<char> str3) =>
             ConcatSpans(str0, str1, str2, str3);
 
+        /// <summary>CoreLib's internal five-span overload (Path.Join/Combine of three parts with separators, from the framework's IL).</summary>
+        public static string Concat(ReadOnlySpan<char> str0, ReadOnlySpan<char> str1, ReadOnlySpan<char> str2, ReadOnlySpan<char> str3, ReadOnlySpan<char> str4)
+        {
+            long length = (long)str0.Length + str1.Length + str2.Length + str3.Length + str4.Length;
+            if (length == 0) return "";
+            if (length > int.MaxValue) throw new OutOfMemoryException();
+            string result = CoreIntrinsics.FastAllocateString((int)length);
+            Span<char> dst = CoreIntrinsics.StringChars(result);
+            str0.CopyTo(dst);
+            dst = dst.Slice(str0.Length);
+            str1.CopyTo(dst);
+            dst = dst.Slice(str1.Length);
+            str2.CopyTo(dst);
+            dst = dst.Slice(str2.Length);
+            str3.CopyTo(dst);
+            str4.CopyTo(dst.Slice(str3.Length));
+            return result;
+        }
+
         private static string ConcatSpans(ReadOnlySpan<char> a, ReadOnlySpan<char> b, ReadOnlySpan<char> c, ReadOnlySpan<char> d)
         {
             long length = (long)a.Length + b.Length + c.Length + d.Length;

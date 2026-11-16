@@ -244,6 +244,8 @@ namespace CsharpcCoreLib
         [DllImport("libc", SetLastError = true)] private static extern int waitpid(int pid, int* status, int options);
         [DllImport("libc", SetLastError = true)] private static extern int kill(int pid, int signal);
 
+        private static int s_cachedSerializationSwitch;
+
         private static ProcessImpl StartCore(ProcessStartInfoImpl startInfo)
         {
             if (startInfo.UseShellExecute) throw new NotSupportedException("ProcessStartInfo.UseShellExecute is not supported by csharpc yet.");
@@ -255,6 +257,9 @@ namespace CsharpcCoreLib
                 throw new InvalidOperationException("Only one of Arguments or ArgumentList may be used.");
             if (startInfo.Arguments.Length > 0)
                 throw new NotSupportedException("ProcessStartInfo.Arguments (a command line to split) is not supported by csharpc yet; use ArgumentList.");
+            // Process.Start's guard: no new process while deserialization is in progress (SerializationInfo.StartDeserialization), unless
+            // the AppContext switch Switch.System.Runtime.Serialization.SerializationGuard.AllowProcessCreation is true.
+            SerializationGuardMembers.ThrowIfDeserializationInProgress("AllowProcessCreation", ref s_cachedSerializationSwitch);
 
             var argv = new List<string> { fileName };
             argv.AddRange(startInfo.ArgumentList);
