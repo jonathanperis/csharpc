@@ -1,7 +1,7 @@
-// What remains of the corelib's own number code once number parsing and formatting are the framework's (#426): Enum.Parse's
-// invariant integer reader (src/runtime/parse.c calls it), the correctly rounded decimal -> double conversion decimal uses
-// (DecimalOps), Math.Round(double, digits, mode) on the exact decimal value, and the Int128 entry points of the compiler's
-// own paths. The primitives' Parse/TryParse are hosted from their IL.
+// What remains of the corelib's own number code once number parsing and formatting are the framework's (#426): the correctly
+// rounded decimal -> double conversion decimal uses (DecimalOps), Math.Round(double, digits, mode) on the exact decimal value, and
+// the Int128 entry points of the compiler's own paths. The primitives' Parse/TryParse are hosted from their IL, and Enum.Parse's
+// integers go through them (EnumRuntime).
 #nullable disable
 using System;
 
@@ -9,97 +9,6 @@ namespace CsharpcCoreLib
 {
     internal static partial class Number
     {
-        private const int AllowLeadingWhite = 1, AllowTrailingWhite = 2, AllowLeadingSign = 4, AllowDecimalPoint = 32,
-            AllowThousands = 64, AllowExponent = 128, AllowHexSpecifier = 512;
-        private const int StatusOk = 1, StatusFormat = 0, StatusOverflow = 2;
-        private const int MaxParseDigits = 800;  // more than the 767 significant digits any double needs
-
-        private static bool IsWhite(char c) => c == ' ' || (c >= '\t' && c <= '\r');
-
-        // ==========================================================================================
-        // Integers
-        // ==========================================================================================
-
-        /// <summary>Returns 1 on success, 0 on format error, 2 on overflow. Hex parses as two's complement of `bits`.</summary>
-        [RuntimeExport("csrt_parse_i64_styled", "csrt_enum_parse")]
-        [RuntimeExport("csrt_parse_i64_styled", "csrt_enum_parse_or_throw")]
-        internal static int ParseInt64Styled(string s, int styles, int bits, bool isSigned, ref long result)
-        {
-            result = 0;
-            if (s == null) return StatusFormat;
-            int i = 0, end = s.Length;
-            if ((styles & AllowLeadingWhite) != 0) while (i < end && IsWhite(s[i])) i++;
-            if ((styles & AllowTrailingWhite) != 0) while (end > i && IsWhite(s[end - 1])) end--;
-            if (i == end) return StatusFormat;
-            if ((styles & AllowHexSpecifier) != 0)
-            {
-                ulong v = 0;
-                bool overflow = false;
-                for (; i < end; i++)
-                {
-                    char c = s[i];
-                    int d = c >= '0' && c <= '9' ? c - '0' : c >= 'a' && c <= 'f' ? c - 'a' + 10 : c >= 'A' && c <= 'F' ? c - 'A' + 10 : -1;
-                    if (d < 0) return StatusFormat;
-                    if ((v >> (bits - 4)) != 0) overflow = true;
-                    v = (v << 4) | (uint)d;
-                }
-                if (overflow) return StatusOverflow;
-                // int.Parse("FFFFFFFF", HexNumber) == -1: reinterpret within the type's width
-                if (isSigned && bits < 64 && ((v >> (bits - 1)) & 1) != 0) result = (long)(v | (ulong.MaxValue << bits));
-                else result = (long)v;
-                return StatusOk;
-            }
-            bool negative = false;
-            if ((styles & AllowLeadingSign) != 0 && (s[i] == '-' || s[i] == '+')) { negative = s[i] == '-'; i++; }
-            if (i == end) return StatusFormat;
-            ulong value = 0;
-            bool tooBig = false, anyDigit = false;
-            for (; i < end; i++)
-            {
-                char c = s[i];
-                if (c >= '0' && c <= '9')
-                {
-                    anyDigit = true;
-                    if (value > (ulong.MaxValue - 9) / 10) tooBig = true;
-                    else value = value * 10 + (ulong)(c - '0');
-                    continue;
-                }
-                if (c == ',' && (styles & AllowThousands) != 0 && anyDigit) continue;
-                // "123.000" is accepted with AllowDecimalPoint when the fraction is all zeros
-                if (c == '.' && (styles & AllowDecimalPoint) != 0)
-                {
-                    bool nonZeroFraction = false;
-                    for (i++; i < end; i++)
-                    {
-                        if (s[i] < '0' || s[i] > '9') return StatusFormat;
-                        if (s[i] != '0') nonZeroFraction = true;
-                    }
-                    if (nonZeroFraction) tooBig = true;
-                    break;
-                }
-                return StatusFormat;
-            }
-            if (!anyDigit) return StatusFormat;
-            if (tooBig) return StatusOverflow;
-            if (isSigned)
-            {
-                ulong limit = bits == 64 ? (ulong)long.MaxValue : (1UL << (bits - 1)) - 1;
-                if (value > limit + (negative ? 1UL : 0UL)) return StatusOverflow;
-                result = negative ? (long)(0 - value) : (long)value;
-            }
-            else
-            {
-                if (negative && value != 0) return StatusOverflow;
-                ulong limit = bits == 64 ? ulong.MaxValue : (1UL << bits) - 1;
-                if (value > limit) return StatusOverflow;
-                result = (long)value;
-            }
-            return StatusOk;
-        }
-
-
-
-
         internal static double DigitsToDoubleOf(Span<byte> digits, int n, int exp10, bool negative) =>
             DigitsToDouble(digits, n, exp10, false, negative);
 

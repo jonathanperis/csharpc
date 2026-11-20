@@ -7,7 +7,7 @@ namespace Csharpc.CodeGen;
 /// <summary>
 /// System.Int128 / System.UInt128 as LLVM i128. Their operators and conversions are library methods
 /// (op_Addition, op_Explicit...); this maps them onto the same integer lowering as the primitives
-/// (wrapping arithmetic, checked division, masked shifts) and formats via runtime/parse.c.
+/// (wrapping arithmetic, checked division, masked shifts) and formats via the corelib.
 /// </summary>
 internal static class Int128Support
 {
