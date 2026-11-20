@@ -20,4 +20,6 @@ linux-x86_64 collections 278528
 linux-aarch64 collections 277504
 macos-arm64 collections 290816
 windows-x86_64 collections 294912
-wasi-wasm32 collections 289792
+# #424 CI round 7 (head f66f4324, with the number flip) measured wasi-wasm32 298 890 B (budget 289792 -> 308224, measured + 3 %): the number flip's
+# other-platform budgets had moved by linux-x86_64's growth, which wasm32's code exceeds.
+wasi-wasm32 collections 308224

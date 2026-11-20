@@ -18,4 +18,6 @@ linux-x86_64 async 292864
 linux-aarch64 async 288768
 macos-arm64 async 306176
 windows-x86_64 async 301056
-wasi-wasm32 async 287744
+# #424 CI round 7 (head f66f4324, with the number flip) measured wasi-wasm32 298 423 B (budget 287744 -> 308224, measured + 3 %): the number flip's
+# other-platform budgets had moved by linux-x86_64's growth, which wasm32's code exceeds.
+wasi-wasm32 async 308224
