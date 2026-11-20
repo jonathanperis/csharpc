@@ -228,6 +228,11 @@ public sealed partial class FunctionCodeGen
             if (invocation is not null && staticType.IsValueType && !_m.IsUserMethod(impl) && _m.CoreLib.Map(impl) is var mappedImpl
                 && !SymbolEqualityComparer.Default.Equals(mappedImpl, impl) && _m.IsUserMethod(mappedImpl) && CoreLib.IsInstanceShadow(mappedImpl))
                 return EmitUserCall(mappedImpl, EmitValue(concrete), selfIsNonNull: true, invocation.Arguments, isVirtual: false, extra.Length > 0 ? extra : null);
+            // A built-in value type's own member served from its CoreLib IL (decimal.TryFormat for ISpanFormattable, the slicer's `this.`
+            // host roots): called directly on the receiver's address. Boxing and dispatching instead would reach the boxed type's slot, which
+            // for these interfaces is a corelib thunk that makes this same constrained call again (endless recursion).
+            if (invocation is not null && extra.Length == 0 && staticType.IsValueType && !_m.IsUserMethod(impl) && HostedBuiltinInstanceMember(impl) is { } hostedImpl)
+                return EmitHostedInstanceCall(hostedImpl, impl, concrete, invocation.Arguments);
             if (staticType.IsValueType && !ModuleCodeGen.PrimitiveSlotSupported(staticType, target.ContainingType, target))
                 throw CompileError.Unsupported($"interface call '{target}' on value type '{staticType}'", receiver);
         }
