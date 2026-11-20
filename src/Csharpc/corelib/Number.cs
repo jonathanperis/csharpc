@@ -42,126 +42,22 @@ namespace CsharpcCoreLib
             else dst[--at] = (char)('0' + (int)value);
         }
 
-        /// <summary>
-        /// WriteDigits without range checks, for callers that just sized the destination with
-        /// CountDigits/CountChars of the same value: writes the digits backwards, ending right before
-        /// `end`. (With span indexing LLVM can't relate the digit count to the span length and keeps
-        /// a check per char.)
-        /// </summary>
-        /// <summary>Exactly CountDigits(value) digits into `dst` (UTF-16 or UTF-8), sized by the caller: no range checks.</summary>
-        internal static unsafe void WriteDigitsExact(Span<char> dst, ulong value) { fixed (char* p = dst) WriteDigitsBefore(p + dst.Length, value); }
 
-        internal static unsafe void WriteDigitsExact(Span<byte> dst, ulong value)
-        {
-            fixed (byte* p = dst)
-            fixed (byte* pairs = DigitPairs)
-            {
-                byte* end = p + dst.Length;
-                while (value >= 100)
-                {
-                    ulong q = value / 100;
-                    nint r = (nint)(value - q * 100) * 2;
-                    end -= 2;
-                    end[0] = pairs[r];
-                    end[1] = pairs[r + 1];
-                    value = q;
-                }
-                if (value >= 10)
-                {
-                    nint r = (nint)value * 2;
-                    end[-2] = pairs[r];
-                    end[-1] = pairs[r + 1];
-                }
-                else end[-1] = (byte)('0' + (int)value);
-            }
-        }
 
-        private static unsafe void WriteDigitsBefore(char* end, ulong value)
-        {
-            fixed (byte* pairs = DigitPairs)
-            {
-                while (value >= 100)
-                {
-                    ulong q = value / 100;
-                    nint r = (nint)(value - q * 100) * 2;
-                    end -= 2;
-                    end[0] = (char)pairs[r];
-                    end[1] = (char)pairs[r + 1];
-                    value = q;
-                }
-                if (value >= 10)
-                {
-                    nint r = (nint)value * 2;
-                    end[-2] = (char)pairs[r];
-                    end[-1] = (char)pairs[r + 1];
-                }
-                else end[-1] = (char)('0' + (int)value);
-            }
-        }
 
-        internal static unsafe string UInt64ToDecStr(ulong value)
-        {
-            if (value < 10) return SingleDigit((int)value);
-            int digits = CountDigits(value);
-            string result = CoreIntrinsics.FastAllocateString(digits);
-            fixed (char* chars = CoreIntrinsics.StringChars(result)) WriteDigitsBefore(chars + digits, value);
-            return result;
-        }
+        internal static string UInt64ToDecStr(ulong value) => UpstreamNumber.UInt64ToDecStr(null, value);
 
         /// <summary>value.ToString() of a signed integer: negative values take the current culture's NegativeSign.</summary>
-        internal static string Int64ToDecStr(long value)
-        {
-            if (value >= 0) return UInt64ToDecStr((ulong)value);
-            return NegativeInt64ToDecStrCurrentCulture(value);
-        }
+        internal static string Int64ToDecStr(long value) => UpstreamNumber.Int64ToDecStr(null, value);
 
-        // Out of line: inlined into Int64ToDecStr, the culture lookup made that function too big to inline into the callers that print
-        // non-negative numbers (about 11 instructions more per int.ToString()).
-        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
-        private static string NegativeInt64ToDecStrCurrentCulture(long value) =>
-            NegativeInt64ToDecStr(value, System.Globalization.NumberFormatInfo.CurrentInfo.NegativeSign);
 
-        /// <summary>.NET's NegativeNumberToDecStr: `sNegative` followed by the digits of |value|.</summary>
-        internal static unsafe string NegativeInt64ToDecStr(long value, string sNegative)
-        {
-            ulong magnitude = (ulong)(-(value + 1)) + 1; // also correct for long.MinValue
-            int digits = CountDigits(magnitude);
-            string result = CoreIntrinsics.FastAllocateString(digits + sNegative.Length);
-            fixed (char* chars = CoreIntrinsics.StringChars(result))
-            {
-                for (int i = 0; i < sNegative.Length; i++) chars[i] = sNegative[i];
-                WriteDigitsBefore(chars + sNegative.Length + digits, magnitude);
-            }
-            return result;
-        }
 
-        /// <summary>The invariant digits of a signed value (internal messages, never culture-dependent).</summary>
-        internal static string Int64ToDecStrInvariant(long value) => value >= 0 ? UInt64ToDecStr((ulong)value) : NegativeInt64ToDecStr(value, "-");
 
-        internal static string Int32ToDecStr(int value) => Int64ToDecStr(value);
-        internal static string UInt32ToDecStr(uint value) => UInt64ToDecStr(value);
+        internal static string Int32ToDecStr(int value) => UpstreamNumber.Int32ToDecStr(null, value);
+        internal static string UInt32ToDecStr(uint value) => UpstreamNumber.UInt32ToDecStr(null, value);
 
-        private static string SingleDigit(int digit) => digit switch
-        {
-            0 => "0", 1 => "1", 2 => "2", 3 => "3", 4 => "4", 5 => "5", 6 => "6", 7 => "7", 8 => "8", _ => "9",
-        };
 
-        /// <summary>Chars needed for a signed value.</summary>
-        internal static int CountChars(long value) =>
-            value >= 0 ? CountDigits((ulong)value) : CountDigits((ulong)(-(value + 1)) + 1) + 1;
 
-        /// <summary>
-        /// Formats a signed value into the `chars` = CountChars(value) chars at `dst`; unchecked like
-        /// WriteDigitsBefore (StringBuilder reserves exactly that many first).
-        /// </summary>
-        internal static unsafe void WriteSigned(char* dst, int chars, long value)
-        {
-            if (value >= 0) { WriteDigitsBefore(dst + chars, (ulong)value); return; }
-            dst[0] = '-';
-            WriteDigitsBefore(dst + chars, (ulong)(-(value + 1)) + 1);
-        }
 
-        /// <summary>Formats an unsigned value into the `chars` = CountDigits(value) chars at `dst`; unchecked.</summary>
-        internal static unsafe void WriteUnsigned(char* dst, int chars, ulong value) => WriteDigitsBefore(dst + chars, value);
     }
 }

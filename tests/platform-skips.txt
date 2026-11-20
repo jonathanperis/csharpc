@@ -306,3 +306,4 @@ wasi   1420_icu_first_use_from_threads      needs threads: Thread.Start throws P
 macos 1391_filesystem_native_contract  live: FileStream.Lock/Unlock are a PlatformNotSupportedException on macOS, and its file system reports its own preallocation and modes
 windows 1391_filesystem_native_contract  live: Windows has no Unix modes, symbolic links need privileges, and its error texts and lock semantics are Win32's
 wasi 1391_filesystem_native_contract   WASI has no permission bits (.NET throws PlatformNotSupportedException from SetUnixFileMode) and wasmtime refuses symbolic links that leave the preopened directory
+wasi 1396_constrained_hosted_number_members  needs a named culture: WebAssembly runs in globalization-invariant mode, where "de-DE" is a CultureNotFoundException

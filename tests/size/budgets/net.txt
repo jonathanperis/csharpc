@@ -14,4 +14,8 @@
 # now all IL (its SocketAddressPal and SocketException over the libSystem.Native contract instead of the corelib's shadows) and Win32Exception's
 # message is Interop.Sys.StrError: linux-x86_64 measured 332 248 B (the integration head 330 784 with the same flags; budget 331 776 -> 339 968);
 # the other platforms print the size until CI measures them.
-linux-x86_64 net 339968
+# Number formatting and parsing from the framework's IL (#426): CoreLib's System.Number and the primitives' own ToString/TryFormat/Parse/TryParse replace
+# the corelib's smaller copies, a measured speed gain (number_format_parse_throughput 1 388 to 1 026 ms, 12.53 G to 8.53 G instructions; NativeAOT 1 202 ms).
+# linux-x86_64 330592 -> 369912 B (+39320); budget = measured + 3 %; the other platforms moved by the same 50176 B until CI measures them.
+# Merged with the sockets flip above (+1.5 KB on its own): the combined size is not measured locally; CI measures it.
+linux-x86_64 net 381952

@@ -47,7 +47,7 @@ the same header. Their `base` points at the base class's table or at `csrt_Objec
 | `gc.c` | the collector: allocator, mark-sweep, weak references and ephemerons, finalizers, Objective-C tracking, the opt-in nursery and concurrent marker ([GC](#gc)) |
 | `eh.c` | exceptions: throw/rethrow, the personality routine, filters, stack-trace recording and formatting, the exception trap for pool workers |
 | `threads.c`, `async.c`, `signals.c`, `sockets.c` | threads, `Monitor`/`Lock`, wait handles and the `Parallel` worker pool ([14-threading.md](14-threading.md)); tasks, the thread-pool scheduler, timers and iterator objects ([10-async.md](10-async.md)); POSIX signals; epoll for the corelib's socket engine |
-| `console.c`, `pinvoke.c`, `bclmisc.c`, `parse.c` | console input and stderr, `dlopen`-based library resolution and last-error capture for P/Invoke, `System.Array`/`Convert` helpers, `Enum.Parse` |
+| `console.c`, `pinvoke.c`, `bclmisc.c` | console input and stderr, `dlopen`-based library resolution and last-error capture for P/Invoke, `System.Array`/`Convert` helpers |
 | `bigint.c`, `decimal.c`, `datetime.c`, `int128.c` | the method tables of the boxed value types and the clocks; the arithmetic itself is C# |
 | `win32.c`, `wasi.c`, `windows-shims/` | the pthread subset and missing libc functions on Windows and WASI ([Platforms](#platforms)) |
 | `globalization/` | .NET's ICU shim ([19-globalization.md](19-globalization.md)) |
@@ -136,7 +136,7 @@ itself, on top of a thin native layer.
 - casts, interface dispatch and boxing method tables (`csrt.c`, `type.c`, `delegates.c`).
 
 Also in C: .NET's ICU shim (`globalization/`, System.Globalization.Native, see
-[19 — Globalization](19-globalization.md)), and, next in line to move, `Enum.Parse` (`parse.c`). The `decimal.c`, `bigint.c` and `datetime.c` files that remain only hold
+[19 — Globalization](19-globalization.md)). `Enum.Parse` moved to the C# corelib (`corelib/EnumRuntime.cs`, its integers parsed by CoreLib's own parser from IL, #426). The `decimal.c`, `bigint.c` and `datetime.c` files that remain only hold
 boxed method tables and the clocks.
 
 **Lives in C#:** library logic that is ordinary code:

@@ -117,8 +117,6 @@ sealed class Cli
     public List<string> Stop = [];
     /// <summary>"Ns.Type::Method" -> "Assembly:Ns.Type::Method": the slice calls the target with the same arguments instead of running the method's IL (the contract).</summary>
     public Dictionary<string, string> Replace = new();
-    /// <summary>Emit csharpc's NumberBridge (Emit.EmitNumberBridge) when the slice holds the shortest-digit members (the csharpc profile).</summary>
-    public bool NumberBridge;
     /// <summary>
     /// "Assembly:Ns.Type::Method": SR.Format's replacement, a formatter of `{n}` / `{n:spec}` items only (Emit.SrFormatIsSimple). Used only
     /// when the slice proves that every SR.Format call it carries formats a CoreLib resource text of that form; otherwise SR.Format keeps
@@ -186,7 +184,6 @@ sealed class Cli
                 case "--profile":
                     // The contract choices of the shipped slice (docs/21-ownership.md Part B), the same for the build and for tools/il-first/slicer/slice.sh.
                     if (args[++i] != "csharpc") throw new ArgumentException("unknown profile " + args[i]);
-                    c.NumberBridge = true;
                     c.Replace["System.SR::InternalGetResourceString"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetResourceString";
                     c.Replace["System.SR::GetUsingResourceKeysSwitchValue"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetUsingResourceKeys";
                     // The message of a missing key is string.Format(text, key): all of composite formatting, culture data and number formatting for a

@@ -280,7 +280,7 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef CallCoreLib(string type, string method, params LLVMValueRef[] args)
     {
         var owner = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + "." + type)
-            ?? throw CompileError.Unsupported($"corelib type '{type}' not found (is src/Csharpc/corelib shipped?)", (ISymbol?)null!);
+            ?? throw CompileError.Unsupported($"corelib type '{type}' not found (is src/Csharpc/corelib shipped?)");
         var target = owner.GetMembers(method).OfType<IMethodSymbol>().Single(m => m.IsStatic && m.Parameters.Length == args.Length);
         return DirectCall(target, args);
     }
@@ -289,7 +289,7 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef CallCoreLibGenericMethod(string type, string method, ITypeSymbol[] typeArguments, params LLVMValueRef[] args)
     {
         var owner = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + "." + type)
-            ?? throw CompileError.Unsupported($"corelib type '{type}' not found (is src/Csharpc/corelib shipped?)", (ISymbol?)null!);
+            ?? throw CompileError.Unsupported($"corelib type '{type}' not found (is src/Csharpc/corelib shipped?)");
         var target = owner.GetMembers(method).OfType<IMethodSymbol>()
             .Single(m => m.IsStatic && m.Parameters.Length == args.Length && m.TypeParameters.Length == typeArguments.Length);
         return DirectCall(target.Construct(typeArguments), args);

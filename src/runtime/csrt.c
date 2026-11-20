@@ -1117,7 +1117,3 @@ __attribute__((weak)) void* csrt_culture_get_format_dtfi(void* culture, void* fo
 void* csrt_culture_format_dtfi(void* culture, void* format_type) { return csrt_culture_get_format_dtfi(culture, format_type); }
 __attribute__((weak)) csrt_String* csrt_timespan_format_with(int64_t ticks, csrt_String* f, void* p) { (void)ticks; (void)f; (void)p; missing_export("csrt_timespan_format_with"); }
 __attribute__((weak)) csrt_String* csrt_datetime_format_with(int64_t d, csrt_String* f, void* p) { (void)d; (void)f; (void)p; missing_export("csrt_datetime_format_with"); }
-__attribute__((weak)) int32_t csrt_parse_i64_styled(csrt_String* s, int32_t styles, int32_t bits, bool is_signed, int64_t* result) {
-    (void)s; (void)styles; (void)bits; (void)is_signed; (void)result;
-    missing_export("csrt_parse_i64_styled");
-}

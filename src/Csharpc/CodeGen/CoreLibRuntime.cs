@@ -40,16 +40,7 @@ internal static class CoreLibRuntime
         ["csrt_format_object"] = ("Number", "FormatObject"),
         ["csrt_string_format"] = ("Number", "FormatComposite"),
         ["csrt_format_i128"] = ("Number", "FormatInt128"),
-        // parsing and rounding (Number.Parsing.cs)
-        ["csrt_int32_parse"] = ("Number", "ParseInt32"),
-        ["csrt_int64_parse"] = ("Number", "ParseInt64"),
-        ["csrt_double_parse"] = ("Number", "ParseDouble"),
-        ["csrt_int32_try_parse"] = ("Number", "TryParseInt32"),
-        ["csrt_int64_try_parse"] = ("Number", "TryParseInt64"),
-        ["csrt_double_try_parse"] = ("Number", "TryParseDouble"),
-        ["csrt_parse_i64_styled"] = ("Number", "ParseInt64Styled"),
-        ["csrt_parse_f64_styled"] = ("Number", "ParseDoubleStyled"),
-        ["csrt_parse_f64_styled_or_throw"] = ("Number", "ParseDoubleStyledOrThrow"),
+        // Math.Round(double, digits[, mode]) (Number.Parsing.cs)
         ["csrt_math_round_digits"] = ("Number", "RoundDigits"),
         ["csrt_math_round_mode"] = ("Number", "RoundMode"),
         // System.Decimal operations taking decimals by address (DecimalOps.cs); see also FunctionCodeGen.DecimalCall
@@ -58,7 +49,6 @@ internal static class CoreLibRuntime
         ["csrt_decimal_to_f64"] = ("DecimalOps", "ToDoubleAt"),
         ["csrt_decimal_to_f32"] = ("DecimalOps", "ToSingleAt"),
         ["csrt_decimal_to_integer"] = ("DecimalOps", "ToIntegerAt"),
-        ["csrt_decimal_try_parse"] = ("DecimalOps", "TryParse"),
         // System.Numerics.BigInteger (BigIntegerOps.cs)
         ["csrt_bigint_abs"] = ("BigIntegerOps", "Abs"),
         ["csrt_bigint_add"] = ("BigIntegerOps", "Add"),

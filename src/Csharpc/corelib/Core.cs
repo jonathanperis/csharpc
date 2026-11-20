@@ -156,7 +156,6 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void NullabilityQueried();
         /// <summary>The run-time Enum.Parse table (ModuleCodeGen.Enums.cs, EnumParseTable).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint EnumParseTableAddress();
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe long csrt_enum_parse_or_throw(string s, bool ignoreCase, void* values, void* names, int count, int bits, bool isSigned);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint ReflectionTableAddress();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateMethodTableAddress();
         /// <summary>`obj` is non-null and exactly of class T: one method-table compare, inline (no base-type walk).</summary>

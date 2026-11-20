@@ -69,11 +69,12 @@ namespace CsharpcCoreLib
             throw new InvalidCastException();
         }
 
+        // Int128's and UInt128's TryFormat are the framework's own (hosted from their IL, #426).
         private static bool Int128TryFormat(Int128 v, Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider provider) =>
-            format.Length == 0 ? NumberTryFormat.Copy(v.ToString(provider), destination, out charsWritten) : throw new NotSupportedException("Int128.TryFormat with a format string is not supported by csharpc yet.");
+            v.TryFormat(destination, out charsWritten, format, provider);
 
         private static bool UInt128TryFormat(UInt128 v, Span<char> destination, out int charsWritten, ReadOnlySpan<char> format, IFormatProvider provider) =>
-            format.Length == 0 ? NumberTryFormat.Copy(v.ToString(provider), destination, out charsWritten) : throw new NotSupportedException("UInt128.TryFormat with a format string is not supported by csharpc yet.");
+            v.TryFormat(destination, out charsWritten, format, provider);
 
         public static bool TryFormat(object self, Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format, IFormatProvider provider)
         {

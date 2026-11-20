@@ -136,7 +136,6 @@ public sealed partial class FunctionCodeGen
             "csrt_decimal_from_u64" => "FromUInt64",
             "csrt_decimal_from_f64" => "FromDouble",
             "csrt_decimal_from_f32" => "FromSingle",
-            "csrt_decimal_parse" => "Parse",
             _ => throw new InvalidOperationException($"unknown decimal operation {fn}"),
         };
         return CallCoreLib("DecimalOps", method, operands);
