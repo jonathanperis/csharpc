@@ -71,6 +71,9 @@ public sealed partial class FunctionCodeGen
                     if (!candidate.IsStatic || candidate.TypeParameters.Length != typeArguments.Length) continue;
                     var constructed = typeArguments.Length > 0 ? candidate.Construct(typeArguments) : candidate;
                     if (SameSignature(constructed, target)) return constructed;
+                    // A type argument the corelib redirects (KeyValuePair<K, V> -> its shadow) maps at the top of a type, not inside a constructed
+                    // parameter type (string.Join<T>(string, IEnumerable<T>) over a Dictionary): compare with the call's own type arguments.
+                    if (typeArguments.Length > 0 && SameSignature(candidate.Construct([.. target.TypeArguments]), target)) return constructed;
                 }
         return null;
     }
