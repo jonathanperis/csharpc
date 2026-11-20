@@ -10,4 +10,9 @@
 # Composite formatting and interpolation call ISpanFormattable.TryFormat as .NET does (#424, #426; sample 1342 regressed without it): string.Format
 # and interpolation now reach the TryFormat of the program's own ISpanFormattable types (IPAddress, IPEndPoint, IPNetwork, their UTF-8 forms).
 # linux-x86_64 measured 326 280 B (base 272 760 on this branch; budget 318 464 -> 331 776); the other platforms print the size until CI measures them.
-linux-x86_64 net 331776
+# String's and Char's library members from CoreLib IL (#423), measured after merging the integration branch at dc414710: linux-x86_64
+# 365 416 B (budget 331 776 -> 376 832, measured + max(4 KiB, 3 %)). A program that searches, compares or cases a string now carries
+# CoreLib's own vectorized search, ordinal ignore-case comparison and casing tables instead of the corelib's scalar copies: a measured speed
+# gain paid in size (tools/il-first/bench/string_throughput.cs 0.183 -> 0.126 s, 1 472 M -> 920 M instructions), which also fixed two silent
+# differences (#439, #440).
+linux-x86_64 net 376832

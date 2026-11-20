@@ -11,8 +11,13 @@
 # that formats a number carries the framework's culture initialization (culture data over ICU  its locale tables  the culture caches). linux-x86_64
 # measured 261 664 B (budget 183 296 -> 266 240; NativeAOT carries the same code); the other platforms moved by the same 82 944 B until CI measures them.
 # #426 merged with the IO and Hashtable flips: linux-x86_64 measured 270 528 B (budget 266 240 -> 275 456); the other platforms moved by the same 9 216 B.
-linux-x86_64 async 275456
-linux-aarch64 async 271360
-macos-arm64 async 288768
-windows-x86_64 async 283648
-wasi-wasm32 async 270336
+# String's and Char's library members from CoreLib IL (#423), measured after merging the integration branch at dc414710: linux-x86_64
+# 300 224 B (budget 275 456 -> 311 296, measured + max(4 KiB, 3 %)). A program that searches, compares or cases a string now carries
+# CoreLib's own vectorized search, ordinal ignore-case comparison and casing tables instead of the corelib's scalar copies: a measured speed
+# gain paid in size (tools/il-first/bench/string_throughput.cs 0.183 -> 0.126 s, 1 472 M -> 920 M instructions), which also fixed two silent
+# differences (#439, #440). The other platforms moved by the same 35 840 B until CI measures them.
+linux-x86_64 async 311296
+linux-aarch64 async 307200
+macos-arm64 async 324608
+windows-x86_64 async 319488
+wasi-wasm32 async 306176

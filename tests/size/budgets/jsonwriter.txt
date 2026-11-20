@@ -13,4 +13,9 @@
 # 951 520 B against 937 192 B on the integration head (+14 328 B); budget 942080 -> 954368.
 # Convert from CoreLib IL (#423), measured after merging the integration branch at 61211692: linux-x86_64 827 624 B; budget lowered to
 # measured + max(4 KiB, 3 %), rounded up to 4 KiB.
-linux-x86_64 jsonwriter 856064
+# String's and Char's library members from CoreLib IL (#423), measured after merging the integration branch at dc414710: linux-x86_64
+# 857 008 B (budget 856 064 -> 884 736, measured + max(4 KiB, 3 %)). A program that searches, compares or cases a string now carries
+# CoreLib's own vectorized search, ordinal ignore-case comparison and casing tables instead of the corelib's scalar copies: a measured speed
+# gain paid in size (tools/il-first/bench/string_throughput.cs 0.183 -> 0.126 s, 1 472 M -> 920 M instructions), which also fixed two silent
+# differences (#439, #440).
+linux-x86_64 jsonwriter 884736

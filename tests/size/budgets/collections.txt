@@ -11,8 +11,13 @@
 # Globalization from the framework's IL (#426): CultureInfo  CultureData  NumberFormatInfo  TextInfo and CompareInfo are CoreLib's own  so a program
 # that formats a number carries the framework's culture initialization (culture data over ICU  its locale tables  the culture caches). linux-x86_64
 # measured 251 192 B (budget 173 056 -> 256 000; NativeAOT carries the same code); the other platforms moved by the same 82 944 B until CI measures them.
-linux-x86_64 collections 256000
-linux-aarch64 collections 254976
-macos-arm64 collections 268288
-windows-x86_64 collections 272384
-wasi-wasm32 collections 267264
+# String's and Char's library members from CoreLib IL (#423), measured after merging the integration branch at dc414710: linux-x86_64
+# 292 808 B (budget 256 000 -> 303 104, measured + max(4 KiB, 3 %)). A program that searches, compares or cases a string now carries
+# CoreLib's own vectorized search, ordinal ignore-case comparison and casing tables instead of the corelib's scalar copies: a measured speed
+# gain paid in size (tools/il-first/bench/string_throughput.cs 0.183 -> 0.126 s, 1 472 M -> 920 M instructions), which also fixed two silent
+# differences (#439, #440). The other platforms moved by the same 47 104 B until CI measures them.
+linux-x86_64 collections 303104
+linux-aarch64 collections 302080
+macos-arm64 collections 315392
+windows-x86_64 collections 319488
+wasi-wasm32 collections 314368

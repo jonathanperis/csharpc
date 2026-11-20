@@ -9,6 +9,3 @@ host:System.String::Compare,CompareOrdinal,Join,Concat,Create,Format,IsNullOrWhi
 host:System.Char::GetNumericValue,GetUnicodeCategory,IsAscii,IsAsciiDigit,IsAsciiHexDigit,IsAsciiHexDigitLower,IsAsciiHexDigitUpper,IsAsciiLetter,IsAsciiLetterLower,IsAsciiLetterOrDigit,IsAsciiLetterUpper,IsBetween,IsControl,IsDigit,IsHighSurrogate,IsLetter,IsLetterOrDigit,IsLowSurrogate,IsLower,IsNumber,IsPunctuation,IsSeparator,IsSurrogate,IsSurrogatePair,IsSymbol,IsUpper,IsWhiteSpace,Parse,ToLower,ToLowerInvariant,ToUpper,ToUpperInvariant,TryParse,ConvertFromUtf32,ConvertToUtf32,ToString,this.ToString
 # String's private holder of the newline SearchValues that ReplaceLineEndings and IndexOfNewlineChar read.
 System.String/SearchValuesStorage
-# The internal virtual surface of SearchValues<T> (ContainsAnyExcept...), which SearchValuesStorage holds: rooted whole, so a slice
-# that serves MemoryExtensions on its own (tests/slicer.sh) finds the members its IL calls on it.
-System.Buffers.SearchValues`1
