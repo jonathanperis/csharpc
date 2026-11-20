@@ -58,7 +58,7 @@ long check = 0;
         while ((n = await stream.ReadAsync(buffer)) > 0)
         {
             total += n;
-            sum += buffer[n - 1];
+            for (int i = 0; i < n; i++) sum += buffer[i]; // independent of how the stream splits the data
         }
         return total + sum;
     });
