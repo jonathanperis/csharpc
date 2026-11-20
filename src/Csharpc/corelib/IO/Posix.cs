@@ -42,7 +42,7 @@ namespace CsharpcCoreLib
         // ---- read-only file views (System.IO.MemoryMappedFiles) --------------------------------
 #if CSHARPC_TARGET_WASI
         public const bool CanMapFiles = false;
-        public static byte* MapView(int fd, long offset, long length) => null;
+        public static byte* MapView(nint handle, long offset, long length) => null;
         public static void UnmapView(byte* view, long length) { }
 #else
         public const bool CanMapFiles = true;
@@ -50,9 +50,10 @@ namespace CsharpcCoreLib
         [DllImport("libc", SetLastError = true)] private static extern int munmap(void* address, nuint length);
 
         /// <summary>A read-only shared view of [offset, offset + length) of a file (offset aligned to 64 KiB by the caller); null with errno set on failure.</summary>
-        public static byte* MapView(int fd, long offset, long length)
+        /// <summary>A read-only view of [offset, offset + length) of a file; <paramref name="handle"/> is its descriptor (SafeFileHandle's value).</summary>
+        public static byte* MapView(nint handle, long offset, long length)
         {
-            void* p = mmap(null, (nuint)length, 1 /* PROT_READ */, 1 /* MAP_SHARED */, fd, offset);
+            void* p = mmap(null, (nuint)length, 1 /* PROT_READ */, 1 /* MAP_SHARED */, (int)handle, offset);
             return p == (void*)-1 ? null : (byte*)p;
         }
 
