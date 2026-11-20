@@ -30,4 +30,8 @@ System.IO.Enumeration.FileSystemName
 System.IO.EnumerationOptions
 System.IO.Enumeration.FileSystemEntry
 System.Threading.ThreadPoolBoundHandle
-System.Runtime.InteropServices.Marshalling.SpanOfCharAsUtf8StringMarshaller
+unix:System.Runtime.InteropServices.Marshalling.SpanOfCharAsUtf8StringMarshaller
+# C's long / unsigned long in native signatures (macOS's setattrlist path of File.SetCreationTime): a struct over nint/nuint on Unix and
+# int/uint on Windows, as the target's C ABI has it.
+System.Runtime.InteropServices.CLong
+System.Runtime.InteropServices.CULong

@@ -451,8 +451,16 @@ sealed class Slice
     public void Run()
     {
         var methodRoots = new List<MethodDefinition>();
-        foreach (var name in Cli.Roots)
+        foreach (var rootName in Cli.Roots)
         {
+            var name = rootName;
+            // "unix:System.X": a root only the Unix CoreLibs (Linux, macOS) carry, such as the marshallers of libSystem.Native's
+            // signatures; the Windows CoreLib calls kernel32 instead and has no such type, so it is skipped there.
+            if (name.StartsWith("unix:", StringComparison.Ordinal))
+            {
+                name = name["unix:".Length..];
+                if (Core.GetType("Interop")?.NestedTypes.Any(n => n.Name == "Sys") != true) continue;
+            }
             // "host:System.Int32,System.Int64::Log2,PopCount": static members of built-in types the slice carries in their host classes
             // (DeclareHosted), every overload, public ones and explicit interface implementations alike ("...INumberBase<System.Int32>.IsNegative").
             // The compiler calls them where it has no lowering of its own (FunctionCodeGen.BuiltinInterfaceMembers.cs).
