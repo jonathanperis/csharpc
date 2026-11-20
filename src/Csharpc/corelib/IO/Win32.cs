@@ -340,10 +340,14 @@ namespace CsharpcCoreLib
         [DllImport("kernel32", SetLastError = true)] private static extern void* MapViewOfFile(nint mapping, uint access, uint offsetHigh, uint offsetLow, nuint length);
         [DllImport("kernel32", SetLastError = true)] private static extern int UnmapViewOfFile(void* address);
 
-        /// <summary>A read-only view of [offset, offset + length) of a file (offset aligned to 64 KiB by the caller); null with errno set on failure.</summary>
-        public static byte* MapView(int fd, long offset, long length)
+        /// <summary>
+        /// A read-only view of [offset, offset + length) of a file (offset aligned to 64 KiB by the caller); null with errno set on failure.
+        /// <paramref name="handle"/> is the file's OS handle (SafeFileHandle, from the framework's IL since the file-system flip, holds the
+        /// Win32 HANDLE itself, not a C runtime descriptor).
+        /// </summary>
+        public static byte* MapView(nint handle, long offset, long length)
         {
-            nint mapping = CreateFileMappingW(_get_osfhandle(fd), null, 0x02 /* PAGE_READONLY */, 0, 0, null);
+            nint mapping = CreateFileMappingW(handle, null, 0x02 /* PAGE_READONLY */, 0, 0, null);
             if (mapping == 0) { _set_errno(Win32Base + Marshal.GetLastPInvokeError()); return null; }
             void* view = MapViewOfFile(mapping, 0x0004 /* FILE_MAP_READ */, (uint)(offset >> 32), (uint)offset, (nuint)length);
             int error = Marshal.GetLastPInvokeError();
