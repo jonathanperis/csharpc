@@ -13,8 +13,11 @@
 # that formats a number carries the framework's culture initialization (culture data over ICU  its locale tables  the culture caches). linux-x86_64
 # measured 336 544 B (budget 240 640 -> 340 992; NativeAOT carries the same code); the other platforms moved by the same 100 352 B until CI measures them.
 # #426 merged with the IO and Hashtable flips: linux-x86_64 measured 341 288 B (budget 340 992 -> 346 112); the other platforms moved by the same 5 120 B.
-linux-x86_64 linq 346112
-linux-aarch64 linq 365568
-macos-arm64 linq 391168
-windows-x86_64 linq 401408
-wasi-wasm32 linq 401408
+# Number formatting and parsing from the framework's IL (#426): CoreLib's System.Number and the primitives' own ToString/TryFormat/Parse/TryParse replace
+# the corelib's smaller copies, a measured speed gain (number_format_parse_throughput 1 388 to 1 026 ms, 12.53 G to 8.53 G instructions; NativeAOT 1 202 ms).
+# linux-x86_64 341032 -> 358752 B (+17720); budget = measured + 3 %; the other platforms moved by the same 23552 B until CI measures them.
+linux-x86_64 linq 369664
+linux-aarch64 linq 389120
+macos-arm64 linq 414720
+windows-x86_64 linq 424960
+wasi-wasm32 linq 424960

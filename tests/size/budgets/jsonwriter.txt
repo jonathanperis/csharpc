@@ -13,4 +13,7 @@
 # 951 520 B against 937 192 B on the integration head (+14 328 B); budget 942080 -> 954368.
 # Convert from CoreLib IL (#423), measured after merging the integration branch at 61211692: linux-x86_64 827 624 B; budget lowered to
 # measured + max(4 KiB, 3 %), rounded up to 4 KiB.
-linux-x86_64 jsonwriter 856064
+# Number formatting and parsing from the framework's IL (#426): CoreLib's System.Number and the primitives' own ToString/TryFormat/Parse/TryParse replace
+# the corelib's smaller copies, a measured speed gain (number_format_parse_throughput 1 388 to 1 026 ms, 12.53 G to 8.53 G instructions; NativeAOT 1 202 ms).
+# linux-x86_64 832112 -> 861472 B (+29360); budget = measured + 3 %; the other platforms moved by the same 31744 B until CI measures them.
+linux-x86_64 jsonwriter 887808
