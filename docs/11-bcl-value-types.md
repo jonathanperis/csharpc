@@ -167,9 +167,9 @@ comparisons ordinal, as in .NET. See [19 — Globalization](19-globalization.md)
 (`double.Round`, `int.Max/Min/Clamp/Abs/Sign`, ...), `Math.Round(double, [digits,] MidpointRounding)`
 (on the double's exact decimal value, matching .NET 11), `Convert.ToInt32/ToInt64/ToString`
 with bases 2/8/10/16 and `Convert.ToInt32(double)` (banker's rounding), `bool.Parse`,
-`char.GetNumericValue`, `Environment.ProcessorCount/TickCount/GetCommandLineArgs/Is64BitProcess`,
-`StringBuilder.Insert/Remove/Replace/indexer/AppendJoin`, `string.Split(string|char[])`,
-`string.Concat(string[])`, `string.IsNullOrWhiteSpace`, `object.ReferenceEquals`, `x as T`
+`Environment.ProcessorCount/TickCount/GetCommandLineArgs/Is64BitProcess`,
+`StringBuilder.Insert/Remove/Replace/indexer/AppendJoin`,
+`string.Concat(string[])`, `object.ReferenceEquals`, `x as T`
 returning null, and custom numeric formats with `positive;negative;zero` sections.
 Formatting and parsing use the provider's or the current culture's `NumberFormatInfo` /
 `DateTimeFormatInfo` ([19 — Globalization](19-globalization.md)).

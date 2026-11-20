@@ -417,7 +417,7 @@ public sealed partial class FunctionCodeGen
         return target.ReturnsVoid ? default : call;
     }
 
-    private LLVMValueRef DirectCall(IMethodSymbol target, LLVMValueRef[] args)
+    internal LLVMValueRef DirectCall(IMethodSymbol target, LLVMValueRef[] args)
     {
         var f = _m.GetFunction(target);
         return _b.Call(f.Type, f.Fn, args);

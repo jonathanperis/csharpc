@@ -670,7 +670,7 @@ internal static partial class BclValueTypes
         // culture model) into every program that compares strings ordinally.
         t["string.Compare(string, string, System.StringComparison)"] = (g, _, _, a, at) => ConstantComparison(at, 2) switch
         {
-            StringComparison.Ordinal => g.CallCoreLib("StringOps", "CompareOrdinal", a[0], a[1]),
+            StringComparison.Ordinal => g.CallCoreLib("StringRuntime", "CompareOrdinal", a[0], a[1]),
             StringComparison.OrdinalIgnoreCase => g.CallCoreLib("OrdinalCasing", "Compare", a[0], a[1]),
             _ => g.CallCoreLib("OrdinalCasing", "CompareWith", a[0], a[1], a[2]),
         };
@@ -768,7 +768,6 @@ internal static partial class BclValueTypes
                     b.ICmp(LLVMIntPredicate.EQ, b.BinOp(LLVMOpcode.And, a[0], b.BinOp(LLVMOpcode.Sub, a[0], g.Llvm.ConstInt(a[0].Type, 1))), zero));
             };
         }
-        t["string.IsNullOrWhiteSpace(string)"] = (g, _, _, a, _) => Rt(g, "csrt_string_is_null_or_white_space", g.Llvm.I1, (a[0], g.Llvm.Ptr));
         t["object.ReferenceEquals(object, object)"] = (g, _, _, a, _) => g.Builder.ICmp(LLVMIntPredicate.EQ, a[0], a[1]);
         t["object.Equals(object, object)"] = (g, _, _, a, _) => Rt(g, "csrt_object_equals_static", g.Llvm.I1, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr));
         t["nint.get_Size()"] = t["System.IntPtr.get_Size()"] = t["nuint.get_Size()"] = (g, _, _, _, _) => I32(g, (int)g.Types.PointerSize);
@@ -776,14 +775,6 @@ internal static partial class BclValueTypes
         t["bool.Parse(string)"] = (g, _, _, a, _) => Rt(g, "csrt_bool_parse", g.Llvm.I1, (a[0], g.Llvm.Ptr));
         t["double.ToString(System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("Number", "FormatDoubleWith", self, LlvmContext.Null(g.Llvm.Ptr), g.Llvm.False, a[0]);
         t["double.ToString(string, System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("Number", "FormatDoubleWith", self, a[0], g.Llvm.False, a[1]);
-        t["char.GetNumericValue(char)"] = (g, _, _, a, _) =>
-        {
-            var b = g.Builder;
-            var l = g.Llvm;
-            var isDigit = b.BinOp(LLVMOpcode.And, b.ICmp(LLVMIntPredicate.UGE, a[0], l.ConstInt(l.I16, '0')), b.ICmp(LLVMIntPredicate.ULE, a[0], l.ConstInt(l.I16, '9')));
-            var value = b.Cast(LLVMOpcode.UIToFP, b.BinOp(LLVMOpcode.Sub, a[0], l.ConstInt(l.I16, '0')), l.F64);
-            return b.Select(isDigit, value, LlvmContext.ConstReal(l.F64, -1));
-        };
 
         // System.Convert: corelib Convert.cs (a port of .NET's).
 
@@ -853,24 +844,6 @@ internal static partial class BclValueTypes
         t["string.Join(char, string[])"] = (g, m, _, a, at) => JoinArray(g, m, a, at, charSeparator: true);
         t["string.Join(char, object[])"] = (g, m, _, a, at) => JoinArray(g, m, a, at, charSeparator: true);
         t["string.Concat(string[])"] = (g, _, _, a, _) => Rt(g, "csrt_string_join", g.Llvm.Ptr, (g.Module.StringLiteral(""), g.Llvm.Ptr), (a[0], g.Llvm.Ptr));
-        t["string.Split(string, System.StringSplitOptions)"] = (g, _, self, a, _) =>
-        {
-            var array = Rt(g, "csrt_string_split_string", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (a[1], g.Llvm.I32));
-            g.TagArray(array, g.Module.Compilation.GetSpecialType(SpecialType.System_String));
-            return array;
-        };
-        t["string.Split(char[])"] = (g, _, self, a, _) =>
-        {
-            var array = Rt(g, "csrt_string_split_chars", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (I32(g, 0), g.Llvm.I32));
-            g.TagArray(array, g.Module.Compilation.GetSpecialType(SpecialType.System_String));
-            return array;
-        };
-        t["string.Split(char[], System.StringSplitOptions)"] = (g, _, self, a, _) =>
-        {
-            var array = Rt(g, "csrt_string_split_chars", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (a[1], g.Llvm.I32));
-            g.TagArray(array, g.Module.Compilation.GetSpecialType(SpecialType.System_String));
-            return array;
-        };
 
         // ===== Math extras =====
         t["System.Math.BigMul(int, int)"] = (g, _, _, a, _) => g.Builder.BinOp(LLVMOpcode.Mul, ToI64(g, a[0]), ToI64(g, a[1]));
@@ -1273,8 +1246,11 @@ internal static partial class BclValueTypes
     private static LLVMValueRef JoinArray(FunctionCodeGen g, IMethodSymbol m, LLVMValueRef[] a, IOperation at, bool charSeparator)
     {
         var l = g.Llvm;
-        var element = (ArrayElementOf(g, at, 1) is { } syntactic ? (m.TypeArguments.Length == 1 ? m.TypeArguments[0] : syntactic) : null)
-            ?? throw CompileError.Unsupported($"'{Intrinsics.Key(m.OriginalDefinition)}' over a non-array sequence", at);
+        var element = ArrayElementOf(g, at, 1) is { } syntactic ? (m.TypeArguments.Length == 1 ? m.TypeArguments[0] : syntactic) : null;
+        // Any other sequence: String's own IL (src/Csharpc/upstream-types/System.String.txt).
+        if (element is null)
+            return g.HostedBuiltinMember(m, null) is { } hosted ? g.DirectCall(hosted, a)
+                : throw CompileError.Unsupported($"'{Intrinsics.Key(m.OriginalDefinition)}' over a non-array sequence", at);
         var separator = charSeparator ? Rt(g, "csrt_string_from_char", l.Ptr, (a[0], l.I16)) : a[0];
         var array = a[1];
         if (element.SpecialType != SpecialType.System_String)

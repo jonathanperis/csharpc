@@ -444,7 +444,7 @@ internal static class Intrinsics
         AddTaskMethods(t);
 
         // ---- parsing (src/runtime/strings.c) ---------------------------------------------------------
-        // System.Char classification/casing: src/Csharpc/corelib/StringOps.cs (CharOps).
+        // System.Char classification/casing: CoreLib's IL (src/Csharpc/upstream-types/System.String.txt).
         // Numeric Parse/TryParse: corelib NumberParsingMembers.cs (culture-aware, Number.Parsing.Culture.cs).
 
         // System.Text.StringBuilder: the framework's own IL (src/Csharpc/upstream-types/System.Text.StringBuilder.txt); StringBuilderRuntime.cs has the entry points of synthesized code.

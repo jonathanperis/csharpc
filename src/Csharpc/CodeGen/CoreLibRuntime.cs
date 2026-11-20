@@ -10,11 +10,11 @@ internal static class CoreLibRuntime
 {
     private static readonly Dictionary<string, (string Type, string Method)> s_moved = new()
     {
-        ["csrt_string_join"] = ("StringOps", "Join"),
-        ["csrt_string_substring"] = ("StringOps", "Slice"),
-        ["csrt_string_new_repeat"] = ("StringOps", "CreateRepeated"),
-        ["csrt_string_new_from_chars"] = ("StringOps", "CreateFromChars"),
-        ["csrt_string_compare_ordinal"] = ("StringOps", "CompareOrdinal"),
+        ["csrt_string_join"] = ("StringRuntime", "Join"),
+        ["csrt_string_substring"] = ("StringRuntime", "Slice"),
+        ["csrt_string_new_repeat"] = ("StringRuntime", "CreateRepeated"),
+        ["csrt_string_new_from_chars"] = ("StringRuntime", "CreateFromChars"),
+        ["csrt_string_compare_ordinal"] = ("StringRuntime", "CompareOrdinal"),
         // culture-sensitive comparison (Globalization/CultureStrings.cs)
         ["csrt_string_compare_culture"] = ("CultureStrings", "CompareCulture"),
         ["csrt_string_compare_with"] = ("CultureStrings", "CompareWith"),

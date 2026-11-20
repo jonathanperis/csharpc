@@ -359,7 +359,7 @@ static class Rules
         Add("Random/CoreDebug.cs", ported);
         Add("Reflection/MemberLookup.cs", Reflection);
         Add("Reflection/ObjectArrayDelegates.cs", F("reflection", ClContract, "keep", "NativeAOT's DynamicDelegateAugments for System.Linq.Expressions (ModuleCodeGen.ObjectArrayDelegates.cs)", "REFLECT"));
-        Add("UnicodeData.g.cs", F("unicode-data", ClData, "keep", "generated Unicode category table (tools/unicode) behind Char.GetUnicodeCategory/IsLetter...; goes when Char and CharUnicodeInfo come from IL with their own embedded data", "NONE"));
+        Add("UnicodeData.g.cs", F("unicode-data", ClData, "keep", "generated invariant simple case tables (tools/unicode) behind OrdinalCasing; Char and String members come from IL (upstream-types/System.String.txt)", "NONE"));
         Add("Globalization/BidiData.g.cs", F("unicode-data", ClData, "keep", "generated bidi table (tools/unicode); replaced when CharUnicodeInfo comes from IL", "NONE"));
         Add("Globalization/GraphemeData.g.cs", F("unicode-data", ClData, "keep", "generated grapheme table (tools/unicode); replaced when StringInfo/GraphemeBreak come from IL", "NONE"));
         Add("Globalization/BidiData.cs", F("unicode-data", ClData, "keep", "bidi category lookup over the generated table", "NONE"));

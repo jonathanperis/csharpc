@@ -285,71 +285,6 @@ csrt_Array* csrt_environment_command_line_args(void) {
 #endif
 
 // ---------------------------------------------------------------------------------------------
-// string.Split overloads
-// ---------------------------------------------------------------------------------------------
-static bool is_ws(uint16_t c) { return c == ' ' || (c >= 9 && c <= 13) || c == 0xA0; }
-
-static csrt_Array* split_core(csrt_String* s, csrt_String* sep_string, csrt_Array* sep_chars, int32_t options) {
-    if (!s) csrt_throw_null_reference();
-    int32_t cap = 8, count = 0;
-    int32_t* bounds = malloc(sizeof(int32_t) * 2 * (size_t)cap);
-    int32_t start = 0;
-    int32_t sep_len = sep_string ? sep_string->length : 1;
-    for (int32_t i = 0; i <= s->length;) {
-        bool at_sep = false;
-        if (i < s->length) {
-            if (sep_string) {
-                at_sep = sep_string->length > 0 && i + sep_string->length <= s->length &&
-                         memcmp(s->chars + i, sep_string->chars, 2 * (size_t)sep_string->length) == 0;
-            } else if (sep_chars && sep_chars->length > 0) {
-                const uint16_t* cs = (const uint16_t*)sep_chars->data;
-                for (int64_t k = 0; k < sep_chars->length; k++) if (cs[k] == s->chars[i]) { at_sep = true; break; }
-            } else {
-                at_sep = is_ws(s->chars[i]);  // null/empty separator: whitespace
-            }
-        }
-        if (i < s->length && !at_sep) { i++; continue; }
-        int32_t a = start, b = i;
-        if (options & 2) { while (a < b && is_ws(s->chars[a])) a++; while (b > a && is_ws(s->chars[b - 1])) b--; }
-        if (!((options & 1) && a == b)) {
-            if (count == cap) { cap *= 2; bounds = realloc(bounds, sizeof(int32_t) * 2 * (size_t)cap); }
-            bounds[2 * count] = a;
-            bounds[2 * count + 1] = b;
-            count++;
-        }
-        if (i >= s->length) break;
-        i += sep_string ? sep_len : 1;
-        start = i;
-        if (i == s->length) {  // trailing separator: one more (empty) piece
-            int32_t a2 = i, b2 = i;
-            if (!(options & 1)) {
-                if (count == cap) { cap *= 2; bounds = realloc(bounds, sizeof(int32_t) * 2 * (size_t)cap); }
-                bounds[2 * count] = a2; bounds[2 * count + 1] = b2; count++;
-            }
-            break;
-        }
-    }
-    csrt_Array* result = csrt_new_array(sizeof(void*), count);
-    for (int32_t k = 0; k < count; k++)
-        CSRT_STORE_REF(((csrt_String**)result->data)[k], from_chars(s->chars + bounds[2 * k], bounds[2 * k + 1] - bounds[2 * k]));
-    free(bounds);
-    return result;
-}
-
-csrt_Array* csrt_string_split_string(csrt_String* s, csrt_String* separator, int32_t options) {
-    if (separator && separator->length == 0) {  // empty separator: no split
-        csrt_Array* r = csrt_new_array(sizeof(void*), 1);
-        CSRT_STORE_REF(((csrt_String**)r->data)[0], s);
-        return r;
-    }
-    return split_core(s, separator, NULL, options);
-}
-
-csrt_Array* csrt_string_split_chars(csrt_String* s, csrt_Array* separators, int32_t options) {
-    return split_core(s, NULL, separators, options);
-}
-
-// ---------------------------------------------------------------------------------------------
 // Culture-sensitive string comparison is C# (corelib Globalization/CultureStrings.cs, over the port of
 // .NET's CompareInfo and ICU). Array.Sort of strings calls it through the corelib's RuntimeExport;
 // this weak definition only satisfies the linker in programs that never sort strings.
@@ -438,12 +373,6 @@ int32_t csrt_string_compare_ordinal_ignore_case(csrt_String* a, csrt_String* b) 
         if (x != y) return (int32_t)x - (int32_t)y;
     }
     return a->length - b->length;
-}
-
-bool csrt_string_is_null_or_white_space(csrt_String* s) {
-    if (!s) return true;
-    for (int32_t i = 0; i < s->length; i++) if (!is_ws(s->chars[i]) && s->chars[i] != 0x85 && !(s->chars[i] >= 0x2000 && s->chars[i] <= 0x200A) && s->chars[i] != 0x3000) return false;
-    return true;
 }
 
 // static object.Equals(a, b) lives in src/runtime/records.c (csrt_object_equals_static).

@@ -465,10 +465,11 @@ sealed class Slice
                     var stop = Core.GetType(typeName) ?? throw new ArgumentException($"{typeName} is not a type of {Cli.CoreLib}");
                     if (!IsStop(stop)) throw new ArgumentException($"host: {typeName} is not a built-in type the slice stops at");
                     // "this.ToString": an instance member of a built-in value type, hosted as a static whose first parameter is `ref T` (the
-                    // receiver's address, which `this` is in the member's IL); the compiler passes the receiver's address (#426).
+                    // receiver's address, which `this` is in the member's IL); the compiler passes the receiver's address (#426). Of a built-in
+                    // reference type (string.Split), the first parameter is the receiver itself, which the compiler null-checks first (#423).
                     var found = stop.Methods.Where(m => m.HasBody && !m.IsConstructor && members.Any(n =>
                         n.StartsWith("this.", StringComparison.Ordinal)
-                            ? !m.IsStatic && stop.IsValueType && (m.Name == n[5..] || m.Name.EndsWith("." + n[5..], StringComparison.Ordinal))
+                            ? !m.IsStatic && (m.Name == n[5..] || m.Name.EndsWith("." + n[5..], StringComparison.Ordinal))
                             : m.IsStatic && (m.Name == n || m.Name.EndsWith("." + n, StringComparison.Ordinal)))).ToList();
                     if (found.Count == 0) throw new ArgumentException($"host: {typeName} has none of {parts[1]}");
                     if (!Hosted.TryGetValue(stop, out var list)) Hosted[stop] = list = [];
@@ -657,7 +658,7 @@ sealed class Slice
         {
             // A non-public static helper of a type whose members the slice hosts (UInt128.LeadingZeroCountAsInt32, ulong's private
             // TryConvertFromChecked<TOther>, which the hosted CreateChecked calls): hosted with them, since nothing else provides it.
-            if ((def.IsStatic || def.DeclaringType.IsValueType && !def.IsConstructor && HostsInstanceMembers(def.DeclaringType)) && def.HasBody && Hosted.TryGetValue(def.DeclaringType, out var hosted) && Cli.Replacement(def) is null
+            if ((def.IsStatic || !def.IsConstructor && (def.DeclaringType.IsValueType || !def.IsVirtual) && HostsInstanceMembers(def.DeclaringType)) && def.HasBody && Hosted.TryGetValue(def.DeclaringType, out var hosted) && Cli.Replacement(def) is null
                 && !(RefTypes.TryGetValue(def.DeclaringType.FullName, out var r) && InRef(r, def))
                 && !(ShadowMemberNames.TryGetValue(def.DeclaringType.FullName, out var shadowNames) && shadowNames.Contains(ShadowSignatures.Of(def))))
             {
@@ -676,7 +677,7 @@ sealed class Slice
         try { return r.Resolve(); } catch (AssemblyResolutionException) { return null; }
     }
 
-    /// <summary>Whether the slice hosts instance members of this built-in value type ("this." `host:` roots): its non-public instance helpers
+    /// <summary>Whether the slice hosts instance members of this built-in type ("this." `host:` roots): its non-public instance helpers
     /// are hosted with them, as the static ones are.</summary>
     bool HostsInstanceMembers(TypeDefinition type) => Hosted.TryGetValue(type, out var list) && list.Any(m => !m.IsStatic);
 

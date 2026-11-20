@@ -329,9 +329,9 @@ sealed class Emitter
                 var nm = _methods[m];
                 _hostedTypeArity = shift;
                 nm.ReturnType = Type(m.ReturnType);
-                // An instance member of a value type: `this` (the receiver's address) becomes the first parameter, so the body's ldarg.0 still
-                // reads it and the other arguments keep their numbers (BodiesOf maps the named ones).
-                if (m.HasThis) nm.Parameters.Add(new ParameterDefinition("this", ParameterAttributes.None, new ByReferenceType(Type(stop))));
+                // An instance member: `this` (a value type's receiver address, a string itself) becomes the first parameter, so the body's
+                // ldarg.0 still reads it and the other arguments keep their numbers (BodiesOf maps the named ones).
+                if (m.HasThis) nm.Parameters.Add(new ParameterDefinition("this", ParameterAttributes.None, stop.IsValueType ? new ByReferenceType(Type(stop)) : Type(stop)));
                 foreach (var p in m.Parameters) nm.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, Type(p.ParameterType)));
                 foreach (var (g, i) in stop.GenericParameters.Concat(m.GenericParameters).Select((g, i) => (g, i)))
                     if (i < nm.GenericParameters.Count && nm.GenericParameters[i].Constraints.Count == 0)
@@ -526,6 +526,17 @@ sealed class Emitter
                     map[i].OpCode = value ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0;
                     map[i].Operand = null;
                 }
+            // RuntimeHelpers.IsKnownConstant(x): a JIT hint ("is x a constant at this call site?") whose IL body is never meant to run and which
+            // the reference pack does not declare. False is always a correct answer (the general path follows): the argument is popped.
+            foreach (var i in ob.Instructions)
+                if (i.OpCode == OpCodes.Call && i.Operand is MethodReference known && known.Name == "IsKnownConstant" && known.Parameters.Count == 1
+                    && known.DeclaringType.FullName == "System.Runtime.CompilerServices.RuntimeHelpers")
+                {
+                    var popped = map[i];
+                    popped.OpCode = OpCodes.Pop;
+                    popped.Operand = null;
+                    nb.GetILProcessor().InsertAfter(popped, Instruction.Create(OpCodes.Ldc_I4_0));
+                }
             // A callvirt of an instance member the slice hosts as a static (`this.` host roots) is a call of that static.
             foreach (var ni in nb.Instructions)
                 if (ni.OpCode == OpCodes.Callvirt && ni.Operand is MethodDefinition target && !target.HasThis && target.IsStatic) ni.OpCode = OpCodes.Call;
@@ -539,6 +550,18 @@ sealed class Emitter
                     CatchType = h.CatchType is null ? null : Type(h.CatchType),
                 };
                 nb.ExceptionHandlers.Add(nh);
+            }
+            // An instance member of a built-in reference type hosted as a static (string.Split): a call of it, from csharpc's code or the slice's
+            // own (a callvirt rewritten above), must throw NullReferenceException on a null receiver as the callvirt did, before the body runs.
+            if (m.HasThis && !nm.HasThis && !m.DeclaringType.IsValueType)
+            {
+                var il = nb.GetILProcessor();
+                var first = nb.Instructions[0];
+                var nre = _s.Core.GetType("System.NullReferenceException").Methods.Single(c => c.IsConstructor && !c.IsStatic && c.Parameters.Count == 0);
+                il.InsertBefore(first, Instruction.Create(OpCodes.Ldarg_0));
+                il.InsertBefore(first, Instruction.Create(OpCodes.Brtrue, first));
+                il.InsertBefore(first, Instruction.Create(OpCodes.Newobj, MethodRef(nre)));
+                il.InsertBefore(first, Instruction.Create(OpCodes.Throw));
             }
         }
     }

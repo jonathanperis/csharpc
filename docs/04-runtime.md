@@ -142,8 +142,9 @@ boxed method tables and the clocks.
 **Lives in C#:** library logic that is ordinary code:
 
 - number formatting and parsing (`Number.Formatting.cs`, `Number.Parsing.cs`, `Number.cs`, `BigNum.cs`);
-- string operations and `char` with Unicode tables generated from .NET (`StringOps.cs`,
-  `UnicodeData.g.cs`, `tools/unicode`);
+- the string operations codegen calls itself (`StringRuntime.cs`) and the ordinal case tables generated from
+  .NET (`OrdinalCasing.cs`, `UnicodeData.g.cs`, `tools/unicode`); `string`'s and `char`'s library members come
+  from CoreLib's IL (`upstream-types/System.String.txt`);
 - `StringBuilder` (`StringBuilder.cs`, .NET's chunk list and growth policy, so `GetChunks` and
   `Capacity` match);
 - `decimal` (`DecimalOps.cs`), `BigInteger` (`BigIntegerOps.cs`), and `DateTime`/`TimeSpan` (`DateTimeOps.cs`);
