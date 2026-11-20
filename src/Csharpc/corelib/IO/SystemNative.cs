@@ -21,7 +21,7 @@ using System.Runtime.InteropServices;
 
 namespace CsharpcCoreLib
 {
-    internal static unsafe class SystemNative
+    internal static unsafe partial class SystemNative
     {
         private const string Trigger = "libSystem.Native!";
 
@@ -136,7 +136,9 @@ namespace CsharpcCoreLib
         public static int ConvertErrorPlatformToPal(int platformErrno) => ToPal(platformErrno);
 
         [RuntimeExport("SystemNative_ConvertErrorPalToPlatform", Trigger + "SystemNative_ConvertErrorPalToPlatform")]
-        public static int ConvertErrorPalToPlatform(int error) => ToPlatform(error);
+        // Error_EHOSTNOTFOUND and Error_ESOCKETERROR (name lookup, unidentified socket error) have no errno: pal_error_common.h gives them
+        // negative platform values, which SocketException reports as its NativeErrorCode and StrErrorR names.
+        public static int ConvertErrorPalToPlatform(int error) => error switch { 0x20001 => -0x20001, 0x20002 => -0x20002, _ => ToPlatform(error) };
 
         /// <summary>
         /// SystemNative_StrErrorR: the message of a platform errno, through strerror_r (strerror is not thread-safe), as pal_error_common.h:
@@ -147,6 +149,20 @@ namespace CsharpcCoreLib
         public static byte* StrErrorR(int platformErrno, byte* buffer, int bufferSize)
         {
             if (buffer == null || bufferSize <= 0) return null;
+            if (platformErrno < 0)
+            {
+                // Not a system error (pal_error_common.h): a failed name lookup is getaddrinfo's EAI_NONAME text, an unidentified socket
+                // error a fixed one; both copied truncated to the buffer, as SafeStringCopy.
+                byte* text = null;
+#if !CSHARPC_TARGET_WASI
+                if (platformErrno == -0x20001) text = gai_strerror(EAI_NONAME_PLATFORM);
+#endif
+                if (text != null) return CopyTruncated(text, buffer, bufferSize);
+                if (platformErrno == -0x20002)
+                {
+                    fixed (byte* unknown = "Unknown socket error\0"u8) return CopyTruncated(unknown, buffer, bufferSize);
+                }
+            }
 #if CSHARPC_TARGET_MACOS || CSHARPC_TARGET_WASI
             int error = strerror_r(platformErrno, buffer, (nuint)bufferSize);
             return error == ERANGE ? null : buffer;
@@ -154,6 +170,23 @@ namespace CsharpcCoreLib
             return strerror_r(platformErrno, buffer, (nuint)bufferSize);
 #endif
         }
+
+        private static byte* CopyTruncated(byte* text, byte* buffer, int bufferSize)
+        {
+            int i = 0;
+            for (; i < bufferSize - 1 && text[i] != 0; i++) buffer[i] = text[i];
+            buffer[i] = 0;
+            return buffer;
+        }
+
+#if !CSHARPC_TARGET_WASI
+        [DllImport("libc")] private static extern byte* gai_strerror(int error);
+#if CSHARPC_TARGET_MACOS
+        private const int EAI_NONAME_PLATFORM = 8;
+#else
+        private const int EAI_NONAME_PLATFORM = -2;
+#endif
+#endif
 
         // ---- descriptors (pal_io.c) ------------------------------------------------------------------------------
         /// <summary>

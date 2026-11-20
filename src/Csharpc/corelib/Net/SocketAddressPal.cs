@@ -2,6 +2,9 @@
 // framework's IL (ADR 0023). Upstream's SocketAddressPal and InterfaceInfoPal P/Invoke libSystem.Native (Windows: managed code and
 // iphlpapi), which csharpc does not link: these two internal classes are the socket engine's layout of struct sockaddr instead
 // (NetNative.Encode/Decode use the same one), with libSystem.Native's semantics. Constants per target OS, never the host's.
+// Windows only: on Linux and macOS these types are the framework's IL over the libSystem.Native socket contract
+// (corelib/Net/SystemNative.Net.cs, docs/il-first/System.Net.Sockets.md); Windows keeps them until the IOCP engine exists.
+#if CSHARPC_TARGET_WINDOWS
 #nullable disable
 using System;
 using System.Net.Sockets;
@@ -17,61 +20,14 @@ namespace CsharpcCoreLib
         // sizeof(sockaddr_in), sizeof(sockaddr_in6), sizeof(sockaddr_un), sizeof(sockaddr_storage).
         public static readonly int IPv4AddressSize = 16;
         public static readonly int IPv6AddressSize = 28;
-#if CSHARPC_TARGET_MACOS
-        public static readonly int UdsAddressSize = 106;
-#else
         public static readonly int UdsAddressSize = 110;
-#endif
         public static readonly int MaxAddressSize = 128;
 
-#if CSHARPC_TARGET_WINDOWS
         // Windows: upstream's SocketAddressPal is managed code; AddressFamily's values are Winsock's, any that fits sa_family is kept.
         private static int ToPlatform(AddressFamily family) =>
             (uint)family <= ushort.MaxValue ? (int)family : throw new PlatformNotSupportedException();
 
         private static AddressFamily ToPal(int family) => (AddressFamily)family;
-#else
-#if CSHARPC_TARGET_MACOS
-        private const int AF_UNIX = 1, AF_INET6 = 30;
-#else
-        // Linux, and WASI, which has no sockets in preview 1 and takes Linux's layout as NetNative does.
-        private const int AF_UNIX = 1, AF_INET6 = 10, AF_PACKET = 17, AF_CAN = 29;
-#endif
-
-        // The PAL (AddressFamily) <-> platform conversions of pal_networking.c: what has no platform value is EAFNOSUPPORT,
-        // which SocketAddressPal.ThrowOnFailure turns into PlatformNotSupportedException.
-        private static int ToPlatform(AddressFamily family)
-        {
-            switch (family)
-            {
-                case AddressFamily.Unspecified: return 0;
-                case AddressFamily.Unix: return AF_UNIX;
-                case AddressFamily.InterNetwork: return 2;
-                case AddressFamily.InterNetworkV6: return AF_INET6;
-#if !CSHARPC_TARGET_MACOS
-                case AddressFamily.Packet: return AF_PACKET;
-                case AddressFamily.ControllerAreaNetwork: return AF_CAN;
-#endif
-                default: throw new PlatformNotSupportedException();
-            }
-        }
-
-        private static AddressFamily ToPal(int family)
-        {
-            switch (family)
-            {
-                case 0: return AddressFamily.Unspecified;
-                case AF_UNIX: return AddressFamily.Unix;
-                case 2: return AddressFamily.InterNetwork;
-                case AF_INET6: return AddressFamily.InterNetworkV6;
-#if !CSHARPC_TARGET_MACOS
-                case AF_PACKET: return AddressFamily.Packet;
-                case AF_CAN: return AddressFamily.ControllerAreaNetwork;
-#endif
-                default: throw new PlatformNotSupportedException();
-            }
-        }
-#endif
 
         // libSystem.Native checks every buffer against the size of the field it touches (EFAULT, which ThrowOnFailure
         // reports as ArgumentOutOfRangeException("socketAddressSize")).
@@ -80,20 +36,6 @@ namespace CsharpcCoreLib
             if (length < size) throw new ArgumentOutOfRangeException("socketAddressSize");
         }
 
-#if CSHARPC_TARGET_MACOS
-        // BSD: sa_len (one byte), then sa_family (one byte).
-        public static AddressFamily GetAddressFamily(ReadOnlySpan<byte> buffer)
-        {
-            Need(buffer.Length, 2);
-            return ToPal(buffer[1]);
-        }
-
-        public static void SetAddressFamily(Span<byte> buffer, AddressFamily family)
-        {
-            Need(buffer.Length, 2);
-            buffer[1] = (byte)ToPlatform(family);
-        }
-#else
         public static AddressFamily GetAddressFamily(ReadOnlySpan<byte> buffer)
         {
             Need(buffer.Length, 2);
@@ -106,7 +48,6 @@ namespace CsharpcCoreLib
             ushort value = (ushort)ToPlatform(family);
             MemoryMarshal.Write(buffer, in value);
         }
-#endif
 
         // sin_port / sin6_port: network byte order at offset 2.
         public static ushort GetPort(ReadOnlySpan<byte> buffer)
@@ -164,17 +105,10 @@ namespace CsharpcCoreLib
     [Shadows("System.Net.NetworkInformation.InterfaceInfoPal")]
     internal static unsafe class InterfaceInfoPalImpl
     {
-#if CSHARPC_TARGET_WINDOWS
         [DllImport("iphlpapi")] private static extern uint if_nametoindex(byte* name);
-#elif !CSHARPC_TARGET_WASI
-        [DllImport("libc")] private static extern uint if_nametoindex(byte* name);
-#endif
 
         public static uint InterfaceNameToIndex<TChar>(ReadOnlySpan<TChar> interfaceName) where TChar : unmanaged, IBinaryInteger<TChar>
         {
-#if CSHARPC_TARGET_WASI
-            return 0;
-#else
             // UTF-8 with a terminating NUL, as upstream passes it; a name with an embedded NUL names a shorter interface there too.
             byte[] name;
             if (typeof(TChar) == typeof(byte))
@@ -190,7 +124,7 @@ namespace CsharpcCoreLib
                 Encoding.UTF8.GetBytes(chars, name);
             }
             fixed (byte* p = name) return if_nametoindex(p);
-#endif
         }
     }
 }
+#endif

@@ -10,4 +10,8 @@
 # Composite formatting and interpolation call ISpanFormattable.TryFormat as .NET does (#424, #426; sample 1342 regressed without it): string.Format
 # and interpolation now reach the TryFormat of the program's own ISpanFormattable types (IPAddress, IPEndPoint, IPNetwork, their UTF-8 forms).
 # linux-x86_64 measured 326 280 B (base 272 760 on this branch; budget 318 464 -> 331 776); the other platforms print the size until CI measures them.
-linux-x86_64 net 331776
+# System.Net.Sockets, NameResolution and NetworkInformation from the framework's IL (#423): net.cs uses no socket, but System.Net.Primitives is
+# now all IL (its SocketAddressPal and SocketException over the libSystem.Native contract instead of the corelib's shadows) and Win32Exception's
+# message is Interop.Sys.StrError: linux-x86_64 measured 332 248 B (the integration head 330 784 with the same flags; budget 331 776 -> 339 968);
+# the other platforms print the size until CI measures them.
+linux-x86_64 net 339968

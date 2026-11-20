@@ -61,6 +61,37 @@ public sealed partial class ModuleCodeGen
         return null;
     }
 
+    private readonly Dictionary<(INamedTypeSymbol Type, INamedTypeSymbol Interface), bool> _reimplemented = [];
+
+    /// <summary>
+    /// Whether a class deriving from <paramref name="type"/> names <paramref name="interfaceType"/> again in its own interface list (an
+    /// interface re-implementation, ECMA-335 II.12.2): its implementation of the interface's members then replaces the one
+    /// <paramref name="type"/> provides, so a call through the interface on a receiver statically typed <paramref name="type"/> (even
+    /// `((I)this).M()` inside it) must be dispatched on the object's run-time type. System.Net.Sockets' ReadOperation and WriteOperation
+    /// re-implement IThreadPoolWorkItem over AsyncOperation's (sample 1460).
+    /// </summary>
+    internal bool InterfaceReimplementedBelow(INamedTypeSymbol type, INamedTypeSymbol interfaceType)
+    {
+        if (type.IsSealed || type.TypeKind != TypeKind.Class) return false;
+        var key = ((INamedTypeSymbol)type.OriginalDefinition, (INamedTypeSymbol)interfaceType.OriginalDefinition);
+        if (_reimplemented.TryGetValue(key, out var known)) return known;
+        var found = false;
+        foreach (var candidate in HierarchyTypes)
+        {
+            if (candidate.TypeKind != TypeKind.Class || SymbolEqualityComparer.Default.Equals(candidate.OriginalDefinition, key.Item1)
+                || !DerivesFromOrEquals(candidate, key.Item1)) continue;
+            foreach (var declared in candidate.Interfaces)
+                if (SymbolEqualityComparer.Default.Equals(declared.OriginalDefinition, key.Item2)
+                    || declared.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i.OriginalDefinition, key.Item2)))
+                {
+                    found = true;
+                    break;
+                }
+            if (found) break;
+        }
+        return _reimplemented[key] = found;
+    }
+
     internal static bool DerivesFromOrEquals(INamedTypeSymbol type, INamedTypeSymbol baseType)
     {
         for (var t = type; t is not null; t = t.BaseType)

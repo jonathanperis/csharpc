@@ -389,7 +389,7 @@ static void spawn(csrt_Thread* t) {
     }
 }
 
-static void thread_start(csrt_Thread* t, void* parameter, bool has_parameter) {
+static void thread_start(csrt_Thread* t, void* parameter, bool has_parameter, bool flow) {
     if (!t) csrt_throw_null_reference();
 #ifdef __wasi__
     // Like .NET's single-threaded WebAssembly builds (docs/adr/0011-wasm32.md).
@@ -407,12 +407,15 @@ static void thread_start(csrt_Thread* t, void* parameter, bool has_parameter) {
     if (!t->background) s_foreground++;
     pthread_mutex_unlock(&s_join_lock);
     CSRT_STORE_REF(t->parameter, parameter);
-    CSRT_STORE_REF(t->flow, csrt_flow_capture());  // like .NET's ExecutionContext capture in Thread.Start
+    // Thread.Start captures the ExecutionContext like .NET; UnsafeStart runs the thread on the default context.
+    CSRT_STORE_REF(t->flow, flow ? csrt_flow_capture() : NULL);
     spawn(t);
 }
 
-void csrt_thread_start(csrt_Thread* t) { thread_start(t, NULL, false); }
-void csrt_thread_start_with(csrt_Thread* t, void* parameter) { thread_start(t, parameter, true); }
+void csrt_thread_start(csrt_Thread* t) { thread_start(t, NULL, false, true); }
+void csrt_thread_start_with(csrt_Thread* t, void* parameter) { thread_start(t, parameter, true, true); }
+void csrt_thread_unsafe_start(csrt_Thread* t) { thread_start(t, NULL, false, false); }
+void csrt_thread_unsafe_start_with(csrt_Thread* t, void* parameter) { thread_start(t, parameter, true, false); }
 
 bool csrt_thread_join_timeout(csrt_Thread* t, int32_t ms) {
     if (!t) csrt_throw_null_reference();
