@@ -436,7 +436,7 @@ internal static partial class BclValueTypes
         t[$"{D}..ctor(double)"] = (g, _, _, a, _) => g.DecimalCall("csrt_decimal_from_f64", [g.Llvm.F64], a[0]);
         t[$"{D}..ctor(float)"] = (g, _, _, a, _) => g.DecimalCall("csrt_decimal_from_f32", [g.Llvm.F32], a[0]);
         t[$"{D}..ctor(int[])"] = (g, _, _, a, _) => g.CallCoreLib("DecimalBits", "FromBits", a[0]);
-        t[$"{D}..ctor(System.ReadOnlySpan<int>)"] = (g, _, _, a, _) => g.CallCoreLib("DecimalParsing", "FromBitsSpan", a[0]);
+        t[$"{D}..ctor(System.ReadOnlySpan<int>)"] = (g, _, _, a, _) => g.CallCoreLib("DecimalBits", "FromBitsSpan", a[0]);
         t[$"{D}..ctor(int, int, int, bool, byte)"] = (g, _, _, a, _) =>
         {
             // new decimal(lo, mid, hi, isNegative, scale)
