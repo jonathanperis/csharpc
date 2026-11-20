@@ -120,7 +120,10 @@ public sealed partial class ModuleCodeGen
         // libSystem.Native, which CoreLib's file-system IL P/Invokes, is csharpc's C# contract over its libc layer (corelib/IO/SystemNative.cs),
         // not the pack's shim: an internal call, bound by name. Only where the shim isn't linked for another library (Tar, ZipFile), whose
         // archive members would define the same symbols.
-        var nativeContract = !shim && library == "libSystem.Native" && !Types.Target.IsWindows && TryRequestNativeContract(library, entry);
+        var nativeContract = !shim && library == "libSystem.Native" && !Types.Target.IsWindows && TryRequestNativeContract(library, entry)
+            // Kernel32's thread-pool I/O objects, which the Windows CoreLib's overlapped file I/O calls, are csharpc's contract too
+            // (corelib/UpstreamThreadPoolIo.cs): their callbacks must run on threads csharpc's runtime knows.
+            || coreLibSystemImport && TryRequestNativeContract("kernel32.dll", entry);
         var directPInvoke = DirectPInvokes.Count > 0 && (DirectPInvokes.Contains(library) || DirectPInvokes.Contains(library + "!" + entry));
         var direct = shim || directPInvoke || nativeContract || (Types.Target.IsWindows ? runtimeSymbol || coreLibSystemImport
             : s_directLinkLibraries.Contains(library) && !(Types.Target.IsDarwin && library.Contains(".so", StringComparison.Ordinal)));

@@ -562,6 +562,9 @@ public sealed class StackTraceInfo
                 var found = node switch
                 {
                     MemberAccessExpressionSyntax { Name.Identifier.ValueText: "StackTrace" or "ToString" } access => IsException(access.Expression),
+                    // ExceptionDispatchInfo.SetRemoteStackTrace refuses an exception that was already thrown, which it can tell only from
+                    // the frames recorded when it was thrown.
+                    MemberAccessExpressionSyntax { Name.Identifier.ValueText: "SetRemoteStackTrace" } => true,
                     ConditionalAccessExpressionSyntax { WhenNotNull: MemberBindingExpressionSyntax or InvocationExpressionSyntax { Expression: MemberBindingExpressionSyntax } } conditional
                         when BoundMember(conditional.WhenNotNull) is "StackTrace" or "ToString" => IsException(conditional.Expression),
                     InterpolationSyntax interpolation => IsException(interpolation.Expression),

@@ -178,6 +178,17 @@ void* csrt_exception_get_token(void* exception) {
 }
 
 void csrt_exception_set_data(void* exception, void* data) { CSRT_STORE_REF(((csrt_Exception*)exception)->data, data); }
+
+static int32_t trace_count(const csrt_Array* trace);
+
+/// ExceptionDispatchInfo.SetRemoteStackTrace: the text Exception.StackTrace starts with, as .NET's _remoteStackTraceString. Only before
+/// the exception has been thrown and only once (0 otherwise: the caller throws .NET's InvalidOperationException).
+int32_t csrt_exception_set_remote_trace(void* exception, csrt_String* text) {
+    csrt_Exception* e = exception;
+    if (e->remote_trace || trace_count(e->trace) > 0) return 0;
+    CSRT_STORE_REF(e->remote_trace, text);
+    return 1;
+}
 void* csrt_task_cancellation_token(void* task);
 /// new TaskCanceledException(task): the Task, and its cancellation token as CancellationToken.
 void csrt_exception_set_task(void* exception, void* task) {
@@ -243,7 +254,7 @@ csrt_String* csrt_exception_to_string(void* exception) {
         s = csrt_string_concat(concat_utf8(s, CSRT_NEWLINE " ---> "), csrt_object_to_string(e->inner));
         s = concat_utf8(s, CSRT_NEWLINE "   --- End of inner exception stack trace ---");
     }
-    csrt_String* trace = s_trace_text ? s_trace_text(exception) : NULL;
+    csrt_String* trace = s_trace_text ? s_trace_text(exception) : e->remote_trace;
     if (trace) s = csrt_string_concat(concat_utf8(s, CSRT_NEWLINE), trace);
     if (e->inners && s_aggregate_text) s = s_aggregate_text(e, s);
     return s;
@@ -636,8 +647,17 @@ static void trace_physical(const csrt_TraceSite* const* entries, int32_t last, b
 /// System.Diagnostics.StackTrace.ToString's rules: hidden frames ([StackTraceHidden], AggressiveInlining)
 /// aren't listed, except the last one; the "--- End of stack trace from previous location ---" line
 /// follows the last frame of a captured trace only when that frame is listed and not an async method's.
+static csrt_String* trace_text(csrt_Exception* e);
+
 csrt_String* csrt_exception_get_stack_trace(void* exception) {
+    // .NET: the remote text (ExceptionDispatchInfo.SetRemoteStackTrace) first, then the frames recorded since.
     csrt_Exception* e = exception;
+    csrt_String* own = trace_text(e);
+    if (!e->remote_trace) return own;
+    return own ? csrt_string_concat(e->remote_trace, own) : e->remote_trace;
+}
+
+static csrt_String* trace_text(csrt_Exception* e) {
     trace_check_first_pass(e);
     int32_t count = trace_count(e->trace);
     if (count == 0 || !s_trace) return NULL;

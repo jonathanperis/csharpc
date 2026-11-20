@@ -135,6 +135,22 @@ sealed class Cli
     public Dictionary<string, bool> Fold = new();
     public bool? FoldedValue(Mono.Cecil.MethodReference m) =>
         Fold.Count > 0 && m.Parameters.Count == 0 && !m.HasThis && Fold.TryGetValue(m.DeclaringType.FullName + "::" + m.Name, out var v) ? v : null;
+    /// <summary>
+    /// Runtime event sources whose <c>Log.IsEnabled()</c> is false in a csharpc program: an EventListener there sees only the program's own
+    /// sources (corelib/Tracing/EventListener.cs), so the runtime's (NativeRuntimeEventSource's thread-pool and I/O events) are never enabled.
+    /// </summary>
+    public HashSet<string> DisabledEventSources = new();
+    /// <summary>The constant an instruction folds to: a folded getter's call, or the IsEnabled() call on a disabled source's Log.</summary>
+    public bool? FoldedValueAt(Mono.Cecil.Cil.Instruction i) => i.Operand switch
+    {
+        Mono.Cecil.MethodReference getter when i.OpCode.Code == Mono.Cecil.Cil.Code.Call => FoldedValue(getter),
+        Mono.Cecil.MethodReference { Name: "IsEnabled", Parameters.Count: 0, DeclaringType.FullName: "System.Diagnostics.Tracing.EventSource" }
+            when i.OpCode.Code == Mono.Cecil.Cil.Code.Callvirt && IsDisabledLog(i.Previous) => false,
+        _ => null,
+    };
+    /// <summary>An <c>ldsfld</c> of a disabled runtime event source's <c>Log</c> (folded together with the IsEnabled() call after it).</summary>
+    public bool IsDisabledLog(Mono.Cecil.Cil.Instruction i) =>
+        i is { OpCode.Code: Mono.Cecil.Cil.Code.Ldsfld, Operand: Mono.Cecil.FieldReference { Name: "Log" } f } && DisabledEventSources.Contains(f.DeclaringType.FullName);
     /// <summary>A "Type::Method(ParamType,...)" key replaces that overload only; "Type::Method" every overload.</summary>
     public string Replacement(Mono.Cecil.MethodDefinition m) =>
         Replace.GetValueOrDefault(m.DeclaringType.FullName + "::" + m.Name + "(" + string.Join(",", m.Parameters.Select(p => p.ParameterType.FullName)) + ")")
@@ -237,6 +253,14 @@ sealed class Cli
                         c.Replace["Interop/Kernel32::" + member] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamWindowsInterop::" + member;
                     c.Redirect["Interop/BOOL"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamWin32Bool";
                     c.Replace["System.Globalization.HijriCalendar::GetAdvanceHijriDate"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamWindowsInterop::GetAdvanceHijriDate";
+                    // Overlapped file I/O on Windows (SafeFileHandle, RandomAccess, ThreadPoolBoundHandle) takes the Windows thread pool's path, as
+                    // NativeAOT does there: Win32ThreadPoolNativeOverlapped and kernel32's thread-pool I/O objects. The portable path (Overlapped's
+                    // runtime calls, ThreadPool.BindHandle) is folded out. Kernel32's CreateThreadpoolIo family is csharpc's contract
+                    // (corelib/UpstreamThreadPoolIo.cs): its callbacks run on csharpc's own threads.
+                    c.Fold["System.Threading.ThreadPool::get_UseWindowsThreadPool"] = true;
+                    // csharpc's tracing serves the program's own EventSources only; the runtime's are never enabled, so their guarded events fold out.
+                    c.DisabledEventSources.Add("System.Diagnostics.Tracing.NativeRuntimeEventSource");
+                    c.Redirect["System.Threading.ThreadPoolCallbackWrapper"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamThreadPoolCallbackWrapper";
                     break;
                 case "--out": c.Out = args[++i]; break;
                 case "--corelib": c.CoreLib = args[++i]; break;
@@ -346,7 +370,7 @@ sealed class Slice
     /// </summary>
     void FoldOut()
     {
-        if (Cli.Fold.Count == 0) return;
+        if (Cli.Fold.Count == 0 && Cli.DisabledEventSources.Count == 0) return;
         var sites = new Dictionary<MethodDefinition, List<(MethodDefinition Caller, bool Live)>>();
         foreach (var type in Core.GetTypes())
             foreach (var m in type.Methods.Where(m => m.HasBody))
@@ -460,6 +484,12 @@ sealed class Slice
             {
                 name = name["unix:".Length..];
                 if (Core.GetType("Interop")?.NestedTypes.Any(n => n.Name == "Sys") != true) continue;
+            }
+            // "windows:System.X": a root only the Windows CoreLib's code reaches (overlapped file I/O); skipped for the Unix CoreLibs.
+            else if (name.StartsWith("windows:", StringComparison.Ordinal))
+            {
+                name = name["windows:".Length..];
+                if (Core.GetType("Interop")?.NestedTypes.Any(n => n.Name == "Sys") == true) continue;
             }
             // "host:System.Int32,System.Int64::Log2,PopCount": static members of built-in types the slice carries in their host classes
             // (DeclareHosted), every overload, public ones and explicit interface implementations alike ("...INumberBase<System.Int32>.IsNegative").
@@ -576,6 +606,17 @@ sealed class Slice
         // A used type: its static constructor runs, and its virtual methods may be reached through the base type or an interface.
         foreach (var m in d.Methods)
             if (m.IsConstructor && m.IsStatic || m.IsVirtual || m.HasOverrides) Enqueue(m);
+        // A SafeHandle a P/Invoke returns (or fills in) is created by the marshaller with Activator.CreateInstance<T>() (SafeHandleMarshaller,
+        // the corelib's: corelib/SafeHandles.cs), which this walk does not see: keep its parameterless constructor.
+        if (DerivesFrom(d, "System.Runtime.InteropServices.SafeHandle") && d.Methods.FirstOrDefault(m => m.IsConstructor && !m.IsStatic && !m.HasParameters) is { } create)
+            Enqueue(create);
+    }
+
+    static bool DerivesFrom(TypeDefinition d, string baseName)
+    {
+        for (var b = d.BaseType; b is not null; b = SafeResolveType(b)?.BaseType)
+            if (b.FullName == baseName) return true;
+        return false;
     }
 
     void Walk(MethodDefinition m)
@@ -600,7 +641,7 @@ sealed class Slice
         foreach (var ins in body.Instructions)
         {
             if (live is not null && !live.Contains(ins)) continue;
-            if (ins.Operand is MethodReference folded && Cli.FoldedValue(folded) is not null) continue;
+            if (Cli.FoldedValueAt(ins) is not null || ins.Next is { } next && Cli.IsDisabledLog(ins) && Cli.FoldedValueAt(next) is not null) continue;
             switch (ins.OpCode.Code)
             {
                 case Code.Calli or Code.Localloc or Code.Jmp or Code.Arglist or Code.Mkrefany or Code.Refanyval or Code.Refanytype
@@ -623,7 +664,7 @@ sealed class Slice
     /// </summary>
     HashSet<Instruction> LiveInstructions(MethodBody body)
     {
-        if (Cli.Fold.Count == 0 || !body.Instructions.Any(i => i.Operand is MethodReference r && Cli.FoldedValue(r) is not null)) return null;
+        if (Cli.Fold.Count == 0 && Cli.DisabledEventSources.Count == 0 || !body.Instructions.Any(i => Cli.FoldedValueAt(i) is not null)) return null;
         var targeted = new HashSet<Instruction>();
         foreach (var i in body.Instructions)
             if (i.Operand is Instruction t) targeted.Add(t);
@@ -638,7 +679,7 @@ sealed class Slice
             var i = work.Pop();
             var code = i.OpCode.Code;
             if (code is Code.Brtrue or Code.Brtrue_S or Code.Brfalse or Code.Brfalse_S && !targeted.Contains(i)
-                && i.Previous is { Operand: MethodReference getter } && Cli.FoldedValue(getter) is { } value)
+                && i.Previous is { } previous && Cli.FoldedValueAt(previous) is { } value)
             {
                 Reach(value == (code is Code.Brtrue or Code.Brtrue_S) ? (Instruction)i.Operand : i.Next);
                 continue;

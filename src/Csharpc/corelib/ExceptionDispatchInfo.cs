@@ -4,6 +4,7 @@
 // from previous location ---" line, and the frames from the Throw() call on (docs/adr/0012-stack-traces.md).
 #nullable disable
 using System;
+using System.Runtime.InteropServices;
 
 namespace CsharpcCoreLib
 {
@@ -39,6 +40,23 @@ namespace CsharpcCoreLib
         public static Exception SetCurrentStackTrace(Exception source)
         {
             if (source == null) throw new ArgumentNullException("source");
+            return source;
+        }
+
+        [DllImport("__Internal", EntryPoint = "csrt_exception_set_remote_trace")]
+        private static extern int SetRemoteTrace(IntPtr exception, IntPtr text);
+
+        /// <summary>
+        /// .NET (6+): <paramref name="stackTrace"/> becomes the start of the exception's StackTrace (and so of its ToString()), followed by
+        /// the "--- End of stack trace from previous location ---" line; only on an exception never thrown and never given one before
+        /// (InvalidOperationException otherwise). The Windows CoreLib's cancellable synchronous I/O builds its OperationCanceledException so.
+        /// </summary>
+        public static Exception SetRemoteStackTrace(Exception source, string stackTrace)
+        {
+            if (source == null) throw new ArgumentNullException("source");
+            if (stackTrace == null) throw new ArgumentNullException("stackTrace");
+            string text = stackTrace + Environment.NewLine + "--- End of stack trace from previous location ---" + Environment.NewLine;
+            if (SetRemoteTrace(CoreIntrinsics.ObjectToPointer(source), CoreIntrinsics.ObjectToPointer(text)) == 0) throw new InvalidOperationException();
             return source;
         }
 

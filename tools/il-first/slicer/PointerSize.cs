@@ -16,13 +16,22 @@ static class PointerSize
     {
         var real64 = MapKeys(Path.ChangeExtension(slice64, ".map"));
         var real32 = MapKeys(Path.ChangeExtension(slice32, ".map"));
-        if (!real64.SetEquals(real32))
+        var module64 = ModuleDefinition.ReadModule(coreLib64);
+        var module32 = ModuleDefinition.ReadModule(coreLib32);
+        // The 32-bit CoreLib is a Unix one (wasm32 runs it). On a Windows host the 64-bit CoreLib is Windows's, whose file system and
+        // overlapped I/O reach other types (SafeFileHandle's ValueTaskSources, RandomAccess's handlers): an OS difference, not a pointer-size
+        // one, so the set comparison is made only when both are Unix; Linux and macOS hosts make it.
+        var sameOs = IsUnix(module64) == IsUnix(module32);
+        if (!sameOs)
+            Console.WriteLine($"slicer: the 64-bit CoreLib is not a Unix one, so the 64-bit and the 32-bit slices' type sets are not compared "
+                + $"({real64.Except(real32).Count()} types only in the 64-bit slice, {real32.Except(real64).Count()} only in the 32-bit one)");
+        else if (!real64.SetEquals(real32))
         {
             Console.Error.WriteLine("slicer: the 64-bit and the 32-bit slices serve different types: "
                 + string.Join(", ", real64.Except(real32).Select(t => "+" + t).Concat(real32.Except(real64).Select(t => "-" + t))));
             return 1;
         }
-        var findings = Diff(ModuleDefinition.ReadModule(slice64), ModuleDefinition.ReadModule(coreLib64), ModuleDefinition.ReadModule(coreLib32), out var types, out var methods);
+        var findings = Diff(ModuleDefinition.ReadModule(slice64), module64, module32, out var types, out var methods);
         using (var w = new StreamWriter(report))
         {
             w.WriteLine("# Pointer-size-dependent members of the CoreLib slice");
@@ -42,6 +51,9 @@ static class PointerSize
             + "wasm32 uses the slice cut from the 32-bit CoreLib");
         return 0;
     }
+
+    /// <summary>A CoreLib built for Unix carries Interop.Sys (libSystem.Native's entry points); the Windows one carries Interop.Kernel32 instead.</summary>
+    static bool IsUnix(ModuleDefinition coreLib) => coreLib.GetType("Interop")?.NestedTypes.Any(n => n.Name == "Sys") == true;
 
     static HashSet<string> MapKeys(string map) =>
         File.ReadAllLines(map).Where(l => l.IndexOf('=') > 0).Select(l => l[..l.IndexOf('=')]).ToHashSet(StringComparer.Ordinal);

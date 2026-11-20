@@ -243,6 +243,10 @@ namespace CsharpcCoreLib
         public static int ThreadCount => PoolThreads();
         public static long PendingWorkItemCount => PoolPending();
         public static long CompletedWorkItemCount => PoolCompleted();
+
+        // An I/O completion of the Windows CoreLib's overlapped file I/O (ThreadPoolBoundHandle.OnNativeIOCompleted) runs as one csharpc
+        // thread-pool work item (corelib/UpstreamThreadPoolIo.cs), which the pool's completed count already includes.
+        public static void IncrementCompletedWorkItemCount() { }
     }
 
     [ShadowMembers("System.Environment")]

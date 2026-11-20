@@ -1,0 +1,9 @@
+True
+True
+   at Remote.Server.Handle()\n--- End of stack trace from previous location ---\n
+System.InvalidOperationException: remote\n   at Remote.Server.Handle()\n--- End of stack trace from previous location ---\n
+second: InvalidOperationException: Operation is not valid due to the current state of the object.
+thrown: InvalidOperationException: Operation is not valid due to the current state of the object.
+null source: source
+null trace: stackTrace
+True

@@ -11,8 +11,10 @@
 # Globalization from the framework's IL (#426): CultureInfo  CultureData  NumberFormatInfo  TextInfo and CompareInfo are CoreLib's own  so a program
 # that formats a number carries the framework's culture initialization (culture data over ICU  its locale tables  the culture caches). linux-x86_64
 # measured 251 192 B (budget 173 056 -> 256 000; NativeAOT carries the same code); the other platforms moved by the same 82 944 B until CI measures them.
+# #424 CI round 5 (head dc414710) measured macos-arm64 269 240 B (budget 268 288 -> 270 336) and wasi-wasm32 268 391 B (budget 267 264 -> 269 312):
+# growth from the file-system, Convert and Rune flips that landed together on the branch.
 linux-x86_64 collections 256000
 linux-aarch64 collections 254976
-macos-arm64 collections 268288
+macos-arm64 collections 270336
 windows-x86_64 collections 272384
-wasi-wasm32 collections 267264
+wasi-wasm32 collections 269312
