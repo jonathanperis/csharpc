@@ -14,7 +14,7 @@ namespace CsharpcCoreLib
             where T : ISpanFormattable
         {
             if (typeof(T) == typeof(char)) return CharTryFormat.TryFormat((char)self, destination, out charsWritten, format, provider);
-            // Every other boxed built-in value (the numbers, decimal, Int128/UInt128, DateTime, TimeSpan, BigInteger): the text of its
+            // Every other boxed built-in value (the numbers, decimal, Int128/UInt128, DateTime, TimeSpan): the text of its
             // IFormattable thunk, if it fits. It is the same text (.NET's TryFormat and ToString agree for them), and the thunk is linked
             // anyway, while the type's own TryFormat would add a second formatter per boxed type to every program whose composite
             // formatting or key messages test ISpanFormattable (Number.AppendCompositeItem).
@@ -25,11 +25,6 @@ namespace CsharpcCoreLib
             where T : IUtf8SpanFormattable
         {
             if (typeof(T) == typeof(char)) return CharTryFormat.TryFormat((char)self, utf8Destination, out bytesWritten, format, provider);
-            if (typeof(T) == typeof(System.Numerics.BigInteger))
-            {
-                string text = ((IFormattable)self).ToString(format.IsEmpty ? null : format.ToString(), provider);
-                return System.Text.Encoding.UTF8.TryGetBytes(text, utf8Destination, out bytesWritten);
-            }
             return CoreIntrinsics.Unbox<T>(self).TryFormat(utf8Destination, out bytesWritten, format, provider);
         }
 

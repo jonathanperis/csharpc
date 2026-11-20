@@ -30,7 +30,7 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsValueType<T>();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object Box<T>(T value);
         /// <summary>
-        /// value.ToString(format, provider) for library structs whose box isn't IFormattable (BigInteger, Int128...);
+        /// value.ToString(format, provider) for library structs whose box isn't IFormattable (Int128...);
         /// null for every other T (format the box instead).
         /// </summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string FormatValue<T>(T value, string format, IFormatProvider provider);

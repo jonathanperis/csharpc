@@ -1542,13 +1542,11 @@ public sealed partial class ModuleCodeGen
         var taskType = Compilation.GetTypeByMetadataName("System.Threading.Tasks.Task");
         if (taskType is not null) builtins.Add((taskType, "csrt_Task_MT"));
         foreach (var sp in primitives) builtins.Add((Compilation.GetSpecialType(sp), $"csrt_Boxed_{Compilation.GetSpecialType(sp).MetadataName}_MT"));
-        // decimal, DateTime, TimeSpan, Int128/UInt128 and BigInteger boxes are runtime method tables too (decimal.c, datetime.c, int128.c,
-        // bigint.c), registered
+        // decimal, DateTime, TimeSpan and Int128/UInt128 boxes are runtime method tables too (decimal.c, datetime.c, int128.c), registered
         // only once the program boxes one (EmitDeferredBclBoxRegistrations): most programs never do, and a
         // registration per interface they use is code in main.
         ITypeSymbol?[] bclBoxes = [Compilation.GetSpecialType(SpecialType.System_Decimal), Compilation.GetSpecialType(SpecialType.System_DateTime),
-            Compilation.GetTypeByMetadataName("System.TimeSpan"), Compilation.GetTypeByMetadataName("System.Int128"), Compilation.GetTypeByMetadataName("System.UInt128"),
-            Compilation.GetTypeByMetadataName("System.Numerics.BigInteger")];
+            Compilation.GetTypeByMetadataName("System.TimeSpan"), Compilation.GetTypeByMetadataName("System.Int128"), Compilation.GetTypeByMetadataName("System.UInt128")];
         var registerBcl = Module.AddFunction("csharpc.register.bclboxes", Llvm.FunctionType(Llvm.Void));
         Native.LLVMSetLinkage(registerBcl, LLVMLinkage.Internal);
         using (var rb = new IrBuilder(Llvm)) { rb.PositionAtEnd(rb.AppendBlock(registerBcl, "entry")); rb.RetVoid(); }

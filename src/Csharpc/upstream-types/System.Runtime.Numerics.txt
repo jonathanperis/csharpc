@@ -1,0 +1,6 @@
+# System.Numerics.BigInteger and Complex are System.Runtime.Numerics' own IL (FrameworkIl: the assembly is compiled from the shared
+# framework once csharpc implements none of its types, #423). The CoreLib members its IL calls that csharpc's corelib does not
+# implement itself are served from CoreLib's IL here: the span overloads of MemoryExtensions (AsSpan of an array with a Range,
+# TrimEnd and TrimStart of a Span<T>) and nuint's parsing.
+host:System.MemoryExtensions::AsSpan,TrimEnd,TrimStart,Trim
+host:System.UIntPtr,System.IntPtr::Parse,TryParse

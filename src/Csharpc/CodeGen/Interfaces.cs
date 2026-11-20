@@ -228,6 +228,11 @@ public sealed partial class FunctionCodeGen
             if (invocation is not null && staticType.IsValueType && !_m.IsUserMethod(impl) && _m.CoreLib.Map(impl) is var mappedImpl
                 && !SymbolEqualityComparer.Default.Equals(mappedImpl, impl) && _m.IsUserMethod(mappedImpl) && CoreLib.IsInstanceShadow(mappedImpl))
                 return EmitUserCall(mappedImpl, EmitValue(concrete), selfIsNonNull: true, invocation.Arguments, isVirtual: false, extra.Length > 0 ? extra : null);
+            // IEquatable<T>.Equals on a primitive (MemoryExtensions' IL over a Span<nuint>, `where T : IEquatable<T>`): its value equality,
+            // as Equals(T) is (NaN equals NaN for the floating-point types).
+            if (invocation is not null && target is { Name: "Equals", ContainingType: { Name: "IEquatable", Arity: 1 } } && target.Parameters.Length == 1
+                && staticType.SpecialType is >= SpecialType.System_Boolean and <= SpecialType.System_Double or SpecialType.System_IntPtr or SpecialType.System_UIntPtr)
+                return EqualsOf(staticType, EmitValue(concrete), Coerce(EmitValue(invocation.Arguments[0].Value), TypeOf(invocation.Arguments[0].Value), staticType), invocation);
             if (staticType.IsValueType && !ModuleCodeGen.PrimitiveSlotSupported(staticType, target.ContainingType, target))
                 throw CompileError.Unsupported($"interface call '{target}' on value type '{staticType}'", receiver);
         }

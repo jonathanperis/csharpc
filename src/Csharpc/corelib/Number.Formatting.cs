@@ -1205,8 +1205,6 @@ namespace CsharpcCoreLib
             if (ticksText != IntPtr.Zero) return (string)CoreIntrinsics.PointerToObject(ticksText);
             // char is IFormattable too (ignoring format and provider); its interface thunk lands here.
             if (value is char ch) return ch.ToString();
-            // BigInteger's box isn't IFormattable: the provider's symbols and the format string still apply.
-            if (value is System.Numerics.BigInteger bigInteger) return bigInteger.ToString(format, provider);
             // .NET's interpolation handlers prefer ISpanFormattable.TryFormat over IFormattable.ToString, and a type may answer the two
             // differently. (A boxed built-in value's TryFormat thunk is its IFormattable text: BoxedSpanFormattable.TryFormatOf.)
             if (spanFormattableFirst && value is ISpanFormattable spanFormattable) return FormatSpanFormattable(spanFormattable, format, provider);

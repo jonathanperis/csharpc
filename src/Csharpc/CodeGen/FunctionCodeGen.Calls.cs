@@ -146,18 +146,6 @@ public sealed partial class FunctionCodeGen
         bool Matches(IMethodSymbol m) => m.IsStatic && m.Parameters.Length == parameters.Length
             && m.Parameters.Select(p => p.Type).SequenceEqual(parameters, SymbolEqualityComparer.Default);
 
-        // BigInteger predicates: null is zero in the runtime representation (runtime/bigint.c).
-        if (BclValueTypes.IsBigInteger(concrete) && parameters.Length == 1 && target.Name is "IsZero" or "IsNegative" or "IsPositive")
-        {
-            var x = Coerce(EmitValue(inv.Arguments[0].Value), TypeOf(inv.Arguments[0].Value), concrete);
-            var cmp = CallRuntime("csrt_bigint_compare", L.I32, [L.Ptr, L.Ptr], x, LlvmContext.Null(L.Ptr));
-            return target.Name switch
-            {
-                "IsZero" => _b.ICmp(LLVMIntPredicate.EQ, cmp, L.ConstInt(L.I32, 0)),
-                "IsNegative" => _b.ICmp(LLVMIntPredicate.SLT, cmp, L.ConstInt(L.I32, 0)),
-                _ => _b.ICmp(LLVMIntPredicate.SGE, cmp, L.ConstInt(L.I32, 0)),
-            };
-        }
         // decimal predicates: compare with 0m (all-zero bits); the sign bit of `flags` means negative (-0m too).
         if (concrete.SpecialType == SpecialType.System_Decimal && parameters.Length == 1 && target.Name is "IsZero" or "IsNegative" or "IsPositive")
         {
@@ -802,7 +790,7 @@ public sealed partial class FunctionCodeGen
         INamedTypeSymbol { Name: "Mutex" or "Semaphore", ContainingType: null, ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } named =>
             _m.ExternalGlobal(named.Name == "Mutex" ? "csrt_Mutex_MT" : "csrt_Semaphore_MT"),
         _ when IsBoxablePrimitive(type) => _m.ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"),
-        _ when BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) || BclValueTypes.IsBigInteger(type) || Int128Support.Is128(type) => _m.TypeMethodTable(type, at),
+        _ when BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) || Int128Support.Is128(type) => _m.TypeMethodTable(type, at),
         _ when IsIndexType(type) => _m.IndexRangeMethodTable(isRange: false),
         _ when IsRangeType(type) => _m.IndexRangeMethodTable(isRange: true),
         INamedTypeSymbol { TypeKind: TypeKind.Enum } e => _m.EnumMethodTable(e),
@@ -1423,7 +1411,6 @@ public sealed partial class FunctionCodeGen
         SpecialType.System_Decimal => CallCoreLib("Number", "DecimalToString", value),
         SpecialType.System_DateTime => CallRuntime("csrt_datetime_to_string", L.Ptr, [L.I64], value),
         _ when BclValueTypes.IsTimeSpan(type) => CallRuntime("csrt_timespan_to_string", L.Ptr, [L.I64], value),
-        _ when BclValueTypes.IsBigInteger(type) => CallRuntime("csrt_bigint_to_string", L.Ptr, [L.Ptr], value),
         SpecialType.System_Int32 => CallRuntime("csrt_string_from_i32", L.Ptr, [L.I32], value),
         SpecialType.System_Int64 => CallRuntime("csrt_string_from_i64", L.Ptr, [L.I64], value),
         SpecialType.System_IntPtr when value.Type.IntWidth == 64 => CallRuntime("csrt_string_from_i64", L.Ptr, [L.I64], value),
@@ -1454,7 +1441,7 @@ public sealed partial class FunctionCodeGen
     {
         var type = TypeOf(Unbox(valueOp));
         if (type is null || type.SpecialType == SpecialType.System_String || type.TypeKind == TypeKind.Enum || TypeMapper.IsNullable(type)
-            || BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) || BclValueTypes.IsBigInteger(type) || Int128Support.Is128(type)
+            || BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) || Int128Support.Is128(type)
             || type.SpecialType is >= SpecialType.System_Boolean and <= SpecialType.System_UIntPtr)
             return ToStringValue(valueOp);
         if (type.IsReferenceType || (type.IsValueType && type.AllInterfaces.Any(i => i is { Name: "IFormattable", ContainingNamespace.Name: "System" })))
@@ -1490,7 +1477,6 @@ public sealed partial class FunctionCodeGen
         if (BclValueTypes.IsDecimal(type)) return CallCoreLib("Number", "FormatDecimal", value, format);
         if (BclValueTypes.IsDateTime(type)) return CallRuntime("csrt_datetime_format", L.Ptr, [L.I64, L.Ptr], value, format);
         if (BclValueTypes.IsTimeSpan(type)) return CallRuntime("csrt_timespan_format", L.Ptr, [L.I64, L.Ptr], value, format);
-        if (BclValueTypes.IsBigInteger(type)) return CallRuntime("csrt_bigint_format", L.Ptr, [L.Ptr, L.Ptr], value, format);
         switch (type.SpecialType)
         {
             case SpecialType.System_SByte or SpecialType.System_Int16 or SpecialType.System_Int32 or SpecialType.System_Int64:

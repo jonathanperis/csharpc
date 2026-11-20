@@ -343,7 +343,7 @@ public sealed partial class FunctionCodeGen
 
     /// <summary>
     /// CoreIntrinsics.FormatValue: a library struct with its own ToString(string, IFormatProvider) lowering
-    /// (BigInteger, Int128...) is formatted through it, as `value.ToString(format, provider)` in source would be:
+    /// (Int128...) is formatted through it, as `value.ToString(format, provider)` in source would be:
     /// its box (if it has one) isn't IFormattable. Null for every other T.
     /// </summary>
     private LLVMValueRef FormatValueDirect(ITypeSymbol t, LLVMValueRef[] args, IInvocationOperation inv)
@@ -481,8 +481,6 @@ public sealed partial class FunctionCodeGen
         t = EnumBase(t);
         if (IsIntegral(t) || Int128Support.Is128(t)) return _b.ICmp(LLVMIntPredicate.EQ, a, b);
         if (BclValueTypes.IsTicks(t)) return _b.ICmp(LLVMIntPredicate.EQ, BclValueTypes.TicksOf(this, t, a), BclValueTypes.TicksOf(this, t, b));
-        if (BclValueTypes.IsBigInteger(t))
-            return _b.ICmp(LLVMIntPredicate.EQ, CallRuntime("csrt_bigint_compare", L.I32, [L.Ptr, L.Ptr], a, b), L.ConstInt(L.I32, 0));
         if (t.SpecialType == SpecialType.System_Decimal) // decimal equality is by value (1.0m == 1.00m)
             return _b.ICmp(LLVMIntPredicate.EQ, CallRuntime("csrt_decimal_compare", L.I32, [L.Ptr, L.Ptr], Spill(a), Spill(b)), L.ConstInt(L.I32, 0));
         if (TypeMapper.IsFloatingPoint(t))
@@ -556,7 +554,6 @@ public sealed partial class FunctionCodeGen
                 _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.LShr, a, L.ConstInt(a.Type, 64)), L.I64));
             return _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.Xor, folded, _b.BinOp(LLVMOpcode.LShr, folded, L.ConstInt(L.I64, 32))), i32);
         }
-        if (BclValueTypes.IsBigInteger(t)) return CallRuntime("csrt_bigint_get_hash_code", i32, [L.Ptr], a);
         if (BclValueTypes.IsTicks(t)) // TimeSpan/DateTime.GetHashCode: (int)ticks ^ (int)(ticks >> 32), DateTime's Kind excluded
         {
             a = BclValueTypes.TicksOf(this, t, a);
@@ -715,7 +712,6 @@ public sealed partial class FunctionCodeGen
             var valueOrder = CompareOf(u, NullablePayload(a, u), NullablePayload(b, u), at);
             return _b.Select(_b.BinOp(LLVMOpcode.And, ha, hb), valueOrder, nullOrder);
         }
-        if (BclValueTypes.IsBigInteger(t)) return CallRuntime("csrt_bigint_compare", i32, [L.Ptr, L.Ptr], a, b);
         if (t is INamedTypeSymbol { IsTupleType: true } tuple)
         {
             // ValueTuple.CompareTo: lexicographic over the elements with Comparer<Ti>.Default.

@@ -449,6 +449,15 @@ internal static class Intrinsics
 
         // System.Text.StringBuilder: the framework's own IL (src/Csharpc/upstream-types/System.Text.StringBuilder.txt); StringBuilderRuntime.cs has the entry points of synthesized code.
 
+        // Range.GetOffsetAndLength(length) (MemoryExtensions.AsSpan(T[], Range) from CoreLib's IL, which System.Runtime.Numerics calls): the
+        // (offset, length) pair the range lowering computes, with .NET's check and message.
+        t["System.Range.GetOffsetAndLength(int)"] = (g, inv) =>
+        {
+            var (start, count) = g.ResolveRange(g.EmitValue(inv.Instance!), Arg(g, inv, 0), "length");
+            var tuple = LlvmContext.Null(g.Types.Value(g.S(inv.TargetMethod.ReturnType)));
+            return g.Builder.InsertValue(g.Builder.InsertValue(tuple, start, 0), count, 1);
+        };
+
         // ---- System.Math -----------------------------------------------------------------------
         foreach (var (name, llvm) in new[] { ("Sqrt", "llvm.sqrt"), ("Floor", "llvm.floor"), ("Ceiling", "llvm.ceil"),
                      ("Truncate", "llvm.trunc"), ("Round", "llvm.roundeven") /* MidpointRounding.ToEven */ })

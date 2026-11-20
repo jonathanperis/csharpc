@@ -49,8 +49,6 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         _ when BclValueTypes.IsTicks(type) => Llvm.I64,
         // Int128 / UInt128: LLVM's native i128 (CodeGen/Int128Support.cs).
         _ when Int128Support.Is128(type) => Llvm.IntTypeOf(128),
-        // BigInteger: pointer to an immutable runtime bignum, null == 0 (src/runtime/bigint.c).
-        _ when BclValueTypes.IsBigInteger(type) => Llvm.Ptr,
         // Value types (docs/03-lowering.md#structs): first-class LLVM aggregates of storage types.
         INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } n =>
             Llvm.Struct(Llvm.I8, Storage(n.TypeArguments[0])),              // { hasValue, value }

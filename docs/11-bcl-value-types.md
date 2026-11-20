@@ -16,7 +16,7 @@ Code map:
 | Decimal arithmetic, conversions, parsing | `src/Csharpc/corelib/DecimalOps.cs` (C#, [ADR 0008](adr/0008-runtime-in-csharp.md)) |
 | TimeSpan, DateTime arithmetic, calendar, time zones and formatting | `src/Csharpc/corelib/DateTimeOps.cs` (`DateTimeMembers` shadows the rest of `DateTime`); clocks and Stopwatch in `src/runtime/datetime.c` |
 | `System.Type` objects | `src/runtime/type.c` |
-| BigInteger | `src/Csharpc/corelib/BigIntegerOps.cs` |
+| BigInteger | the framework's IL (System.Runtime.Numerics, [docs/il-first/System.Runtime.Numerics.md](il-first/System.Runtime.Numerics.md)) |
 | Array helpers, introsort, Convert, Environment, collation | `src/runtime/bclmisc.c` |
 | Number formatting and parsing (decimal included) | `src/Csharpc/corelib/Number.Formatting.cs`, `Number.Parsing.cs` |
 | Boxed decimal / BigInteger / TimeSpan / DateTime method tables | `src/runtime/{decimal,bigint,datetime}.c` (their slots call corelib exports) |
