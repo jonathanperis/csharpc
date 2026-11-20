@@ -68,6 +68,9 @@ public sealed partial class ModuleCodeGen
             }
             : -1;
 
+    /// <summary>The .NET OpenSSL shim's module name, whose entry points the corelib's C# contract implements on Linux (corelib/Crypto/CryptoNative.cs).</summary>
+    internal const string CryptoNativeLibrary = "libSystem.Security.Cryptography.Native.OpenSsl";
+
     public LoweredFunction PInvokeStub(IMethodSymbol method)
     {
         method = method.OriginalDefinition;
@@ -120,11 +123,21 @@ public sealed partial class ModuleCodeGen
         // libSystem.Native, which CoreLib's file-system IL P/Invokes, is csharpc's C# contract over its libc layer (corelib/IO/SystemNative.cs),
         // not the pack's shim: an internal call, bound by name. Only where the shim isn't linked for another library (Tar, ZipFile), whose
         // archive members would define the same symbols.
-        var nativeContract = !shim && library == "libSystem.Native" && !Types.Target.IsWindows && TryRequestNativeContract(library, entry)
+        // libSystem.Security.Cryptography.Native.OpenSsl, which the framework's crypto and TLS IL P/Invokes on Linux, is csharpc's C# contract over
+        // OpenSSL's libcrypto and libssl (corelib/Crypto/CryptoNative*.cs) the same way, unless the native-TLS mode links the pack's shim.
+        var nativeContract = !shim && (library == "libSystem.Native" || library == CryptoNativeLibrary) && !Types.Target.IsWindows && TryRequestNativeContract(library, entry)
             // Kernel32's thread-pool I/O objects, which the Windows CoreLib's overlapped file I/O calls, are csharpc's contract too
             // (corelib/UpstreamThreadPoolIo.cs): their callbacks must run on threads csharpc's runtime knows.
             || coreLibSystemImport && TryRequestNativeContract("kernel32.dll", entry);
         var directPInvoke = DirectPInvokes.Count > 0 && (DirectPInvokes.Contains(library) || DirectPInvokes.Contains(library + "!" + entry));
+        if (library == CryptoNativeLibrary && !shim && !nativeContract && !directPInvoke && IsIlMethod(method))
+        {
+            // No OpenSSL shim is linked and the contract lacks this entry point: an explicit diagnostic, never a library search that fails at run time.
+            var message = $"'{method}' calls {entry} of {library}, which csharpc's OpenSSL contract does not provide: not supported by csharpc yet";
+            _ilBoundaries.Add((method, message));
+            UnsupportedBody(stub, message);
+            return lowered;
+        }
         var direct = shim || directPInvoke || nativeContract || (Types.Target.IsWindows ? runtimeSymbol || coreLibSystemImport
             : s_directLinkLibraries.Contains(library) && !(Types.Target.IsDarwin && library.Contains(".so", StringComparison.Ordinal)));
         // WASI has no dynamic loading: libc/libm (wasi-libc, linked statically) and the runtime bind
