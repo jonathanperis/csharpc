@@ -117,8 +117,12 @@ public sealed partial class ModuleCodeGen
         // .NET's own shims (libSystem.IO.Compression.Native) are linked statically, as NativeAOT does:
         // strong references, so the linker takes their members from the archives.
         var shim = LinkedShims.Contains(library);
+        // libSystem.Native, which CoreLib's file-system IL P/Invokes, is csharpc's C# contract over its libc layer (corelib/IO/SystemNative.cs),
+        // not the pack's shim: an internal call, bound by name. Only where the shim isn't linked for another library (Tar, ZipFile), whose
+        // archive members would define the same symbols.
+        var nativeContract = !shim && library == "libSystem.Native" && !Types.Target.IsWindows && TryRequestNativeContract(library, entry);
         var directPInvoke = DirectPInvokes.Count > 0 && (DirectPInvokes.Contains(library) || DirectPInvokes.Contains(library + "!" + entry));
-        var direct = shim || directPInvoke || (Types.Target.IsWindows ? runtimeSymbol || coreLibSystemImport
+        var direct = shim || directPInvoke || nativeContract || (Types.Target.IsWindows ? runtimeSymbol || coreLibSystemImport
             : s_directLinkLibraries.Contains(library) && !(Types.Target.IsDarwin && library.Contains(".so", StringComparison.Ordinal)));
         // WASI has no dynamic loading: libc/libm (wasi-libc, linked statically) and the runtime bind
         // directly; any other library fails to load at the call, with .NET's DllNotFoundException.
@@ -136,7 +140,7 @@ public sealed partial class ModuleCodeGen
                 // then binds them all to the null default instead of the UCRT import).
                 // Not on wasm either: wasm-ld doesn't extract archive members (wasi-libc) for weak references,
                 // so a weak getenv would stay undefined; a symbol wasi-libc lacks is a link error instead.
-                if (!coreLibSystemImport && !shim && !directPInvoke && !Types.Target.IsWasm) Native.LLVMSetLinkage(native, (LLVMLinkage)12 /* LLVMExternalWeakLinkage */);
+                if (!coreLibSystemImport && !shim && !directPInvoke && !nativeContract && !Types.Target.IsWasm) Native.LLVMSetLinkage(native, (LLVMLinkage)12 /* LLVMExternalWeakLinkage */);
                 foreach (var (index, attribute) in nativeAttributes) Native.LLVMAddAttributeAtIndex(native, index, attribute);
             }
         }

@@ -1444,10 +1444,33 @@ public sealed partial class FunctionCodeGen
         _ => null,
     };
 
+    /// <summary>
+    /// `{value}` in an interpolated string, as the interpolation handlers append it (DefaultInterpolatedStringHandler.AppendFormatted&lt;T&gt;): a
+    /// value that is IFormattable at run time formats through ISpanFormattable.TryFormat, then IFormattable.ToString(null, provider), and only
+    /// anything else through ToString(), which may answer differently. A reference type is tested at run time (a subclass may implement the
+    /// interfaces); a struct by its type. Strings, numbers, enums and the other built-in values give the same text either way.
+    /// </summary>
+    internal LLVMValueRef InterpolationHole(IOperation valueOp)
+    {
+        var type = TypeOf(Unbox(valueOp));
+        if (type is null || type.SpecialType == SpecialType.System_String || type.TypeKind == TypeKind.Enum || TypeMapper.IsNullable(type)
+            || BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) || BclValueTypes.IsBigInteger(type) || Int128Support.Is128(type)
+            || type.SpecialType is >= SpecialType.System_Boolean and <= SpecialType.System_UIntPtr)
+            return ToStringValue(valueOp);
+        if (type.IsReferenceType || (type.IsValueType && type.AllInterfaces.Any(i => i is { Name: "IFormattable", ContainingNamespace.Name: "System" })))
+        {
+            // A lean entry point, not FormatWith's: a program that interpolates objects does not link composite formatting's special cases.
+            var op = Unbox(valueOp);
+            var value = EmitValue(op);
+            return CallCoreLib("Number", "FormatInterpolationHole", type.IsValueType ? Box(value, type, op) : value);
+        }
+        return ToStringValue(valueOp);
+    }
+
     /// <summary>`{value,alignment:format}` in an interpolated string.</summary>
     private LLVMValueRef AlignAndFormat(IInterpolationOperation hole)
     {
-        var piece = hole.FormatString is { } format ? FormatWith(hole.Expression, EmitValue(format)) : ToStringValue(hole.Expression);
+        var piece = hole.FormatString is { } format ? FormatWith(hole.Expression, EmitValue(format)) : InterpolationHole(hole.Expression);
         if (hole.Alignment is { } alignment)
             piece = CallRuntime("csrt_string_align", L.Ptr, [L.Ptr, L.I32], piece, Coerce(EmitValue(alignment), TypeOf(alignment), _m.Compilation.GetSpecialType(SpecialType.System_Int32)));
         return piece;

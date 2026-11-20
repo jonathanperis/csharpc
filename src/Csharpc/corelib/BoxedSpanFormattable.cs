@@ -14,13 +14,11 @@ namespace CsharpcCoreLib
             where T : ISpanFormattable
         {
             if (typeof(T) == typeof(char)) return CharTryFormat.TryFormat((char)self, destination, out charsWritten, format, provider);
-            // Not through TryFormat(object, ...): its switch reaches every formatter (decimal, DateTime with the calendars...), which a
-            // program that only boxes a UInt128 (System.Net.IPNetwork) would carry.
-            if (typeof(T) == typeof(Int128)) return Int128TryFormat((Int128)self, destination, out charsWritten, format, provider);
-            if (typeof(T) == typeof(UInt128)) return UInt128TryFormat((UInt128)self, destination, out charsWritten, format, provider);
-            // BigInteger (a runtime value csharpc formats with its own BigIntegerOps): the text IFormattable.ToString gives, if it fits.
-            if (typeof(T) == typeof(System.Numerics.BigInteger)) return CopyFormatted((IFormattable)self, destination, out charsWritten, format, provider);
-            return CoreIntrinsics.Unbox<T>(self).TryFormat(destination, out charsWritten, format, provider);
+            // Every other boxed built-in value (the numbers, decimal, Int128/UInt128, DateTime, TimeSpan, BigInteger): the text of its
+            // IFormattable thunk, if it fits. It is the same text (.NET's TryFormat and ToString agree for them), and the thunk is linked
+            // anyway, while the type's own TryFormat would add a second formatter per boxed type to every program whose composite
+            // formatting or key messages test ISpanFormattable (Number.AppendCompositeItem).
+            return CopyFormatted((IFormattable)self, destination, out charsWritten, format, provider);
         }
 
         public static bool TryFormatOf<T>(object self, Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format, IFormatProvider provider)

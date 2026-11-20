@@ -59,6 +59,18 @@ namespace CsharpcCoreLib
         /// <summary>The hash string.GetHashCode() gives the same characters.</summary>
         public static int GetHashCode(ReadOnlySpan<char> value) => new string(value).GetHashCode();
 
+        /// <summary>CoreLib-internal: a one- or two-char string (Rune.ToString of a BMP or supplementary scalar).</summary>
+        public static string CreateFromChar(char c) => new string(c, 1);
+
+        public static string CreateFromChar(char c1, char c2)
+        {
+            string s = CoreIntrinsics.FastAllocateString(2);
+            Span<char> chars = CoreIntrinsics.StringChars(s);
+            chars[0] = c1;
+            chars[1] = c2;
+            return s;
+        }
+
         /// <summary>CoreLib-internal string.CompareOrdinal over spans (EncodingTable's name lookup): SpanHelpers.SequenceCompareTo, as CoreLib's.</summary>
         public static int CompareOrdinal(ReadOnlySpan<char> strA, ReadOnlySpan<char> strB) => strA.SequenceCompareTo(strB);
 
@@ -208,6 +220,25 @@ namespace CsharpcCoreLib
         public static string Concat(ReadOnlySpan<char> str0, ReadOnlySpan<char> str1, ReadOnlySpan<char> str2) => ConcatSpans(str0, str1, str2, default);
         public static string Concat(ReadOnlySpan<char> str0, ReadOnlySpan<char> str1, ReadOnlySpan<char> str2, ReadOnlySpan<char> str3) =>
             ConcatSpans(str0, str1, str2, str3);
+
+        /// <summary>CoreLib's internal five-span overload (Path.Join/Combine of three parts with separators, from the framework's IL).</summary>
+        public static string Concat(ReadOnlySpan<char> str0, ReadOnlySpan<char> str1, ReadOnlySpan<char> str2, ReadOnlySpan<char> str3, ReadOnlySpan<char> str4)
+        {
+            long length = (long)str0.Length + str1.Length + str2.Length + str3.Length + str4.Length;
+            if (length == 0) return "";
+            if (length > int.MaxValue) throw new OutOfMemoryException();
+            string result = CoreIntrinsics.FastAllocateString((int)length);
+            Span<char> dst = CoreIntrinsics.StringChars(result);
+            str0.CopyTo(dst);
+            dst = dst.Slice(str0.Length);
+            str1.CopyTo(dst);
+            dst = dst.Slice(str1.Length);
+            str2.CopyTo(dst);
+            dst = dst.Slice(str2.Length);
+            str3.CopyTo(dst);
+            str4.CopyTo(dst.Slice(str3.Length));
+            return result;
+        }
 
         private static string ConcatSpans(ReadOnlySpan<char> a, ReadOnlySpan<char> b, ReadOnlySpan<char> c, ReadOnlySpan<char> d)
         {

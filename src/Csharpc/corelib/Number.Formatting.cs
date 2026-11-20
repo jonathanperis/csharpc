@@ -67,11 +67,24 @@ namespace CsharpcCoreLib
 
 
 
+        /// <summary>The space after the text so far (string.Format's ISpanFormattable items are formatted into it).</summary>
+        public Span<char> Remaining => _chars.Slice(_pos);
+
+        public void Advance(int count) { _pos += count; }
+
+        public void EnsureCapacity(int capacity)
+        {
+            if ((uint)capacity > (uint)_chars.Length) Grow(capacity - _pos);
+        }
+
+        // Grows as .NET's ValueStringBuilder does (twice the size, or what is needed if more, rented from ArrayPool<char>.Shared, whose
+        // arrays up to 2^30 chars are powers of two of at least 16): string.Format offers an ISpanFormattable item the space left in the
+        // buffer, and formats it with IFormattable when that is too small, so the capacity is observable.
         private void Grow(int extra)
         {
-            int size = _chars.Length * 2;
-            if (size < _pos + extra) size = _pos + extra;
-            if (size < 64) size = 64;
+            int size = (int)Math.Max((uint)(_pos + extra), Math.Min((uint)_chars.Length * 2, (uint)Array.MaxLength));
+            if (size <= 16) size = 16;
+            else if (size <= 1 << 30) size = (int)System.Numerics.BitOperations.RoundUpToPowerOf2((uint)size);
             char[] array = new char[size];
             for (int i = 0; i < _pos; i++) array[i] = _chars[i];
             _chars = array;
@@ -597,7 +610,13 @@ namespace CsharpcCoreLib
         [System.Runtime.InteropServices.DllImport("__Internal", EntryPoint = "csrt_format_boxed_ticks")]
         private static extern IntPtr FormatBoxedTicks(IntPtr value, IntPtr format, IntPtr provider);
 
-        internal static string FormatObjectWith(object value, string format, IFormatProvider provider)
+        internal static string FormatObjectWith(object value, string format, IFormatProvider provider) => FormatObjectWith(value, format, provider, spanFormattableFirst: true);
+
+        /// <summary>
+        /// spanFormattableFirst: ISpanFormattable.TryFormat (into a buffer grown until it fits) before IFormattable, as the interpolation
+        /// handlers format a value; string.Format's own rule is AppendCompositeItem's.
+        /// </summary>
+        internal static string FormatObjectWith(object value, string format, IFormatProvider provider, bool spanFormattableFirst)
         {
             if (value == null) return "";
             if (format != null && format.Length == 0) format = null;
@@ -612,15 +631,60 @@ namespace CsharpcCoreLib
             if (value is char ch) return ch.ToString();
             // BigInteger's box isn't IFormattable: the provider's symbols and the format string still apply.
             if (value is System.Numerics.BigInteger bigInteger) return bigInteger.ToString(format, provider);
+            // .NET's interpolation handlers prefer ISpanFormattable.TryFormat over IFormattable.ToString, and a type may answer the two
+            // differently. (A boxed built-in value's TryFormat thunk is its IFormattable text: BoxedSpanFormattable.TryFormatOf.)
+            if (spanFormattableFirst && value is ISpanFormattable spanFormattable) return FormatSpanFormattable(spanFormattable, format, provider);
             if (value is IFormattable formattable) return formattable.ToString(format, provider) ?? "";
             return value.ToString() ?? "";
         }
 
+        /// <summary>
+        /// `{value}` of a reference type or an IFormattable struct in an interpolated string (FunctionCodeGen.InterpolationHole), as
+        /// DefaultInterpolatedStringHandler.AppendFormatted&lt;T&gt; appends it: ISpanFormattable.TryFormat into a buffer grown until it fits, else
+        /// IFormattable.ToString(null, null), else ToString(); null is "". (A boxed BigInteger is not IFormattable here; its ToString() is the same
+        /// text as ToString(null, null).)
+        /// </summary>
+        internal static string FormatInterpolationHole(object value)
+        {
+            if (value is IFormattable formattable)
+            {
+                if (value is ISpanFormattable spanFormattable) return FormatSpanFormattable(spanFormattable, null, null);
+                return formattable.ToString(null, null) ?? "";
+            }
+            return value?.ToString() ?? "";
+        }
+
+        /// <summary>
+        /// ISpanFormattable.TryFormat as string.Format and the interpolation handlers call it (ValueStringBuilder.AppendFormatHelper): into the
+        /// space at hand, and again into a larger buffer while it answers false.
+        /// </summary>
+        internal static string FormatSpanFormattable(ISpanFormattable value, string format, IFormatProvider provider)
+        {
+            Span<char> initial = stackalloc char[256];
+            if (value.TryFormat(initial, out int written, format, provider)) return initial.Slice(0, written).ToString();
+            for (int size = 1024; ; size = size < int.MaxValue / 2 ? size * 2 : Array.MaxLength)
+            {
+                char[] buffer = new char[size];
+                if (value.TryFormat(buffer, out written, format, provider)) return new string(buffer, 0, written);
+                if (size == Array.MaxLength) throw new OutOfMemoryException();
+            }
+        }
+
+        // .NET's ThrowHelper.ThrowFormatInvalidString(offset, reason).
+        internal static void ThrowInvalidComposite(int offset, string reason) =>
+            throw new FormatException("Input string was not in a correct format. Failure to parse near offset " +
+                Int32ToDecStr(offset) + ". " + reason);
 
         private const string UnclosedFormatItem = "Format item ends prematurely.";
         private const string ExpectedAsciiDigit = "Expected an ASCII digit.";
 
-
+        // Advances to the next character of a format item; running off the end is an unclosed item.
+        private static char MoveNext(string format, ref int pos)
+        {
+            pos++;
+            if (pos >= format.Length) ThrowInvalidComposite(pos, UnclosedFormatItem);
+            return format[pos];
+        }
 
         /// <summary>
         /// string.Format(format, args): "{index[,alignment][:format]}" with "{{" / "}}" escapes. Mirrors
@@ -633,10 +697,114 @@ namespace CsharpcCoreLib
         internal static string FormatCompositeWith(IFormatProvider provider, string format, object[] args)
         {
             if (format == null) throw new ArgumentNullException("format");
-            // The framework's StringBuilder.AppendFormat (served from its IL): the same parsing, alignment, ICustomFormatter and error texts.
-            return new System.Text.StringBuilder(format.Length + 16 * (args == null ? 0 : args.Length)).AppendFormat(provider, format, args).ToString();
+            ICustomFormatter customFormatter = provider == null ? null : provider.GetFormat(typeof(ICustomFormatter)) as ICustomFormatter;
+            const int IndexLimit = 1000000, WidthLimit = 1000000;  // exclusive limits, as in .NET
+            int count = args == null ? 0 : args.Length;
+            // .NET's string.Format: a 256-char stack buffer, grown at once to the format's length plus 8 per argument.
+            Span<char> chars = stackalloc char[256];
+            var sb = new CharBuilder(chars);
+            sb.EnsureCapacity(format.Length + count * 8);
+            int pos = 0;
+            char ch;
+            while (true)
+            {
+                // Literal text up to the next unescaped '{'.
+                while (true)
+                {
+                    if (pos >= format.Length) return sb.Build();
+                    char c = format[pos];
+                    if (c != '{' && c != '}') { sb.Append(c); pos++; continue; }
+                    ch = MoveNext(format, ref pos);
+                    if (c == ch) { sb.Append(ch); pos++; continue; }
+                    if (c != '{') ThrowInvalidComposite(pos, "Unexpected closing brace without a corresponding opening brace.");
+                    break;
+                }
+
+                int width = 0;
+                bool leftJustify = false;
+                string spec = null;
+                int index = ch - '0';
+                if ((uint)index >= 10u) ThrowInvalidComposite(pos, ExpectedAsciiDigit);
+                ch = MoveNext(format, ref pos);
+                if (ch != '}')
+                {
+                    while (ch >= '0' && ch <= '9' && index < IndexLimit)
+                    {
+                        index = index * 10 + ch - '0';
+                        ch = MoveNext(format, ref pos);
+                    }
+                    while (ch == ' ') ch = MoveNext(format, ref pos);
+                    if (ch == ',')
+                    {
+                        do { ch = MoveNext(format, ref pos); } while (ch == ' ');
+                        if (ch == '-')
+                        {
+                            leftJustify = true;
+                            ch = MoveNext(format, ref pos);
+                        }
+                        width = ch - '0';
+                        if ((uint)width >= 10u) ThrowInvalidComposite(pos, ExpectedAsciiDigit);
+                        ch = MoveNext(format, ref pos);
+                        while (ch >= '0' && ch <= '9' && width < WidthLimit)
+                        {
+                            width = width * 10 + ch - '0';
+                            ch = MoveNext(format, ref pos);
+                        }
+                        while (ch == ' ') ch = MoveNext(format, ref pos);
+                    }
+                    if (ch != '}')
+                    {
+                        if (ch != ':') ThrowInvalidComposite(pos, UnclosedFormatItem);
+                        int startingPos = pos;
+                        while (true)
+                        {
+                            ch = MoveNext(format, ref pos);
+                            if (ch == '}') break;
+                            if (ch == '{') ThrowInvalidComposite(pos, UnclosedFormatItem);
+                        }
+                        startingPos++;
+                        spec = format.Substring(startingPos, pos - startingPos);
+                    }
+                }
+                pos++;
+                if (index >= count)
+                    throw new FormatException("Index (zero based) must be greater than or equal to zero and less than the size of the argument list.");
+                AppendCompositeItem(ref sb, customFormatter, provider, spec, args[index], width, leftJustify);
+            }
         }
 
+        /// <summary>
+        /// One item of string.Format, as .NET's ValueStringBuilder.AppendFormatHelper formats it: the provider's ICustomFormatter first; then, when
+        /// nothing goes before it (no right alignment), an ISpanFormattable into the space left in the buffer, once; and otherwise, or when that
+        /// space is too small, IFormattable.ToString(format, provider) or ToString(). No type test on the built-in numbers here: testing a boxed
+        /// type refers to its method table, which compiles that type's interface thunks (and so its formatter) into the program.
+        /// </summary>
+        internal static void AppendCompositeItem(ref CharBuilder sb, ICustomFormatter customFormatter, IFormatProvider provider, string spec, object arg, int width, bool leftJustify,
+            bool lean = false)
+        {
+            string piece = null;
+            if (customFormatter != null) piece = customFormatter.Format(spec, arg, provider);
+            if (piece == null)
+            {
+                if ((leftJustify || width == 0) && arg is ISpanFormattable spanFormattable
+                    && spanFormattable.TryFormat(sb.Remaining, out int charsWritten, spec, provider))
+                {
+                    if ((uint)charsWritten > (uint)sb.Remaining.Length) throw new FormatException("Input string was not in a correct format.");
+                    sb.Advance(charsWritten);
+                    if (leftJustify && width > charsWritten) sb.Append(' ', width - charsWritten);
+                    return;
+                }
+                // lean (CoreLib's messages, UpstreamSupport.FormatItems): IFormattable or ToString() only, without FormatObjectWith's special
+                // cases (BigInteger's box, the runtime's date formatting), which would link their formatters into every program that can throw
+                // a KeyNotFoundException.
+                piece = lean ? (arg is IFormattable formattable ? formattable.ToString(spec, provider) : arg?.ToString()) ?? ""
+                    : FormatObjectWith(arg, spec, provider, spanFormattableFirst: false);
+            }
+            int len = piece.Length;
+            if (!leftJustify && width > len) sb.Append(' ', width - len);
+            sb.Append(piece);
+            if (leftJustify && width > len) sb.Append(' ', width - len);
+        }
 
         /// <summary>Console.Write(double/float) (formerly csrt_console_write_f64/f32).</summary>
         internal static void ConsoleWriteDouble(double value) => Console.Write(DoubleToString(value));

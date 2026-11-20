@@ -31,6 +31,9 @@ sealed class Emitter
         // state-machine type's name, which the slice keeps (ConcurrentQueue<T>.Enumerate, #399).
         "System.Runtime.CompilerServices.AsyncStateMachineAttribute", "System.Runtime.CompilerServices.IteratorStateMachineAttribute",
         "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute",
+        // A method the native side calls through a function pointer (Interop.Sys.AddMountPoint, GetAllMountPoints' callback): csharpc
+        // gives it the C calling convention and an exception barrier only when it carries the attribute.
+        "System.Runtime.InteropServices.UnmanagedCallersOnlyAttribute",
         // A switch's name on its getter (LocalAppContextSwitches.EnableUnsafeUTF7Encoding, which Encoding.GetEncoding(65000) tests): csharpc folds
         // the getter to the runtimeconfig's value when the program sets one (ModuleCodeGen.FeatureSwitchDefinitionValue), as ILCompiler does.
         "System.Diagnostics.CodeAnalysis.FeatureSwitchDefinitionAttribute"];

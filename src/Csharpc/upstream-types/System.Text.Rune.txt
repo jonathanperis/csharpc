@@ -1,0 +1,6 @@
+# Rune and its enumerators, served from the framework's CoreLib IL (ADR 0023, #423; docs/il-first/System.Text.Rune.md). string.EnumerateRunes
+# stays a String member of the corelib (corelib/StringRunes.cs, through the enumerator's internal constructor) and MemoryExtensions.EnumerateRunes
+# likewise.
+System.Text.Rune
+System.Text.StringRuneEnumerator
+System.Text.SpanRuneEnumerator

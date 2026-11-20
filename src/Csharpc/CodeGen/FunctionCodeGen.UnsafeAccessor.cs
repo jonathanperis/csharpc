@@ -101,11 +101,19 @@ public sealed partial class FunctionCodeGen
             }
             case 0: // constructor: the return type is the type to create
             {
-                if (S(target.ReturnType) is not INamedTypeSymbol { TypeKind: TypeKind.Class } owner || !_m.IsUserType(owner))
+                if (S(target.ReturnType) is not INamedTypeSymbol { TypeKind: TypeKind.Class or TypeKind.Struct } owner || !_m.IsUserType(owner))
                     throw CompileError.Unsupported($"[UnsafeAccessor] constructor of '{target.ReturnType}'", inv);
                 var parameterTypes = target.Parameters.Select(p => S(p.Type)).ToArray();
                 var ctor = owner.InstanceConstructors.FirstOrDefault(c => c.Parameters.Select(p => S(p.Type)).SequenceEqual(parameterTypes, SymbolEqualityComparer.Default))
                     ?? throw CompileError.Unsupported($"[UnsafeAccessor] constructor of '{owner}' not found", inv);
+                if (owner.TypeKind == TypeKind.Struct)
+                {
+                    // A struct is created in place: a zeroed value whose address is the constructor's `this` (the corelib's
+                    // string.EnumerateRunes builds CoreLib's StringRuneEnumerator through its internal constructor).
+                    var slot = Spill(LlvmContext.Null(T.Storage(owner)));
+                    DirectCall(ctor, [slot, .. args.Select(a => EmitArgument(a, target))]);
+                    return LoadValue(slot, owner);
+                }
                 var layout = _m.GetLayout(owner);
                 var obj = Allocate(layout.MethodTable, L.ConstInt(L.I64, (long)layout.InstanceSize));
                 DirectCall(ctor, [obj, .. args.Select(a => EmitArgument(a, target))]);

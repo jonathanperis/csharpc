@@ -369,7 +369,7 @@ namespace CsharpcCoreLib
         /// <summary>The exception .NET throws for a Win32 error on a path (Win32Marshal).</summary>
         public static Exception IOError(int errno, string path, bool isDirectory)
         {
-            string full = path == null ? null : PathImpl.GetFullPath(path);
+            string full = path == null ? null : System.IO.Path.GetFullPath(path);
             switch (errno)
             {
                 case ENOENT:

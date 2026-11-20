@@ -195,7 +195,9 @@ sealed class Cli
                     c.Redirect["System.Collections.Generic.NonRandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer";
                     c.Redirect["System.Collections.Generic.IInternalStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamInternalStringEqualityComparer";
                     c.Redirect["System.Collections.Generic.RandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamRandomizedStringEqualityComparer";
-                    c.Stop.AddRange(["Interop", "Interop/Sys", "Interop/Globalization"]);
+                    // Interop and Interop.Sys come from the IL (the error mapping and the managed wrappers); their libSystem.Native P/Invokes are
+                    // csharpc's C# contract over its libc layer (corelib/IO/SystemNative*.cs, ModuleCodeGen.PInvoke), not the pack's shim.
+                    c.Stop.AddRange(["Interop/Globalization"]);
                     // The ICU boundary (#426): CoreLib's globalization IL calls Interop.Globalization; every such call goes to the corelib's
                     // forwarding class (corelib/UpstreamGlobalization.cs), which calls the corelib's own imports of the runtime's ICU shim, the
                     // single boundary into native globalization code. The types in those signatures are the corelib's (same values).
