@@ -62,7 +62,7 @@ public sealed partial class FunctionCodeGen
             IUnaryOperation { OperatorKind: UnaryOperatorKind.Hat } u => EmitHat(u),
             IUnaryOperation u => EmitUnary(u),
             IConversionOperation c => EmitConversion(c),
-            IInvocationOperation { TargetMethod.RefKind: not RefKind.None } i => LoadValue(EmitInvocation(i), i.Type!),
+            IInvocationOperation { TargetMethod.RefKind: not RefKind.None } i => LoadValue(EmitInvocation(i), TypeOf(i)!),
             IInvocationOperation i => EmitInvocation(i),
             IObjectCreationOperation o => EmitObjectCreation(o),
             ITypeParameterObjectCreationOperation o => EmitNewT(o),
