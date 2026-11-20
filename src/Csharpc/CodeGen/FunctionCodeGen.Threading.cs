@@ -193,6 +193,8 @@ public sealed partial class FunctionCodeGen
             {
                 case "Start" when n == 0: Rt("csrt_thread_start", L.Void, [L.Ptr], Self()); return true;
                 case "Start" when n == 1: Rt("csrt_thread_start_with", L.Void, [L.Ptr, L.Ptr], Self(), TArg(inv, 0)); return true;
+                case "UnsafeStart" when n == 0: Rt("csrt_thread_unsafe_start", L.Void, [L.Ptr], Self()); return true;
+                case "UnsafeStart" when n == 1: Rt("csrt_thread_unsafe_start_with", L.Void, [L.Ptr, L.Ptr], Self(), TArg(inv, 0)); return true;
                 case "Join" when n == 0: Rt("csrt_thread_join", L.Void, [L.Ptr], Self()); return true;
                 case "Join" when n == 1 && m.Parameters[0].Type.SpecialType == SpecialType.System_Int32:
                     result = Rt("csrt_thread_join_timeout", L.I1, [L.Ptr, L.I32], Self(), TArg(inv, 0)); return true;

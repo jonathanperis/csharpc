@@ -1,9 +1,8 @@
-// Asynchronous socket operations. On Linux, as .NET's SocketAsyncEngine.Unix: a socket used
-// asynchronously becomes non-blocking and joins one epoll instance (edge-triggered), read by a
-// dedicated thread; each socket keeps FIFO queues of pending reads (receive, accept) and writes (send).
-// An operation is first tried at once; when the kernel says EAGAIN it waits in its queue and is retried
-// when epoll reports readiness. Completions run on the thread pool. Elsewhere (macOS, Windows) an
-// operation runs as a blocking call on the thread pool: correct, but a thread per pending operation.
+// Asynchronous socket operations on Windows: an operation runs as a blocking Winsock call on the thread pool (correct, but a thread
+// per pending operation, and a pending one cannot be canceled) until the IOCP engine exists (#441).
+// Windows only: on Linux and macOS these types are the framework's IL over the libSystem.Native socket contract
+// (corelib/Net/SystemNative.Net.cs, docs/il-first/System.Net.Sockets.md); Windows keeps them until the IOCP engine exists.
+#if CSHARPC_TARGET_WINDOWS
 #nullable disable
 using System;
 using System.Collections.Generic;
@@ -213,11 +212,9 @@ namespace CsharpcCoreLib
                 socket.ConnectFailed();
                 return Fail(error);
             }
-#if !CSHARPC_TARGET_WASI
             // A readiness event can predate the connect (an unconnected socket reports POLLOUT|POLLHUP when it
             // joins epoll): only a connect that poll() reports finished is done.
             if (!NetNative.Wait(socket.RawHandle, true, 0)) return false;
-#endif
             int outcome = NetNative.GetInt(socket.RawHandle, NetNative.SOL_SOCKET, NetNative.SO_ERROR);
             if (outcome != 0) { socket.ConnectFailed(); return Fail(outcome); }
             socket.ConnectCompleted();
@@ -385,10 +382,8 @@ namespace CsharpcCoreLib
                         state.op.Error = SocketError.Success;
                         if (state.op.Token.IsCancellationRequested) { state.op.Canceled = true; break; }
                         if (state.context.Closed) { state.op.Error = SocketError.OperationAborted; break; }
-#if !CSHARPC_TARGET_WASI
                         // A descriptor the program made non-blocking (Socket.Blocking = false): wait for readiness.
                         NetNative.Wait(state.socket.RawHandle, state.op.IsWrite, 100);
-#endif
                     }
                     state.op.Complete(false);
                 }, (op: op, socket: Socket, context: this), false);
@@ -506,80 +501,10 @@ namespace CsharpcCoreLib
 
     internal static unsafe class SocketEngine
     {
-#if CSHARPC_TARGET_LINUX
-        [DllImport("__Internal", EntryPoint = "csrt_epoll_create")] private static extern int EpollCreate();
-        [DllImport("__Internal", EntryPoint = "csrt_epoll_add")] private static extern int EpollAdd(int epfd, int fd, ulong data);
-        [DllImport("__Internal", EntryPoint = "csrt_epoll_wait")] private static extern int EpollWait(int epfd, ulong* datas, uint* events, int max);
-
-        private const uint EPOLLIN = 0x1, EPOLLOUT = 0x4, EPOLLERR = 0x8, EPOLLHUP = 0x10, EPOLLRDHUP = 0x2000;
-
-        private static readonly object s_lock = new object();
-        private static int s_epoll = -1;
-        // Registered contexts, keyed by their address: the epoll data of a socket is its context's
-        // address, so the event loop gets from an event to its context without a lookup or a lock (the
-        // collector doesn't move objects). This set keeps every registered context alive until it is
-        // unregistered; an event already read for a context closed meanwhile is still on the event
-        // loop's stack, which the collector scans, and Process ignores closed contexts.
-        private static readonly Dictionary<ulong, SocketAsyncContext> s_contexts = new Dictionary<ulong, SocketAsyncContext>();
-
-        /// <summary>Makes the socket non-blocking and watches it.</summary>
-        internal static void Register(SocketAsyncContext context)
-        {
-            NetNative.SetNonBlocking(context.Socket.RawHandle);
-            lock (s_lock)
-            {
-                if (s_epoll < 0)
-                {
-                    int epoll = EpollCreate();
-                    if (epoll < 0) throw NetNative.Error(-epoll);
-                    s_epoll = epoll;
-                    var thread = new Thread(EventLoop);
-                    thread.IsBackground = true;
-                    thread.Name = ".NET Sockets";
-                    thread.Start();
-                }
-                context.Id = (ulong)(long)CoreIntrinsics.ObjectToPointer(context);
-                s_contexts[context.Id] = context;
-                int error = EpollAdd(s_epoll, (int)context.Socket.RawHandle, context.Id);
-                if (error != 0)
-                {
-                    s_contexts.Remove(context.Id);
-                    throw NetNative.Error(error);
-                }
-            }
-        }
-
-        /// <summary>Forgets the socket (closing its descriptor removes it from the epoll set).</summary>
-        internal static void Unregister(SocketAsyncContext context)
-        {
-            lock (s_lock) s_contexts.Remove(context.Id);
-        }
-
-        private static void EventLoop()
-        {
-            const int Max = 256;
-            ulong* datas = stackalloc ulong[Max];
-            uint* events = stackalloc uint[Max];
-            while (true)
-            {
-                int n = EpollWait(s_epoll, datas, events, Max);
-                if (n < 0) throw NetNative.Error(-n);
-                for (int i = 0; i < n; i++)
-                {
-                    var context = (SocketAsyncContext)CoreIntrinsics.PointerToObject((IntPtr)(long)datas[i]);
-                    uint e = events[i];
-                    bool error = (e & (EPOLLERR | EPOLLHUP)) != 0;
-                    context.Process(error || (e & (EPOLLIN | EPOLLRDHUP)) != 0, error || (e & EPOLLOUT) != 0);
-                }
-            }
-        }
-
-        internal const bool Blocking = false;
-#else
         // No readiness notification yet: each pending operation is a blocking call on the thread pool.
         internal static void Register(SocketAsyncContext context) { }
         internal static void Unregister(SocketAsyncContext context) { }
         internal const bool Blocking = true;
-#endif
     }
 }
+#endif

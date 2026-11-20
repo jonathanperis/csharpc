@@ -23,13 +23,10 @@
 > `CsharpcUpstream.dll`; chosen by the slicer's `csharpc` profile) is kept thin, and every member of it is listed here:
 > * `corelib/UpstreamSupport.cs`: the members the slice calls into the corelib for: SR texts, the string-comparer family,
 >   the throw helpers.
-> * `CsharpcCoreLib.Upstream.NumberBridge` (emitted by the slicer, `Emit.EmitNumberBridge`), the other direction: the corelib's
->   double/float formatting calls the framework's own shortest round-trip digit generation (`Number.Grisu3`, then
->   `Number.Dragon4`; `src/Csharpc/upstream-types/System.Number.txt` roots just those methods) through one signature,
->   `int ShortestDigits(double|float value, Span<byte> digits, out int scale)`: span in (at least 17 bytes, 9 for float), the
->   significant digits as ASCII out, their count returned, the value being `0.d1d2...dn x 10^scale`. The corelib reaches it with
->   `[UnsafeAccessor(StaticMethod)]` and `[UnsafeAccessorType]` (`corelib/Number.Formatting.cs`). The bridge is deleted when
->   number formatting itself flips (ADR 0025, Phase 3).
+> * `corelib/NumberUpstream.cs`, the other direction: number formatting and parsing are CoreLib's own `System.Number` (#426), and
+>   the compiler's paths that do not go through a primitive's public member (string concatenation, interpolation holes, boxed
+>   values, `Console.Write`) reach it through these `[UnsafeAccessor(StaticMethod)]` + `[UnsafeAccessorType]` declarations, with
+>   CoreLib's own signatures. (This replaced the shortest-digits `NumberBridge` the slicer used to emit.)
 
 csharpc's route to drop-in BCL coverage: library types re-implemented **in C#**, compiled by csharpc
 together with the user's program (closed world: monomorphized, inlined and optimized by LLVM along with

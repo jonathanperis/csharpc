@@ -199,7 +199,9 @@ public sealed partial class FunctionCodeGen
         var canonicalReceiver = staticType is not null && _m.IsCanonDependent(staticType);
         if (canonicalReceiver && staticType is IArrayTypeSymbol && !_m.IsCanonDependent(target.ContainingType)) _m.RequestArrayInterface(target.ContainingType);
         // Devirtualize when the receiver's type is known to be a class / primitive.
+        // Not when a subclass re-implements the interface: its implementation replaces the static type's for those objects.
         if (staticType is not null && !canonicalReceiver && staticType.TypeKind is not (TypeKind.Interface or TypeKind.TypeParameter)
+            && !(staticType is INamedTypeSymbol { TypeKind: TypeKind.Class } receiverClass && _m.InterfaceReimplementedBelow(receiverClass, target.ContainingType))
             && (staticType.FindImplementationForInterfaceMember(target) as IMethodSymbol
                 ?? (staticType.IsValueType ? PatternImplementation(staticType, target) : null)) is IMethodSymbol impl)
         {
@@ -233,6 +235,11 @@ public sealed partial class FunctionCodeGen
             if (invocation is not null && target is { Name: "Equals", ContainingType: { Name: "IEquatable", Arity: 1 } } && target.Parameters.Length == 1
                 && staticType.SpecialType is >= SpecialType.System_Boolean and <= SpecialType.System_Double or SpecialType.System_IntPtr or SpecialType.System_UIntPtr)
                 return EqualsOf(staticType, EmitValue(concrete), Coerce(EmitValue(invocation.Arguments[0].Value), TypeOf(invocation.Arguments[0].Value), staticType), invocation);
+            // A built-in value type's own member served from its CoreLib IL (decimal.TryFormat for ISpanFormattable, the slicer's `this.`
+            // host roots): called directly on the receiver's address. Boxing and dispatching instead would reach the boxed type's slot, which
+            // for these interfaces is a corelib thunk that makes this same constrained call again (endless recursion).
+            if (invocation is not null && extra.Length == 0 && staticType.IsValueType && !_m.IsUserMethod(impl) && HostedBuiltinInstanceMember(impl) is { } hostedImpl)
+                return EmitHostedInstanceCall(hostedImpl, impl, concrete, invocation.Arguments);
             if (staticType.IsValueType && !ModuleCodeGen.PrimitiveSlotSupported(staticType, target.ContainingType, target))
                 throw CompileError.Unsupported($"interface call '{target}' on value type '{staticType}'", receiver);
         }

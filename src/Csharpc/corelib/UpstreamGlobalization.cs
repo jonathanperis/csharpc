@@ -124,14 +124,12 @@ namespace CsharpcCoreLib
     using NumberFormatInfo = System.Globalization.NumberFormatInfo;
 
     /// <summary>
-    /// The CoreLib-internal members of NumberFormatInfo the corelib's own number formatting and parsing reads (Number*.cs), now that
-    /// NumberFormatInfo is the framework's (#426): its group-size arrays without the public getters' copy, and the style checks. Bound at
-    /// compile time (FunctionCodeGen.UnsafeAccessor.cs).
+    /// The group-size arrays of NumberFormatInfo (without the public getters' copy) that the corelib's remaining standard formatter reads
+    /// for BigInteger (Number.Formatting.cs FormatIntegerDigits), now that NumberFormatInfo is the framework's (#426). Bound at compile time
+    /// (FunctionCodeGen.UnsafeAccessor.cs).
     /// </summary>
     internal static class NumberFormatInfoInternals
     {
-        private const string Type = "CsharpcCoreLib.Upstream.System.Globalization.NumberFormatInfo, CsharpcUpstream";
-
         [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_numberGroupSizes")]
         internal static extern ref int[] NumberGroupSizes(NumberFormatInfo nfi);
 
@@ -140,21 +138,6 @@ namespace CsharpcCoreLib
 
         [UnsafeAccessor(UnsafeAccessorKind.Field, Name = "_percentGroupSizes")]
         internal static extern ref int[] PercentGroupSizes(NumberFormatInfo nfi);
-
-        [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "get_HasInvariantNumberSigns")]
-        internal static extern bool HasInvariantNumberSigns(NumberFormatInfo nfi);
-
-        [UnsafeAccessor(UnsafeAccessorKind.Method, Name = "AllowHyphenDuringParsing")]
-        internal static extern bool AllowHyphenDuringParsing(NumberFormatInfo nfi);
-
-        [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "ValidateParseStyleInteger")]
-        internal static extern void ValidateParseStyleInteger([UnsafeAccessorType(Type)] object nfi, System.Globalization.NumberStyles style);
-
-        [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "ValidateParseStyleFloatingPoint")]
-        internal static extern void ValidateParseStyleFloatingPoint([UnsafeAccessorType(Type)] object nfi, System.Globalization.NumberStyles style);
-
-        [UnsafeAccessor(UnsafeAccessorKind.StaticMethod, Name = "ValidateParseStyleDecimal")]
-        internal static extern void ValidateParseStyleDecimal([UnsafeAccessorType(Type)] object nfi, System.Globalization.NumberStyles style);
     }
 }
 

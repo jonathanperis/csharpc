@@ -1494,37 +1494,6 @@ public sealed partial class FunctionCodeGen
         return CallRuntime("csrt_format_object", L.Ptr, [L.Ptr, L.Ptr], obj, format);
     }
 
-    /// <summary>
-    /// value.ToString(format, provider) for numbers, decimal, DateTime and TimeSpan: the corelib's
-    /// *With formatters take the IFormatProvider (a CultureInfo or NumberFormatInfo / DateTimeFormatInfo
-    /// shadow, or null for the current culture). `format` may be a null pointer.
-    /// </summary>
-    internal LLVMValueRef FormatWithProvider(IOperation valueOp, LLVMValueRef format, LLVMValueRef provider)
-    {
-        valueOp = Unbox(valueOp);
-        var type = TypeOf(valueOp)!;
-        var value = EmitValue(valueOp);
-        if (type is INamedTypeSymbol { TypeKind: TypeKind.Enum }) return FormatWith(valueOp, format);
-        if (BclValueTypes.IsDecimal(type)) return CallCoreLib("Number", "FormatDecimalWith", value, format, provider);
-        if (BclValueTypes.IsDateTime(type)) return CallCoreLib("DateTimeOps", "FormatWith", value, format, provider);
-        if (BclValueTypes.IsTimeSpan(type)) return CallCoreLib("DateTimeOps", "TimeSpanFormatWith", value, format, provider);
-        switch (type.SpecialType)
-        {
-            case SpecialType.System_SByte or SpecialType.System_Int16 or SpecialType.System_Int32 or SpecialType.System_Int64:
-                return CallCoreLib("Number", "FormatInt64With", value.Type.IntWidth == 64 ? value : _b.Cast(LLVMOpcode.SExt, value, L.I64),
-                    format, L.ConstInt(L.I32, value.Type.IntWidth), provider);
-            case SpecialType.System_Byte or SpecialType.System_UInt16 or SpecialType.System_UInt32 or SpecialType.System_UInt64:
-                return CallCoreLib("Number", "FormatUInt64With", value.Type.IntWidth == 64 ? value : _b.Cast(LLVMOpcode.ZExt, value, L.I64),
-                    format, L.ConstInt(L.I32, value.Type.IntWidth), provider);
-            case SpecialType.System_Double:
-                return CallCoreLib("Number", "FormatDoubleWith", value, format, L.False, provider);
-            case SpecialType.System_Single:
-                return CallCoreLib("Number", "FormatDoubleWith", _b.Cast(LLVMOpcode.FPExt, value, L.F64), format, L.True, provider);
-        }
-        var obj = type.IsValueType ? Box(value, type, valueOp) : value;
-        return CallCoreLib("Number", "FormatObjectWith", obj, format, provider);
-    }
-
     /// <summary>Builds an object[] from argument expressions (each already converted/boxed to object).</summary>
     internal LLVMValueRef ObjectArray(IReadOnlyList<IOperation> values)
     {

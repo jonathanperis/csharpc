@@ -310,3 +310,4 @@ wasi 1440_string_members_from_il     .NET on WASI is globalization-invariant: Cu
 wasi 1442_char_members_from_il       .NET on WASI is globalization-invariant: CultureInfo("tr-TR") throws CultureNotFoundException and current-culture casing uses the invariant-mode tables
 wasi 666_bigint_small_conversions     BigInteger's limbs are nuint (System.Runtime.Numerics' IL): 2^40 is one limb on 64-bit (checked conversion: "Arithmetic operation resulted in an overflow.") and two on wasm32 (Int32's "Value was either too large or too small" message)
 wasi 1443_biginteger_from_il          BigInteger's limbs are nuint: `>>>` of a negative value shifts its two's complement over whole limbs, 3 x 64 bits on 64-bit and 5 x 32 bits on wasm32, so the result differs
+wasi 1396_constrained_hosted_number_members  needs a named culture: WebAssembly runs in globalization-invariant mode, where "de-DE" is a CultureNotFoundException

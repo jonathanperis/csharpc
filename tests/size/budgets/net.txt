@@ -10,9 +10,12 @@
 # Composite formatting and interpolation call ISpanFormattable.TryFormat as .NET does (#424, #426; sample 1342 regressed without it): string.Format
 # and interpolation now reach the TryFormat of the program's own ISpanFormattable types (IPAddress, IPEndPoint, IPNetwork, their UTF-8 forms).
 # linux-x86_64 measured 326 280 B (base 272 760 on this branch; budget 318 464 -> 331 776); the other platforms print the size until CI measures them.
-# String's and Char's library members from CoreLib IL (#423), measured after merging the integration branch at dc414710: linux-x86_64
-# 365 416 B (budget 331 776 -> 376 832, measured + max(4 KiB, 3 %)). A program that searches, compares or cases a string now carries
-# CoreLib's own vectorized search, ordinal ignore-case comparison and casing tables instead of the corelib's scalar copies: a measured speed
-# gain paid in size (tools/il-first/bench/string_throughput.cs 0.183 -> 0.126 s, 1 472 M -> 920 M instructions), which also fixed two silent
-# differences (#439, #440).
-linux-x86_64 net 376832
+# System.Net.Sockets, NameResolution and NetworkInformation from the framework's IL (#423): net.cs uses no socket, but System.Net.Primitives is
+# now all IL (its SocketAddressPal and SocketException over the libSystem.Native contract instead of the corelib's shadows) and Win32Exception's
+# message is Interop.Sys.StrError: linux-x86_64 measured 332 248 B (the integration head 330 784 with the same flags; budget 331 776 -> 339 968);
+# the other platforms print the size until CI measures them.
+# Number formatting and parsing from the framework's IL (#426): CoreLib's System.Number and the primitives' own ToString/TryFormat/Parse/TryParse replace
+# the corelib's smaller copies, a measured speed gain (number_format_parse_throughput 1 388 to 1 026 ms, 12.53 G to 8.53 G instructions; NativeAOT 1 202 ms).
+# linux-x86_64 330592 -> 369912 B (+39320); budget = measured + 3 %; the other platforms moved by the same 50176 B until CI measures them.
+# Merged with the sockets flip above (+1.5 KB on its own): the combined size is not measured locally; CI measures it.
+linux-x86_64 net 381952
