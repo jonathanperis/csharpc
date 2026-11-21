@@ -21,6 +21,10 @@ public sealed partial class ModuleCodeGen
     {
         var members = InterfaceSlots(itf);
         if (!members.Any(m => PrimitiveSlotSupported(primitive, itf, m))) return LlvmContext.Null(Llvm.Ptr);
+        // IConvertible: corelib's BoxedConvertible member for member, each slot filled only once the program dispatches that member (as an
+        // enum box's, ModuleCodeGen.Bcl.cs). Filled whole on boxing, every boxed number linked ToDateTime/ToType/ToString of all the types
+        // (DateTime's formatter and calendars, decimal's) as soon as any enum box made IConvertible exist.
+        if (itf is { Name: "IConvertible" }) return BuiltinSlotTable(itf, $".primicnv.{primitive.MetadataName}", LLVMLinkage.Private, BoxedConvertibleMember);
         var type = LlvmContext.Array(Llvm.Ptr, (ulong)members.Count);
         var global = Module.AddGlobal(".primslots", type, LlvmContext.Null(type), constant: true, linkage: LLVMLinkage.Private);
         _deferredPrimitiveSlots.Add((primitive, itf, mtName, global));

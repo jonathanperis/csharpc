@@ -774,7 +774,7 @@ public sealed partial class FunctionCodeGen
         if (from.IsValueType && to.IsReferenceType) return Box(EmitValue(c.Operand), from, c);
         if (from.IsReferenceType && to.IsValueType)
         {
-            var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], EmitValue(c.Operand), MethodTableFor(to, c));
+            var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], EmitValue(c.Operand), TypeTestMethodTable(to) ?? MethodTableFor(to, c));
             return LoadValue(payload, to);
         }
 

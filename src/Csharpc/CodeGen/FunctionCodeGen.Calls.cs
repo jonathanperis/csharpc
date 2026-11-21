@@ -649,7 +649,22 @@ public sealed partial class FunctionCodeGen
             var test = _m.VariantDelegateTestFor(d);
             return _b.Call(test.Type, test.Fn, [value]);
         }
-        return CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], value, MethodTableFor(target, at));
+        return CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], value, TypeTestMethodTable(target) ?? MethodTableFor(target, at));
+    }
+
+    /// <summary>
+    /// The runtime method table of a primitive's, decimal's, DateTime's or TimeSpan's box for a type test: a test matches only a box,
+    /// and every box is made through a real reference to the table, so the test alone must not count as one: it would compile that
+    /// type's interface slots and the corelib code the runtime calls for it (DateTime's formatter and the calendars behind it,
+    /// ModuleCodeGen.RuntimeExports.cs) into programs that never box the type. Null for other types.
+    /// </summary>
+    private LLVMValueRef? TypeTestMethodTable(ITypeSymbol target)
+    {
+        var name = IsBoxablePrimitive(target) ? $"csrt_Boxed_{target.MetadataName}_MT"
+            : BclValueTypes.IsDecimal(target) ? "csrt_Boxed_Decimal_MT"
+            : BclValueTypes.IsDateTime(target) ? "csrt_Boxed_DateTime_MT"
+            : BclValueTypes.IsTimeSpan(target) ? "csrt_Boxed_TimeSpan_MT" : null;
+        return name is null ? null : _m.TypeTestGlobal(name);
     }
 
     private LLVMValueRef CastClass(LLVMValueRef value, ITypeSymbol target, IOperation at)

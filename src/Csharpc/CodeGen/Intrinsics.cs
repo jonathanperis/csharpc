@@ -1373,6 +1373,34 @@ internal static class Intrinsics
         // IEEE 754-2019 maximum/minimum, as Math.Max/Min above.
         t["System.MathF.Max(float, float)"] = (g, inv) => CallBinary(g, "llvm.maximum.f32", g.Module.Llvm.F32, Arg(g, inv, 0), Arg(g, inv, 1));
         t["System.MathF.Min(float, float)"] = (g, inv) => CallBinary(g, "llvm.minimum.f32", g.Module.Llvm.F32, Arg(g, inv, 0), Arg(g, inv, 1));
+        // Math.SinCos / MathF.SinCos: the IL is `IsKnownConstant(x) ? (Sin(x), Cos(x)) : SinCos(x)`, a call RyuJIT expands to the C runtime's
+        // sincos; csharpc computes the pair with the same libm sin and cos as Math.Sin and Math.Cos. ConvertToIntegerNative<TInteger> calls
+        // itself for a primitive TInteger (FunctionCodeGen.NativeConversions.cs).
+        foreach (var (type, sin, cos) in new[] { ("System.Math.SinCos(double)", "sin", "cos"), ("System.MathF.SinCos(float)", "sinf", "cosf") })
+            t[type] = (g, inv) =>
+            {
+                var x = Arg(g, inv, 0);
+                var tuple = g.S(inv.TargetMethod.ReturnType);
+                var pair = LlvmContext.Null(g.Module.Types.Value(tuple));
+                pair = g.Builder.InsertValue(pair, CallUnary(g, sin, x.Type, x), 0);
+                return g.Builder.InsertValue(pair, CallUnary(g, cos, x.Type, x), 1);
+            };
+        foreach (var type in new[] { "double", "float" })
+            t[$"{type}.ConvertToIntegerNative({type})"] = (g, inv) => g.ConvertToIntegerNative(inv, Arg(g, inv, 0));
+        // [Intrinsic] members whose CoreLib IL only calls itself (RyuJIT expands them; the slicer refuses to copy such a body). .NET leaves
+        // the precision of the estimates open (RCPSS / FRECPE where the hardware has them, 1 / x elsewhere); the exact quotient is always within
+        // it. MultiplyAddEstimate is a fused multiply-add, which RyuJIT emits on every x64 and ARM64 csharpc targets.
+        foreach (var (type, suffix, math) in new[] { ("double", "f64", "System.Math"), ("float", "f32", "System.MathF") })
+        {
+            LLVMTypeRef F(FunctionCodeGen g) => suffix == "f64" ? g.Module.Llvm.F64 : g.Module.Llvm.F32;
+            LLVMValueRef One(FunctionCodeGen g) => LlvmContext.ConstReal(F(g), 1.0);
+            t[$"{math}.ReciprocalEstimate({type})"] = t[$"{type}.ReciprocalEstimate({type})"] = (g, inv) =>
+                g.Builder.BinOp(LLVMOpcode.FDiv, One(g), Arg(g, inv, 0));
+            t[$"{math}.ReciprocalSqrtEstimate({type})"] = t[$"{type}.ReciprocalSqrtEstimate({type})"] = (g, inv) =>
+                g.Builder.BinOp(LLVMOpcode.FDiv, One(g), CallUnary(g, $"llvm.sqrt.{suffix}", F(g), Arg(g, inv, 0)));
+            t[$"{type}.MultiplyAddEstimate({type}, {type}, {type})"] = (g, inv) =>
+                CallTernary(g, $"llvm.fma.{suffix}", F(g), Arg(g, inv, 0), Arg(g, inv, 1), Arg(g, inv, 2));
+        }
     }
 
     private static LLVMValueRef CallUnary(FunctionCodeGen g, string name, LLVMTypeRef type, LLVMValueRef x)

@@ -399,7 +399,7 @@ public sealed partial class FunctionCodeGen
         if (!t.IsValueType) return obj; // reference types: the corelib only uses this where the type is known
         try
         {
-            var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(t, at));
+            var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, TypeTestMethodTable(t) ?? MethodTableFor(t, at));
             return LoadValue(payload, t);
         }
         catch (CompileError)

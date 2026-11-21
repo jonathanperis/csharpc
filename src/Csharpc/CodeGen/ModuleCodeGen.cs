@@ -1250,13 +1250,21 @@ public sealed partial class ModuleCodeGen
         return _globals[name] = Module.AddGlobal(name, Llvm.Ptr, LlvmContext.Null(Llvm.Ptr), linkage: LLVMLinkage.Internal);
     }
 
-    /// <summary>Runtime globals referenced only by main's builtin-interface registrations so far.</summary>
+    /// <summary>Runtime globals referenced only by main's builtin-interface registrations and by type tests (TypeTestGlobal) so far.</summary>
     private readonly HashSet<string> _registrationOnlyGlobals = [];
 
     public LLVMValueRef ExternalGlobal(string name)
     {
         _registrationOnlyGlobals.Remove(name);
         if (_globals.TryGetValue(name, out var g)) return g;
+        return _globals[name] = Module.AddGlobal(name, Llvm.I8, constant: true);
+    }
+
+    /// <summary>A runtime box method table named by a type test only (FunctionCodeGen.TypeTestMethodTable): not a use of the type.</summary>
+    public LLVMValueRef TypeTestGlobal(string name)
+    {
+        if (_globals.TryGetValue(name, out var g)) return g;
+        _registrationOnlyGlobals.Add(name);
         return _globals[name] = Module.AddGlobal(name, Llvm.I8, constant: true);
     }
 

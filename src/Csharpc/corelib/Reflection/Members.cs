@@ -1627,8 +1627,10 @@ namespace CsharpcCoreLib
             if (type == typeof(ulong)) return TypeCode.UInt64;
             if (type == typeof(float)) return TypeCode.Single;
             if (type == typeof(double)) return TypeCode.Double;
-            if (type == typeof(decimal)) return TypeCode.Decimal;
-            if (type == typeof(DateTime)) return TypeCode.DateTime;
+            // decimal and DateTime by name: typeof of their boxes' runtime method tables would count as boxing them and link their
+            // formatters (DateTime's pulls in every calendar, ModuleCodeGen.RuntimeExports.cs) into every program that asks a type code.
+            if (type.IsValueType && type.FullName is "System.Decimal" or "System.DateTime" && IsCoreLibType(type))
+                return type.FullName == "System.Decimal" ? TypeCode.Decimal : TypeCode.DateTime;
             if (type == typeof(string)) return TypeCode.String;
             if (type == typeof(DBNull)) return TypeCode.DBNull;
             return TypeCode.Object;

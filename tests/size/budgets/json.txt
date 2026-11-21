@@ -13,4 +13,7 @@
 # 1 743 536 B against 1 724 336 B on the integration head (+19 200 B); budget 1736704 -> 1744896.
 # Convert from CoreLib IL (#423), measured after merging the integration branch at 61211692: linux-x86_64 1 661 512 B; budget lowered to
 # measured + max(4 KiB, 3 %), rounded up to 4 KiB.
-linux-x86_64 json 1712128
+# Floating-point members from CoreLib IL (#423): a boxed number's IConvertible slots are filled member by member as the program dispatches
+# them, no longer whole (which linked DateTime's formatter and every calendar). linux-x86_64 measured 1 453 128 B after merging the integration
+# branch at d155238f; budget lowered 1 712 128 -> 1 499 136 (measured + max(4 KiB, 3 %)).
+linux-x86_64 json 1499136

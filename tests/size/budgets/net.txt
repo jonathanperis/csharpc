@@ -18,4 +18,9 @@
 # the corelib's smaller copies, a measured speed gain (number_format_parse_throughput 1 388 to 1 026 ms, 12.53 G to 8.53 G instructions; NativeAOT 1 202 ms).
 # linux-x86_64 330592 -> 369912 B (+39320); budget = measured + 3 %; the other platforms moved by the same 50176 B until CI measures them.
 # Merged with the sockets flip above (+1.5 KB on its own): the combined size is not measured locally; CI measures it.
-linux-x86_64 net 381952
+# String's and Char's library members from CoreLib IL (#423), measured with the floating-point flip after merging the integration branch at
+# d155238f: linux-x86_64 394 376 B (budget 381 952 -> 409 600, measured + max(4 KiB, 3 %)). A program that searches, compares or cases a
+# string carries CoreLib's own vectorized search, ordinal ignore-case comparison and casing tables instead of the corelib's scalar copies:
+# a measured speed gain paid in size (tools/il-first/bench/string_throughput.cs 0.183 -> 0.126 s, 1 472 M -> 920 M instructions), which also
+# fixed two silent differences (#439, #440).
+linux-x86_64 net 409600
