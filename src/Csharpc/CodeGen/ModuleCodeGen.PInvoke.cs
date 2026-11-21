@@ -125,10 +125,22 @@ public sealed partial class ModuleCodeGen
         // archive members would define the same symbols.
         // libSystem.Security.Cryptography.Native.OpenSsl, which the framework's crypto and TLS IL P/Invokes on Linux, is csharpc's C# contract over
         // OpenSSL's libcrypto and libssl (corelib/Crypto/CryptoNative*.cs) the same way, unless the native-TLS mode links the pack's shim.
-        var nativeContract = !shim && (library == "libSystem.Native" || library == CryptoNativeLibrary) && !Types.Target.IsWindows && TryRequestNativeContract(library, entry)
+        // CoreLib's QCalls into the runtime (EventPipe's, which System.Diagnostics.Tracing's IL makes) are the same kind of contract
+        // (corelib/UpstreamTracing.cs), on every target.
+        var nativeContract = !shim && ((library == "libSystem.Native" || library == CryptoNativeLibrary) && !Types.Target.IsWindows || library == "QCall")
+                && TryRequestNativeContract(library, entry)
             // Kernel32's thread-pool I/O objects, which the Windows CoreLib's overlapped file I/O calls, are csharpc's contract too
             // (corelib/UpstreamThreadPoolIo.cs): their callbacks must run on threads csharpc's runtime knows.
             || coreLibSystemImport && TryRequestNativeContract("kernel32.dll", entry);
+        if (library == "QCall" && !nativeContract)
+        {
+            // A runtime QCall without a contract: never a dlopen of "QCall" (a DllNotFoundException .NET never throws), but the explicit
+            // diagnostic, raised if the call is made (CSLLVM0008 for a program that can reach it).
+            var message = $"the runtime entry point '{entry}' is not supported by csharpc yet";
+            _ilBoundaries.Add((method, message));
+            UnsupportedBody(stub, $"'{method}' could not be compiled: {message}");
+            return lowered;
+        }
         var directPInvoke = DirectPInvokes.Count > 0 && (DirectPInvokes.Contains(library) || DirectPInvokes.Contains(library + "!" + entry));
         if (library == CryptoNativeLibrary && !shim && !nativeContract && !directPInvoke && IsIlMethod(method))
         {

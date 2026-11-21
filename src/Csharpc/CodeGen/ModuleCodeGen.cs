@@ -226,7 +226,7 @@ public sealed partial class ModuleCodeGen
             Timed("finish type metadata", () => Guard(entryPoint, FinishTypeMetadata));
             FinishEnumParseTable();
             FinishResourceStrings();
-            FinishEventSourceAttributes();
+            FinishNestedTypes();
             FinishPInvokeResolver();
             ResolveTaskMethodTables();
             CheckSharedGenericLeaks();
@@ -1021,6 +1021,7 @@ public sealed partial class ModuleCodeGen
         var structType = Llvm.NamedStruct("class." + Mangler.MetadataName(type));
         var layout = new ClassLayout { Type = type, InstanceType = structType, Base = baseLayout };
         _layouts[type] = layout;
+        NoteAnnotatedHierarchy(type);
 
         // Fields: header, then inherited fields (same indices as in the base), then our own.
         // Inherit the base's storage verbatim (including synthesized library bases like System.Exception),

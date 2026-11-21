@@ -121,7 +121,7 @@ public sealed partial class ModuleCodeGen
         // written through their address with their own type, and struct fields share one TBAA tag
         // (MemoryFacts), so LLVM treats the overlapping accesses as aliasing.
         if (custom is { Explicit: true, Pack: 0 } && InstanceFields(type).ToList() is { Count: >= 2 } unionFields
-            && unionFields.All(f => custom.Offsets.TryGetValue(f, out var o) && o == 0 && Optimizations.HoldsNoReferences(f.Type)))
+            && unionFields.All(f => custom.Offsets.TryGetValue(f, out var o) && o == 0 && UnionMemberHoldsNoReferences(f.Type)))
         {
             var largest = unionFields.Select(FieldStorage).OrderByDescending(t => Types.Target.SizeOf(t)).ThenByDescending(t => Types.Target.AlignOf(t)).First();
             if (custom.Size != 0 && (ulong)custom.Size != Types.Target.SizeOf(largest)) throw custom.Rejection;
@@ -189,6 +189,14 @@ public sealed partial class ModuleCodeGen
         if (custom is not null && !MatchesSequentialLayout(layout, custom)) throw custom.Rejection;
         return layout;
     }
+
+    /// <summary>
+    /// A union member csharpc can overlay: a primitive, or a struct (as csharpc stores it: the corelib's or the slice's type) with no reference
+    /// at any depth (TraceLogging's PropertyValue.Scalar overlays Guid, DateTimeOffset and decimal on the primitives).
+    /// </summary>
+    private bool UnionMemberHoldsNoReferences(ITypeSymbol type) =>
+        Optimizations.HoldsNoReferences(type)
+        || type is INamedTypeSymbol { TypeKind: TypeKind.Struct } && !Optimizations.IsReferenceOrContainsReferences(CoreLib.Map(type));
 
     /// <summary>A struct's declared layout: [StructLayout]/[FieldOffset] in source, the ClassLayout and FieldLayout tables in IL.</summary>
     private sealed record CustomLayout(bool Explicit, int Pack, int Size, Dictionary<IFieldSymbol, int> Offsets, CompileError Rejection);

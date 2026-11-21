@@ -132,6 +132,10 @@ namespace CsharpcCoreLib
         /// type (Frontend/ResourceConverters.cs generates one for the types its .resources files hold).
         /// </summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object[] ResourceObjectHook(string type, string text);
+        /// <summary>Whether the program carries a resource value created with a TypeConverter (ModuleCodeGen.HasConverterResources): a compile-time constant.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool HasConverterResources();
+        /// <summary>Whether the program carries any stored non-string resource value (ModuleCodeGen.HasNonStringResources): a compile-time constant.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool HasNonStringResources();
         /// <summary>csrt_task_try_fault_async: faults a pending task, or cancels it for an OperationCanceledException.</summary>
         /// <summary>csrt_os_random (runtime/strings.c): OS entropy, or the program stops.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe void csrt_os_random(void* buffer, nuint count);
@@ -139,10 +143,10 @@ namespace CsharpcCoreLib
         /// <summary>Type.IsInstanceOfType: obj's class, a base class or an implemented interface is `type`.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsInstanceOfType(Type type, object obj);
         /// <summary>
-        /// [EventSource(Name = ...)] (which 0) or Guid (which 1) of the program's EventSource class that `type`
-        /// is, read at compile time (ModuleCodeGen.EventSource.cs); null when absent.
+        /// The nested types reflection keeps for `type` (ModuleCodeGen.NestedTypes.cs), public (which 0) or not (1): a null-terminated
+        /// array of their method tables, or null when they were not kept.
         /// </summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string EventSourceAttribute(Type type, int which);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe void** NestedTypeTable(Type type, int which);
         // Cancellation (runtime/async.c, corelib/Cancellation.cs): a CancellationToken is its source.
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object TokenSource(System.Threading.CancellationToken token);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern System.Threading.CancellationToken SourceToken(object source);

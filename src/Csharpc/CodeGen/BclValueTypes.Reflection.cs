@@ -53,6 +53,12 @@ internal static partial class BclValueTypes
             g.TagArray(array, g.Module.Compilation.GetTypeByMetadataName(Type)!);
             return array;
         };
+        // Type.FindInterfaces: GetInterfaces filtered by the delegate, in its order (RuntimeType's; TraceLogging finds IEnumerable<T> with it).
+        t[$"{Type}.FindInterfaces(System.Reflection.TypeFilter, object)"] = (g, _, self, a, _) =>
+        {
+            g.Module.NoteGetInterfaces();
+            return g.CallCoreLib("ReflectionRuntime", "FindInterfaces", [self, .. a]);
+        };
         t[$"{Type}.GetArrayRank()"] = (g, _, self, _, _) =>
             Rt(g, "csrt_type_array_rank", g.Llvm.I32, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
         t[$"{Type}.get_GenericParameterPosition()"] = (g, _, self, _, _) =>
@@ -110,6 +116,12 @@ internal static partial class BclValueTypes
         t[$"{Type}.GetFields(System.Reflection.BindingFlags)"] = fieldLookup("GetFieldsFlags");
         t[$"{Type}.GetField(string)"] = fieldLookup("GetFieldName");
         t[$"{Type}.GetField(string, System.Reflection.BindingFlags)"] = fieldLookup("GetFieldNameFlags");
+        // Nested types are kept for the types whose nested types reach an annotated location (ModuleCodeGen.NestedTypes.cs).
+        BclHandler nestedLookup(string method) => (g, _, self, a, _) => g.CallCoreLib("NestedTypeReflection", method, [self, .. a]);
+        t[$"{Type}.GetNestedType(string)"] = nestedLookup("GetNestedTypeName");
+        t[$"{Type}.GetNestedType(string, System.Reflection.BindingFlags)"] = nestedLookup("GetNestedTypeNameFlags");
+        t[$"{Type}.GetNestedTypes()"] = nestedLookup("GetNestedTypesAll");
+        t[$"{Type}.GetNestedTypes(System.Reflection.BindingFlags)"] = nestedLookup("GetNestedTypesFlags");
         // Events are described once the program reads any (ModuleCodeGen.NoteEventsQueried).
         BclHandler eventLookup(string method) => (g, _, self, a, _) =>
         {

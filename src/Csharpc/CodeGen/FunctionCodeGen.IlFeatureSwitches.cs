@@ -21,7 +21,33 @@ public sealed partial class FunctionCodeGen
     /// RuntimeFeature.IsDynamicCodeSupported` in System.Linq.Expressions, without which Compile() would
     /// reach the LambdaCompiler (Reflection.Emit) and CallInstruction its ~20,000 generic fast paths.
     /// </summary>
-    private bool? FeatureSwitchValue(IMethodSymbol method) => KnownFeatureSwitch(method) ?? _m.SubstitutedSwitch(method) ?? _m.FeatureSwitchDefinitionValue(method) ?? _m.ForwardingFeatureSwitch(method, 0);
+    private bool? FeatureSwitchValue(IMethodSymbol method) => KnownFeatureSwitch(method) ?? CoreIntrinsicConstant(method) ?? DisabledEventSourceIsEnabled(method) ?? _m.SubstitutedSwitch(method) ?? _m.FeatureSwitchDefinitionValue(method) ?? _m.ForwardingFeatureSwitch(method, 0);
+
+    /// <summary>
+    /// EventSource.IsEnabled() (each overload) when the program turns event sources off (EventSourceSupport=false, the file-based and PublishAot
+    /// default): false, as CoreLib's ILLink.Substitutions.xml stubs it for ILCompiler. The framework guards its own events with it
+    /// (`if (CDSCollectionETWBCLProvider.Log.IsEnabled()) ...` in ConcurrentBag), so what only an event writes is not lowered. (The receiver
+    /// is still evaluated; the call, which reads two fields, is not made.)
+    /// </summary>
+    private bool? DisabledEventSourceIsEnabled(IMethodSymbol method) =>
+        method is { Name: "IsEnabled", IsStatic: false, ContainingType: { Name: "EventSource" } owner }
+        && Frontend.UpstreamSlice.RealNamespace(owner.ContainingNamespace?.ToDisplayString() ?? "") == "System.Diagnostics.Tracing"
+        && _m.RuntimeConfig.Any(c => c.Key == "System.Diagnostics.Tracing.EventSource.IsSupported" && c.Value == "false")
+            ? false : null;
+
+    /// <summary>
+    /// The corelib's compile-time constants about the program (CoreIntrinsics.HasNonStringResources, HasConverterResources): folded like a feature
+    /// switch, so the code a false one guards (ResourceManager's object creation, TypeDescriptor) is not lowered at all.
+    /// </summary>
+    private bool? CoreIntrinsicConstant(IMethodSymbol method) =>
+        method is { IsStatic: true, Parameters.IsEmpty: true, ContainingType.Name: "CoreIntrinsics" } && CoreLib.IsCoreLib(method)
+            ? method.Name switch
+            {
+                "HasNonStringResources" => _m.HasNonStringResources(),
+                "HasConverterResources" => _m.HasConverterResources(),
+                _ => null,
+            }
+            : null;
 
     internal static bool? KnownFeatureSwitch(IMethodSymbol method) =>
         (method.ContainingType.ToDisplayString(), method.Name) switch

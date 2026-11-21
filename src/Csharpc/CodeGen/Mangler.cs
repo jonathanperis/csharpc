@@ -78,7 +78,9 @@ public static class Mangler
         {
             if (RealNameOf?.Invoke(type) is { } real) return real;
             if (type.ContainingType is { } outer) return DefinitionName(outer.OriginalDefinition) + "+" + type.MetadataName;
-            if (type.ContainingNamespace is { IsGlobalNamespace: false } ns) return ns.ToDisplayString() + "." + type.MetadataName;
+            // A type of the CoreLib slice (CsharpcCoreLib.Upstream.System.X) is named as the BCL names it, as a shadow is: an InvalidCastException
+            // to TraceLogging's EventPayload says 'System.Diagnostics.Tracing.EventPayload'.
+            if (type.ContainingNamespace is { IsGlobalNamespace: false } ns) return Frontend.UpstreamSlice.RealNamespace(ns.ToDisplayString()) + "." + type.MetadataName;
             return type.MetadataName;
         }
 

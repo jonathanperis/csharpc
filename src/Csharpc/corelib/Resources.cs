@@ -198,7 +198,8 @@ namespace CsharpcCoreLib
                 catch (FormatException) { }
                 catch (OverflowException) { }
             }
-            else if (stored == ConverterString)
+            // (a constant: without such a resource, TypeDescriptor and the converters are not linked)
+            else if (stored == ConverterString && CoreIntrinsics.HasConverterResources())
             {
                 // A value DeserializingResourceReader creates with TypeDescriptor.GetConverter(type).ConvertFromInvariantString(text).
                 // A converter's own exceptions (bad text) propagate, as they do from .NET; a null result is a NullReferenceException there.
