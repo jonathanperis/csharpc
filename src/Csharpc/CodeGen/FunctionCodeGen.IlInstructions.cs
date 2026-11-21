@@ -281,6 +281,14 @@ public sealed partial class FunctionCodeGen
                     Push(new IlEntry(IlKind.Ref, LlvmContext.Null(L.Ptr), field.Type) { Dynamic = site with { IsTarget = true }, NonNull = true });
                     return false;
                 }
+                if (field.RefKind != RefKind.None)
+                {
+                    // A ref field (C# 11, `ref int _parentCount` in a ref struct) holds the address it refers to: ldfld yields that
+                    // managed pointer, as a by-ref value (ModuleCodeGen.FieldStorage lays the field out as a pointer).
+                    if (op == ILOpCode.Ldflda) throw new IlException($"address of ref field '{field}'");
+                    Push(new IlEntry(IlKind.ByRef, _b.Load(L.Ptr, IlInstanceFieldAddress(field, instance)), field.Type));
+                    return false;
+                }
                 if (op == ILOpCode.Ldflda) { Push(new IlEntry(IlKind.ByRef, IlInstanceFieldAddress(field, instance), field.Type)); return false; }
                 if (IlLibraryInstanceField(field)) { Push(IlPush(EmitValue(new IlFieldReferenceOperation(il.Syntax, field, IlOperand(instance, field.ContainingType, lvalue: field.ContainingType.IsValueType))), field.Type)); return false; }
                 var address = IlInstanceFieldAddress(field, instance);
@@ -295,6 +303,13 @@ public sealed partial class FunctionCodeGen
                 NoteDynamicallyAccessedField(field, value);
                 if (IlLibraryInstanceField(field)) throw new IlException($"assignment to field '{field}' of a library type");
                 var address = IlInstanceFieldAddress(field, instance);
+                if (field.RefKind != RefKind.None)
+                {
+                    // `_parentCount = ref parentCount`: the field takes the address itself.
+                    if (value.Kind is not (IlKind.ByRef or IlKind.Pointer or IlKind.NativeInt)) throw new IlException($"ref field '{field}' assigned a {value.Kind} value");
+                    _b.Store(value.Value, address);
+                    return false;
+                }
                 var typed = IlTyped(value, field.Type);
                 if (isVolatile || field.IsVolatile) VolatileStore(typed, address, S(field.Type));
                 else StoreValue(ToStorage(typed, S(field.Type)), address);

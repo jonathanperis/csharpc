@@ -86,7 +86,15 @@ public static partial class FrameworkIl
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> NotCompiledFromIl = new(StringComparer.OrdinalIgnoreCase);
 
     public static bool IsMixedWithShadows(string? assembly) => assembly is not null && (MixedWithShadows.Contains(assembly, StringComparer.OrdinalIgnoreCase)
-        || IlFirst.IsPartial(assembly));
+        || IlFirst.IsPartial(assembly) || MixedOnLinux(assembly));
+
+    /// <summary>
+    /// System.Security.Cryptography on Linux: hashes, HMAC, symmetric ciphers, random numbers and key derivation come from the framework's IL over
+    /// the OpenSSL contract (corelib/Crypto/CryptoNative*.cs); X.509, RSA and the other OpenSSL-backed asymmetric types are still the corelib's
+    /// (docs/adr/0022-tls.md). Other hosts' IL calls Apple's or Windows' crypto, whose shadows stay whole. The index describes the host's framework.
+    /// </summary>
+    private static bool MixedOnLinux(string assembly) => OperatingSystem.IsLinux() && !NativeTls.On
+        && assembly.Equals("System.Security.Cryptography", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>Shared frameworks a project can reference besides Microsoft.NETCore.App.</summary>
     public static readonly string[] SupportedFrameworks = ["Microsoft.AspNetCore.App"];
@@ -379,6 +387,8 @@ public static partial class FrameworkIl
                 // libSystem.Native served by csharpc's C# contract (corelib/IO/SystemNative.cs, corelib/Net/SystemNative.Net.cs): no shim to link,
                 // as long as the contract exports every entry point the assembly imports from it.
                 if (module == "libSystem.Native" && ServedByNativeContract(md, handle)) continue;
+                // The OpenSSL shim, served by the corelib's C# contract over libcrypto/libssl on Linux (corelib/Crypto/CryptoNative*.cs).
+                if (module == CodeGen.ModuleCodeGen.CryptoNativeLibrary && !NativeTls.On && ServedByNativeContract(md, handle)) continue;
                 if (!NativeAotPack.MayCall(a.Name, module)) return module;
                 shims.Add(module);
             }
@@ -522,7 +532,10 @@ public static partial class FrameworkIl
 
     private static HashSet<string>? s_contractEntries;
 
-    /// <summary>The libSystem.Native entry points the corelib exports itself ([RuntimeExport("SystemNative_X", ...)] in its sources).</summary>
+    /// <summary>
+    /// The libSystem.Native entry points the corelib exports itself ([RuntimeExport("SystemNative_X", ...)] in its sources), and on Linux the OpenSSL
+    /// shim's (CryptoNative_X, corelib/Crypto/CryptoNative*.cs; the other hosts' IL calls their own OS's crypto).
+    /// </summary>
     private static HashSet<string> NativeContractEntries()
     {
         if (s_contractEntries is { } cached) return cached;
@@ -532,11 +545,12 @@ public static partial class FrameworkIl
         if (Directory.Exists(corelib) && !OperatingSystem.IsWindows())
             foreach (var file in Directory.EnumerateFiles(corelib, "*.cs", SearchOption.AllDirectories))
                 foreach (Match m in NativeContractExport().Matches(File.ReadAllText(file)))
-                    entries.Add(m.Groups[1].Value);
+                    if (m.Groups[1].Value.StartsWith("SystemNative_", StringComparison.Ordinal) || OperatingSystem.IsLinux())
+                        entries.Add(m.Groups[1].Value);
         return s_contractEntries = entries;
     }
 
-    /// <summary>Whether every method the assembly imports from this module reference is a libSystem.Native entry point of the contract.</summary>
+    /// <summary>Whether every method the assembly imports from this module reference is an entry point of the contract.</summary>
     private static bool ServedByNativeContract(MetadataReader md, ModuleReferenceHandle module)
     {
         var entries = NativeContractEntries();
@@ -551,7 +565,7 @@ public static partial class FrameworkIl
         return true;
     }
 
-    [GeneratedRegex(@"\[RuntimeExport\(""(SystemNative_\w+)""")]
+    [GeneratedRegex(@"\[RuntimeExport\(""((?:SystemNative|CryptoNative)_\w+)""")]
     private static partial Regex NativeContractExport();
 
     private static bool ForHostTarget(string source)
@@ -559,7 +573,8 @@ public static partial class FrameworkIl
         var lines = source.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 && !l.StartsWith("//", StringComparison.Ordinal)).ToList();
         if (lines is not [var first, .., var last] || last != "#endif" || !first.StartsWith("#if CSHARPC_TARGET_", StringComparison.Ordinal)) return true;
         var targets = first["#if ".Length..].Split("||", StringSplitOptions.TrimEntries);
-        if (!targets.All(t => t is "CSHARPC_TARGET_WINDOWS" or "CSHARPC_TARGET_MACOS" or "CSHARPC_TARGET_LINUX")) return true;
+        // WASI is never the host: a file for WASI (and other OSes) shadows nothing in the host's index, whose IL is the host OS's build.
+        if (!targets.All(t => t is "CSHARPC_TARGET_WINDOWS" or "CSHARPC_TARGET_MACOS" or "CSHARPC_TARGET_LINUX" or "CSHARPC_TARGET_WASI")) return true;
         var host = OperatingSystem.IsWindows() ? "CSHARPC_TARGET_WINDOWS" : OperatingSystem.IsMacOS() ? "CSHARPC_TARGET_MACOS" : "CSHARPC_TARGET_LINUX";
         return targets.Contains(host);
     }

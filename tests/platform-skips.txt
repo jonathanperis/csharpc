@@ -307,3 +307,9 @@ macos 1391_filesystem_native_contract  live: FileStream.Lock/Unlock are a Platfo
 windows 1391_filesystem_native_contract  live: Windows has no Unix modes, symbolic links need privileges, and its error texts and lock semantics are Win32's
 wasi 1391_filesystem_native_contract   WASI has no permission bits (.NET throws PlatformNotSupportedException from SetUnixFileMode) and wasmtime refuses symbolic links that leave the preopened directory
 wasi 1396_constrained_hosted_number_members  needs a named culture: WebAssembly runs in globalization-invariant mode, where "de-DE" is a CultureNotFoundException
+macos 1490_crypto_hmac_kdf_from_il  known gap: crypto is served from the framework's IL on Linux only; macOS keeps csharpc's copies, which lack these types (#449)
+windows 1490_crypto_hmac_kdf_from_il  known gap: crypto is served from the framework's IL on Linux only; Windows keeps csharpc's copies, which lack these types (#449)
+wasi 1490_crypto_hmac_kdf_from_il  known gap: no OpenSSL on WebAssembly (WASI); csharpc's copies lack these types (#449)
+macos 1491_crypto_symmetric_from_il  known gap: crypto is served from the framework's IL on Linux only; macOS keeps csharpc's copies, which lack these types (#449)
+windows 1491_crypto_symmetric_from_il  known gap: crypto is served from the framework's IL on Linux only; Windows keeps csharpc's copies, which lack these types (#449)
+wasi 1491_crypto_symmetric_from_il  known gap: no OpenSSL on WebAssembly (WASI); csharpc's copies lack these types (#449)

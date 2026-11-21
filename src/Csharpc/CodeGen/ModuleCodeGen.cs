@@ -997,6 +997,8 @@ public sealed partial class ModuleCodeGen
     /// <summary>Storage type of an instance field; unsupported field types are reported at the field (or its property).</summary>
     private LLVMTypeRef FieldStorage(IFieldSymbol field)
     {
+        // A ref field (C# 11, only in ref structs) stores the address it refers to.
+        if (field.RefKind != RefKind.None) return Llvm.Ptr;
         try { return Types.Storage(field.Type); }
         catch (CompileError e) when (e.Location is not { IsInSource: true }
                                      && (field.AssociatedSymbol ?? field).Locations.FirstOrDefault() is { IsInSource: true } at)
