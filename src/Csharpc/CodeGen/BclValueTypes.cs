@@ -687,6 +687,13 @@ internal static partial class BclValueTypes
         };
         t["string.Equals(string, string, System.StringComparison)"] = equalsWith(2);
         t["string.Equals(string, System.StringComparison)"] = equalsWith(1);
+        // string.Equals(object), String's override of object.Equals, called directly (a virtual call on an object receiver dispatches through
+        // the method table instead): the receiver's null check, then ordinal equality when the argument is a string.
+        t["string.Equals(object)"] = (g, _, self, a, _) =>
+        {
+            g.NullCheck(self);
+            return g.CallCoreLib("StringRuntime", "EqualsObject", self, a[0]);
+        };
         t["System.Math.Round(double, System.MidpointRounding)"] = (g, _, _, a, _) =>
             Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (I32(g, 0), g.Llvm.I32), (a[1], g.Llvm.I32));
         t["System.Math.Round(double, int, System.MidpointRounding)"] = (g, _, _, a, _) =>
