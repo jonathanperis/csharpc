@@ -1,5 +1,5 @@
 // The shim's file and memory BIOs over libcrypto: the first part of pal_bio.c (dotnet/runtime, .NET 11 GA). The managed-span and
-// socket-replay BIOs that SslStream uses are in CryptoNative.Ssl.cs. See CryptoNative.cs.
+// socket-replay BIOs that SslStream uses are in CryptoNative.Bio.cs. See CryptoNative.cs.
 #if CSHARPC_TARGET_LINUX
 #nullable disable
 using System;
