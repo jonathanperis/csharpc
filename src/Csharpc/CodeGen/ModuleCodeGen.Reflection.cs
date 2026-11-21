@@ -184,6 +184,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>Keeps metadata for the members of <paramref name="type"/> that <paramref name="kinds"/> names.</summary>
     internal void MarkDynamicallyAccessed(ITypeSymbol type, int kinds, string? name = null)
     {
+        if ((kinds & DamNestedTypes) != 0 && name is null && type is INamedTypeSymbol owner && !TypeSubstitution.IsOpen(owner)) MarkNestedTypes(owner, kinds);
         kinds &= DamConstructors | DamMethods | DamProperties | DamFields | DamEvents;
         if (s_traceDam) Console.Error.WriteLine($"[csharpc] keep {kinds:x} {(name is null ? "(all)" : name)} of {type}");
         if (kinds == 0 || type is ITypeParameterSymbol || type.TypeKind == TypeKind.Error) return;
@@ -527,16 +528,20 @@ public sealed partial class ModuleCodeGen
             if ((entry.Described & (RiAttributes | RiAttributesUnknown)) != 0 || entry.Type is not INamedTypeSymbol named) continue;
             if (named.IsAnonymousType)
             {
-                // csc gives an anonymous type [CompilerGenerated] and [DebuggerDisplay]: csharpc lists neither, so the program's own query is the explicit
-                // error and the framework's (System.Text.Json looks for its own attributes) gets the empty list.
-                SetTypeAttributes(entry, [], synthesizedUnknown: true);
+                // csc gives an anonymous type [CompilerGenerated] and [DebuggerDisplay]: csharpc lists only the first, so the program's own query is the
+                // explicit error and the framework's gets [CompilerGenerated] (System.Text.Json looks for its own attributes; TraceLogging's Write<T>
+                // takes a [CompilerGenerated] type as an anonymous payload).
+                SetTypeAttributes(entry, PseudoAttribute("System.Runtime.CompilerServices.CompilerGeneratedAttribute") is { } generated ? [generated] : [], synthesizedUnknown: true);
                 any = true;
                 continue;
             }
-            if (!DescribesOwnAttributes(named) || CoreLib.IsCoreLib(named)) continue;
+            // A type of the CoreLib slice (the framework's IL, CsharpcUpstream.dll) carries the attributes the slicer keeps ([EventData] on the event
+            // counters' payloads, which TraceLogging asks for): a partial list, so only the framework's own queries read it.
+            var slice = (named.ContainingNamespace?.ToDisplayString() ?? "").StartsWith(Frontend.UpstreamSlice.Prefix + ".", StringComparison.Ordinal);
+            if (!DescribesOwnAttributes(named) || CoreLib.IsCoreLib(named) && !slice) continue;
             var unknownSynthesized = false;
             var list = Decoded(() => { var l = TypeAttributeInstances(named.OriginalDefinition, out var unknown); unknownSynthesized = unknown; return l; });
-            SetTypeAttributes(entry, list, unknownSynthesized);
+            SetTypeAttributes(entry, list, unknownSynthesized || slice);
             any = true;
         }
         return any;

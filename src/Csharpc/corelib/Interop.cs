@@ -321,8 +321,14 @@ namespace CsharpcCoreLib
         public static string PtrToStringAnsi(IntPtr ptr, int len) => ptr == IntPtr.Zero ? null : WindowsMarshal.FromAnsi((byte*)ptr, len);
         public static string PtrToStringAuto(IntPtr ptr) => PtrToStringUni(ptr);
 #else
-        public static string GetPInvokeErrorMessage(int error) => Utf8.FromNative(strerror(error));
-        [DllImport("libc")] private static extern byte* strerror(int error);
+        // Interop.Sys.StrError: libSystem.Native's StrErrorR into a 1 KiB buffer (thread-safe strerror_r, and the PAL's texts for the
+        // name-lookup and socket errors that have no errno: "Name or service not known", "Unknown socket error").
+        public static string GetPInvokeErrorMessage(int error)
+        {
+            byte* buffer = stackalloc byte[1024];
+            byte* message = CsharpcCoreLib.SystemNative.StrErrorR(error, buffer, 1024);
+            return Utf8.FromNative(message == null ? buffer : message);
+        }
 
         public static IntPtr AllocHGlobal(int cb) => (IntPtr)Libc.Alloc((nuint)cb);
         public static IntPtr AllocHGlobal(IntPtr cb) => (IntPtr)Libc.Alloc((nuint)(nint)cb);

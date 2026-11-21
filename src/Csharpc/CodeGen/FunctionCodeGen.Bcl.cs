@@ -50,6 +50,8 @@ public sealed partial class FunctionCodeGen
             var parameterTypes = method.Parameters.Select(p => S(p.Type)).ToArray();
             method = concrete.GetMembers(method.Name).OfType<IMethodSymbol>().FirstOrDefault(m => m.IsStatic
                 && m.Parameters.Select(p => p.Type).SequenceEqual(parameterTypes, SymbolEqualityComparer.Default)) ?? method;
+            // The concrete type's operator is compiled code (a type served from the framework's IL, BFloat16's unary minus): call it.
+            if (_m.IsUserMethod(method)) return EmitDirectCall(method, operands);
         }
         if (IsVector128Struct(method.ContainingType))
         {
@@ -134,7 +136,6 @@ public sealed partial class FunctionCodeGen
             "csrt_decimal_from_u64" => "FromUInt64",
             "csrt_decimal_from_f64" => "FromDouble",
             "csrt_decimal_from_f32" => "FromSingle",
-            "csrt_decimal_parse" => "Parse",
             _ => throw new InvalidOperationException($"unknown decimal operation {fn}"),
         };
         return CallCoreLib("DecimalOps", method, operands);

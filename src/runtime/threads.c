@@ -201,6 +201,16 @@ static inline void spin_pause(void) {
 #endif
 }
 
+/// Thread.SpinWait(iterations): that many processor pauses (none on WASI's one thread, where nothing else can change what the
+/// caller waits for). The framework's SpinWait spins min(2^count, Thread.OptimalMaxSpinWaitsPerSpinIteration) of them per SpinOnce.
+void csrt_thread_spin_wait(int32_t iterations) {
+#ifndef __wasi__
+    for (int32_t i = 0; i < iterations; i++) spin_pause();
+#else
+    (void)iterations;
+#endif
+}
+
 #define INTERRUPT_POLL_MS 50
 
 // The interruptible wait a thread is in (wait_cond / wait_mutex) is guarded by a flag of that thread's own: registering it is
@@ -379,7 +389,7 @@ static void spawn(csrt_Thread* t) {
     }
 }
 
-static void thread_start(csrt_Thread* t, void* parameter, bool has_parameter) {
+static void thread_start(csrt_Thread* t, void* parameter, bool has_parameter, bool flow) {
     if (!t) csrt_throw_null_reference();
 #ifdef __wasi__
     // Like .NET's single-threaded WebAssembly builds (docs/adr/0011-wasm32.md).
@@ -397,12 +407,15 @@ static void thread_start(csrt_Thread* t, void* parameter, bool has_parameter) {
     if (!t->background) s_foreground++;
     pthread_mutex_unlock(&s_join_lock);
     CSRT_STORE_REF(t->parameter, parameter);
-    CSRT_STORE_REF(t->flow, csrt_flow_capture());  // like .NET's ExecutionContext capture in Thread.Start
+    // Thread.Start captures the ExecutionContext like .NET; UnsafeStart runs the thread on the default context.
+    CSRT_STORE_REF(t->flow, flow ? csrt_flow_capture() : NULL);
     spawn(t);
 }
 
-void csrt_thread_start(csrt_Thread* t) { thread_start(t, NULL, false); }
-void csrt_thread_start_with(csrt_Thread* t, void* parameter) { thread_start(t, parameter, true); }
+void csrt_thread_start(csrt_Thread* t) { thread_start(t, NULL, false, true); }
+void csrt_thread_start_with(csrt_Thread* t, void* parameter) { thread_start(t, parameter, true, true); }
+void csrt_thread_unsafe_start(csrt_Thread* t) { thread_start(t, NULL, false, false); }
+void csrt_thread_unsafe_start_with(csrt_Thread* t, void* parameter) { thread_start(t, parameter, true, false); }
 
 bool csrt_thread_join_timeout(csrt_Thread* t, int32_t ms) {
     if (!t) csrt_throw_null_reference();
@@ -515,6 +528,7 @@ typedef struct Monitor {
     pthread_cond_t released;  // the owner left
     pthread_cond_t lock_released;  // a System.Threading.Lock with waiters parked here was released
     MonitorWaiter* waiters;   // waiting threads, oldest first (guarded by the bucket lock)
+    MonitorWaiter* lock_waiters;  // threads in Lock.Wait on a System.Threading.Lock (its own condition, not Monitor.Wait's)
     struct Monitor* next;
 } Monitor;
 
@@ -575,6 +589,7 @@ __attribute__((noinline)) static void monitor_release_interest(MonitorBucket* b,
         if (*p == m) { *p = m->next; break; }
     m->obj = NULL;
     m->waiters = NULL;
+    m->lock_waiters = NULL;
     m->next = b->spare;
     b->spare = m;
 }
@@ -880,6 +895,73 @@ void csrt_lock_exit(void* lock) {
     __atomic_store_n(&l->owner, 0, __ATOMIC_SEQ_CST);
     if (__atomic_load_n(&l->waiters, __ATOMIC_SEQ_CST) > 0) lock_wake(l);
 }
+
+// Lock.Wait / Pulse / PulseAll: CoreLib-internal condition operations of System.Threading.Lock that the framework's
+// ManualResetEventSlim waits with (#414). As Monitor.Wait: the waiter queues on the Lock's monitor-table entry (its own list,
+// so Monitor.Wait on the same object stays separate), releases the Lock completely (even held recursively), sleeps on a
+// condition variable of its own until a Pulse dequeues it, the timeout passes or Thread.Interrupt ends the wait, and takes
+// the Lock back with its recursion before returning or throwing.
+bool csrt_lock_wait(void* lock, int32_t ms) {
+    if (!lock) csrt_throw_null_reference();
+    LockObject* l = lock;
+    int32_t self_id = lock_id();
+    if (__atomic_load_n(&l->owner, __ATOMIC_RELAXED) != self_id) throw_msg(&mt_sync_lock, "The calling thread does not hold the lock.");
+    MonitorBucket* b = bucket_of(l);
+    pthread_mutex_lock(&b->lock);
+    Monitor* m = monitor_find(b, l, true);
+    m->interest++;
+    MonitorWaiter self = { NULL, false };
+    pthread_cond_init(&self.cond, NULL);
+    MonitorWaiter** tail = &m->lock_waiters;
+    while (*tail) tail = &(*tail)->next;
+    *tail = &self;
+    // Release the Lock while the bucket is held: a Pulse needs the Lock and then the bucket, so it can't run before this
+    // waiter sleeps. A thread parked in Enter is woken directly (lock_wake would take the bucket lock again).
+    int32_t recursion = l->recursion;
+    l->recursion = 0;
+    __atomic_store_n(&l->owner, 0, __ATOMIC_SEQ_CST);
+    if (__atomic_load_n(&l->waiters, __ATOMIC_SEQ_CST) > 0) pthread_cond_signal(&m->lock_released);
+    struct timespec d;
+    if (ms >= 0) deadline_after(&d, ms);
+    int rc = 0;
+    while (!self.released) {
+        rc = interruptible_wait_core(&self.cond, &b->lock, ms < 0 ? NULL : &d, true, true);
+        if (self.released) { rc = 0; break; }
+        if (rc == EINTR || rc == ETIMEDOUT) {
+            for (MonitorWaiter** p = &m->lock_waiters; *p; p = &(*p)->next)
+                if (*p == &self) { *p = self.next; break; }
+            break;
+        }
+    }
+    monitor_release_interest(b, m);
+    pthread_mutex_unlock(&b->lock);
+    pthread_cond_destroy(&self.cond);
+    // Reacquire (not interruptible, as Monitor.Wait's) with the recursion the caller had.
+    lock_enter(l, -1);
+    l->recursion = recursion;
+    if (rc == EINTR) throw_interrupted();
+    return rc != ETIMEDOUT;
+}
+
+static void lock_pulse(void* lock, bool all) {
+    if (!lock) csrt_throw_null_reference();
+    LockObject* l = lock;
+    if (__atomic_load_n(&l->owner, __ATOMIC_RELAXED) != lock_id()) throw_msg(&mt_sync_lock, "The calling thread does not hold the lock.");
+    MonitorBucket* b = bucket_of(l);
+    pthread_mutex_lock(&b->lock);
+    Monitor* m = monitor_find(b, l, false);
+    while (m && m->lock_waiters) {
+        MonitorWaiter* w = m->lock_waiters;
+        m->lock_waiters = w->next;
+        w->released = true;
+        pthread_cond_signal(&w->cond);
+        if (!all) break;
+    }
+    pthread_mutex_unlock(&b->lock);
+}
+
+void csrt_lock_pulse(void* lock) { lock_pulse(lock, false); }
+void csrt_lock_pulse_all(void* lock) { lock_pulse(lock, true); }
 
 void csrt_lock_enter(void* lock) { lock_enter(lock, -1); }
 bool csrt_lock_try_enter(void* lock, int32_t ms) { return lock_enter(lock, ms); }

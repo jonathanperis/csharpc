@@ -76,7 +76,7 @@ public sealed partial class FunctionCodeGen
         // target is T's implementation, called as `constrained. T callvirt` would, not a look-up of the boxed value's interface table.
         if (op == ILOpCode.Callvirt && constrained is null && receiver is { Kind: IlKind.Ref, Unboxed: { Type: { } boxedType } boxedEntry } && !boxedEntry.Value.IsNull
             && method.ContainingType.TypeKind == TypeKind.Interface && S(boxedType) is { IsValueType: true } boxedValue && !TypeMapper.IsNullable(boxedValue)
-            && boxedValue.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, S(method.ContainingType))))
+            && ImplementsInterface(boxedValue, (INamedTypeSymbol)S(method.ContainingType)))
         {
             var home = Spill(IlTyped(boxedEntry, boxedValue));
             if (IlInvoke(method, new IlEntry(IlKind.ByRef, home, boxedValue), args, isVirtual: true, boxedValue) is { } direct) stack.Push(direct);
@@ -358,6 +358,17 @@ public sealed partial class FunctionCodeGen
         return result is { } r ? IlPush(r, method.ReturnType) : null;
     }
 
+    /// <summary>
+    /// Whether a value type implements an interface, deciding a framework slice's struct (Guid : IEquatable&lt;its own Guid&gt;) on the real
+    /// types as well: the interface the IL names carries the real type (IEquatable&lt;System.Guid&gt;).
+    /// </summary>
+    private bool ImplementsInterface(ITypeSymbol valueType, INamedTypeSymbol itf)
+    {
+        if (valueType.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, itf))) return true;
+        var real = _m.CoreLib.Unmap(itf);
+        return valueType.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(_m.CoreLib.Unmap(i), real));
+    }
+
     private IlEntry IlNewObject(IMethodSymbol constructor, IlEntry[] args)
     {
         var il = _il!;
@@ -451,6 +462,8 @@ public sealed partial class FunctionCodeGen
         if (IlCreateInstanceForAnotherGenericParameter(method, args) is { } created) return created;
         if (ownerName == "System.Runtime.CompilerServices.Unsafe" && IlUnsafeCall(method, args) is { } unsafeResult) return unsafeResult;
         if (ownerName == "System.Runtime.CompilerServices.AsyncHelpers" && IlRuntimeAsyncCall(method, args) is { } awaited) return awaited;
+        // EventSource.IsEnabled() with event sources turned off: false, without the call (its receiver has been evaluated).
+        if (receiver is not null && DisabledEventSourceIsEnabled(method) is { } disabled) return I4(disabled ? 1 : 0) with { Constant = disabled ? 1 : 0 };
         if (args.Length == 0 && receiver is null && FeatureSwitchValue(method) is { } feature)
         {
             // A guard whose value is fixed but whose getter still checks something (QUIC: stops the program where
@@ -509,6 +522,13 @@ public sealed partial class FunctionCodeGen
                 var (v, f) = (IlTyped(value, e), IlTyped(flag, e));
                 return IlPush(_b.ICmp(LLVMIntPredicate.EQ, _b.BinOp(LLVMOpcode.And, v, f), f), Special(SpecialType.System_Boolean));
             }
+            // `typeof(A) == typeof(B)` guarding a branch folded at compile time (IlTypeEqualityConstant): neither Type object is
+            // materialized, so a struct named only there does not get the method table (and the slots) its boxes would carry (#420).
+            case ("System.Type", "GetTypeFromHandle") when args is [{ Kind: IlKind.Token, Symbol: ITypeSymbol }] && IlTypeofFoldedAt(_ilIndex):
+                return new IlEntry(IlKind.Ref, LlvmContext.Null(L.Ptr), method.ReturnType);
+            case ("System.Type", "op_Equality" or "op_Inequality") when _il?.CurrentBlock is { } current && IlTypeEqualityConstant(current, _ilIndex, method) is { } equal
+                && IlTypeofFoldedAt(_ilIndex - 1):
+                return I4(equal ? 1 : 0);
             case ("System.Type", "GetTypeFromHandle") when args is [{ Kind: IlKind.Token, Symbol: ITypeSymbol type }]:
                 // (in shared generic code typeof(T) is a run-time value: nothing may resolve reflection against the marker)
                 return new IlEntry(IlKind.Ref, TypeObject(S(type), IlAt()), method.ReturnType) { NonNull = true, Symbol = _m.IsCanonDependent(S(type)) ? null : S(type) };

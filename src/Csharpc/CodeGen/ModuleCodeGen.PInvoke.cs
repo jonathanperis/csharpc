@@ -68,6 +68,12 @@ public sealed partial class ModuleCodeGen
             }
             : -1;
 
+    /// <summary>The .NET OpenSSL shim's module name, whose entry points the corelib's C# contract implements on Linux (corelib/Crypto/CryptoNative.cs).</summary>
+    internal const string CryptoNativeLibrary = "libSystem.Security.Cryptography.Native.OpenSsl";
+
+    /// <summary>The .NET GSS-API shim's module name, whose entry points the corelib's C# contract implements on Linux (corelib/Net/NetSecurityNative.cs).</summary>
+    internal const string NetSecurityNativeLibrary = "libSystem.Net.Security.Native";
+
     public LoweredFunction PInvokeStub(IMethodSymbol method)
     {
         method = method.OriginalDefinition;
@@ -117,8 +123,39 @@ public sealed partial class ModuleCodeGen
         // .NET's own shims (libSystem.IO.Compression.Native) are linked statically, as NativeAOT does:
         // strong references, so the linker takes their members from the archives.
         var shim = LinkedShims.Contains(library);
+        // libSystem.Native, which CoreLib's file-system IL P/Invokes, is csharpc's C# contract over its libc layer (corelib/IO/SystemNative.cs),
+        // not the pack's shim: an internal call, bound by name. Only where the shim isn't linked for another library (Tar, ZipFile), whose
+        // archive members would define the same symbols.
+        // libSystem.Security.Cryptography.Native.OpenSsl, which the framework's crypto and TLS IL P/Invokes on Linux, is csharpc's C# contract over
+        // OpenSSL's libcrypto and libssl (corelib/Crypto/CryptoNative*.cs) the same way, unless the native-TLS mode links the pack's shim.
+        // CoreLib's QCalls into the runtime (EventPipe's, which System.Diagnostics.Tracing's IL makes) are the same kind of contract
+        // (corelib/UpstreamTracing.cs), on every target.
+        // libSystem.Net.Security.Native (Negotiate/Kerberos over GSS-API) likewise, over libgssapi_krb5 (corelib/Net/NetSecurityNative.cs).
+        var nativeContract = !shim && ((library == "libSystem.Native" || library == CryptoNativeLibrary || library == NetSecurityNativeLibrary) && !Types.Target.IsWindows
+                || library == "QCall")
+            && TryRequestNativeContract(library, entry)
+            // Kernel32's thread-pool I/O objects, which the Windows CoreLib's overlapped file I/O calls, are csharpc's contract too
+            // (corelib/UpstreamThreadPoolIo.cs): their callbacks must run on threads csharpc's runtime knows.
+            || coreLibSystemImport && TryRequestNativeContract("kernel32.dll", entry);
+        if (library == "QCall" && !nativeContract)
+        {
+            // A runtime QCall without a contract: never a dlopen of "QCall" (a DllNotFoundException .NET never throws), but the explicit
+            // diagnostic, raised if the call is made (CSLLVM0008 for a program that can reach it).
+            var message = $"the runtime entry point '{entry}' is not supported by csharpc yet";
+            _ilBoundaries.Add((method, message));
+            UnsupportedBody(stub, $"'{method}' could not be compiled: {message}");
+            return lowered;
+        }
         var directPInvoke = DirectPInvokes.Count > 0 && (DirectPInvokes.Contains(library) || DirectPInvokes.Contains(library + "!" + entry));
-        var direct = shim || directPInvoke || (Types.Target.IsWindows ? runtimeSymbol || coreLibSystemImport
+        if ((library == CryptoNativeLibrary || library == NetSecurityNativeLibrary) && !shim && !nativeContract && !directPInvoke && IsIlMethod(method))
+        {
+            // No shim is linked and the contract lacks this entry point: an explicit diagnostic, never a library search that fails at run time.
+            var message = $"'{method}' calls {entry} of {library}, which csharpc's {(library == CryptoNativeLibrary ? "OpenSSL" : "GSS-API")} contract does not provide: not supported by csharpc yet";
+            _ilBoundaries.Add((method, message));
+            UnsupportedBody(stub, message);
+            return lowered;
+        }
+        var direct = shim || directPInvoke || nativeContract || (Types.Target.IsWindows ? runtimeSymbol || coreLibSystemImport
             : s_directLinkLibraries.Contains(library) && !(Types.Target.IsDarwin && library.Contains(".so", StringComparison.Ordinal)));
         // WASI has no dynamic loading: libc/libm (wasi-libc, linked statically) and the runtime bind
         // directly; any other library fails to load at the call, with .NET's DllNotFoundException.
@@ -136,7 +173,7 @@ public sealed partial class ModuleCodeGen
                 // then binds them all to the null default instead of the UCRT import).
                 // Not on wasm either: wasm-ld doesn't extract archive members (wasi-libc) for weak references,
                 // so a weak getenv would stay undefined; a symbol wasi-libc lacks is a link error instead.
-                if (!coreLibSystemImport && !shim && !directPInvoke && !Types.Target.IsWasm) Native.LLVMSetLinkage(native, (LLVMLinkage)12 /* LLVMExternalWeakLinkage */);
+                if (!coreLibSystemImport && !shim && !directPInvoke && !nativeContract && !Types.Target.IsWasm) Native.LLVMSetLinkage(native, (LLVMLinkage)12 /* LLVMExternalWeakLinkage */);
                 foreach (var (index, attribute) in nativeAttributes) Native.LLVMAddAttributeAtIndex(native, index, attribute);
             }
         }

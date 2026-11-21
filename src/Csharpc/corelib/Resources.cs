@@ -198,7 +198,8 @@ namespace CsharpcCoreLib
                 catch (FormatException) { }
                 catch (OverflowException) { }
             }
-            else if (stored == ConverterString)
+            // (a constant: without such a resource, TypeDescriptor and the converters are not linked)
+            else if (stored == ConverterString && CoreIntrinsics.HasConverterResources())
             {
                 // A value DeserializingResourceReader creates with TypeDescriptor.GetConverter(type).ConvertFromInvariantString(text).
                 // A converter's own exceptions (bad text) propagate, as they do from .NET; a null result is a NullReferenceException there.
@@ -387,7 +388,7 @@ namespace CsharpcCoreLib
                 i = keyStart + keyLength;
                 int valueLength = (blob[i] << 16) | blob[i + 1];
                 // the last value of a key wins, as in the Data dictionary
-                if (keyLength == switchName.Length && StringOps.EqualsOrdinal(blob.AsSpan(keyStart, keyLength), switchName.AsSpan()))
+                if (keyLength == switchName.Length && blob.AsSpan(keyStart, keyLength).SequenceEqual(switchName.AsSpan()))
                     value = blob.Substring(i + 2, valueLength);
                 i += 2 + valueLength;
             }

@@ -221,6 +221,30 @@ namespace CsharpcCoreLib
             if (length > 0) CoreIntrinsics.csrt_os_random(buffer, (nuint)length);
         }
 
+        /// <summary>
+        /// Interop.GetCryptographicallySecureRandomBytes (Guid.NewGuid, Guid.CreateVersion7): the operating system's CSPRNG through csrt_os_random
+        /// (getentropy, rand_s, WASI random_get), never a weaker source; the program stops if the OS cannot provide it, as CoreCLR fails fast.
+        /// </summary>
+        public static void GetCryptographicallySecureRandomBytes(byte* buffer, int length)
+        {
+            if (length > 0) CoreIntrinsics.csrt_os_random(buffer, (nuint)length);
+        }
+
+        /// <summary>
+        /// Interop.Ole32.CoCreateGuid, which the Windows CoreLib's Guid.NewGuid calls: a version 4 GUID from the operating system's CSPRNG
+        /// (csrt_os_random: rand_s on Windows), with the version and variant bits set exactly as the Unix CoreLib's Guid.NewGuid sets them
+        /// (_c = (_c &amp; ~0xF000) | 0x4000; _d = (_d &amp; ~0xC0) | 0x80). Always succeeds (S_OK); the program stops if the OS has no entropy.
+        /// </summary>
+        public static int CoCreateGuid(Guid* guid)
+        {
+            byte* p = (byte*)guid;
+            CoreIntrinsics.csrt_os_random(p, (nuint)sizeof(Guid));
+            short* c = (short*)(p + 6); // Guid._c (after int _a, short _b)
+            *c = (short)((*c & ~0xF000) | 0x4000);
+            p[8] = (byte)((p[8] & ~0xC0) | 0x80); // Guid._d
+            return 0;
+        }
+
         private static ResourceManager s_strings;
 
         /// <summary>
@@ -243,28 +267,48 @@ namespace CsharpcCoreLib
         public static bool GetUsingResourceKeys() => false;
 
         /// <summary>
-        /// ThrowHelper.GetKeyNotFoundException(key): SR.Format(Arg_KeyNotFoundWithKey, key), that is string.Format with the current culture,
-        /// which formats the key through IFormattable (ToString(null, culture)) and otherwise ToString(). Written out so that a program that
-        /// reads a Dictionary does not carry the composite-format parser and every number formatter for the sake of an exception message.
+        /// ThrowHelper.GetKeyNotFoundException(key): SR.Format(Arg_KeyNotFoundWithKey, key), that is string.Format with no provider, which formats
+        /// the key as any composite-format item (Number.AppendCompositeItem: ISpanFormattable into the space left, IFormattable, ToString()).
+        /// Written out so that a program that reads a Dictionary does not carry the composite-format parser for the sake of an exception message.
         /// </summary>
         public static System.Collections.Generic.KeyNotFoundException GetKeyNotFoundException(object key) =>
-            new System.Collections.Generic.KeyNotFoundException("The given key '" + KeyText(key) + "' was not present in the dictionary.");
+            new System.Collections.Generic.KeyNotFoundException(KeyNotFoundText(KeyText(key), key));
 
         /// <summary>ThrowHelper.GetAddingDuplicateWithKeyArgumentException(key), formatted as GetKeyNotFoundException's message is.</summary>
-        public static ArgumentException GetAddingDuplicateWithKeyArgumentException(object key) =>
-            new ArgumentException("An item with the same key has already been added. Key: " + KeyText(key));
+        public static ArgumentException GetAddingDuplicateWithKeyArgumentException(object key) => new ArgumentException(DuplicateText(KeyText(key), key));
+
+        // Per T: a key of known text (string, int, long, uint, ulong, char) is spliced in, and only the other instantiations reference composite
+        // formatting (FormatItems), so a Dictionary<string, _> does not link every boxed type's formatters for its exception message.
+        [System.Diagnostics.CodeAnalysis.DoesNotReturn]
+        public static void ThrowKeyNotFoundException<T>(T key)
+        {
+            // typeof comparisons fold per instantiation, so the branch not taken is not compiled.
+            if (typeof(T) == typeof(string) || typeof(T) == typeof(int) || typeof(T) == typeof(long) || typeof(T) == typeof(uint) || typeof(T) == typeof(ulong) || typeof(T) == typeof(char))
+                throw new System.Collections.Generic.KeyNotFoundException("The given key '" + KnownKeyText(key) + "' was not present in the dictionary.");
+            throw new System.Collections.Generic.KeyNotFoundException(FormatItems(null, KeyNotFoundFormat, [key]));
+        }
 
         [System.Diagnostics.CodeAnalysis.DoesNotReturn]
-        public static void ThrowKeyNotFoundException<T>(T key) =>
-            throw new System.Collections.Generic.KeyNotFoundException("The given key '" + KeyText(key) + "' was not present in the dictionary.");
+        public static void ThrowAddingDuplicateWithKeyArgumentException<T>(T key)
+        {
+            if (typeof(T) == typeof(string) || typeof(T) == typeof(int) || typeof(T) == typeof(long) || typeof(T) == typeof(uint) || typeof(T) == typeof(ulong) || typeof(T) == typeof(char))
+                throw new ArgumentException("An item with the same key has already been added. Key: " + KnownKeyText(key));
+            throw new ArgumentException(FormatItems(null, DuplicateFormat, [key]));
+        }
 
-        [System.Diagnostics.CodeAnalysis.DoesNotReturn]
-        public static void ThrowAddingDuplicateWithKeyArgumentException<T>(T key) =>
-            throw new ArgumentException("An item with the same key has already been added. Key: " + KeyText(key));
+        private const string KeyNotFoundFormat = "The given key '{0}' was not present in the dictionary.";
+        private const string DuplicateFormat = "An item with the same key has already been added. Key: {0}";
 
-        // string.Format("{0}", key): for the types a collection is usually keyed by, ToString() is what it calls (IFormattable.ToString(null, current
-        // culture) is ToString() for them); the specialization per T leaves the general path out of programs that never need it.
-        private static string KeyText<T>(T key)
+        // A key whose text is known up front (a string or a char) is spliced in; any other goes through string.Format's item rule.
+        private static string KeyNotFoundText(string text, object key) =>
+            text is not null ? "The given key '" + text + "' was not present in the dictionary." : FormatItems(null, KeyNotFoundFormat, [key]);
+
+        private static string DuplicateText(string text, object key) =>
+            text is not null ? "An item with the same key has already been added. Key: " + text : FormatItems(null, DuplicateFormat, [key]);
+
+        // string.Format("{0}", key): for the types a collection is usually keyed by, ToString() is what it calls (IFormattable.ToString(null, null)
+        // is ToString() for them); the specialization per T leaves the general path out of programs that never need it.
+        private static string KnownKeyText<T>(T key)
         {
             if (typeof(T) == typeof(string)) return (string)(object)key ?? "";
             if (typeof(T) == typeof(int)) return ((int)(object)key).ToString();
@@ -272,10 +316,59 @@ namespace CsharpcCoreLib
             if (typeof(T) == typeof(uint)) return ((uint)(object)key).ToString();
             if (typeof(T) == typeof(ulong)) return ((ulong)(object)key).ToString();
             if (typeof(T) == typeof(char)) return ((char)(object)key).ToString();
-            return KeyText((object)key);
+            return null;
         }
 
-        private static string KeyText(object key) =>
-            key as string ?? (key is IFormattable formattable ? formattable.ToString(null, System.Globalization.CultureInfo.CurrentCulture) : key?.ToString()) ?? "";
+        // SR.Format's overloads (the slicer's csharpc profile forwards them here when it has proven every SR.Format call of the slice formats a
+        // CoreLib resource text whose items are `{n}` or `{n:spec}`: tools/il-first/slicer Emit.SrFormatIsSimple). string.Format for those texts,
+        // without composite formatting's parser and its per-type formatting switch, which reach every primitive's formatter and the culture
+        // data whatever the arguments are. The arguments are formatted as string.Format formats them: an ICustomFormatter of the provider
+        // first, then ISpanFormattable, IFormattable (with the provider; null is the current culture), ToString(), and "" for null.
+        public static string Format(string format, object arg0) => FormatItems(null, format, [arg0]);
+        public static string Format(string format, object arg0, object arg1) => FormatItems(null, format, [arg0, arg1]);
+        public static string Format(string format, object arg0, object arg1, object arg2) => FormatItems(null, format, [arg0, arg1, arg2]);
+        public static string Format(string format, object[] args) => args is null ? format : FormatItems(null, format, args);
+        public static string Format(IFormatProvider provider, string format, object arg0) => FormatItems(provider, format, [arg0]);
+        public static string Format(IFormatProvider provider, string format, object arg0, object arg1) => FormatItems(provider, format, [arg0, arg1]);
+
+        private static string FormatItems(IFormatProvider provider, string format, ReadOnlySpan<object> args)
+        {
+            ArgumentNullException.ThrowIfNull(format);
+            var custom = provider?.GetFormat(typeof(ICustomFormatter)) as ICustomFormatter;
+            // string.Format's buffer (Number.FormatCompositeWith): the space it leaves decides how an ISpanFormattable item is formatted.
+            Span<char> initial = stackalloc char[256];
+            var result = new CharBuilder(initial);
+            result.EnsureCapacity(format.Length + args.Length * 8);
+            for (int i = 0; i < format.Length; i++)
+            {
+                char c = format[i];
+                if (c == '}' && i + 1 < format.Length && format[i + 1] == '}') { result.Append('}'); i++; continue; }
+                if (c != '{') { result.Append(c); continue; }
+                if (i + 1 < format.Length && format[i + 1] == '{') { result.Append('{'); i++; continue; }
+                // {n} or {n:spec}: the only items the slicer lets through (Emit.SimpleCompositeFormat).
+                int j = i + 1, index = 0;
+                while (j < format.Length && char.IsAsciiDigit(format[j])) index = index * 10 + (format[j++] - '0');
+                string spec = null;
+                if (j < format.Length && format[j] == ':')
+                {
+                    int start = ++j;
+                    while (j < format.Length && format[j] != '}') j++;
+                    spec = format.Substring(start, j - start);
+                }
+                if (index >= args.Length) throw new FormatException("Index (zero based) must be greater than or equal to zero and less than the size of the argument list.");
+                Number.AppendCompositeItem(ref result, custom, provider, spec, args[index], 0, false, lean: true);
+                i = j;
+            }
+            return result.Build();
+        }
+
+        // Null for a key that string.Format formats by its interfaces (anything but a string or a char).
+        private static string KeyText(object key) => key switch
+        {
+            null => "",
+            string text => text,
+            char c => c.ToString(),
+            _ => null,
+        };
     }
 }

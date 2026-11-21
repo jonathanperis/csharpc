@@ -160,9 +160,20 @@ public sealed partial class FunctionCodeGen
     /// A struct's public method matching an interface member by name and arity. Corelib shadow structs
     /// (List&lt;T&gt;.Enumerator...) implement the BCL interfaces by pattern rather than declaration.
     /// </summary>
-    private static IMethodSymbol? PatternImplementation(ITypeSymbol type, IMethodSymbol member) =>
-        type.GetMembers(member.Name).OfType<IMethodSymbol>()
-            .FirstOrDefault(m => !m.IsStatic && m.DeclaredAccessibility == Accessibility.Public && m.Parameters.Length == member.Parameters.Length);
+    /// <summary>
+    /// The public instance method of a value type that implements an interface member by name and signature. A framework slice's struct
+    /// implements the interface over its own copy of the type (Guid : IEquatable&lt;its Guid&gt;), which Roslyn does not match with the
+    /// reference's IEquatable&lt;System.Guid&gt;; the overload whose parameter types are the member's (through the corelib's type map) is the
+    /// implementation, never another overload of the same arity (Equals(object) is not IEquatable&lt;Guid&gt;.Equals).
+    /// </summary>
+    private IMethodSymbol? PatternImplementation(ITypeSymbol type, IMethodSymbol member)
+    {
+        var candidates = type.GetMembers(member.Name).OfType<IMethodSymbol>()
+            .Where(m => !m.IsStatic && m.DeclaredAccessibility == Accessibility.Public && m.Parameters.Length == member.Parameters.Length).ToList();
+        ITypeSymbol Mapped(ITypeSymbol t) => S(t) is INamedTypeSymbol n ? _m.CoreLib.TryMap(n) ?? n : S(t);
+        return candidates.FirstOrDefault(m => m.Parameters.Select(p => Mapped(p.Type)).SequenceEqual(member.Parameters.Select(p => Mapped(p.Type)), SymbolEqualityComparer.Default))
+            ?? (candidates.Count == 1 ? candidates[0] : null);
+    }
 
     /// <summary>Peels implicit conversions (boxing, upcasts to the interface) off a receiver.</summary>
     internal IOperation ConcreteReceiver(IOperation receiver)
@@ -180,6 +191,7 @@ public sealed partial class FunctionCodeGen
         if (TryGuardedDefaultComparer(target, receiver, arguments, extra, invocation) is { } guarded) return guarded;
         var concrete = ConcreteReceiver(receiver);
         var staticType = TypeOf(concrete);
+        if (staticType is not null) target = InterfaceMemberOverShadow(staticType, target);
 
         // Shared generic code (ADR 0026): a receiver typed by a canonical form (List<__Canon0>, __Canon0[]) is some exact instantiation at
         // run time, so the call is dispatched through the object it is, never bound to the canonical form's own implementation (which may
@@ -187,10 +199,17 @@ public sealed partial class FunctionCodeGen
         var canonicalReceiver = staticType is not null && _m.IsCanonDependent(staticType);
         if (canonicalReceiver && staticType is IArrayTypeSymbol && !_m.IsCanonDependent(target.ContainingType)) _m.RequestArrayInterface(target.ContainingType);
         // Devirtualize when the receiver's type is known to be a class / primitive.
+        // Not when a subclass re-implements the interface: its implementation replaces the static type's for those objects.
         if (staticType is not null && !canonicalReceiver && staticType.TypeKind is not (TypeKind.Interface or TypeKind.TypeParameter)
+            && !(staticType is INamedTypeSymbol { TypeKind: TypeKind.Class } receiverClass && _m.InterfaceReimplementedBelow(receiverClass, target.ContainingType))
             && (staticType.FindImplementationForInterfaceMember(target) as IMethodSymbol
                 ?? (staticType.IsValueType ? PatternImplementation(staticType, target) : null)) is IMethodSymbol impl)
         {
+            // A generic virtual method (`constrained. TDecoder callvirt IBase64Decoder<T>::Wrapper<TDecoder>` in Base64's IL): Roslyn answers
+            // with the implementing method's definition, which takes the call's own type arguments, or its body would be lowered open.
+            if (impl.IsGenericMethod && target.IsGenericMethod && SymbolEqualityComparer.Default.Equals(impl, impl.ConstructedFrom)
+                && impl.TypeParameters.Length == target.TypeArguments.Length)
+                impl = impl.Construct([.. target.TypeArguments.Select(a => S(a))]);
             if (_m.IsUserMethod(impl) && impl.ContainingType.TypeKind == TypeKind.Class)
             {
                 var self = EmitValue(concrete);
@@ -201,12 +220,26 @@ public sealed partial class FunctionCodeGen
             if (_m.IsUserMethod(impl) && impl.ContainingType.IsValueType)
                 return EmitUserCall(impl, AddressOrSpill(concrete), selfIsNonNull: true, arguments, isVirtual: false, extra.Length > 0 ? extra : null);
             if (invocation is not null && Intrinsics.TryGet(impl, out var handler)) return handler(this, invocation);
+            // Vector128<T> through an interface it implements (IEquatable<Vector128<T>>.Equals over a TVector in generic code): its own lowering.
+            if (invocation is not null && IsVector128Struct(staticType))
+                return EmitSimd(impl, ((INamedTypeSymbol)staticType).TypeArguments[0], EmitValue(concrete),
+                    [.. invocation.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a => EmitArgument(a, impl))], invocation);
             if (invocation is not null && BclValueTypes.TryGet(impl, out var bcl)) return CallBcl(bcl, impl, concrete, invocation.Arguments, invocation);
             // A corelib [ShadowInstance] member implementing it (int.TryFormat for ISpanFormattable...).
             // (Value types only: a class's shadow member may itself make the interface call, as Array.GetEnumerator does.)
             if (invocation is not null && staticType.IsValueType && !_m.IsUserMethod(impl) && _m.CoreLib.Map(impl) is var mappedImpl
                 && !SymbolEqualityComparer.Default.Equals(mappedImpl, impl) && _m.IsUserMethod(mappedImpl) && CoreLib.IsInstanceShadow(mappedImpl))
                 return EmitUserCall(mappedImpl, EmitValue(concrete), selfIsNonNull: true, invocation.Arguments, isVirtual: false, extra.Length > 0 ? extra : null);
+            // IEquatable<T>.Equals on a primitive (MemoryExtensions' IL over a Span<nuint>, `where T : IEquatable<T>`): its value equality,
+            // as Equals(T) is (NaN equals NaN for the floating-point types).
+            if (invocation is not null && target is { Name: "Equals", ContainingType: { Name: "IEquatable", Arity: 1 } } && target.Parameters.Length == 1
+                && staticType.SpecialType is >= SpecialType.System_Boolean and <= SpecialType.System_Double or SpecialType.System_IntPtr or SpecialType.System_UIntPtr)
+                return EqualsOf(staticType, EmitValue(concrete), Coerce(EmitValue(invocation.Arguments[0].Value), TypeOf(invocation.Arguments[0].Value), staticType), invocation);
+            // A built-in value type's own member served from its CoreLib IL (decimal.TryFormat for ISpanFormattable, the slicer's `this.`
+            // host roots): called directly on the receiver's address. Boxing and dispatching instead would reach the boxed type's slot, which
+            // for these interfaces is a corelib thunk that makes this same constrained call again (endless recursion).
+            if (invocation is not null && extra.Length == 0 && staticType.IsValueType && !_m.IsUserMethod(impl) && HostedBuiltinInstanceMember(impl) is { } hostedImpl)
+                return EmitHostedInstanceCall(hostedImpl, impl, concrete, invocation.Arguments);
             if (staticType.IsValueType && !ModuleCodeGen.PrimitiveSlotSupported(staticType, target.ContainingType, target))
                 throw CompileError.Unsupported($"interface call '{target}' on value type '{staticType}'", receiver);
         }

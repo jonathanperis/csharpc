@@ -53,12 +53,11 @@ public static partial class FrameworkIl
     /// Assemblies with some types csharpc implements itself (corelib shadows) and the rest portable IL:
     /// eligible anyway. Every member of a shadowed type is redirected to its shadow (the IL of those types
     /// is never lowered, so the native calls in them are not either), and the other types are compiled
-    /// from IL. System.Net.Primitives: SocketException is a shadow (its native error number and text come
-    /// from the socket engine's OS layer, where the IL calls libSystem.Native); IPAddress, IPEndPoint, IPNetwork,
-    /// Cookie, CredentialCache and the rest come from IL (SocketAddress's IL calls libSystem.Native's socket-address
-    /// shims, which are not linked: DllNotFoundException at the call). System.Net.NetworkInformation: NetworkInterface and its
-    /// property types are shadows (getifaddrs / GetAdaptersAddresses in the corelib); PhysicalAddress, NetworkInformationException
-    /// and the rest the program may name (a List&lt;PhysicalAddress&gt; in ASP.NET Core) come from IL.
+    /// from IL. System.Net.Primitives: on Windows SocketException and SocketAddressPal are shadows (the Winsock socket engine);
+    /// elsewhere the whole assembly is IL over the libSystem.Native contract (corelib/Net/SystemNative.Net.cs).
+    /// System.Net.NetworkInformation: on Windows and macOS NetworkInterface and its property types are shadows (GetAdaptersAddresses /
+    /// getifaddrs in the corelib) and PhysicalAddress, NetworkInformationException and the rest the program may name (a
+    /// List&lt;PhysicalAddress&gt; in ASP.NET Core) come from IL; on Linux all of it is IL over the contract.
     /// </summary>
     private static readonly string[] MixedWithShadows = ["System.Net.Primitives", "System.Net.NetworkInformation"];
 
@@ -86,6 +85,8 @@ public static partial class FrameworkIl
     /// </summary>
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> NotCompiledFromIl = new(StringComparer.OrdinalIgnoreCase);
 
+    // System.Security.Cryptography and System.Net.Security on Linux are the framework's IL whole, over the OpenSSL and GSS-API contracts
+    // (corelib/Crypto/CryptoNative*.cs, corelib/Net/NetSecurityNative.cs): their shadow files are compiled only for the other targets (#449).
     public static bool IsMixedWithShadows(string? assembly) => assembly is not null && (MixedWithShadows.Contains(assembly, StringComparer.OrdinalIgnoreCase)
         || IlFirst.IsPartial(assembly));
 
@@ -197,7 +198,7 @@ public static partial class FrameworkIl
             if (index.TryGetValue(dependency, out var needed) && needed.Ineligible is null && Unusable(needed) is null)
                 Add(needed, "the corelib uses its types");
 
-        // The corelib's networking shadows (Socket, Dns, NetworkInterface, SslStream) take and return types of
+        // The networking types (Socket, Dns, NetworkInterface, and the corelib's SslStream shadow) take and return types of
         // System.Net.Primitives, which come from its IL (IPAddress, IPEndPoint, DnsEndPoint): a program that names any
         // System.Net namespace needs them, even when it never names one of those types (Dns.GetHostAddresses).
         if (Named("System.Net") && index.TryGetValue("System.Net.Primitives", out var primitives) && primitives.Ineligible is null)
@@ -374,8 +375,15 @@ public static partial class FrameworkIl
         {
             for (var i = 1; i <= md.GetTableRowCount(TableIndex.ModuleRef); i++)
             {
-                var module = md.GetString(md.GetModuleReference(MetadataTokens.ModuleReferenceHandle(i)).Name);
+                var handle = MetadataTokens.ModuleReferenceHandle(i);
+                var module = md.GetString(md.GetModuleReference(handle).Name);
                 if (!(module.StartsWith("libSystem.", StringComparison.Ordinal) || module.StartsWith("System.", StringComparison.Ordinal) || module == "QCall")) continue;
+                // libSystem.Native served by csharpc's C# contract (corelib/IO/SystemNative.cs, corelib/Net/SystemNative.Net.cs): no shim to link,
+                // as long as the contract exports every entry point the assembly imports from it.
+                if (module == "libSystem.Native" && ServedByNativeContract(md, handle)) continue;
+                // The OpenSSL shim, served by the corelib's C# contract over libcrypto/libssl on Linux (corelib/Crypto/CryptoNative*.cs).
+                if ((module == CodeGen.ModuleCodeGen.CryptoNativeLibrary || module == CodeGen.ModuleCodeGen.NetSecurityNativeLibrary) && !NativeTls.On
+                    && ServedByNativeContract(md, handle)) continue;
                 if (!NativeAotPack.MayCall(a.Name, module)) return module;
                 shims.Add(module);
             }
@@ -490,12 +498,19 @@ public static partial class FrameworkIl
         var corelib = Path.Combine(AppContext.BaseDirectory, "corelib");
         if (Directory.Exists(corelib))
             foreach (var file in Directory.EnumerateFiles(corelib, "*.cs", SearchOption.AllDirectories))
-                foreach (Match m in ShadowAttribute().Matches(File.ReadAllText(file)))
+            {
+                var text = File.ReadAllText(file);
+                // A file compiled only into some targets' corelib (its first directive is `#if CSHARPC_TARGET_WINDOWS` or an `||` of such
+                // symbols, closed by its last line) shadows nothing on the others. The index describes the host's shared framework, whose
+                // IL is that OS's build.
+                if (!ForHostTarget(text)) continue;
+                foreach (Match m in ShadowAttribute().Matches(text))
                 {
                     if (IlFirst.Excluded(m.Groups[1].Value)) continue;
                     var top = m.Groups[1].Value.Split('+')[0];
                     known.Add(top.IndexOf('`') is var tick and >= 0 ? top[..tick] : top);
                 }
+            }
         known.UnionWith(CodeGen.FunctionCodeGen.TypesLoweredByName);
         // Intrinsic keys are display strings ("System.Console.WriteLine(int)", "System.Array.Length"): every
         // dotted prefix before the parameter list may be a type.
@@ -508,6 +523,55 @@ public static partial class FrameworkIl
         // --il-first: an assembly named there is eligible whatever the hand-written intrinsics say about its types.
         if (IlFirst.On) known.RemoveWhere(IlFirst.InListedAssembly);
         return s_known = known;
+    }
+
+    private static HashSet<string>? s_contractEntries;
+
+    /// <summary>
+    /// The libSystem.Native entry points the corelib exports itself ([RuntimeExport("SystemNative_X", ...)] in its sources), and on Linux the OpenSSL
+    /// shim's (CryptoNative_X, corelib/Crypto/CryptoNative*.cs; the other hosts' IL calls their own OS's crypto).
+    /// </summary>
+    private static HashSet<string> NativeContractEntries()
+    {
+        if (s_contractEntries is { } cached) return cached;
+        var entries = new HashSet<string>(StringComparer.Ordinal);
+        var corelib = Path.Combine(AppContext.BaseDirectory, "corelib");
+        // The contract is Unix's (Windows' CoreLib and libraries call kernel32 and Winsock directly).
+        if (Directory.Exists(corelib) && !OperatingSystem.IsWindows())
+            foreach (var file in Directory.EnumerateFiles(corelib, "*.cs", SearchOption.AllDirectories))
+                foreach (Match m in NativeContractExport().Matches(File.ReadAllText(file)))
+                    if (m.Groups[1].Value.StartsWith("SystemNative_", StringComparison.Ordinal) || OperatingSystem.IsLinux())
+                        entries.Add(m.Groups[1].Value);
+        return s_contractEntries = entries;
+    }
+
+    /// <summary>Whether every method the assembly imports from this module reference is an entry point of the contract.</summary>
+    private static bool ServedByNativeContract(MetadataReader md, ModuleReferenceHandle module)
+    {
+        var entries = NativeContractEntries();
+        if (entries.Count == 0) return false;
+        foreach (var h in md.MethodDefinitions)
+        {
+            var import = md.GetMethodDefinition(h).GetImport();
+            if (import.Module.IsNil || import.Module != module) continue;
+            var name = import.Name.IsNil ? md.GetString(md.GetMethodDefinition(h).Name) : md.GetString(import.Name);
+            if (!entries.Contains(name)) return false;
+        }
+        return true;
+    }
+
+    [GeneratedRegex(@"\[RuntimeExport\(""((?:SystemNative|CryptoNative|NetSecurityNative)_\w+)""")]
+    private static partial Regex NativeContractExport();
+
+    private static bool ForHostTarget(string source)
+    {
+        var lines = source.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 && !l.StartsWith("//", StringComparison.Ordinal)).ToList();
+        if (lines is not [var first, .., var last] || last != "#endif" || !first.StartsWith("#if CSHARPC_TARGET_", StringComparison.Ordinal)) return true;
+        var targets = first["#if ".Length..].Split("||", StringSplitOptions.TrimEntries);
+        // WASI is never the host: a file for WASI (and other OSes) shadows nothing in the host's index, whose IL is the host OS's build.
+        if (!targets.All(t => t is "CSHARPC_TARGET_WINDOWS" or "CSHARPC_TARGET_MACOS" or "CSHARPC_TARGET_LINUX" or "CSHARPC_TARGET_WASI")) return true;
+        var host = OperatingSystem.IsWindows() ? "CSHARPC_TARGET_WINDOWS" : OperatingSystem.IsMacOS() ? "CSHARPC_TARGET_MACOS" : "CSHARPC_TARGET_LINUX";
+        return targets.Contains(host);
     }
 
     [GeneratedRegex(@"\[(?:Shadows|ShadowMembers)\(""([^""]+)""\)\]")]

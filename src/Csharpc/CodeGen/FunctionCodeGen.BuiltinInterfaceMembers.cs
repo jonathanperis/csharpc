@@ -1,4 +1,7 @@
+using System.Collections.Immutable;
+using Csharpc.Llvm;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Operations;
 
 namespace Csharpc.CodeGen;
 
@@ -44,9 +47,9 @@ public sealed partial class FunctionCodeGen
     /// directly (`int.Log2(x)`) or through generic code (`T.Log2(x)` with T = int: the interface member is mapped to the type's
     /// implementation, `System.Numerics.INumberBase&lt;System.Int32&gt;.IsNegative` for an explicit one). Null when the slice carries none.
     /// </summary>
-    private IMethodSymbol? HostedBuiltinMember(IMethodSymbol target, ITypeSymbol? constrainedTo)
+    internal IMethodSymbol? HostedBuiltinMember(IMethodSymbol target, ITypeSymbol? constrainedTo)
     {
-        if (!target.IsStatic) return null;
+        if (!target.IsStatic) return HostedBuiltinInstanceMember(target);
         var name = target.MetadataName;
         INamedTypeSymbol owner;
         if (target.ContainingType.TypeKind == TypeKind.Interface)
@@ -68,6 +71,77 @@ public sealed partial class FunctionCodeGen
                     if (!candidate.IsStatic || candidate.TypeParameters.Length != typeArguments.Length) continue;
                     var constructed = typeArguments.Length > 0 ? candidate.Construct(typeArguments) : candidate;
                     if (SameSignature(constructed, target)) return constructed;
+                    // A type argument the corelib redirects (KeyValuePair<K, V> -> its shadow) maps at the top of a type, not inside a constructed
+                    // parameter type (string.Join<T>(string, IEnumerable<T>) over a Dictionary): compare with the call's own type arguments.
+                    if (typeArguments.Length > 0 && SameSignature(candidate.Construct([.. target.TypeArguments]), target)) return constructed;
+                }
+        return null;
+    }
+
+    /// <summary>
+    /// An instance member of a built-in type served from its own CoreLib IL (`this.` host roots): int.ToString(string, IFormatProvider), whose IL
+    /// reads `this` as int&amp; and calls Number.FormatInt32, is hosted as a static whose first parameter is `ref T`, the receiver's address;
+    /// string.Split, whose IL reads `this._stringLength` and `ref this._firstChar`, as a static whose first parameter is the string itself.
+    /// Null when the slice carries none.
+    /// </summary>
+    private IMethodSymbol? HostedBuiltinInstanceMember(IMethodSymbol target)
+    {
+        var owner = target.ContainingType;
+        if (target.MethodKind is not (MethodKind.Ordinary or MethodKind.ExplicitInterfaceImplementation or MethodKind.PropertyGet)) return null;
+        if (!Frontend.UpstreamSlice.MemberClasses.TryGetValue(Mangler.MetadataName(owner.OriginalDefinition), out var classes)) return null;
+        var typeArguments = target.TypeArguments.Select(a => S(a)).ToArray();
+        foreach (var className in classes)
+            foreach (var holder in _m.Compilation.GetTypesByMetadataName(className))
+                foreach (var candidate in holder.GetMembers(target.MetadataName).OfType<IMethodSymbol>())
+                {
+                    if (!candidate.IsStatic || candidate.TypeParameters.Length != typeArguments.Length || candidate.Parameters.Length != target.Parameters.Length + 1) continue;
+                    if (candidate.Parameters[0] is not { } self || self.RefKind != (owner.IsValueType ? RefKind.Ref : RefKind.None)
+                        || !SymbolEqualityComparer.Default.Equals(S(self.Type), S(owner))) continue;
+                    var constructed = typeArguments.Length > 0 ? candidate.Construct(typeArguments) : candidate;
+                    if (constructed.Parameters.Skip(1).Zip(target.Parameters).All(p => p.First.RefKind == p.Second.RefKind
+                            && SymbolEqualityComparer.Default.Equals(S(p.First.Type), S(p.Second.Type))))
+                        return constructed;
+                }
+        return null;
+    }
+
+    /// <summary>
+    /// A call of a hosted instance member (HostedBuiltinInstanceMember): the receiver's address (a value type) or the receiver itself (a string,
+    /// whose hosted body starts with the callvirt's null check: tools/il-first/slicer), then the arguments.
+    /// </summary>
+    private LLVMValueRef EmitHostedInstanceCall(IMethodSymbol hosted, IMethodSymbol target, IOperation instance, ImmutableArray<IArgumentOperation> arguments)
+    {
+        var receiverType = S(target.ContainingType);
+        var receiver = Coerce(EmitValue(instance), TypeOf(instance), receiverType);
+        var self = receiverType.IsValueType ? Spill(receiver) : receiver;
+        var args = new LLVMValueRef[hosted.Parameters.Length];
+        args[0] = self;
+        foreach (var argument in arguments) args[1 + argument.Parameter!.Ordinal] = EmitArgument(argument, target);
+        return DirectCall(hosted, args);
+    }
+
+    /// <summary>
+    /// The body of a static default member of a reference-pack interface (INumberBase&lt;TSelf&gt;.TryParse over UTF-8, which Decimal32 and
+    /// user number types don't implement themselves): the reference pack declares the member without its IL, so the slice hosts CoreLib's
+    /// in the interface's host class as a generic method over the interface's type arguments, then the member's own (the slicer's `host:`
+    /// roots on a generic interface). Null when the slice carries none: the call is then an explicit diagnostic.
+    /// </summary>
+    private IMethodSymbol? HostedDefaultInterfaceMember(IMethodSymbol target)
+    {
+        var iface = target.ContainingType;
+        if (!target.IsStatic || target.IsAbstract || iface.TypeKind != TypeKind.Interface || _m.IsUserType(iface)) return null;
+        if (!Frontend.UpstreamSlice.MemberClasses.TryGetValue(Mangler.MetadataName(iface.OriginalDefinition), out var classes)) return null;
+        ITypeSymbol[] typeArguments = [.. iface.TypeArguments.Select(a => S(a)), .. target.TypeArguments.Select(a => S(a))];
+        if (typeArguments.Any(a => a is ITypeParameterSymbol)) return null;
+        foreach (var className in classes)
+            foreach (var holder in _m.Compilation.GetTypesByMetadataName(className))
+                foreach (var candidate in holder.GetMembers(target.MetadataName).OfType<IMethodSymbol>())
+                {
+                    if (!candidate.IsStatic || candidate.TypeParameters.Length != typeArguments.Length) continue;
+                    var constructed = candidate.Construct(typeArguments);
+                    if (constructed.Parameters.Length == target.Parameters.Length
+                        && constructed.Parameters.Zip(target.Parameters).All(p => p.First.RefKind == p.Second.RefKind && SymbolEqualityComparer.Default.Equals(S(p.First.Type), S(p.Second.Type))))
+                        return constructed;
                 }
         return null;
     }

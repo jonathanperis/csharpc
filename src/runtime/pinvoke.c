@@ -16,6 +16,9 @@
 #endif
 #include <errno.h>
 #include <fcntl.h>
+#if !defined(_WIN32) && !defined(__wasi__)
+#include <sys/ioctl.h>
+#endif
 #include "csrt_pthread.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,6 +32,17 @@ static _Thread_local int s_last_pinvoke_error;
 /// open(2) for the corelib: variadic, so it can't be bound as a plain three-argument P/Invoke
 /// (Apple arm64 passes variadic arguments on the stack, not in registers).
 int32_t csrt_open(const char* path, int32_t flags, int32_t mode) { return open(path, flags, (mode_t)mode); }
+
+#ifndef _WIN32
+/// fcntl(2) with an int or a pointer argument, for the corelib's libSystem.Native contract (corelib/IO/SystemNative.cs):
+/// variadic too, for the same reason.
+int32_t csrt_fcntl_int(int32_t fd, int32_t command, int32_t argument) { return fcntl(fd, command, argument); }
+int32_t csrt_fcntl_ptr(int32_t fd, int32_t command, void* argument) { return fcntl(fd, command, argument); }
+#endif
+#if !defined(_WIN32) && !defined(__wasi__)
+/// ioctl(2) with a pointer argument (FIONREAD, SIOCATMARK) for the socket contract (corelib/Net/SystemNative.Net.cs): variadic as well.
+int32_t csrt_ioctl_ptr(int32_t fd, unsigned long request, void* argument) { return ioctl(fd, request, argument); }
+#endif
 
 #ifdef _WIN32
 // SetLastError=true on Windows captures the Win32 last error (GetLastError), not errno.

@@ -226,7 +226,7 @@ public sealed partial class ModuleCodeGen
             Timed("finish type metadata", () => Guard(entryPoint, FinishTypeMetadata));
             FinishEnumParseTable();
             FinishResourceStrings();
-            FinishEventSourceAttributes();
+            FinishNestedTypes();
             FinishPInvokeResolver();
             ResolveTaskMethodTables();
             CheckSharedGenericLeaks();
@@ -997,6 +997,8 @@ public sealed partial class ModuleCodeGen
     /// <summary>Storage type of an instance field; unsupported field types are reported at the field (or its property).</summary>
     private LLVMTypeRef FieldStorage(IFieldSymbol field)
     {
+        // A ref field (C# 11, only in ref structs) stores the address it refers to.
+        if (field.RefKind != RefKind.None) return Llvm.Ptr;
         try { return Types.Storage(field.Type); }
         catch (CompileError e) when (e.Location is not { IsInSource: true }
                                      && (field.AssociatedSymbol ?? field).Locations.FirstOrDefault() is { IsInSource: true } at)
@@ -1019,6 +1021,7 @@ public sealed partial class ModuleCodeGen
         var structType = Llvm.NamedStruct("class." + Mangler.MetadataName(type));
         var layout = new ClassLayout { Type = type, InstanceType = structType, Base = baseLayout };
         _layouts[type] = layout;
+        NoteAnnotatedHierarchy(type);
 
         // Fields: header, then inherited fields (same indices as in the base), then our own.
         // Inherit the base's storage verbatim (including synthesized library bases like System.Exception),
@@ -1165,11 +1168,11 @@ public sealed partial class ModuleCodeGen
         var baseLayout = type.BaseType is { SpecialType: not SpecialType.System_Object } b ? GetLibraryExceptionLayout(b) : null;
 
         var structType = Llvm.NamedStruct("class." + name);
-        // { mt, message, inner, paramName, actualValue, trace, inners, token, hresult, ehClause, ehFrame, data } — csrt_Exception
+        // { mt, message, inner, paramName, actualValue, trace, inners, token, hresult, ehClause, ehFrame, data, remoteTrace } — csrt_Exception
         // in src/runtime/csrt.h.
-        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
         var layout = new ClassLayout { Type = type, InstanceType = structType, Base = baseLayout, IsLibrary = true };
-        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr]);
+        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr]);
         layout.InstanceSize = Types.Target.SizeOf(structType);
         AddObjectSlots(layout);
         layout.VTable.Add(null);
@@ -1250,13 +1253,21 @@ public sealed partial class ModuleCodeGen
         return _globals[name] = Module.AddGlobal(name, Llvm.Ptr, LlvmContext.Null(Llvm.Ptr), linkage: LLVMLinkage.Internal);
     }
 
-    /// <summary>Runtime globals referenced only by main's builtin-interface registrations so far.</summary>
+    /// <summary>Runtime globals referenced only by main's builtin-interface registrations and by type tests (TypeTestGlobal) so far.</summary>
     private readonly HashSet<string> _registrationOnlyGlobals = [];
 
     public LLVMValueRef ExternalGlobal(string name)
     {
         _registrationOnlyGlobals.Remove(name);
         if (_globals.TryGetValue(name, out var g)) return g;
+        return _globals[name] = Module.AddGlobal(name, Llvm.I8, constant: true);
+    }
+
+    /// <summary>A runtime box method table named by a type test only (FunctionCodeGen.TypeTestMethodTable): not a use of the type.</summary>
+    public LLVMValueRef TypeTestGlobal(string name)
+    {
+        if (_globals.TryGetValue(name, out var g)) return g;
+        _registrationOnlyGlobals.Add(name);
         return _globals[name] = Module.AddGlobal(name, Llvm.I8, constant: true);
     }
 
@@ -1520,7 +1531,7 @@ public sealed partial class ModuleCodeGen
         if (StackTraces is not null)
         {
             // csrt_TraceTables (src/runtime/eh.c); filled in once codegen has seen every call site.
-            var tablesType = Llvm.Struct(Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr);
+            var tablesType = Llvm.Struct(Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr);
             _traceTables = Module.AddGlobal("csharpc.trace.tables", tablesType, LlvmContext.Null(tablesType), constant: true, linkage: LLVMLinkage.Internal);
             var register = Runtime("csrt_trace_init", Llvm.Void, Llvm.Ptr);
             b.Call(register.Type, register.Fn, [_traceTables]);
@@ -1542,7 +1553,7 @@ public sealed partial class ModuleCodeGen
         var taskType = Compilation.GetTypeByMetadataName("System.Threading.Tasks.Task");
         if (taskType is not null) builtins.Add((taskType, "csrt_Task_MT"));
         foreach (var sp in primitives) builtins.Add((Compilation.GetSpecialType(sp), $"csrt_Boxed_{Compilation.GetSpecialType(sp).MetadataName}_MT"));
-        // decimal, DateTime and TimeSpan boxes are runtime method tables too (decimal.c, datetime.c), registered
+        // decimal, DateTime, TimeSpan and Int128/UInt128 boxes are runtime method tables too (decimal.c, datetime.c, int128.c), registered
         // only once the program boxes one (EmitDeferredBclBoxRegistrations): most programs never do, and a
         // registration per interface they use is code in main.
         ITypeSymbol?[] bclBoxes = [Compilation.GetSpecialType(SpecialType.System_Decimal), Compilation.GetSpecialType(SpecialType.System_DateTime),

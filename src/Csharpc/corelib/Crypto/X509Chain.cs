@@ -8,6 +8,9 @@
 // status information ("self-signed certificate"). Trust is the system store (SSL_CERT_FILE / SSL_CERT_DIR as OpenSSL
 // reads them on Linux, the ROOT certificate stores of the current user and the machine on Windows) or the CustomTrustStore; revocation checking and downloading missing issuers are not implemented, so a
 // RevocationMode other than NoCheck is an explicit NotSupportedException (docs/adr/0022-tls.md).
+// Linux compiles System.Security.Cryptography and System.Net.Security from the framework's IL over the OpenSSL and GSS contracts
+// (Crypto/CryptoNative*.cs, Net/NetSecurityNative.cs; docs/il-first/System.Net.Security.md); the other targets keep this copy (#449).
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_MACOS || CSHARPC_TARGET_WASI
 #nullable disable
 #if CSHARPC_OPENSSL
 using System;
@@ -380,4 +383,5 @@ namespace CsharpcCoreLib
         public void Dispose() => Reset();
     }
 }
+#endif
 #endif

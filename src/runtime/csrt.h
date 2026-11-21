@@ -170,7 +170,7 @@ void csrt_weak_free(intptr_t handle);
 
 // Exceptions (eh.c) -----------------------------------------------------------------------------
 // Exception objects: { mt, String* message, Exception* inner, String* paramName, String* actualValue,
-// int32[] trace, inners, token, hresult, eh_clause, eh_frame }. Throwing raises an Itanium-ABI unwind (_Unwind_RaiseException) handled by
+// int32[] trace, inners, token, hresult, eh_clause, eh_frame, data, remote_trace }. Throwing raises an Itanium-ABI unwind (_Unwind_RaiseException) handled by
 // csrt_personality; see eh.c. Mirrored by ModuleCodeGen.GetLibraryExceptionLayout.
 typedef struct csrt_Exception {
     const csrt_MethodTable* mt;
@@ -187,6 +187,7 @@ typedef struct csrt_Exception {
     const void* eh_clause;
     void* eh_frame;
     void* data;                 // TaskCanceledException.Task (the canceled task); null otherwise
+    csrt_String* remote_trace;  // ExceptionDispatchInfo.SetRemoteStackTrace's text, which StackTrace starts with; null: none
 } csrt_Exception;
 typedef struct { csrt_MethodTable header; void* vtable[4]; } csrt_ExceptionMethodTable;
 enum { CSRT_SLOT_GET_MESSAGE = 3 };
@@ -196,6 +197,7 @@ int32_t csrt_exception_get_hresult(void* exception);
 void csrt_exception_set_token(void* exception, void* token);
 void* csrt_exception_get_token(void* exception);
 void csrt_exception_set_hresult(void* exception, int32_t hresult);
+int32_t csrt_exception_set_remote_trace(void* exception, csrt_String* text);
 CSRT_THROWS void csrt_rethrow(void* exception);
 CSRT_THROWS void csrt_propagate(void* exception);
 // Exception filters (eh.c): the records of the try regions whose `when` clauses run in the first pass.

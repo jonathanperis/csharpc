@@ -11,4 +11,14 @@
 # linq 233 096 (budget lowered from 285 696), async 177 808, collections 167 336, regex 926 032, regexoptions 2 162 536 (+4.5 KB with the hash-flooding merge, over its old budget).
 # SR getters as string literals (#272): linux-x86_64 measured json 1 567 872 (main's CI: 1 769 784), jsonwriter 801 560 (1 015 400), regex 818 312 (925 312),
 # regexoptions 2 046 216 (2 153 144); those four budgets lowered to measured + max(4 KiB, 3 %).
-linux-x86_64 regex 843776
+# Hashtable from the framework's IL (#373; Regex keeps its capture names in one): upstream's reader-consistency loop and the duplicate-key message
+# formatted as string.Format does (UpstreamSupport.Format: ICustomFormatter, ISpanFormattable, IFormattable, ToString), which brings the boxed
+# primitives' TryFormat. linux-x86_64 measured regex 857 320 B; budget raised to measured + 3 %.
+# Globalization from the framework's IL (#426): CultureInfo  CultureData  NumberFormatInfo  TextInfo and CompareInfo are CoreLib's own  so a program
+# that formats a number carries the framework's culture initialization (culture data over ICU  its locale tables  the culture caches). linux-x86_64
+# measured 911 128 B (budget 843 776 -> 915 456; NativeAOT carries the same code); the other platforms moved by the same 71 680 B until CI measures them.
+# #426 merged with the IO and Hashtable flips: linux-x86_64 measured 924 872 B (budget 915 456 -> 929 792); the other platforms moved by the same 14 336 B.
+# Number formatting and parsing from the framework's IL (#426): CoreLib's System.Number and the primitives' own ToString/TryFormat/Parse/TryParse replace
+# the corelib's smaller copies, a measured speed gain (number_format_parse_throughput 1 388 to 1 026 ms, 12.53 G to 8.53 G instructions; NativeAOT 1 202 ms).
+# linux-x86_64 924224 -> 937576 B (+13352); budget = measured + 3 %; the other platforms moved by the same 36864 B until CI measures them.
+linux-x86_64 regex 966656

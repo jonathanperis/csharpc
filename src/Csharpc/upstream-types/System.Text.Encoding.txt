@@ -1,0 +1,29 @@
+# The Encoding family, its coders, fallbacks and providers, and System.Text.Unicode.Utf8, served from the framework's CoreLib IL (ADR 0023, #423;
+# docs/il-first/System.Text.Encoding.md). Encoding.CreateTranscodingStream's TranscodingStream, Latin1Encoding's best-fit fallback and
+# EncodingTable come with them.
+System.Text.Encoding
+System.Text.UTF8Encoding
+System.Text.UnicodeEncoding
+System.Text.UTF32Encoding
+System.Text.ASCIIEncoding
+System.Text.UTF7Encoding
+System.Text.Latin1Encoding
+System.Text.Encoder
+System.Text.Decoder
+System.Text.EncoderFallback
+System.Text.EncoderFallbackBuffer
+System.Text.EncoderReplacementFallback
+System.Text.EncoderReplacementFallbackBuffer
+System.Text.EncoderExceptionFallback
+System.Text.EncoderExceptionFallbackBuffer
+System.Text.EncoderFallbackException
+System.Text.DecoderFallback
+System.Text.DecoderFallbackBuffer
+System.Text.DecoderReplacementFallback
+System.Text.DecoderReplacementFallbackBuffer
+System.Text.DecoderExceptionFallback
+System.Text.DecoderExceptionFallbackBuffer
+System.Text.DecoderFallbackException
+System.Text.EncodingProvider
+System.Text.EncodingInfo
+System.Text.Unicode.Utf8

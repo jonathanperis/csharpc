@@ -34,17 +34,41 @@ public sealed partial class FunctionCodeGen
         // inside a try/catch that gives up when the type can't be loaded). The target is resolved at run time there, and csharpc binds
         // accessors at compile time, so the call throws what .NET throws for a missing member and the caller's own fallback applies.
         // A static method of a type named by string that this compilation knows (a public type of an IL assembly it compiles, such as the
-        // upstream slice's NumberBridge contract member): bound at compile time, a direct call without the first (type-naming) argument.
+        // upstream slice's System.Number, corelib/NumberUpstream.cs): bound at compile time, a direct call without the first (type-naming) argument.
         if (kind == 2 && target.Parameters.Length > 0 && AccessorTypeName(target.Parameters[0].GetAttributes()) is { } typeName
             && !target.Parameters.Skip(1).Any(p => HasAccessorTypeName(p.GetAttributes())) && !HasAccessorTypeName(target.GetReturnTypeAttributes())
             && ResolveAccessorType(typeName) is { } namedOwner)
         {
             var parameters = target.Parameters.Skip(1).ToArray();
-            var method = namedOwner.GetMembers(name).OfType<IMethodSymbol>().FirstOrDefault(m => m.IsStatic && m.Parameters.Length == parameters.Length
+            // A generic accessor (`static extern bool TryFormat<TChar>(object type, ..., Span<TChar> destination, ...)`, called as
+            // TryFormat<char>) stands for the generic method of the same arity, instantiated with the accessor's type arguments.
+            var typeArguments = target.TypeArguments.Select(a => S(a)).ToArray();
+            var method = namedOwner.GetMembers(name).OfType<IMethodSymbol>()
+                .Where(m => m.Arity == typeArguments.Length).Select(m => typeArguments.Length > 0 ? m.Construct(typeArguments) : m)
+                .FirstOrDefault(m => m.IsStatic && m.Parameters.Length == parameters.Length
                     && m.Parameters.Zip(parameters).All(x => x.First.RefKind == x.Second.RefKind && SymbolEqualityComparer.Default.Equals(S(x.First.Type), S(x.Second.Type)))
                     && SymbolEqualityComparer.Default.Equals(S(m.ReturnType), S(target.ReturnType)))
                 ?? throw CompileError.Unsupported($"[UnsafeAccessor] static method '{name}' not found on '{namedOwner}'", inv);
             return DirectCall(method, [.. args.Skip(1).Select(a => EmitArgument(a, target))]);
+        }
+        // A static field (kind 4) or static method (kind 2) of the type the first parameter names, by its own type (`CultureInfo? _`) or by
+        // [UnsafeAccessorType]: the field's address, or a direct call without that first argument (the corelib's contract with the
+        // framework's CultureInfo, corelib/UpstreamGlobalization.cs).
+        if (kind is 2 or 4 && target.Parameters.Length > 0
+            && (AccessorTypeName(target.Parameters[0].GetAttributes()) is { } ownerName ? ResolveAccessorType(ownerName) : S(target.Parameters[0].Type) as INamedTypeSymbol) is { } staticOwner
+            && !target.Parameters.Skip(1).Any(p => HasAccessorTypeName(p.GetAttributes())) && !HasAccessorTypeName(target.GetReturnTypeAttributes()))
+        {
+            if (kind == 4)
+            {
+                var staticField = FindMember<IFieldSymbol>(staticOwner, name, f => f.IsStatic)
+                    ?? throw CompileError.Unsupported($"[UnsafeAccessor] static field '{name}' not found on '{staticOwner}'", inv);
+                return StaticFieldAddress(staticField);
+            }
+            var staticParameters = target.Parameters.Skip(1).ToArray();
+            if (FindMember<IMethodSymbol>(staticOwner, name, m => m.IsStatic && m.Arity == 0 && m.Parameters.Length == staticParameters.Length
+                    && m.Parameters.Zip(staticParameters).All(x => x.First.RefKind == x.Second.RefKind && SymbolEqualityComparer.Default.Equals(S(x.First.Type), S(x.Second.Type)))
+                    && SymbolEqualityComparer.Default.Equals(S(m.ReturnType), S(target.ReturnType))) is { } staticMethod)
+                return DirectCall(staticMethod, [.. args.Skip(1).Select(a => EmitArgument(a, target))]);
         }
         if (kind is 0 or 1 or 2 && (HasAccessorTypeName(target.GetReturnTypeAttributes()) || target.Parameters.Any(p => HasAccessorTypeName(p.GetAttributes())))
             && !(kind == 2 && name == "CreateObjectArrayDelegate"))
@@ -77,11 +101,19 @@ public sealed partial class FunctionCodeGen
             }
             case 0: // constructor: the return type is the type to create
             {
-                if (S(target.ReturnType) is not INamedTypeSymbol { TypeKind: TypeKind.Class } owner || !_m.IsUserType(owner))
+                if (S(target.ReturnType) is not INamedTypeSymbol { TypeKind: TypeKind.Class or TypeKind.Struct } owner || !_m.IsUserType(owner))
                     throw CompileError.Unsupported($"[UnsafeAccessor] constructor of '{target.ReturnType}'", inv);
                 var parameterTypes = target.Parameters.Select(p => S(p.Type)).ToArray();
                 var ctor = owner.InstanceConstructors.FirstOrDefault(c => c.Parameters.Select(p => S(p.Type)).SequenceEqual(parameterTypes, SymbolEqualityComparer.Default))
                     ?? throw CompileError.Unsupported($"[UnsafeAccessor] constructor of '{owner}' not found", inv);
+                if (owner.TypeKind == TypeKind.Struct)
+                {
+                    // A struct is created in place: a zeroed value whose address is the constructor's `this` (the corelib's
+                    // string.EnumerateRunes builds CoreLib's StringRuneEnumerator through its internal constructor).
+                    var slot = Spill(LlvmContext.Null(T.Storage(owner)));
+                    DirectCall(ctor, [slot, .. args.Select(a => EmitArgument(a, target))]);
+                    return LoadValue(slot, owner);
+                }
                 var layout = _m.GetLayout(owner);
                 var obj = Allocate(layout.MethodTable, L.ConstInt(L.I64, (long)layout.InstanceSize));
                 DirectCall(ctor, [obj, .. args.Select(a => EmitArgument(a, target))]);
@@ -109,7 +141,9 @@ public sealed partial class FunctionCodeGen
         var typeName = assemblyQualified[..comma].Trim();
         var assembly = assemblyQualified[(comma + 1)..].Split(',')[0].Trim();
         foreach (var candidate in _m.Compilation.GetTypesByMetadataName(typeName))
-            if (candidate.ContainingAssembly?.Name == assembly && candidate.DeclaredAccessibility == Accessibility.Public) return candidate;
+            // Any accessibility: reaching a type its caller cannot name (an internal type of another assembly, the slice's DateTimeFormat) is
+            // what the attribute is for.
+            if (candidate.ContainingAssembly?.Name == assembly) return candidate;
         return null;
     }
 

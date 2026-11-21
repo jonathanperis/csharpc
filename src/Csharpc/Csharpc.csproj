@@ -293,10 +293,11 @@
           StandardOutputImportance="low" />
     <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; &quot;$(_CsharpcSlicerDir)Slicer.dll&quot; emit --profile csharpc --roots-file &quot;$(MSBuildThisFileDirectory)upstream-types&quot; --corelib &quot;$(_CsharpcCoreLibIl)&quot; --ref &quot;$(_CsharpcRefDir)&quot; --shadows &quot;$(MSBuildThisFileDirectory)corelib&quot; --name CsharpcUpstream --out &quot;$(OutDir)CsharpcUpstream.dll&quot;"
           StandardOutputImportance="low" />
-    <!-- The same roots and profile, cut from the 32-bit CoreLib: what 4-byte-pointer targets (wasm32) use (Frontend/UpstreamSlice.cs). It keeps
+    <!-- The same roots and profile, cut from the 32-bit CoreLib: what 4-byte-pointer targets (wasm32) use (Frontend/UpstreamSlice.cs), with the
+         WASI members of the profile (the wasi option: linguistic comparisons on the runtime's root collation, as without ICU before the flip). It keeps
          the assembly name CsharpcUpstream (the corelib reaches the slice by that name: [UnsafeAccessorType]), in a directory of its own. -->
     <MakeDir Directories="$(OutDir)upstream32/" />
-    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; &quot;$(_CsharpcSlicerDir)Slicer.dll&quot; emit --profile csharpc --roots-file &quot;$(MSBuildThisFileDirectory)upstream-types&quot; --corelib &quot;$(_CsharpcCoreLib32Il)&quot; --ref &quot;$(_CsharpcRefDir)&quot; --shadows &quot;$(MSBuildThisFileDirectory)corelib&quot; --name CsharpcUpstream --out &quot;$(OutDir)upstream32/CsharpcUpstream.dll&quot;"
+    <Exec Command="&quot;$(DOTNET_HOST_PATH)&quot; &quot;$(_CsharpcSlicerDir)Slicer.dll&quot; emit --profile csharpc --roots-file &quot;$(MSBuildThisFileDirectory)upstream-types&quot; --corelib &quot;$(_CsharpcCoreLib32Il)&quot; --ref &quot;$(_CsharpcRefDir)&quot; --shadows &quot;$(MSBuildThisFileDirectory)corelib&quot; --name CsharpcUpstream --wasi --out &quot;$(OutDir)upstream32/CsharpcUpstream.dll&quot;"
           StandardOutputImportance="low" />
     <!-- The exact pointer-size check (tools/il-first/slicer/PointerSize.cs): the members compiled differently for 32-bit targets, listed in
          obj/.../slicer/pointer-size.md, and a failure if the two slices do not serve the same types. -->

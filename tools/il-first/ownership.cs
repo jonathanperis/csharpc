@@ -322,7 +322,7 @@ static class Rules
         "Globalization/Interop.Globalization.cs", "Guid.cs", "HashSet.cs", "IO/Posix.cs", "IO/Streams.cs", "List.cs", "Net/NetNative.cs",
         "Net/UriRelative.cs", "Number.Formatting.cs", "Regex/RegexCaseEquivalences.Data.cs", "Resources.cs", "Rune.cs", "StringBuilder.cs", "StringExtras.cs",
         "Tasks/AsyncGate.cs", "Tasks/TaskState.cs", "Text/Encoding.cs", "Text/Latin1BestFit.cs", "Threading/ReaderWriterLockSlim.cs", "Tracing/EventSource.cs",
-        "UnicodeData.g.cs", "AggregateExceptionSupport.cs", "ArrayInterfaces.cs", "BigIntegerOps.cs", "BigNum.cs", "DecimalOps.cs", "DelegateThunks.cs",
+        "UnicodeData.g.cs", "AggregateExceptionSupport.cs", "ArrayInterfaces.cs", "BigNum.cs", "DecimalOps.cs", "DelegateThunks.cs",
         "Dynamic/DynamicObjects.cs", "EnumRuntime.cs", "SpanSearch.cs", "RuntimeSpans.cs", "ValueBuilders.cs", "Random/CoreDebug.cs",
     };
 
@@ -343,7 +343,7 @@ static class Rules
         Add("DebugProvider.cs", F("debug-provider", ClPure, "delete", "port of System.Diagnostics.DebugProvider", "NONE"));
         Add("EnumRuntime.cs", F("enum-runtime", ClContract, "keep", "Enum.Parse/IsDefined with a run-time Type: needs the run-time enum member table (reflection metadata)", "REFLECT"));
         Add("Dynamic/DynamicObjects.cs", F("dynamic", ClGlue, "keep", "the calls the compile-time `dynamic` binder makes (ADR 0019); upstream's meta-object path builds expression trees", "NONE"));
-        Add("BigIntegerOps.cs", Above("numerics", "System.Numerics.BigInteger over uint[]: C# port of what was C; upstream's BigInteger is managed", "GENMATH"));
+        Add(Above("numerics", "System.Numerics.BigInteger over uint[]: C# port of what was C; upstream's BigInteger is managed", "GENMATH"));
         Add("BigNum.cs", F("numbers", ClPure, "delete", "fixed-capacity bignum for float formatting/parsing; upstream's Number.BigInteger replaces it", "NONE"));
         Add("BinaryIntegerSupport.cs", F("numbers", ClPure, "delete", "IBinaryInteger<T>.ReadBigEndian for the primitives: managed upstream", "GENMATH"));
         Add("DecimalOps.cs", F("numbers", ClPure, "delete", "decimal arithmetic (formerly decimal.c): upstream's DecCalc is managed", "LAYOUT,GENMATH"));
@@ -359,7 +359,7 @@ static class Rules
         Add("Random/CoreDebug.cs", ported);
         Add("Reflection/MemberLookup.cs", Reflection);
         Add("Reflection/ObjectArrayDelegates.cs", F("reflection", ClContract, "keep", "NativeAOT's DynamicDelegateAugments for System.Linq.Expressions (ModuleCodeGen.ObjectArrayDelegates.cs)", "REFLECT"));
-        Add("UnicodeData.g.cs", F("unicode-data", ClData, "keep", "generated Unicode category table (tools/unicode) behind Char.GetUnicodeCategory/IsLetter...; goes when Char and CharUnicodeInfo come from IL with their own embedded data", "NONE"));
+        Add("UnicodeData.g.cs", F("unicode-data", ClData, "keep", "generated invariant simple case tables (tools/unicode) behind OrdinalCasing; Char and String members come from IL (upstream-types/System.String.txt)", "NONE"));
         Add("Globalization/BidiData.g.cs", F("unicode-data", ClData, "keep", "generated bidi table (tools/unicode); replaced when CharUnicodeInfo comes from IL", "NONE"));
         Add("Globalization/GraphemeData.g.cs", F("unicode-data", ClData, "keep", "generated grapheme table (tools/unicode); replaced when StringInfo/GraphemeBreak come from IL", "NONE"));
         Add("Globalization/BidiData.cs", F("unicode-data", ClData, "keep", "bidi category lookup over the generated table", "NONE"));

@@ -21,6 +21,10 @@ public sealed partial class ModuleCodeGen
     {
         var members = InterfaceSlots(itf);
         if (!members.Any(m => PrimitiveSlotSupported(primitive, itf, m))) return LlvmContext.Null(Llvm.Ptr);
+        // IConvertible: corelib's BoxedConvertible member for member, each slot filled only once the program dispatches that member (as an
+        // enum box's, ModuleCodeGen.Bcl.cs). Filled whole on boxing, every boxed number linked ToDateTime/ToType/ToString of all the types
+        // (DateTime's formatter and calendars, decimal's) as soon as any enum box made IConvertible exist.
+        if (itf is { Name: "IConvertible" }) return BuiltinSlotTable(itf, $".primicnv.{primitive.MetadataName}", LLVMLinkage.Private, BoxedConvertibleMember);
         var type = LlvmContext.Array(Llvm.Ptr, (ulong)members.Count);
         var global = Module.AddGlobal(".primslots", type, LlvmContext.Null(type), constant: true, linkage: LLVMLinkage.Private);
         _deferredPrimitiveSlots.Add((primitive, itf, mtName, global));
@@ -86,7 +90,7 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>
     /// Value types whose boxes have a runtime method table (csrt_Boxed_X_MT) that main registers for the
-    /// program's interfaces: the primitives, and decimal, DateTime and TimeSpan, which .NET boxes as
+    /// program's interfaces: the primitives, and decimal, DateTime, TimeSpan and Int128/UInt128, which .NET boxes as
     /// IFormattable/IComparable too (without the registration `o is IFormattable` was silently false).
     /// </summary>
     internal static bool IsBoxedBuiltinValue(ITypeSymbol type) =>

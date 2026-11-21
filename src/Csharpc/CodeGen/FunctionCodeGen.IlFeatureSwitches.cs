@@ -21,7 +21,33 @@ public sealed partial class FunctionCodeGen
     /// RuntimeFeature.IsDynamicCodeSupported` in System.Linq.Expressions, without which Compile() would
     /// reach the LambdaCompiler (Reflection.Emit) and CallInstruction its ~20,000 generic fast paths.
     /// </summary>
-    private bool? FeatureSwitchValue(IMethodSymbol method) => KnownFeatureSwitch(method) ?? _m.SubstitutedSwitch(method) ?? _m.FeatureSwitchDefinitionValue(method) ?? _m.ForwardingFeatureSwitch(method, 0);
+    private bool? FeatureSwitchValue(IMethodSymbol method) => KnownFeatureSwitch(method) ?? CoreIntrinsicConstant(method) ?? DisabledEventSourceIsEnabled(method) ?? _m.SubstitutedSwitch(method) ?? _m.FeatureSwitchDefinitionValue(method) ?? _m.ForwardingFeatureSwitch(method, 0);
+
+    /// <summary>
+    /// EventSource.IsEnabled() (each overload) when the program turns event sources off (EventSourceSupport=false, the file-based and PublishAot
+    /// default): false, as CoreLib's ILLink.Substitutions.xml stubs it for ILCompiler. The framework guards its own events with it
+    /// (`if (CDSCollectionETWBCLProvider.Log.IsEnabled()) ...` in ConcurrentBag), so what only an event writes is not lowered. (The receiver
+    /// is still evaluated; the call, which reads two fields, is not made.)
+    /// </summary>
+    private bool? DisabledEventSourceIsEnabled(IMethodSymbol method) =>
+        method is { Name: "IsEnabled", IsStatic: false, ContainingType: { Name: "EventSource" } owner }
+        && Frontend.UpstreamSlice.RealNamespace(owner.ContainingNamespace?.ToDisplayString() ?? "") == "System.Diagnostics.Tracing"
+        && _m.RuntimeConfig.Any(c => c.Key == "System.Diagnostics.Tracing.EventSource.IsSupported" && c.Value == "false")
+            ? false : null;
+
+    /// <summary>
+    /// The corelib's compile-time constants about the program (CoreIntrinsics.HasNonStringResources, HasConverterResources): folded like a feature
+    /// switch, so the code a false one guards (ResourceManager's object creation, TypeDescriptor) is not lowered at all.
+    /// </summary>
+    private bool? CoreIntrinsicConstant(IMethodSymbol method) =>
+        method is { IsStatic: true, Parameters.IsEmpty: true, ContainingType.Name: "CoreIntrinsics" } && CoreLib.IsCoreLib(method)
+            ? method.Name switch
+            {
+                "HasNonStringResources" => _m.HasNonStringResources(),
+                "HasConverterResources" => _m.HasConverterResources(),
+                _ => null,
+            }
+            : null;
 
     internal static bool? KnownFeatureSwitch(IMethodSymbol method) =>
         (method.ContainingType.ToDisplayString(), method.Name) switch
@@ -72,6 +98,11 @@ public sealed partial class FunctionCodeGen
             case ILOpCode.Ldc_i4_1: return true;
             // csc's guard around a dynamic call site's creation: csharpc binds the site, there is nothing to create.
             case ILOpCode.Ldsfld when IlIsDynamicGuard(previous.Token): return true;
+            // `box T; isinst X; brtrue` once T is a known value type (Base64Helper's `decoder is Base64DecoderByte`): the branch it does not
+            // take is not lowered, so the code only the other instantiation reaches is not compiled.
+            case ILOpCode.Isinst when index - 2 >= block.First && IlBody.Instructions[index - 2].OpCode == ILOpCode.Box:
+                try { return BoxedIsInstance(S(ResolveIlType(IlBody.Instructions[index - 2].Token)), S(ResolveIlType(previous.Token))); }
+                catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { return null; }
             case ILOpCode.Call or ILOpCode.Callvirt:
                 try
                 {
@@ -109,6 +140,27 @@ public sealed partial class FunctionCodeGen
         // one is a value type and the other a reference type.
         if (!same && (_m.IsCanonDependent(left) || _m.IsCanonDependent(right)) && left.IsReferenceType == right.IsReferenceType) return null;
         return equality.Name == "op_Equality" ? same : !same;
+    }
+
+    /// <summary>
+    /// Whether the GetTypeFromHandle call at <paramref name="getIndex"/> is one of the two in a `typeof(A) == typeof(B)` whose only use is a
+    /// branch folded at compile time (the equality's result is not kept anywhere else, so the Type objects need not exist).
+    /// </summary>
+    private bool IlTypeofFoldedAt(int getIndex)
+    {
+        if (_il?.CurrentBlock is not { } block) return false;
+        var instructions = IlBody.Instructions;
+        bool CallAt(int i) => i <= block.Last && instructions[i].OpCode == ILOpCode.Call;
+        // the left operand's call (ldtoken; call; ldtoken; call; op_Equality; br) or the right one's (... call; op_Equality; br)
+        var equalityIndex = CallAt(getIndex + 3) && instructions[getIndex + 1].OpCode == ILOpCode.Ldtoken && CallAt(getIndex + 2) ? getIndex + 3
+            : CallAt(getIndex + 1) && getIndex - 3 >= block.First && instructions[getIndex - 1].OpCode == ILOpCode.Ldtoken ? getIndex + 1 : -1;
+        if (equalityIndex < 0 || equalityIndex + 1 > block.Last) return false;
+        try
+        {
+            return IlAssembly.ResolveMember(instructions[equalityIndex].Token, IlBody.Context) is IMethodSymbol { Name: "op_Equality" or "op_Inequality", ContainingType.Name: "Type" }
+                && IlFoldedBranch(block, equalityIndex + 1) is not null;
+        }
+        catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { return false; }
     }
 
     /// <summary>`typeof(T).IsEnum` / `.IsValueType` (ldtoken, GetTypeFromHandle, callvirt) for a known T: a constant, like <see cref="IlTypeEqualityConstant"/>.</summary>

@@ -68,7 +68,8 @@ public sealed partial class FunctionCodeGen
     internal IMethodSymbol? CurrentMethod => _method;
 
     /// <summary>The method being lowered is the shared framework's own IL (not the program's code).</summary>
-    internal bool InFrameworkIl => _method is not null && _m.Il.OwnerOf(_method.OriginalDefinition) is { IsFramework: true };
+    // (the CoreLib slice, CsharpcUpstream.dll, is the framework's IL too: TraceLogging asks String and Int32 for [EventData])
+    internal bool InFrameworkIl => _method is not null && _m.Il.OwnerOf(_method.OriginalDefinition) is { IsFramework: true } or { Name: "CsharpcUpstream" };
     internal IrBuilder Builder => _b;
 
     public FunctionCodeGen(ModuleCodeGen module, IMethodSymbol? method, LoweredFunction fn, ClosureFunction? nested = null,

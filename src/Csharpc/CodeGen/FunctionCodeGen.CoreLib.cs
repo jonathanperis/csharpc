@@ -170,7 +170,9 @@ public sealed partial class FunctionCodeGen
             "TryFaultAsyncTask" => CallRuntime("csrt_task_try_fault_async", L.I1, [L.Ptr, L.Ptr], args[0], args[1]),
             "CompareStringsWith" => CallRuntime("csrt_string_compare_with", L.I32, [L.Ptr, L.Ptr, L.I32], args[0], args[1], args[2]),
             "ResourceObjectHook" => ProgramHook("ResourceObject", target, args),
-            "EventSourceAttribute" => _b.Call(_m.EventSourceAttributeFunction().Type, _m.EventSourceAttributeFunction().Fn, [args[0], args[1]]),
+            "HasConverterResources" => _m.HasConverterResources() ? L.True : L.False,
+            "HasNonStringResources" => _m.HasNonStringResources() ? L.True : L.False,
+            "NestedTypeTable" => _b.Call(_m.NestedTypesFunction().Type, _m.NestedTypesFunction().Fn, [args[0], args[1]]),
             // A CancellationToken is its source object (null: None), so these are reinterpretations.
             "TokenSource" or "SourceToken" => args[0],
             // `extern R csrt_name(...)`: a direct call of that C runtime function (runtime/*.c).
@@ -280,7 +282,7 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef CallCoreLib(string type, string method, params LLVMValueRef[] args)
     {
         var owner = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + "." + type)
-            ?? throw CompileError.Unsupported($"corelib type '{type}' not found (is src/Csharpc/corelib shipped?)", (ISymbol?)null!);
+            ?? throw CompileError.Unsupported($"corelib type '{type}' not found (is src/Csharpc/corelib shipped?)");
         var target = owner.GetMembers(method).OfType<IMethodSymbol>().Single(m => m.IsStatic && m.Parameters.Length == args.Length);
         return DirectCall(target, args);
     }
@@ -289,7 +291,7 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef CallCoreLibGenericMethod(string type, string method, ITypeSymbol[] typeArguments, params LLVMValueRef[] args)
     {
         var owner = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + "." + type)
-            ?? throw CompileError.Unsupported($"corelib type '{type}' not found (is src/Csharpc/corelib shipped?)", (ISymbol?)null!);
+            ?? throw CompileError.Unsupported($"corelib type '{type}' not found (is src/Csharpc/corelib shipped?)");
         var target = owner.GetMembers(method).OfType<IMethodSymbol>()
             .Single(m => m.IsStatic && m.Parameters.Length == args.Length && m.TypeParameters.Length == typeArguments.Length);
         return DirectCall(target.Construct(typeArguments), args);
@@ -343,7 +345,7 @@ public sealed partial class FunctionCodeGen
 
     /// <summary>
     /// CoreIntrinsics.FormatValue: a library struct with its own ToString(string, IFormatProvider) lowering
-    /// (BigInteger, Int128...) is formatted through it, as `value.ToString(format, provider)` in source would be:
+    /// (Int128...) is formatted through it, as `value.ToString(format, provider)` in source would be:
     /// its box (if it has one) isn't IFormattable. Null for every other T.
     /// </summary>
     private LLVMValueRef FormatValueDirect(ITypeSymbol t, LLVMValueRef[] args, IInvocationOperation inv)
@@ -399,7 +401,7 @@ public sealed partial class FunctionCodeGen
         if (!t.IsValueType) return obj; // reference types: the corelib only uses this where the type is known
         try
         {
-            var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(t, at));
+            var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, TypeTestMethodTable(t) ?? MethodTableFor(t, at));
             return LoadValue(payload, t);
         }
         catch (CompileError)
@@ -481,8 +483,6 @@ public sealed partial class FunctionCodeGen
         t = EnumBase(t);
         if (IsIntegral(t) || Int128Support.Is128(t)) return _b.ICmp(LLVMIntPredicate.EQ, a, b);
         if (BclValueTypes.IsTicks(t)) return _b.ICmp(LLVMIntPredicate.EQ, BclValueTypes.TicksOf(this, t, a), BclValueTypes.TicksOf(this, t, b));
-        if (BclValueTypes.IsBigInteger(t))
-            return _b.ICmp(LLVMIntPredicate.EQ, CallRuntime("csrt_bigint_compare", L.I32, [L.Ptr, L.Ptr], a, b), L.ConstInt(L.I32, 0));
         if (t.SpecialType == SpecialType.System_Decimal) // decimal equality is by value (1.0m == 1.00m)
             return _b.ICmp(LLVMIntPredicate.EQ, CallRuntime("csrt_decimal_compare", L.I32, [L.Ptr, L.Ptr], Spill(a), Spill(b)), L.ConstInt(L.I32, 0));
         if (TypeMapper.IsFloatingPoint(t))
@@ -556,7 +556,6 @@ public sealed partial class FunctionCodeGen
                 _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.LShr, a, L.ConstInt(a.Type, 64)), L.I64));
             return _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.Xor, folded, _b.BinOp(LLVMOpcode.LShr, folded, L.ConstInt(L.I64, 32))), i32);
         }
-        if (BclValueTypes.IsBigInteger(t)) return CallRuntime("csrt_bigint_get_hash_code", i32, [L.Ptr], a);
         if (BclValueTypes.IsTicks(t)) // TimeSpan/DateTime.GetHashCode: (int)ticks ^ (int)(ticks >> 32), DateTime's Kind excluded
         {
             a = BclValueTypes.TicksOf(this, t, a);
@@ -715,7 +714,6 @@ public sealed partial class FunctionCodeGen
             var valueOrder = CompareOf(u, NullablePayload(a, u), NullablePayload(b, u), at);
             return _b.Select(_b.BinOp(LLVMOpcode.And, ha, hb), valueOrder, nullOrder);
         }
-        if (BclValueTypes.IsBigInteger(t)) return CallRuntime("csrt_bigint_compare", i32, [L.Ptr, L.Ptr], a, b);
         if (t is INamedTypeSymbol { IsTupleType: true } tuple)
         {
             // ValueTuple.CompareTo: lexicographic over the elements with Comparer<Ti>.Default.

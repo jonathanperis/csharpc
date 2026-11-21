@@ -30,7 +30,7 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsValueType<T>();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object Box<T>(T value);
         /// <summary>
-        /// value.ToString(format, provider) for library structs whose box isn't IFormattable (BigInteger, Int128...);
+        /// value.ToString(format, provider) for library structs whose box isn't IFormattable (Int128...);
         /// null for every other T (format the box instead).
         /// </summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string FormatValue<T>(T value, string format, IFormatProvider provider);
@@ -132,6 +132,10 @@ namespace CsharpcCoreLib
         /// type (Frontend/ResourceConverters.cs generates one for the types its .resources files hold).
         /// </summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object[] ResourceObjectHook(string type, string text);
+        /// <summary>Whether the program carries a resource value created with a TypeConverter (ModuleCodeGen.HasConverterResources): a compile-time constant.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool HasConverterResources();
+        /// <summary>Whether the program carries any stored non-string resource value (ModuleCodeGen.HasNonStringResources): a compile-time constant.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool HasNonStringResources();
         /// <summary>csrt_task_try_fault_async: faults a pending task, or cancels it for an OperationCanceledException.</summary>
         /// <summary>csrt_os_random (runtime/strings.c): OS entropy, or the program stops.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe void csrt_os_random(void* buffer, nuint count);
@@ -139,10 +143,10 @@ namespace CsharpcCoreLib
         /// <summary>Type.IsInstanceOfType: obj's class, a base class or an implemented interface is `type`.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsInstanceOfType(Type type, object obj);
         /// <summary>
-        /// [EventSource(Name = ...)] (which 0) or Guid (which 1) of the program's EventSource class that `type`
-        /// is, read at compile time (ModuleCodeGen.EventSource.cs); null when absent.
+        /// The nested types reflection keeps for `type` (ModuleCodeGen.NestedTypes.cs), public (which 0) or not (1): a null-terminated
+        /// array of their method tables, or null when they were not kept.
         /// </summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string EventSourceAttribute(Type type, int which);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe void** NestedTypeTable(Type type, int which);
         // Cancellation (runtime/async.c, corelib/Cancellation.cs): a CancellationToken is its source.
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object TokenSource(System.Threading.CancellationToken token);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern System.Threading.CancellationToken SourceToken(object source);
@@ -156,7 +160,6 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void NullabilityQueried();
         /// <summary>The run-time Enum.Parse table (ModuleCodeGen.Enums.cs, EnumParseTable).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint EnumParseTableAddress();
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe long csrt_enum_parse_or_throw(string s, bool ignoreCase, void* values, void* names, int count, int bits, bool isSigned);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint ReflectionTableAddress();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateMethodTableAddress();
         /// <summary>`obj` is non-null and exactly of class T: one method-table compare, inline (no base-type walk).</summary>
@@ -227,6 +230,10 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_event_reset(object e);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_event_is_set(object e);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_event_wait(object e, int milliseconds);
+        // System.Threading.Lock's CoreLib-internal condition (runtime/threads.c; Tasks/LockConditions.cs).
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_lock_wait(object lockObject, int milliseconds);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_lock_pulse(object lockObject);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_lock_pulse_all(object lockObject);
         // Mutex handles (runtime/threads.c): an unnamed mutex; a handle onto the named one in `scope` (null: no such mutex and
         // `create` is off), after which csrt_mutex_created_new tells whether the call created it.
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_mutex_new();
@@ -244,6 +251,15 @@ namespace CsharpcCoreLib
     /// </summary>
     [AttributeUsage(AttributeTargets.Method, Inherited = false)]
     internal sealed class ShadowInstanceAttribute : Attribute { }
+
+    /// <summary>
+    /// On a static method of a [ShadowMembers("T")] class that returns T: implements a constructor of the value type T that the reference
+    /// pack doesn't declare, with this method's parameters (CoreLib's internal DateTime(long ticks, DateTimeKind kind, bool isAmbiguousDst),
+    /// which the framework's own DateTimeParse IL creates values with). The IL front-end's `newobj` calls it and takes its result as the
+    /// new value (Frontend/Il/IlAssemblySet.cs ShadowedMember).
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Method, Inherited = false)]
+    internal sealed class ShadowConstructorAttribute : Attribute { }
 
     /// <summary>
     /// On a class: its methods are compiled for size (LLVM minsize). For code that runs once per culture

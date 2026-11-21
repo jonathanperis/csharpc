@@ -140,6 +140,23 @@ namespace CsharpcCoreLib
 #endif
     }
 
+    /// <summary>
+    /// double/float.ConvertToIntegerNative (FunctionCodeGen.NativeConversions.cs): of NaN or of a value outside a primitive integer type's
+    /// range, where csharpc has no instruction whose result .NET's matches, an explicit error instead of a guessed result; for a
+    /// non-primitive integer type, CoreLib's own path.
+    /// </summary>
+    internal static class NativeIntegerConversionChecks
+    {
+        public static TInteger SaturatingDouble<TInteger>(double value) where TInteger : System.Numerics.IBinaryInteger<TInteger> =>
+            TInteger.CreateSaturating(value);
+        public static TInteger SaturatingSingle<TInteger>(float value) where TInteger : System.Numerics.IBinaryInteger<TInteger> =>
+            TInteger.CreateSaturating(value);
+        public static void ThrowDouble() =>
+            throw new NotSupportedException("double.ConvertToIntegerNative of NaN or of a value outside the integer type's range is not supported by csharpc yet (the result is the platform instruction's).");
+        public static void ThrowSingle() =>
+            throw new NotSupportedException("float.ConvertToIntegerNative of NaN or of a value outside the integer type's range is not supported by csharpc yet (the result is the platform instruction's).");
+    }
+
     [ShadowMembers("System.ObjectDisposedException")]
     internal static class ObjectDisposedExceptionExtras
     {

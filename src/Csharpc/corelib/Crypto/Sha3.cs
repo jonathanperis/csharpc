@@ -3,6 +3,8 @@
 // .NET's SHA3_256/SHA3_384/SHA3_512 classes. .NET asks the OS (OpenSSL 1.1.1+, CNG on Windows 11) and
 // reports IsSupported = false where that has no SHA-3; the digests are fixed by the standard, so a
 // managed implementation gives the same bytes everywhere and IsSupported is always true.
+// On Linux the framework's IL serves these types over the OpenSSL contract (Crypto/CryptoNative*.cs, docs/il-first/System.Security.Cryptography.md).
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_MACOS || CSHARPC_TARGET_WASI
 #nullable disable
 using System;
 using System.Security.Cryptography;
@@ -264,3 +266,4 @@ namespace CsharpcCoreLib
         protected override byte[] HashFinal() => _engine.Finish();
     }
 }
+#endif

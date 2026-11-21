@@ -70,7 +70,7 @@ public sealed partial class FunctionCodeGen
                 return Handled; // the out argument was evaluated (declared); nothing to initialize
             case "Unbox" when ta.Length == 1 && arguments.Length == 1:
                 // ref T into the box: struct setters of source-generated metadata write through it.
-                return CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], Arg(0), MethodTableFor(S(ta[0]), inv));
+                return CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], Arg(0), TypeTestMethodTable(S(ta[0])) ?? MethodTableFor(S(ta[0]), inv));
             case "BitCast" when ta.Length == 2 && arguments.Length == 1:
             {
                 var (from, to) = (S(ta[0]), S(ta[1]));

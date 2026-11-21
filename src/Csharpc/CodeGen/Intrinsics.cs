@@ -361,13 +361,8 @@ internal static class Intrinsics
                 return result;
             };
 
-        foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float" })
-        {
-            t[$"{type}.ToString(string)"] = (g, inv) => g.FormatWith(inv.Instance!, Arg(g, inv, 0));
-            // The provider (CultureInfo, NumberFormatInfo, or null for the current culture) goes to the corelib.
-            t[$"{type}.ToString(string, System.IFormatProvider)"] = (g, inv) => g.FormatWithProvider(inv.Instance!, Arg(g, inv, 0), Arg(g, inv, 1));
-            t[$"{type}.ToString(System.IFormatProvider)"] = (g, inv) => g.FormatWithProvider(inv.Instance!, LlvmContext.Null(g.Module.Llvm.Ptr), Arg(g, inv, 0));
-        }
+        // The primitives' ToString(format), ToString(provider) and ToString(format, provider) are their own members, hosted from the framework's IL
+        // (src/Csharpc/upstream-types/System.Globalization.txt, #426): no intrinsic, so a call lowers like any other method call.
 
         // Composite formatting: fixed-arity overloads (the params ReadOnlySpan<object> ones need spans).
         IntrinsicHandler composite(Action<FunctionCodeGen, LLVMValueRef>? sink, bool newline) => (g, inv) =>
@@ -444,10 +439,19 @@ internal static class Intrinsics
         AddTaskMethods(t);
 
         // ---- parsing (src/runtime/strings.c) ---------------------------------------------------------
-        // System.Char classification/casing: src/Csharpc/corelib/StringOps.cs (CharOps).
-        // Numeric Parse/TryParse: corelib NumberParsingMembers.cs (culture-aware, Number.Parsing.Culture.cs).
+        // System.Char classification/casing: CoreLib's IL (src/Csharpc/upstream-types/System.String.txt).
+        // Numeric Parse/TryParse: the framework's own, hosted from the primitives' IL (upstream-types/System.Globalization.txt).
 
         // System.Text.StringBuilder: the framework's own IL (src/Csharpc/upstream-types/System.Text.StringBuilder.txt); StringBuilderRuntime.cs has the entry points of synthesized code.
+
+        // Range.GetOffsetAndLength(length) (MemoryExtensions.AsSpan(T[], Range) from CoreLib's IL, which System.Runtime.Numerics calls): the
+        // (offset, length) pair the range lowering computes, with .NET's check and message.
+        t["System.Range.GetOffsetAndLength(int)"] = (g, inv) =>
+        {
+            var (start, count) = g.ResolveRange(g.EmitValue(inv.Instance!), Arg(g, inv, 0), "length");
+            var tuple = LlvmContext.Null(g.Types.Value(g.S(inv.TargetMethod.ReturnType)));
+            return g.Builder.InsertValue(g.Builder.InsertValue(tuple, start, 0), count, 1);
+        };
 
         // ---- System.Math -----------------------------------------------------------------------
         foreach (var (name, llvm) in new[] { ("Sqrt", "llvm.sqrt"), ("Floor", "llvm.floor"), ("Ceiling", "llvm.ceil"),
@@ -1369,6 +1373,34 @@ internal static class Intrinsics
         // IEEE 754-2019 maximum/minimum, as Math.Max/Min above.
         t["System.MathF.Max(float, float)"] = (g, inv) => CallBinary(g, "llvm.maximum.f32", g.Module.Llvm.F32, Arg(g, inv, 0), Arg(g, inv, 1));
         t["System.MathF.Min(float, float)"] = (g, inv) => CallBinary(g, "llvm.minimum.f32", g.Module.Llvm.F32, Arg(g, inv, 0), Arg(g, inv, 1));
+        // Math.SinCos / MathF.SinCos: the IL is `IsKnownConstant(x) ? (Sin(x), Cos(x)) : SinCos(x)`, a call RyuJIT expands to the C runtime's
+        // sincos; csharpc computes the pair with the same libm sin and cos as Math.Sin and Math.Cos. ConvertToIntegerNative<TInteger> calls
+        // itself for a primitive TInteger (FunctionCodeGen.NativeConversions.cs).
+        foreach (var (type, sin, cos) in new[] { ("System.Math.SinCos(double)", "sin", "cos"), ("System.MathF.SinCos(float)", "sinf", "cosf") })
+            t[type] = (g, inv) =>
+            {
+                var x = Arg(g, inv, 0);
+                var tuple = g.S(inv.TargetMethod.ReturnType);
+                var pair = LlvmContext.Null(g.Module.Types.Value(tuple));
+                pair = g.Builder.InsertValue(pair, CallUnary(g, sin, x.Type, x), 0);
+                return g.Builder.InsertValue(pair, CallUnary(g, cos, x.Type, x), 1);
+            };
+        foreach (var type in new[] { "double", "float" })
+            t[$"{type}.ConvertToIntegerNative({type})"] = (g, inv) => g.ConvertToIntegerNative(inv, Arg(g, inv, 0));
+        // [Intrinsic] members whose CoreLib IL only calls itself (RyuJIT expands them; the slicer refuses to copy such a body). .NET leaves
+        // the precision of the estimates open (RCPSS / FRECPE where the hardware has them, 1 / x elsewhere); the exact quotient is always within
+        // it. MultiplyAddEstimate is a fused multiply-add, which RyuJIT emits on every x64 and ARM64 csharpc targets.
+        foreach (var (type, suffix, math) in new[] { ("double", "f64", "System.Math"), ("float", "f32", "System.MathF") })
+        {
+            LLVMTypeRef F(FunctionCodeGen g) => suffix == "f64" ? g.Module.Llvm.F64 : g.Module.Llvm.F32;
+            LLVMValueRef One(FunctionCodeGen g) => LlvmContext.ConstReal(F(g), 1.0);
+            t[$"{math}.ReciprocalEstimate({type})"] = t[$"{type}.ReciprocalEstimate({type})"] = (g, inv) =>
+                g.Builder.BinOp(LLVMOpcode.FDiv, One(g), Arg(g, inv, 0));
+            t[$"{math}.ReciprocalSqrtEstimate({type})"] = t[$"{type}.ReciprocalSqrtEstimate({type})"] = (g, inv) =>
+                g.Builder.BinOp(LLVMOpcode.FDiv, One(g), CallUnary(g, $"llvm.sqrt.{suffix}", F(g), Arg(g, inv, 0)));
+            t[$"{type}.MultiplyAddEstimate({type}, {type}, {type})"] = (g, inv) =>
+                CallTernary(g, $"llvm.fma.{suffix}", F(g), Arg(g, inv, 0), Arg(g, inv, 1), Arg(g, inv, 2));
+        }
     }
 
     private static LLVMValueRef CallUnary(FunctionCodeGen g, string name, LLVMTypeRef type, LLVMValueRef x)
