@@ -60,9 +60,10 @@ public sealed class Compiler(CompilerOptions options)
         if (darwin && options.Static)
             return Fail("--static is not supported on macOS: Apple does not support statically linked executables (libSystem is always linked dynamically)");
         string[] coreLibDefines = [wasm ? "CSHARPC_TARGET_WASI" : windows ? "CSHARPC_TARGET_WINDOWS" : darwin ? "CSHARPC_TARGET_MACOS" : "CSHARPC_TARGET_LINUX",
-            // The targets whose X.509/TLS/RSA corelib code runs on OpenSSL 3 (docs/adr/0022-tls.md): libssl.so.3 on Linux,
-            // Homebrew's openssl@3 on macOS, libssl-3-x64.dll beside the executable (or on PATH) on Windows.
-            .. (!wasm && !NativeTls.On ? new[] { "CSHARPC_OPENSSL" } : Array.Empty<string>()),
+            // The targets whose X.509/TLS/RSA corelib code runs on OpenSSL 3 (docs/adr/0022-tls.md): Homebrew's openssl@3 on macOS,
+            // libssl-3-x64.dll beside the executable (or on PATH) on Windows. Linux compiles those assemblies from the framework's IL over
+            // the OpenSSL contract instead (corelib/Crypto/CryptoNative*.cs, docs/il-first/System.Net.Security.md).
+            .. ((windows || darwin) && !NativeTls.On ? new[] { "CSHARPC_OPENSSL" } : Array.Empty<string>()),
             // Opt-in spike (docs/adr/0022-tls.md, "Windows without OpenSSL"): the TLS/X.509/RSA shadows are left out of the shadow
             // index and System.Net.Security / System.Security.Cryptography are compiled from the shared framework's IL.
             .. (NativeTls.On ? new[] { "CSHARPC_NATIVE_TLS" } : Array.Empty<string>()),

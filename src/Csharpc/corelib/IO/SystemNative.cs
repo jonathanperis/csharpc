@@ -827,6 +827,31 @@ namespace CsharpcCoreLib
 
         [RuntimeExport("SystemNative_GetGroups", Trigger + "SystemNative_GetGroups")]
         public static int GetGroups(int count, uint* groups) => getgroups(count, groups);
+
+#if CSHARPC_TARGET_LINUX
+        [DllImport("libc")] private static extern int getpwuid_r(uint uid, void* pwd, byte* buf, nuint buflen, void** result);
+
+        // pal_uid.c: the entry's strings live in the caller's buffer, bounded by its length; 0 on success, -1 when there is no such user,
+        // the errno value otherwise (the framework's X509 store reads the home directory of the effective user this way).
+        [RuntimeExport("SystemNative_GetPwUidR", Trigger + "SystemNative_GetPwUidR")]
+        public static int GetPwUidR(uint uid, void* pwd, byte* buf, int buflen)
+        {
+            if (buflen < 0) return 22; // EINVAL
+            // struct passwd (glibc LP64): pw_name, pw_passwd, pw_uid, pw_gid, pw_gecos, pw_dir, pw_shell.
+            byte* native = stackalloc byte[48];
+            void* result;
+            int error;
+            while ((error = getpwuid_r(uid, native, buf, (nuint)buflen, &result)) == 4 /* EINTR */) { }
+            // Passwd (pal_uid.h): Name, Password, UserId, GroupId, UserInfo, HomeDirectory, Shell (the same layout).
+            if (error != 0 || result == null)
+            {
+                new Span<byte>(pwd, 48).Clear();
+                return error != 0 ? error : -1;
+            }
+            Buffer.MemoryCopy(native, pwd, 48, 48);
+            return 0;
+        }
+#endif
 #else
         // WASI has no users: everything is the one user's (pal_io.c's emscripten/WASI build answers 0).
         [RuntimeExport("SystemNative_GetEUid", Trigger + "SystemNative_GetEUid")]

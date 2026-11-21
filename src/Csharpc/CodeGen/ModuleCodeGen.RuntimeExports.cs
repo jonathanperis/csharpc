@@ -52,12 +52,41 @@ public sealed partial class ModuleCodeGen
             Llvm.AddFunctionAttribute(wrapper, "uwtable", 2);
             using var b = new IrBuilder(Llvm);
             b.PositionAtEnd(b.AppendBlock(wrapper, "entry"));
-            var args = Enumerable.Range(0, method.Parameters.Length).Select(i => wrapper.Param((uint)i)).ToArray();
+            // The declaration's types are the P/Invoke's native signature, which may spell a C parameter or result differently from the
+            // contract's C# (the framework declares the shim's `void CryptoNative_ErrClearError(void)` as returning ulong, a `void*` as
+            // nint, an `int32_t` as bool): the same C ABI value, so the wrapper converts between integer widths and pointers, and a
+            // result the C function does not have is 0.
+            var wrapperType = Native.LLVMGlobalGetValueType(wrapper);
+            var declaredParams = new LLVMTypeRef[Native.LLVMCountParamTypes(wrapperType)];
+            if (declaredParams.Length > 0) Native.LLVMGetParamTypes(wrapperType, declaredParams);
+            var targetParams = new LLVMTypeRef[Native.LLVMCountParamTypes(target.Type)];
+            if (targetParams.Length > 0) Native.LLVMGetParamTypes(target.Type, targetParams);
+            var args = Enumerable.Range(0, targetParams.Length)
+                .Select(i => i < declaredParams.Length ? Adapt(b, wrapper.Param((uint)i), targetParams[i]) : LlvmContext.Null(targetParams[i])).ToArray();
             var result = b.Call(target.Type, target.Fn, args);
-            if (method.ReturnsVoid) b.RetVoid(); else b.Ret(result);
+            var declaredReturn = Native.LLVMGetReturnType(wrapperType);
+            if (declaredReturn.Kind == LLVMTypeKind.Void) b.RetVoid();
+            else if (method.ReturnsVoid) b.Ret(LlvmContext.Null(declaredReturn));
+            else b.Ret(Adapt(b, result, declaredReturn));
             emitted = true;
         }
         return emitted;
+    }
+
+    // An integer of another width (zero-extended, as a C `uint32_t`/`bool` widened by its callee would be) or a pointer for an integer.
+    private static LLVMValueRef Adapt(IrBuilder b, LLVMValueRef value, LLVMTypeRef to)
+    {
+        var from = value.Type;
+        if (from.Equals(to)) return value;
+        return (from.Kind, to.Kind) switch
+        {
+            (LLVMTypeKind.Pointer, LLVMTypeKind.Integer) => b.Cast(LLVMOpcode.PtrToInt, value, to),
+            (LLVMTypeKind.Integer, LLVMTypeKind.Pointer) => b.Cast(LLVMOpcode.IntToPtr, value, to),
+            (LLVMTypeKind.Integer, LLVMTypeKind.Integer) when from.IntWidth > to.IntWidth => b.Cast(LLVMOpcode.Trunc, value, to),
+            (LLVMTypeKind.Integer, LLVMTypeKind.Integer) when from.IntWidth < to.IntWidth => b.Cast(LLVMOpcode.ZExt, value, to),
+            (LLVMTypeKind.Integer, LLVMTypeKind.Integer) => value,
+            _ => throw new InvalidOperationException($"a native contract's signature differs from its P/Invoke's beyond integer widths and pointers ({from.Kind} vs {to.Kind})"),
+        };
     }
 
     private List<(IMethodSymbol, string, string)> CollectRuntimeExports()

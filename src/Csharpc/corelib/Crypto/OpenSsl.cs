@@ -4,6 +4,9 @@
 // chain building and TLS: the calls are those of libSystem.Security.Cryptography.Native.OpenSsl's shim, made
 // directly (docs/adr/0022-tls.md; Rsa.cs and AesNative.cs bind libcrypto the same way). The libraries are
 // opened on first use, so programs that don't use TLS or certificates never load them.
+// Linux compiles System.Security.Cryptography and System.Net.Security from the framework's IL over the OpenSSL and GSS contracts
+// (Crypto/CryptoNative*.cs, Net/NetSecurityNative.cs; docs/il-first/System.Net.Security.md); the other targets keep this copy (#449).
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_MACOS || CSHARPC_TARGET_WASI
 #nullable disable
 #if CSHARPC_OPENSSL
 using System;
@@ -279,4 +282,5 @@ namespace CsharpcCoreLib
         }
     }
 }
+#endif
 #endif

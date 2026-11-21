@@ -1,0 +1,70 @@
+== certificates
+CN=csharpc test root, O=csharpc <- CN=csharpc test root, O=csharpc; v3 key=ECC sig=sha256ECDSA private=True serial=00AE7B18AE88782520
+  2.5.29.19 X509v3 Basic Constraints critical=True X509BasicConstraintsExtension
+  2.5.29.15 X509v3 Key Usage critical=True X509KeyUsageExtension
+  2.5.29.14 X509v3 Subject Key Identifier critical=False X509SubjectKeyIdentifierExtension
+CN=csharpc test intermediate <- CN=csharpc test root, O=csharpc; v3 key=ECC sig=sha256ECDSA private=True serial=1001
+  2.5.29.19 X509v3 Basic Constraints critical=True X509BasicConstraintsExtension
+  2.5.29.15 X509v3 Key Usage critical=True X509KeyUsageExtension
+  2.5.29.14 X509v3 Subject Key Identifier critical=False X509SubjectKeyIdentifierExtension
+  2.5.29.35 X509v3 Authority Key Identifier critical=False X509AuthorityKeyIdentifierExtension
+CN=localhost <- CN=csharpc test intermediate; v3 key=ECC sig=sha256ECDSA private=True serial=1002
+  2.5.29.19 X509v3 Basic Constraints critical=True X509BasicConstraintsExtension
+  2.5.29.15 X509v3 Key Usage critical=True X509KeyUsageExtension
+  2.5.29.37 X509v3 Extended Key Usage critical=False X509EnhancedKeyUsageExtension
+  2.5.29.17 X509v3 Subject Alternative Name critical=False X509SubjectAlternativeNameExtension
+  2.5.29.14 X509v3 Subject Key Identifier critical=False X509SubjectKeyIdentifierExtension
+  2.5.29.35 X509v3 Authority Key Identifier critical=False X509AuthorityKeyIdentifierExtension
+CN=other.test <- CN=csharpc test intermediate; v3 key=ECC sig=sha256ECDSA private=True serial=1003
+  2.5.29.19 X509v3 Basic Constraints critical=True X509BasicConstraintsExtension
+  2.5.29.15 X509v3 Key Usage critical=True X509KeyUsageExtension
+  2.5.29.37 X509v3 Extended Key Usage critical=False X509EnhancedKeyUsageExtension
+  2.5.29.17 X509v3 Subject Alternative Name critical=False X509SubjectAlternativeNameExtension
+  2.5.29.14 X509v3 Subject Key Identifier critical=False X509SubjectKeyIdentifierExtension
+  2.5.29.35 X509v3 Authority Key Identifier critical=False X509AuthorityKeyIdentifierExtension
+san dns: localhost,csharpc.test ip: 127.0.0.1
+matches localhost=True csharpc.test=True example.com=False
+issuer key id matches: True
+== chain
+trusted: built=True elements=3 status=[]
+  CN=localhost []
+  CN=csharpc test intermediate []
+  CN=csharpc test root, O=csharpc []
+no intermediate: built=False elements=1 status=[PartialChain]
+  CN=localhost [PartialChain]
+untrusted root: built=False elements=2 status=[PartialChain]
+  CN=localhost []
+  CN=csharpc test intermediate [PartialChain]
+== tls
+-- trusted
+  sni: localhost
+  server: ok, cipher TLS_AES_256_GCM_SHA384, target host 'localhost'
+  client: ok, errors=None, chain=localhost / csharpc test intermediate / csharpc test root, remote=CN=localhost, protocol tls12+=True, cipher default, read 'echo:trusted'
+-- second san name
+  sni: csharpc.test
+  server: ok, cipher TLS_AES_256_GCM_SHA384, target host 'csharpc.test'
+  client: ok, errors=None, chain=localhost / csharpc test intermediate / csharpc test root, remote=CN=localhost, protocol tls12+=True, cipher default, read 'echo:second san name'
+-- sni picks the other certificate
+  sni: other.test
+  server: ok, cipher TLS_AES_256_GCM_SHA384, target host 'other.test'
+  client: ok, errors=None, chain=other.test / csharpc test intermediate / csharpc test root, remote=CN=other.test, protocol tls12+=True, cipher default, read 'echo:sni picks the other certificate'
+-- tls12 pinned suite
+  sni: localhost
+  server: ok, cipher TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, target host 'localhost'
+  client: ok, errors=None, chain=localhost / csharpc test intermediate / csharpc test root, remote=CN=localhost, protocol tls12+=True, cipher TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, read 'echo:tls12 pinned suite'
+-- tls13 pinned suite
+  sni: localhost
+  server: ok, cipher TLS_CHACHA20_POLY1305_SHA256, target host 'localhost'
+  client: ok, errors=None, chain=localhost / csharpc test intermediate / csharpc test root, remote=CN=localhost, protocol tls12+=True, cipher TLS_CHACHA20_POLY1305_SHA256, read 'echo:tls13 pinned suite'
+-- name mismatch
+  sni: example.com
+  server: failed: AuthenticationException
+  client: rejected: errors=RemoteCertificateNameMismatch, chain=localhost / csharpc test intermediate / csharpc test root: AuthenticationException: Authentication failed, see inner exception.
+-- untrusted root
+  sni: localhost
+  server: failed: IOException
+  client: rejected: errors=RemoteCertificateChainErrors, chain=localhost / csharpc test intermediate: AuthenticationException: The remote certificate was rejected by the provided RemoteCertificateValidationCallback.
+-- untrusted root accepted by the callback
+  sni: localhost
+  server: ok, cipher TLS_AES_256_GCM_SHA384, target host 'localhost'
+  client: ok, errors=RemoteCertificateChainErrors, chain=localhost / csharpc test intermediate, remote=CN=localhost, protocol tls12+=True, cipher default, read 'echo:untrusted root accepted by the callback'
