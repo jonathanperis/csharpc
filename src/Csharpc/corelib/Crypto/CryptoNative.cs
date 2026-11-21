@@ -127,12 +127,27 @@ namespace CsharpcCoreLib
             // With the configuration first; a malformed openssl.cnf must not stop the program, so again without it, as the shim does.
             if (OPENSSL_init_ssl(common | 0x40 /* LOAD_CONFIG */, IntPtr.Zero) == 0 && OPENSSL_init_ssl(common, IntPtr.Zero) == 0)
                 return 1;
-            // The ex-data slots the shim registers: an OCSP response cached on an X509 (CRYPTO_EX_INDEX_X509 = 3) and the certificate
-            // of a TLS session (CRYPTO_EX_INDEX_SSL_SESSION = 2). Their dup/free callbacks only matter to copies of those objects,
-            // which the framework never makes; the OCSP response is freed by its owner (CryptoNative.X509).
-            g_x509_ocsp_index = CRYPTO_get_ex_new_index(3, 0, null, null, null, null);
+            // The ex-data slots the shim registers: an OCSP response stapled to an X509 (CRYPTO_EX_INDEX_X509 = 3), freed with the
+            // certificate and never shared by a copy, and the certificate of a TLS session (CRYPTO_EX_INDEX_SSL_SESSION = 2), an opaque
+            // pointer copied as is (OpenSSL's default when the callbacks do nothing).
+            g_x509_ocsp_index = CRYPTO_get_ex_new_index(3, 0, null, null, (void*)(delegate* unmanaged<IntPtr, IntPtr, void**, int, long, IntPtr, int>)&ExDataDupOcspResponse,
+                (void*)(delegate* unmanaged<IntPtr, IntPtr, IntPtr, int, long, IntPtr, void>)&ExDataFreeOcspResponse);
             g_ssl_sess_cert_index = CRYPTO_get_ex_new_index(2, 0, null, null, null, null);
             return 0;
+        }
+
+        [UnmanagedCallersOnly]
+        private static void ExDataFreeOcspResponse(IntPtr parent, IntPtr ptr, IntPtr ad, int idx, long argl, IntPtr argp)
+        {
+            if (ptr != IntPtr.Zero && idx == g_x509_ocsp_index) OCSP_RESPONSE_free(ptr);
+        }
+
+        // A duplicated X509 does not share the response (it would be freed twice).
+        [UnmanagedCallersOnly]
+        private static int ExDataDupOcspResponse(IntPtr to, IntPtr from, void** fromD, int idx, long argl, IntPtr argp)
+        {
+            if (fromD != null && idx == g_x509_ocsp_index) *fromD = null;
+            return 1;
         }
 
         [RuntimeExport("CryptoNative_OpenSslAvailable", Trigger + "CryptoNative_OpenSslAvailable")]

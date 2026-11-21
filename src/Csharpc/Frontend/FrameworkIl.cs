@@ -85,16 +85,10 @@ public static partial class FrameworkIl
     /// </summary>
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> NotCompiledFromIl = new(StringComparer.OrdinalIgnoreCase);
 
+    // System.Security.Cryptography and System.Net.Security on Linux are the framework's IL whole, over the OpenSSL and GSS-API contracts
+    // (corelib/Crypto/CryptoNative*.cs, corelib/Net/NetSecurityNative.cs): their shadow files are compiled only for the other targets (#449).
     public static bool IsMixedWithShadows(string? assembly) => assembly is not null && (MixedWithShadows.Contains(assembly, StringComparer.OrdinalIgnoreCase)
-        || IlFirst.IsPartial(assembly) || MixedOnLinux(assembly));
-
-    /// <summary>
-    /// System.Security.Cryptography on Linux: hashes, HMAC, symmetric ciphers, random numbers and key derivation come from the framework's IL over
-    /// the OpenSSL contract (corelib/Crypto/CryptoNative*.cs); X.509, RSA and the other OpenSSL-backed asymmetric types are still the corelib's
-    /// (docs/adr/0022-tls.md). Other hosts' IL calls Apple's or Windows' crypto, whose shadows stay whole. The index describes the host's framework.
-    /// </summary>
-    private static bool MixedOnLinux(string assembly) => OperatingSystem.IsLinux() && !NativeTls.On
-        && assembly.Equals("System.Security.Cryptography", StringComparison.OrdinalIgnoreCase);
+        || IlFirst.IsPartial(assembly));
 
     /// <summary>Shared frameworks a project can reference besides Microsoft.NETCore.App.</summary>
     public static readonly string[] SupportedFrameworks = ["Microsoft.AspNetCore.App"];
@@ -388,7 +382,8 @@ public static partial class FrameworkIl
                 // as long as the contract exports every entry point the assembly imports from it.
                 if (module == "libSystem.Native" && ServedByNativeContract(md, handle)) continue;
                 // The OpenSSL shim, served by the corelib's C# contract over libcrypto/libssl on Linux (corelib/Crypto/CryptoNative*.cs).
-                if (module == CodeGen.ModuleCodeGen.CryptoNativeLibrary && !NativeTls.On && ServedByNativeContract(md, handle)) continue;
+                if ((module == CodeGen.ModuleCodeGen.CryptoNativeLibrary || module == CodeGen.ModuleCodeGen.NetSecurityNativeLibrary) && !NativeTls.On
+                    && ServedByNativeContract(md, handle)) continue;
                 if (!NativeAotPack.MayCall(a.Name, module)) return module;
                 shims.Add(module);
             }
@@ -565,7 +560,7 @@ public static partial class FrameworkIl
         return true;
     }
 
-    [GeneratedRegex(@"\[RuntimeExport\(""((?:SystemNative|CryptoNative)_\w+)""")]
+    [GeneratedRegex(@"\[RuntimeExport\(""((?:SystemNative|CryptoNative|NetSecurityNative)_\w+)""")]
     private static partial Regex NativeContractExport();
 
     private static bool ForHostTarget(string source)

@@ -71,6 +71,9 @@ public sealed partial class ModuleCodeGen
     /// <summary>The .NET OpenSSL shim's module name, whose entry points the corelib's C# contract implements on Linux (corelib/Crypto/CryptoNative.cs).</summary>
     internal const string CryptoNativeLibrary = "libSystem.Security.Cryptography.Native.OpenSsl";
 
+    /// <summary>The .NET GSS-API shim's module name, whose entry points the corelib's C# contract implements on Linux (corelib/Net/NetSecurityNative.cs).</summary>
+    internal const string NetSecurityNativeLibrary = "libSystem.Net.Security.Native";
+
     public LoweredFunction PInvokeStub(IMethodSymbol method)
     {
         method = method.OriginalDefinition;
@@ -127,8 +130,10 @@ public sealed partial class ModuleCodeGen
         // OpenSSL's libcrypto and libssl (corelib/Crypto/CryptoNative*.cs) the same way, unless the native-TLS mode links the pack's shim.
         // CoreLib's QCalls into the runtime (EventPipe's, which System.Diagnostics.Tracing's IL makes) are the same kind of contract
         // (corelib/UpstreamTracing.cs), on every target.
-        var nativeContract = !shim && ((library == "libSystem.Native" || library == CryptoNativeLibrary) && !Types.Target.IsWindows || library == "QCall")
-                && TryRequestNativeContract(library, entry)
+        // libSystem.Net.Security.Native (Negotiate/Kerberos over GSS-API) likewise, over libgssapi_krb5 (corelib/Net/NetSecurityNative.cs).
+        var nativeContract = !shim && ((library == "libSystem.Native" || library == CryptoNativeLibrary || library == NetSecurityNativeLibrary) && !Types.Target.IsWindows
+                || library == "QCall")
+            && TryRequestNativeContract(library, entry)
             // Kernel32's thread-pool I/O objects, which the Windows CoreLib's overlapped file I/O calls, are csharpc's contract too
             // (corelib/UpstreamThreadPoolIo.cs): their callbacks must run on threads csharpc's runtime knows.
             || coreLibSystemImport && TryRequestNativeContract("kernel32.dll", entry);
@@ -142,10 +147,10 @@ public sealed partial class ModuleCodeGen
             return lowered;
         }
         var directPInvoke = DirectPInvokes.Count > 0 && (DirectPInvokes.Contains(library) || DirectPInvokes.Contains(library + "!" + entry));
-        if (library == CryptoNativeLibrary && !shim && !nativeContract && !directPInvoke && IsIlMethod(method))
+        if ((library == CryptoNativeLibrary || library == NetSecurityNativeLibrary) && !shim && !nativeContract && !directPInvoke && IsIlMethod(method))
         {
-            // No OpenSSL shim is linked and the contract lacks this entry point: an explicit diagnostic, never a library search that fails at run time.
-            var message = $"'{method}' calls {entry} of {library}, which csharpc's OpenSSL contract does not provide: not supported by csharpc yet";
+            // No shim is linked and the contract lacks this entry point: an explicit diagnostic, never a library search that fails at run time.
+            var message = $"'{method}' calls {entry} of {library}, which csharpc's {(library == CryptoNativeLibrary ? "OpenSSL" : "GSS-API")} contract does not provide: not supported by csharpc yet";
             _ilBoundaries.Add((method, message));
             UnsupportedBody(stub, message);
             return lowered;
