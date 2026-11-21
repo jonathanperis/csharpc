@@ -1105,9 +1105,6 @@ __attribute__((weak)) int32_t csrt_decimal_compare(const void* a, const void* b)
 __attribute__((weak)) int32_t csrt_decimal_get_hash_code(const void* d) { (void)d; missing_export("csrt_decimal_get_hash_code"); }
 __attribute__((weak)) csrt_String* csrt_int128_to_string(uint64_t lo, uint64_t hi) { (void)lo; (void)hi; missing_export("csrt_int128_to_string"); }
 __attribute__((weak)) csrt_String* csrt_uint128_to_string(uint64_t lo, uint64_t hi) { (void)lo; (void)hi; missing_export("csrt_uint128_to_string"); }
-__attribute__((weak)) csrt_String* csrt_bigint_to_string(void* a) { (void)a; missing_export("csrt_bigint_to_string"); }
-__attribute__((weak)) int32_t csrt_bigint_compare(void* a, void* b) { (void)a; (void)b; missing_export("csrt_bigint_compare"); }
-__attribute__((weak)) int32_t csrt_bigint_get_hash_code(void* a) { (void)a; missing_export("csrt_bigint_get_hash_code"); }
 __attribute__((weak)) csrt_String* csrt_timespan_to_string(int64_t ticks) { (void)ticks; missing_export("csrt_timespan_to_string"); }
 __attribute__((weak)) csrt_String* csrt_datetime_to_string(int64_t ticks) { (void)ticks; missing_export("csrt_datetime_to_string"); }
 // CultureInfo.GetFormat(typeof(DateTimeFormatInfo)): only programs that use DateTimeFormatInfo export the

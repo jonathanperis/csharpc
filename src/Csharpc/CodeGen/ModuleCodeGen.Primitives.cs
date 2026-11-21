@@ -21,6 +21,10 @@ public sealed partial class ModuleCodeGen
     {
         var members = InterfaceSlots(itf);
         if (!members.Any(m => PrimitiveSlotSupported(primitive, itf, m))) return LlvmContext.Null(Llvm.Ptr);
+        // IConvertible: corelib's BoxedConvertible member for member, each slot filled only once the program dispatches that member (as an
+        // enum box's, ModuleCodeGen.Bcl.cs). Filled whole on boxing, every boxed number linked ToDateTime/ToType/ToString of all the types
+        // (DateTime's formatter and calendars, decimal's) as soon as any enum box made IConvertible exist.
+        if (itf is { Name: "IConvertible" }) return BuiltinSlotTable(itf, $".primicnv.{primitive.MetadataName}", LLVMLinkage.Private, BoxedConvertibleMember);
         var type = LlvmContext.Array(Llvm.Ptr, (ulong)members.Count);
         var global = Module.AddGlobal(".primslots", type, LlvmContext.Null(type), constant: true, linkage: LLVMLinkage.Private);
         _deferredPrimitiveSlots.Add((primitive, itf, mtName, global));
@@ -86,12 +90,11 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>
     /// Value types whose boxes have a runtime method table (csrt_Boxed_X_MT) that main registers for the
-    /// program's interfaces: the primitives, and decimal, DateTime, TimeSpan, Int128/UInt128 and BigInteger, which .NET boxes as
+    /// program's interfaces: the primitives, and decimal, DateTime, TimeSpan and Int128/UInt128, which .NET boxes as
     /// IFormattable/IComparable too (without the registration `o is IFormattable` was silently false).
     /// </summary>
     internal static bool IsBoxedBuiltinValue(ITypeSymbol type) =>
-        type.SpecialType is >= SpecialType.System_Boolean and <= SpecialType.System_Double || BclValueTypes.IsTicks(type) || Int128Support.Is128(type)
-        || BclValueTypes.IsBigInteger(type);
+        type.SpecialType is >= SpecialType.System_Boolean and <= SpecialType.System_Double || BclValueTypes.IsTicks(type) || Int128Support.Is128(type);
 
     /// <summary>corelib's BoxedSpanFormattable.TryFormat for the Span&lt;char&gt; or Span&lt;byte&gt; overload of the interface's member: (object self, args...).</summary>
     private IMethodSymbol? BoxedSpanFormattableMember(IMethodSymbol member) =>
@@ -187,7 +190,7 @@ public sealed partial class FunctionCodeGen
         _b.CondBr(sameType, compare, mismatch);
         _b.PositionAtEnd(mismatch);
         ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.ArgumentException")!,
-            BclValueTypes.IsBigInteger(primitive) ? "The parameter must be a BigInteger. (Parameter 'obj')" : $"Object must be of type {primitive.MetadataName}.");
+            $"Object must be of type {primitive.MetadataName}.");
         _b.PositionAtEnd(compare);
         LLVMValueRef Payload(LLVMValueRef box) => LoadValue(_b.InBoundsGep(L.I8, box, [L.ConstInt(L.I64, 8)]), primitive);
         _b.Ret(CompareValues(Payload(self), Payload(other), primitive, null!));
@@ -241,7 +244,6 @@ public sealed partial class FunctionCodeGen
             SpecialType.System_Decimal => CallCoreLib("Number", "FormatBoxedDecimal", value, format, provider),
             SpecialType.System_DateTime => CallCoreLib("DateTimeOps", "BoxedDateTimeFormatWith", value, format, provider),
             _ when BclValueTypes.IsTimeSpan(primitive) => CallCoreLib("DateTimeOps", "BoxedTimeSpanFormatWith", value, format, provider),
-            _ when BclValueTypes.IsBigInteger(primitive) => CallCoreLib("BigIntegerOps", "FormatWithProvider", value, format, provider),
             _ when Int128Support.Is128(primitive) => CallCoreLib("Number", "FormatBoxedInt128",
                 _b.Cast(LLVMOpcode.Trunc, value, L.I64),
                 _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.LShr, value, L.ConstInt(value.Type, 64)), L.I64),

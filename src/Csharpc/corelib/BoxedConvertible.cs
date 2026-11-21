@@ -176,13 +176,14 @@ namespace CsharpcCoreLib
         };
 
         // IFormattable.ToString(null, provider): bool and char ignore the provider, as their IConvertible.ToString does; an enum's is its name.
+        // The numbers, decimal and DateTime format through their box's IFormattable, not a typed call each: these slots are registered for
+        // every primitive box once a program uses IConvertible, and a typed call would link every type's formatter (DateTime's pulls in the
+        // calendars) into programs that never box that type.
         public static string ToString(object self, IFormatProvider provider) => self switch
         {
             Enum => self.ToString(),
-            bool v => v.ToString(), char v => v.ToString(), sbyte v => v.ToString(provider), byte v => v.ToString(provider), short v => v.ToString(provider),
-            ushort v => v.ToString(provider), int v => v.ToString(provider), uint v => v.ToString(provider), long v => v.ToString(provider),
-            ulong v => v.ToString(provider), float v => v.ToString(provider), double v => v.ToString(provider), decimal v => v.ToString(provider),
-            DateTime v => v.ToString(provider), _ => self.ToString(),
+            bool v => v.ToString(), char v => v.ToString(),
+            IFormattable v => v.ToString(null, provider), _ => self.ToString(),
         };
 
         /// <summary>
@@ -206,7 +207,9 @@ namespace CsharpcCoreLib
             if (ReferenceEquals(conversionType, typeof(float))) return ToSingle(self, provider);
             if (ReferenceEquals(conversionType, typeof(double))) return ToDouble(self, provider);
             if (ReferenceEquals(conversionType, typeof(decimal))) return ToDecimal(self, provider);
-            if (ReferenceEquals(conversionType, typeof(DateTime))) return ToDateTime(self, provider);
+            // self is not a DateTime here (that returned above), so ToDateTime throws .NET's InvalidCastException. Neither typeof(DateTime) nor a
+            // boxed result: either would link DateTime's box, its formatter and the calendars into every program that boxes a number.
+            if (Type.GetTypeCode(conversionType) == TypeCode.DateTime) { ToDateTime(self, provider); return self; }
             if (ReferenceEquals(conversionType, typeof(string))) return ToString(self, provider);
             if (ReferenceEquals(conversionType, typeof(object))) return self;
             if (ReferenceEquals(conversionType, typeof(Enum))) return (Enum)self;

@@ -16,4 +16,7 @@
 # Number formatting and parsing from the framework's IL (#426): CoreLib's System.Number and the primitives' own ToString/TryFormat/Parse/TryParse replace
 # the corelib's smaller copies, a measured speed gain (number_format_parse_throughput 1 388 to 1 026 ms, 12.53 G to 8.53 G instructions; NativeAOT 1 202 ms).
 # linux-x86_64 832112 -> 861472 B (+29360); budget = measured + 3 %; the other platforms moved by the same 31744 B until CI measures them.
-linux-x86_64 jsonwriter 887808
+# Floating-point members from CoreLib IL (#423): a boxed number's IConvertible slots are filled member by member as the program dispatches
+# them, no longer whole (which linked DateTime's formatter and every calendar). linux-x86_64 measured 609 992 B after merging the integration
+# branch at d155238f; budget lowered 887 808 -> 630 784 (measured + max(4 KiB, 3 %)).
+linux-x86_64 jsonwriter 630784

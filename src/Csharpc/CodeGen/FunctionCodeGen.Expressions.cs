@@ -305,8 +305,9 @@ public sealed partial class FunctionCodeGen
             });
         if (c.OperatorMethod is { } om && !IsBuiltInStringConcat(om) && !IsGenericMathOnPrimitive(om, c.Target))
         {
-            // `x op= y` with a user-defined static operator: x = op(x, y).
-            om = S(om);
+            // `x op= y` with a user-defined static operator: x = op(x, y). In generic code the operator is the interface's static abstract
+            // member (`T sum; sum += v` with T : INumber<T>): the constrained type's implementation once T is known, as EmitBinary does.
+            om = ResolveStaticInterfaceMember(S(om), c.ConstrainedToType) ?? S(om);
             if (!om.IsStatic || om.Parameters.Length != 2)
                 throw CompileError.Unsupported($"compound assignment with operator '{om}'", c);
             if (c.IsLifted && _m.IsUserMethod(om))
@@ -773,7 +774,7 @@ public sealed partial class FunctionCodeGen
         if (from.IsValueType && to.IsReferenceType) return Box(EmitValue(c.Operand), from, c);
         if (from.IsReferenceType && to.IsValueType)
         {
-            var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], EmitValue(c.Operand), MethodTableFor(to, c));
+            var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], EmitValue(c.Operand), TypeTestMethodTable(to) ?? MethodTableFor(to, c));
             return LoadValue(payload, to);
         }
 

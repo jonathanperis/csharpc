@@ -106,6 +106,9 @@ sealed class Emitter
         }
         foreach (var t in order) Bodies(t);
         foreach (var t in hosted) Bodies(t);
+        if (_selfCalling.Count > 0)
+            throw new InvalidOperationException("[Intrinsic] members whose IL only calls itself (RyuJIT expands them), which csharpc must lower itself "
+                + "(CodeGen/Intrinsics.cs) instead of copying: " + string.Join(", ", _selfCalling.Order(StringComparer.Ordinal)));
 
         EmbedStrings();
         if (_droppedSemantics.Count > 0)
@@ -328,9 +331,9 @@ sealed class Emitter
                 var nm = _methods[m];
                 _hostedTypeArity = shift;
                 nm.ReturnType = Type(m.ReturnType);
-                // An instance member of a value type: `this` (the receiver's address) becomes the first parameter, so the body's ldarg.0 still
-                // reads it and the other arguments keep their numbers (BodiesOf maps the named ones).
-                if (m.HasThis) nm.Parameters.Add(new ParameterDefinition("this", ParameterAttributes.None, new ByReferenceType(Type(stop))));
+                // An instance member: `this` (a value type's receiver address, a string itself) becomes the first parameter, so the body's
+                // ldarg.0 still reads it and the other arguments keep their numbers (BodiesOf maps the named ones).
+                if (m.HasThis) nm.Parameters.Add(new ParameterDefinition("this", ParameterAttributes.None, stop.IsValueType ? new ByReferenceType(Type(stop)) : Type(stop)));
                 foreach (var p in m.Parameters) nm.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, Type(p.ParameterType)));
                 foreach (var (g, i) in stop.GenericParameters.Concat(m.GenericParameters).Select((g, i) => (g, i)))
                     if (i < nm.GenericParameters.Count && nm.GenericParameters[i].Constraints.Count == 0)
@@ -446,6 +449,48 @@ sealed class Emitter
     // Bodies
     // ---------------------------------------------------------------------------------------------------------------
 
+    /// <summary>The copied members whose IL only calls itself (BodiesOf): all of them are reported at once.</summary>
+    readonly List<string> _selfCalling = [];
+
+    /// <summary>
+    /// Whether the path every call of <paramref name="m"/> takes from its entry reaches a call of <paramref name="m"/> itself: the
+    /// straight-line path, following unconditional branches and the branches on RuntimeHelpers.IsKnownConstant (false in a copied body,
+    /// see below) and stopping at any other conditional branch, a return or a throw. Such a body can only recurse forever.
+    /// </summary>
+    static bool CallsItselfUnconditionally(MethodDefinition m, MethodBody body)
+    {
+        var seen = new HashSet<Instruction>();
+        var knownConstantPushed = false;
+        for (var i = body.Instructions.FirstOrDefault(); i is not null && seen.Add(i);)
+        {
+            var folded = knownConstantPushed;
+            knownConstantPushed = false;
+            switch (i.OpCode.Code)
+            {
+                case Code.Call or Code.Callvirt when i.Operand is MethodReference callee:
+                    if (callee.Resolve() == m) return true;
+                    knownConstantPushed = callee.Name == "IsKnownConstant" && callee.DeclaringType.FullName == "System.Runtime.CompilerServices.RuntimeHelpers";
+                    i = i.Next;
+                    break;
+                case Code.Br or Code.Br_S:
+                    i = (Instruction)i.Operand;
+                    break;
+                case Code.Brfalse or Code.Brfalse_S when folded:
+                    i = (Instruction)i.Operand;
+                    break;
+                case Code.Brtrue or Code.Brtrue_S when folded:
+                    i = i.Next;
+                    break;
+                case Code.Nop or Code.Ldarg or Code.Ldarg_S or Code.Ldarg_0 or Code.Ldarg_1 or Code.Ldarg_2 or Code.Ldarg_3 or Code.Ldarga or Code.Ldarga_S:
+                    i = i.Next;
+                    break;
+                default:
+                    return false;
+            }
+        }
+        return false;
+    }
+
     void Bodies(TypeDefinition t)
     {
         // A built-in generic type's hosted members (DeclareHosted) read its type parameters as their own leading method ones.
@@ -496,6 +541,14 @@ sealed class Emitter
                 continue;
             }
             var ob = m.Body;
+            // A JIT intrinsic whose IL calls itself unconditionally (Math.ReciprocalEstimate, double.MultiplyAddEstimate; Math.SinCos once
+            // IsKnownConstant is folded to false: RyuJIT expands them) has no portable body: copied, it recurses forever (a loop once LLVM
+            // turns the tail call around). Its implementation is csharpc's.
+            if (CallsItselfUnconditionally(m, ob))
+            {
+                _selfCalling.Add(m.FullName);
+                continue;
+            }
             var nb = nm.Body;
             nb.InitLocals = ob.InitLocals; nb.MaxStackSize = ob.MaxStackSize;
             var vars = new List<VariableDefinition>();
@@ -527,6 +580,17 @@ sealed class Emitter
                     // A disabled event source's IsEnabled() call: the Log load before it goes too.
                     if (_cli.IsDisabledLog(i.Previous)) { map[i.Previous].OpCode = OpCodes.Nop; map[i.Previous].Operand = null; }
                 }
+            // RuntimeHelpers.IsKnownConstant(x): a JIT hint ("is x a constant at this call site?") whose IL body is never meant to run and which
+            // the reference pack does not declare. False is always a correct answer (the general path follows): the argument is popped.
+            foreach (var i in ob.Instructions)
+                if (i.OpCode == OpCodes.Call && i.Operand is MethodReference known && known.Name == "IsKnownConstant" && known.Parameters.Count == 1
+                    && known.DeclaringType.FullName == "System.Runtime.CompilerServices.RuntimeHelpers")
+                {
+                    var popped = map[i];
+                    popped.OpCode = OpCodes.Pop;
+                    popped.Operand = null;
+                    nb.GetILProcessor().InsertAfter(popped, Instruction.Create(OpCodes.Ldc_I4_0));
+                }
             // A callvirt of an instance member the slice hosts as a static (`this.` host roots) is a call of that static.
             foreach (var ni in nb.Instructions)
                 if (ni.OpCode == OpCodes.Callvirt && ni.Operand is MethodDefinition target && !target.HasThis && target.IsStatic) ni.OpCode = OpCodes.Call;
@@ -540,6 +604,18 @@ sealed class Emitter
                     CatchType = h.CatchType is null ? null : Type(h.CatchType),
                 };
                 nb.ExceptionHandlers.Add(nh);
+            }
+            // An instance member of a built-in reference type hosted as a static (string.Split): a call of it, from csharpc's code or the slice's
+            // own (a callvirt rewritten above), must throw NullReferenceException on a null receiver as the callvirt did, before the body runs.
+            if (m.HasThis && !nm.HasThis && !m.DeclaringType.IsValueType)
+            {
+                var il = nb.GetILProcessor();
+                var first = nb.Instructions[0];
+                var nre = _s.Core.GetType("System.NullReferenceException").Methods.Single(c => c.IsConstructor && !c.IsStatic && c.Parameters.Count == 0);
+                il.InsertBefore(first, Instruction.Create(OpCodes.Ldarg_0));
+                il.InsertBefore(first, Instruction.Create(OpCodes.Brtrue, first));
+                il.InsertBefore(first, Instruction.Create(OpCodes.Newobj, MethodRef(nre)));
+                il.InsertBefore(first, Instruction.Create(OpCodes.Throw));
             }
         }
     }

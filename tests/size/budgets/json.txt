@@ -17,4 +17,9 @@
 # System.Text.Json calls RandomNumberGenerator, which is now the framework's own (OpenSSL's RAND_bytes through the C# CryptoNative contract, as
 # under .NET on Linux) instead of the corelib's getentropy copy. linux-x86_64 measured 1 724 920 B against 1 706 024 B on the integration head
 # (+18 896 B); budget 1712128 -> 1732608 (measured + 4 KiB, rounded up to 4 KiB). The crypto throughput program runs 2.15x faster with the flip.
-linux-x86_64 json 1732608
+# Floating-point members from CoreLib IL (#423): a boxed number's IConvertible slots are filled member by member as the program dispatches
+# them, no longer whole (which linked DateTime's formatter and every calendar). linux-x86_64 measured 1 453 128 B after merging the integration
+# branch at d155238f; budget lowered 1 712 128 -> 1 499 136 (measured + max(4 KiB, 3 %)).
+# Merged with the cryptography flip above (+18 896 B on its own, about 1 472 000 B combined): the budget still holds; the merge head is measured
+# before the push.
+linux-x86_64 json 1499136

@@ -306,6 +306,10 @@ wasi   1420_icu_first_use_from_threads      needs threads: Thread.Start throws P
 macos 1391_filesystem_native_contract  live: FileStream.Lock/Unlock are a PlatformNotSupportedException on macOS, and its file system reports its own preallocation and modes
 windows 1391_filesystem_native_contract  live: Windows has no Unix modes, symbolic links need privileges, and its error texts and lock semantics are Win32's
 wasi 1391_filesystem_native_contract   WASI has no permission bits (.NET throws PlatformNotSupportedException from SetUnixFileMode) and wasmtime refuses symbolic links that leave the preopened directory
+wasi 1440_string_members_from_il     .NET on WASI is globalization-invariant: CultureInfo("tr-TR") throws CultureNotFoundException and culture-aware comparisons are ordinal
+wasi 1442_char_members_from_il       .NET on WASI is globalization-invariant: CultureInfo("tr-TR") throws CultureNotFoundException and current-culture casing uses the invariant-mode tables
+wasi 666_bigint_small_conversions     BigInteger's limbs are nuint (System.Runtime.Numerics' IL): 2^40 is one limb on 64-bit (checked conversion: "Arithmetic operation resulted in an overflow.") and two on wasm32 (Int32's "Value was either too large or too small" message)
+wasi 1443_biginteger_from_il          BigInteger's limbs are nuint: `>>>` of a negative value shifts its two's complement over whole limbs, 3 x 64 bits on 64-bit and 5 x 32 bits on wasm32, so the result differs
 wasi 1396_constrained_hosted_number_members  needs a named culture: WebAssembly runs in globalization-invariant mode, where "de-DE" is a CultureNotFoundException
 macos 1490_crypto_hmac_kdf_from_il  known gap: crypto is served from the framework's IL on Linux only; macOS keeps csharpc's copies, which lack these types (#449)
 windows 1490_crypto_hmac_kdf_from_il  known gap: crypto is served from the framework's IL on Linux only; Windows keeps csharpc's copies, which lack these types (#449)

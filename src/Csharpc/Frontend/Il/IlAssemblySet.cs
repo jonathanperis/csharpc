@@ -444,16 +444,34 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
     /// LLVM i128, little-endian: the lower half at byte 0; decimal as { int, uint, ulong }), so the field is the value's bytes at
     /// <paramref name="offset"/> (FunctionCodeGen.BuiltinPrivateFields.cs).
     /// </summary>
-    public bool IsBuiltinPrivateField(int token, IlGenericContext context, out int offset, out SpecialType type)
+    public bool IsBuiltinPrivateField(int token, IlGenericContext context, out int offset, out SpecialType type) =>
+        IsBuiltinPrivateField(token, context, out offset, out type, out _);
+
+    /// <summary>
+    /// As above; <paramref name="afterHeader"/> is true for a field of a built-in reference type (string's _stringLength and _firstChar, which
+    /// the String members hosted from CoreLib IL read through `this`): its offset counts from the end of the object header (the method-table
+    /// pointer), whose size follows the target's pointer size (csrt_String in src/runtime/csrt.h: { mt, int32 length, uint16 chars[] }).
+    /// </summary>
+    public bool IsBuiltinPrivateField(int token, IlGenericContext context, out int offset, out SpecialType type, out bool afterHeader)
     {
-        (offset, type) = (0, SpecialType.None);
+        (offset, type, afterHeader) = (0, SpecialType.None, false);
         var handle = MetadataTokens.EntityHandle(token);
         if (handle.Kind != HandleKind.MemberReference) return false;
         var reference = Reader.GetMemberReference((MemberReferenceHandle)handle);
         if (reference.GetKind() != MemberReferenceKind.Field || reference.Parent.Kind is not (HandleKind.TypeReference or HandleKind.TypeDefinition)) return false;
         var name = Reader.GetString(reference.Name);
-        if (name is not ("_lower" or "_upper" or "_flags" or "_hi32" or "_lo64" or "m_value" or "_dateData" or "_ticks")) return false;
+        if (name is not ("_lower" or "_upper" or "_flags" or "_hi32" or "_lo64" or "m_value" or "_dateData" or "_ticks" or "_stringLength" or "_firstChar")) return false;
         var owner = ResolveType(reference.Parent, context).Type;
+        if (owner.SpecialType == SpecialType.System_String)
+        {
+            (offset, type, afterHeader) = name switch
+            {
+                "_stringLength" => (0, SpecialType.System_Int32, true),
+                "_firstChar" => (4, SpecialType.System_Char, true),
+                _ => (0, SpecialType.None, false),
+            };
+            return type != SpecialType.None;
+        }
         (offset, type) = (owner, name) switch
         {
             (_, "_lower") when CodeGen.Int128Support.Is128(owner) => (0, SpecialType.System_UInt64),
@@ -469,6 +487,24 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
             _ => (0, SpecialType.None),
         };
         return type != SpecialType.None;
+    }
+
+    /// <summary>
+    /// Span&lt;T&gt;'s and ReadOnlySpan&lt;T&gt;'s private fields (_reference, _length), which CoreLib's IL reads (string.CopyTo(Span&lt;char&gt;):
+    /// `ref destination._reference`): csharpc's span is .NET's layout, { ref T, int } (TypeMapper), so they are its two members.
+    /// </summary>
+    public bool IsSpanPrivateField(int token, IlGenericContext context, out INamedTypeSymbol? span, out bool isReference)
+    {
+        (span, isReference) = (null, false);
+        var handle = MetadataTokens.EntityHandle(token);
+        if (handle.Kind != HandleKind.MemberReference) return false;
+        var reference = Reader.GetMemberReference((MemberReferenceHandle)handle);
+        if (reference.GetKind() != MemberReferenceKind.Field || reference.Parent.Kind != HandleKind.TypeSpecification) return false;
+        var name = Reader.GetString(reference.Name);
+        if (name is not ("_reference" or "_length")) return false;
+        if (ResolveType(reference.Parent, context).Type is not INamedTypeSymbol { MetadataName: "Span`1" or "ReadOnlySpan`1", ContainingType: null } owner) return false;
+        (span, isReference) = (owner, name == "_reference");
+        return true;
     }
 
     /// <summary>A field, method or constructor token (FieldDef, MethodDef, MemberRef, MethodSpec).</summary>

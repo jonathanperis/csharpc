@@ -422,7 +422,7 @@ public sealed partial class FunctionCodeGen
                 var obj = IlRef(Pop());
                 var st = S(type);
                 if (TypeMapper.IsNullable(st)) throw new IlException("unbox to Nullable<T> (by address)");
-                Push(new IlEntry(IlKind.ByRef, CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(st, IlAt())), type));
+                Push(new IlEntry(IlKind.ByRef, CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, TypeTestMethodTable(st) ?? MethodTableFor(st, IlAt())), type));
                 return false;
             }
             case ILOpCode.Castclass:
@@ -1441,7 +1441,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef IlUnboxValue(LLVMValueRef obj, ITypeSymbol st)
     {
         if (!TypeMapper.IsNullable(st))
-            return LoadValue(CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(st, IlAt())), st);
+            return LoadValue(CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, TypeTestMethodTable(st) ?? MethodTableFor(st, IlAt())), st);
         var underlying = TypeMapper.NullableUnderlying(st);
         var result = NewTemp(T.Value(st), "unbox.nullable");
         _b.Store(LlvmContext.Null(T.Value(st)), result);
@@ -1449,7 +1449,7 @@ public sealed partial class FunctionCodeGen
         var done = NewBlock("unbox.done");
         _b.CondBr(_b.ICmp(LLVMIntPredicate.NE, obj, LlvmContext.Null(L.Ptr)), some, done);
         _b.PositionAtEnd(some);
-        var payload = LoadValue(CallRuntime("csrt_unbox_exact", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(underlying, IlAt())), underlying);
+        var payload = LoadValue(CallRuntime("csrt_unbox_exact", L.Ptr, [L.Ptr, L.Ptr], obj, TypeTestMethodTable(underlying) ?? MethodTableFor(underlying, IlAt())), underlying);
         _b.Store(MakeNullable(st, L.True, payload), result);
         _b.Br(done);
         _b.PositionAtEnd(done);

@@ -1,0 +1,28 @@
+U+0020 True True
+U+0009 True True
+U+0085 True True
+U+00A0 True True
+U+1680 True True
+U+2000 True True
+U+200A True True
+U+200B False False
+U+2028 True True
+U+2029 True True
+U+202F True True
+U+205F True True
+U+3000 True True
+U+FEFF False False
+U+0078 False False
+True True
+6: one|two|three|four|five|six
+6: one|two|three|four|five|six
+6: one|two|three|four|five|six
+1: one\u2028two\u3000three\u1680four\u0085five six
+5: a|b|c||
+3: a|b|c
+4: a|b||c
+3: a|b|c
+1: abc
+3: a|b|c
+2: a|b  c
+3: |a|

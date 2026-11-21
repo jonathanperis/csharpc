@@ -127,6 +127,13 @@ public sealed class CoreLib
             ? PlainMetadataName(outer) + "+" + type.MetadataName
             : type.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + type.MetadataName : type.MetadataName;
 
+    private static bool IsEffectivelyPublic(INamedTypeSymbol type)
+    {
+        for (INamedTypeSymbol? t = type; t is not null; t = t.ContainingType)
+            if (t.DeclaredAccessibility is not (Accessibility.Public or Accessibility.Protected or Accessibility.ProtectedOrInternal)) return false;
+        return true;
+    }
+
     private bool IsLibrary(ISymbol symbol) =>
         !SymbolEqualityComparer.Default.Equals(symbol.ContainingAssembly, _compilation.Assembly)
         && (_assembly is null || !SymbolEqualityComparer.Default.Equals(symbol.ContainingAssembly, _assembly));
@@ -181,7 +188,11 @@ public sealed class CoreLib
         if (_cache.TryGetValue(type, out var cached)) return (INamedTypeSymbol)cached;
         if (_unmapped.Contains(type)) return null;
         var definition = type.OriginalDefinition;
-        if (!_shadowNameByReal.TryGetValue(Mangler.MetadataName(definition), out var shadowName) || Resolve(shadowName) is not { } shadow)
+        if (!_shadowNameByReal.TryGetValue(Mangler.MetadataName(definition), out var shadowName) || Resolve(shadowName) is not { } shadow
+            // A framework library compiled from its IL keeps internal copies of CoreLib-internal types under the same names (System.Runtime.
+            // Numerics' System.IUtfChar<TSelf>, implemented by its own Utf16Char): those are its own types, not the CoreLib slice's.
+            || (shadowName.StartsWith(Namespace + ".Upstream.", StringComparison.Ordinal) && !IsEffectivelyPublic(definition)
+                && definition.ContainingAssembly?.Name != "System.Private.CoreLib"))
         {
             _unmapped.Add(type);
             return null;

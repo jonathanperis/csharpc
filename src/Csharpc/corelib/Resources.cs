@@ -387,7 +387,7 @@ namespace CsharpcCoreLib
                 i = keyStart + keyLength;
                 int valueLength = (blob[i] << 16) | blob[i + 1];
                 // the last value of a key wins, as in the Data dictionary
-                if (keyLength == switchName.Length && StringOps.EqualsOrdinal(blob.AsSpan(keyStart, keyLength), switchName.AsSpan()))
+                if (keyLength == switchName.Length && blob.AsSpan(keyStart, keyLength).SequenceEqual(switchName.AsSpan()))
                     value = blob.Substring(i + 2, valueLength);
                 i += 2 + valueLength;
             }

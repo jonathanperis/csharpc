@@ -406,7 +406,6 @@ public sealed partial class ModuleCodeGen
         if (BclValueTypes.IsDecimal(type)) return Builtin("csrt_Boxed_Decimal_MT");
         if (BclValueTypes.IsTimeSpan(type)) return Builtin("csrt_Boxed_TimeSpan_MT");
         if (BclValueTypes.IsDateTime(type)) return Builtin("csrt_Boxed_DateTime_MT");
-        if (BclValueTypes.IsBigInteger(type)) return Builtin("csrt_Boxed_BigInteger_MT");
         if (Int128Support.Is128(type)) return Builtin(type.Name == "Int128" ? "csrt_Boxed_Int128_MT" : "csrt_Boxed_UInt128_MT");
         if (type is INamedTypeSymbol { Name: "CancellationTokenSource", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } })
             return Builtin("csrt_CancellationTokenSource_MT");
