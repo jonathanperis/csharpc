@@ -462,6 +462,8 @@ public sealed partial class FunctionCodeGen
         if (IlCreateInstanceForAnotherGenericParameter(method, args) is { } created) return created;
         if (ownerName == "System.Runtime.CompilerServices.Unsafe" && IlUnsafeCall(method, args) is { } unsafeResult) return unsafeResult;
         if (ownerName == "System.Runtime.CompilerServices.AsyncHelpers" && IlRuntimeAsyncCall(method, args) is { } awaited) return awaited;
+        // EventSource.IsEnabled() with event sources turned off: false, without the call (its receiver has been evaluated).
+        if (receiver is not null && DisabledEventSourceIsEnabled(method) is { } disabled) return I4(disabled ? 1 : 0) with { Constant = disabled ? 1 : 0 };
         if (args.Length == 0 && receiver is null && FeatureSwitchValue(method) is { } feature)
         {
             // A guard whose value is fixed but whose getter still checks something (QUIC: stops the program where

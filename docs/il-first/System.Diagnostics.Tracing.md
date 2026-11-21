@@ -38,7 +38,12 @@ serves (a program `EventListener` was missing from the subtree, so the framework
 and decimal); slice types are named as the BCL names them (an InvalidCastException to `System.Diagnostics.Tracing.EventPayload`); the
 slice counts as framework IL for attribute queries; `ResourceManager` creates non-string resource objects (date, time-span and Guid
 parsing, the TypeConverters) only in a program that has such a resource (`CoreIntrinsics.HasNonStringResources`, folded like a feature
-switch), which is what kept the manifest builder's `ResourceManager` from linking System.ComponentModel.
+switch), which is what kept the manifest builder's `ResourceManager` from linking System.ComponentModel. With event sources turned off (the
+file-based and PublishAot default), `EventSource.IsEnabled()` in the framework's IL folds to false, as CoreLib's ILLink substitutions
+stub it for ILCompiler, so a ConcurrentBag's `CDSCollectionETWBCLProvider` events do not link EventSource's writing paths.
+
+Checked besides the tracing samples: the full differential suite at -O2 (799 of 800 before the IsEnabled fold, 1030 the failure it fixes) and the concurrent-collection samples at -O0,
+-O2 and via IL.
 
 ## Differences from NativeAOT (explicit, or the runtime's)
 
