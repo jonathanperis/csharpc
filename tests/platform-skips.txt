@@ -318,3 +318,4 @@ macos 1491_crypto_symmetric_from_il  known gap: crypto is served from the framew
 windows 1491_crypto_symmetric_from_il  known gap: crypto is served from the framework's IL on Linux only; Windows keeps csharpc's copies, which lack these types (#449)
 wasi 1491_crypto_symmetric_from_il  known gap: no OpenSSL on WebAssembly (WASI); csharpc's copies lack these types (#449)
 macos 1442_char_members_from_il  live: ToUpperInvariant/ToLowerInvariant case through the OS ICU (Apple libicucore on macOS), whose Unicode version differs from the Linux ICU the .expected was recorded with
+wasi 1470_eventcounters_listener  known gap: EventCounter payloads come from CounterGroup's background polling thread; WASI preview 1 has no threads, so no payload is published (the listener times out)
