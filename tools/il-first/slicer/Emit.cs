@@ -36,7 +36,14 @@ sealed class Emitter
         "System.Runtime.InteropServices.UnmanagedCallersOnlyAttribute",
         // A switch's name on its getter (LocalAppContextSwitches.EnableUnsafeUTF7Encoding, which Encoding.GetEncoding(65000) tests): csharpc folds
         // the getter to the runtimeconfig's value when the program sets one (ModuleCodeGen.FeatureSwitchDefinitionValue), as ILCompiler does.
-        "System.Diagnostics.CodeAnalysis.FeatureSwitchDefinitionAttribute"];
+        "System.Diagnostics.CodeAnalysis.FeatureSwitchDefinitionAttribute",
+        // Reflection dataflow, which csharpc keeps metadata by as NativeAOT does (ADR 0018): EventSource's annotation on the class keeps every event
+        // source's methods and nested Keywords/Tasks/Opcodes for its manifest, Write<T>'s on T the payload's properties, a counter's
+        // [DynamicDependency] its payload type's properties (#423). The trimming attributes that only document travel with them.
+        "System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute", "System.Diagnostics.CodeAnalysis.DynamicDependencyAttribute",
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute", "System.Diagnostics.CodeAnalysis.FeatureGuardAttribute",
+        // What TraceLogging reads by reflection from the payload types it writes (the counters' [EventData] payloads).
+        "System.Diagnostics.Tracing.EventDataAttribute", "System.Diagnostics.Tracing.EventFieldAttribute", "System.Diagnostics.Tracing.EventIgnoreAttribute"];
 
     /// <summary>
     /// Attributes that change what a member means at run time or how csharpc lowers it (thread-local storage, fixed buffers, decoded constants,
@@ -214,7 +221,10 @@ sealed class Emitter
     {
         var n = _types[t];
         foreach (var (g, i) in t.GenericParameters.Select((g, i) => (g, i)))
+        {
             foreach (var c in g.Constraints) n.GenericParameters[i].Constraints.Add(new GenericParameterConstraint(Type(c.ConstraintType)));
+            CopyAttributes(g, n.GenericParameters[i], $"{t.FullName}<{g.Name}>");
+        }
         if (t.BaseType is not null) n.BaseType = Type(t.BaseType);
         if (Environment.GetEnvironmentVariable("SLICER_NOIFACE") is null) foreach (var i in t.Interfaces) n.Interfaces.Add(new InterfaceImplementation(Type(i.InterfaceType)));
         CopyAttributes(t, n, t.FullName);
@@ -238,7 +248,12 @@ sealed class Emitter
             if (!_s.Methods.Contains(m)) { _skippedMembers++; continue; }
             var nm = new MethodDefinition(m.Name, m.Attributes, _m.TypeSystem.Void) { ImplAttributes = m.ImplAttributes, SemanticsAttributes = m.SemanticsAttributes,
                 CallingConvention = m.CallingConvention, HasThis = m.HasThis, ExplicitThis = m.ExplicitThis };
-            foreach (var gp in m.GenericParameters) nm.GenericParameters.Add(new GenericParameter(gp.Name, nm) { Attributes = gp.Attributes });
+            foreach (var gp in m.GenericParameters)
+            {
+                var ngp = new GenericParameter(gp.Name, nm) { Attributes = gp.Attributes };
+                nm.GenericParameters.Add(ngp);
+                CopyAttributes(gp, ngp, $"{t.FullName}::{m.Name}<{gp.Name}>");
+            }
             n.Methods.Add(nm);
             _methods[m] = nm;
         }
@@ -469,6 +484,17 @@ sealed class Emitter
                 literal.Emit(OpCodes.Ret);
                 continue;
             }
+            if (_cli.Replacement(m) is { } selfForward && _cli.SelfTarget(_s.Core, selfForward) is { } self)
+            {
+                // "self:": a call of the slice's own copy of another CoreLib method, with the same arguments.
+                var selfIl = nm.Body.GetILProcessor();
+                if (nm.HasThis) selfIl.Emit(OpCodes.Ldarg_0);
+                foreach (var p in nm.Parameters) selfIl.Emit(OpCodes.Ldarg, p);
+                selfIl.Emit(OpCodes.Call, _methods[self]);
+                if (selfForward.EndsWith("?nullref", StringComparison.Ordinal)) WrapPropertyGetterNullCheck(selfIl, nm.ReturnType, m.DeclaringType);
+                selfIl.Emit(OpCodes.Ret);
+                continue;
+            }
             if (_cli.Replacement(m) is { } forward)
             {
                 // "Assembly:Ns.Type::Method": forward every argument to csharpc's own implementation of the contract member.
@@ -630,8 +656,13 @@ sealed class Emitter
         }
         if (d.DeclaringType is not null)
         {
-            if (_types.ContainsKey(d.DeclaringType)) Console.Error.WriteLine($"warning: {d.FullName} is nested in the copied {d.DeclaringType.FullName} but stays outside the slice");
-            r = new TypeReference(string.Empty, d.Name, _m, null, d.IsValueType) { DeclaringType = Type(d.DeclaringType) };
+            // A nested type only dead (folded) code names, whose declaring type is copied (EventSource's delegate cache <>O, used by the folded-out
+            // metrics branch): a type reference may not nest in a type definition of its own module (the writer then gives a later type's
+            // property map the wrong parent), so it names CoreLib's own declaring type instead; the reference is never resolved.
+            r = new TypeReference(string.Empty, d.Name, _m, null, d.IsValueType)
+            {
+                DeclaringType = _types.ContainsKey(d.DeclaringType) ? CoreLibReference(d.DeclaringType) : Type(d.DeclaringType),
+            };
         }
         else
         {
@@ -643,6 +674,67 @@ sealed class Emitter
         // (generic parameter stand-ins on type references are not needed by signatures)
         return r;
     }
+
+    /// <summary>
+    /// "self:...?nullref" (TraceLogging's PropertyValue.GetReferenceTypePropertyGetter, csharpc profile): the getter the replacement returns
+    /// (Func&lt;PropertyValue, PropertyValue&gt;, reading through PropertyInfo.GetValue) is wrapped so that a null container is a
+    /// NullReferenceException, as the delegate over the property's getter that .NET builds for a reference type throws (GetValue(null) would
+    /// be a TargetException). The wrapper is a small class of the slice:
+    ///   sealed class NullCheckedPropertyGetter { Func&lt;PV, PV&gt; inner; PV Get(PV c) => c.ReferenceValue == null ? throw new NullReferenceException() : inner(c); }
+    /// </summary>
+    void WrapPropertyGetterNullCheck(ILProcessor il, TypeReference funcType, TypeDefinition propertyValue)
+    {
+        var pv = _types[propertyValue];
+        var ts = _m.TypeSystem;
+        var func = (GenericInstanceType)funcType;
+        var wrapper = new TypeDefinition(pv.Namespace, "NullCheckedPropertyGetter", TypeAttributes.NotPublic | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit, ts.Object);
+        _m.Types.Add(wrapper);
+        var inner = new FieldDefinition("inner", FieldAttributes.Private | FieldAttributes.InitOnly, funcType);
+        wrapper.Fields.Add(inner);
+        var ctor = new MethodDefinition(".ctor", MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName, ts.Void);
+        ctor.Parameters.Add(new ParameterDefinition("inner", ParameterAttributes.None, funcType));
+        var c = ctor.Body.GetILProcessor();
+        c.Emit(OpCodes.Ldarg_0);
+        c.Emit(OpCodes.Call, new MethodReference(".ctor", ts.Void, ts.Object) { HasThis = true });
+        c.Emit(OpCodes.Ldarg_0);
+        c.Emit(OpCodes.Ldarg_1);
+        c.Emit(OpCodes.Stfld, inner);
+        c.Emit(OpCodes.Ret);
+        wrapper.Methods.Add(ctor);
+        var get = new MethodDefinition("Get", MethodAttributes.Public | MethodAttributes.HideBySig, pv);
+        get.Parameters.Add(new ParameterDefinition("container", ParameterAttributes.None, pv));
+        var g = get.Body.GetILProcessor();
+        var referenceValue = _methods[propertyValue.Methods.Single(x => x.Name == "get_ReferenceValue")];
+        var ok = g.Create(OpCodes.Ldarg_0);
+        g.Emit(OpCodes.Ldarga_S, get.Parameters[0]);
+        g.Emit(OpCodes.Call, referenceValue);
+        g.Emit(OpCodes.Brtrue_S, ok);
+        var nre = new TypeReference("System", "NullReferenceException", _m, AsmRef(_s.RefAssemblyOf["System.NullReferenceException"]));
+        g.Emit(OpCodes.Newobj, new MethodReference(".ctor", ts.Void, nre) { HasThis = true });
+        g.Emit(OpCodes.Throw);
+        g.Append(ok);
+        g.Emit(OpCodes.Ldfld, inner);
+        g.Emit(OpCodes.Ldarg_1);
+        var open = func.ElementType;
+        while (open.GenericParameters.Count < 2) open.GenericParameters.Add(new GenericParameter(open.GenericParameters.Count == 0 ? "T" : "TResult", open));
+        var invoke = new MethodReference("Invoke", open.GenericParameters[1], func) { HasThis = true };
+        invoke.Parameters.Add(new ParameterDefinition(open.GenericParameters[0]));
+        g.Emit(OpCodes.Callvirt, invoke);
+        g.Emit(OpCodes.Ret);
+        wrapper.Methods.Add(get);
+        // (the replaced method: the getter on the stack becomes new NullCheckedPropertyGetter(getter).Get as a Func<PV, PV>)
+        il.Emit(OpCodes.Newobj, ctor);
+        il.Emit(OpCodes.Ldftn, get);
+        var funcCtor = new MethodReference(".ctor", ts.Void, func) { HasThis = true };
+        funcCtor.Parameters.Add(new ParameterDefinition(ts.Object));
+        funcCtor.Parameters.Add(new ParameterDefinition(ts.IntPtr));
+        il.Emit(OpCodes.Newobj, funcCtor);
+    }
+
+    /// <summary>A reference to CoreLib's own (uncopied) definition of a type, nested ones through their declaring types.</summary>
+    TypeReference CoreLibReference(TypeDefinition t) => t.DeclaringType is { } outer
+        ? new TypeReference(string.Empty, t.Name, _m, null, t.IsValueType) { DeclaringType = CoreLibReference(outer) }
+        : new TypeReference(t.Namespace, t.Name, _m, CoreRef(), t.IsValueType);
 
     /// <summary>
     /// Non-zero while copying a member hosted from a generic built-in type (DeclareHosted): its <c>!n</c> becomes <c>!!n</c> and its own

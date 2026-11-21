@@ -883,6 +883,7 @@ public sealed partial class FunctionCodeGen
             "GetConstructor" or "GetConstructors" or "MakeGenericType" => ModuleCodeGen.DamConstructors,
             "GetField" or "GetFields" => ModuleCodeGen.DamFields,
             "GetEvent" or "GetEvents" => ModuleCodeGen.DamEvents,
+            "GetNestedType" or "GetNestedTypes" => ModuleCodeGen.DamNestedTypes,
             // GetMember(s) look through every kind; the name filter of a GetMember also matches ".ctor", so it stays unrestricted.
             "GetMember" or "GetMembers" => ModuleCodeGen.DamMethods | ModuleCodeGen.DamConstructors | ModuleCodeGen.DamProperties | ModuleCodeGen.DamFields | ModuleCodeGen.DamEvents,
             _ => 0,

@@ -21,7 +21,21 @@ public sealed partial class FunctionCodeGen
     /// RuntimeFeature.IsDynamicCodeSupported` in System.Linq.Expressions, without which Compile() would
     /// reach the LambdaCompiler (Reflection.Emit) and CallInstruction its ~20,000 generic fast paths.
     /// </summary>
-    private bool? FeatureSwitchValue(IMethodSymbol method) => KnownFeatureSwitch(method) ?? _m.SubstitutedSwitch(method) ?? _m.FeatureSwitchDefinitionValue(method) ?? _m.ForwardingFeatureSwitch(method, 0);
+    private bool? FeatureSwitchValue(IMethodSymbol method) => KnownFeatureSwitch(method) ?? CoreIntrinsicConstant(method) ?? _m.SubstitutedSwitch(method) ?? _m.FeatureSwitchDefinitionValue(method) ?? _m.ForwardingFeatureSwitch(method, 0);
+
+    /// <summary>
+    /// The corelib's compile-time constants about the program (CoreIntrinsics.HasNonStringResources, HasConverterResources): folded like a feature
+    /// switch, so the code a false one guards (ResourceManager's object creation, TypeDescriptor) is not lowered at all.
+    /// </summary>
+    private bool? CoreIntrinsicConstant(IMethodSymbol method) =>
+        method is { IsStatic: true, Parameters.IsEmpty: true, ContainingType.Name: "CoreIntrinsics" } && CoreLib.IsCoreLib(method)
+            ? method.Name switch
+            {
+                "HasNonStringResources" => _m.HasNonStringResources(),
+                "HasConverterResources" => _m.HasConverterResources(),
+                _ => null,
+            }
+            : null;
 
     internal static bool? KnownFeatureSwitch(IMethodSymbol method) =>
         (method.ContainingType.ToDisplayString(), method.Name) switch

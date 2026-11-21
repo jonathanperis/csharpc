@@ -135,6 +135,19 @@ sealed class Cli
     public Dictionary<string, bool> Fold = new();
     public bool? FoldedValue(Mono.Cecil.MethodReference m) =>
         Fold.Count > 0 && m.Parameters.Count == 0 && !m.HasThis && Fold.TryGetValue(m.DeclaringType.FullName + "::" + m.Name, out var v) ? v : null;
+    /// <summary>
+    /// "self:Ns.Type::Method" (a replacement inside CoreLib): the method of CoreLib's own of that name (one overload), carried in the slice, which the
+    /// replaced method calls with its own arguments instead of running its IL.
+    /// </summary>
+    public Mono.Cecil.MethodDefinition SelfTarget(Mono.Cecil.ModuleDefinition core, string forward)
+    {
+        if (!forward.StartsWith("self:", StringComparison.Ordinal)) return null;
+        var sep = forward.IndexOf("::", StringComparison.Ordinal);
+        var owner = core.GetType(forward[5..sep]) ?? throw new ArgumentException($"{forward}: no such type in {CoreLib}");
+        var name = forward[(sep + 2)..];
+        if (name.IndexOf('?') is var option and >= 0) name = name[..option];
+        return owner.Methods.Single(x => x.Name == name);
+    }
     /// <summary>A "Type::Method(ParamType,...)" key replaces that overload only; "Type::Method" every overload.</summary>
     public string Replacement(Mono.Cecil.MethodDefinition m) =>
         Replace.GetValueOrDefault(m.DeclaringType.FullName + "::" + m.Name + "(" + string.Join(",", m.Parameters.Select(p => p.ParameterType.FullName)) + ")")
@@ -237,6 +250,22 @@ sealed class Cli
                         c.Replace["Interop/Kernel32::" + member] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamWindowsInterop::" + member;
                     c.Redirect["Interop/BOOL"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamWin32Bool";
                     c.Replace["System.Globalization.HijriCalendar::GetAdvanceHijriDate"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamWindowsInterop::GetAdvanceHijriDate";
+                    // Tracing (#423): EventPipe's QCalls are csharpc's disabled-EventPipe contract (corelib/UpstreamTracing.cs, bound by name like
+                    // libSystem.Native's). LTTng's persistent listener (FEATURE_EVENTSOURCE_XPLAT, CoreCLR on Linux) does not exist, as in NativeAOT: EventSource's
+                    // static constructor gets none (and XplatEventLogger, whose own static constructor reads CLR configuration through QCalls, never runs).
+                    c.Replace["System.Diagnostics.Tracing.XplatEventLogger::InitializePersistentListener"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamTracing::InitializePersistentListener";
+                    // NativeAOT's CoreLib does not read an event method's IL to check the id it passes to WriteEvent (no IL at run time).
+                    c.Replace["System.Diagnostics.Tracing.EventSource::GetHelperCallFirstArg"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamTracing::GetHelperCallFirstArg";
+                    // The runtime's and libraries' default event sources are the runtime's to create; csharpc's does not (no-op, both overloads).
+                    c.Replace["System.Diagnostics.Tracing.EventSource::InitializeDefaultEventSources"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamTracing::InitializeDefaultEventSources";
+                    // TraceLogging reads a reference type's property through a delegate made with MakeGenericType and CreateDelegate (a fast
+                    // path); it reads the same value through PropertyInfo.GetValue, which its value-type path uses, with no run-time generics, and a
+                    // null container is the delegate's NullReferenceException ("?nullref", Emit.WrapPropertyGetterNullCheck).
+                    // TraceLogging's generic-match test asks every interface of a payload type for its definition; csharpc has no Type for the
+                    // definition of a CoreLib-internal interface a primitive implements (IBinaryFloatParseAndFormatInfo<Half>), and such a definition is
+                    // never one of the public ones TraceLogging compares with (IEnumerable<>, KeyValuePair<,>, Nullable<>).
+                    c.Replace["System.Diagnostics.Tracing.Statics::IsGenericMatch"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamTracing::IsGenericMatch";
+                    c.Replace["System.Diagnostics.Tracing.PropertyValue::GetReferenceTypePropertyGetter"] = "self:System.Diagnostics.Tracing.PropertyValue::GetBoxedValueTypePropertyGetter?nullref";
                     break;
                 case "--out": c.Out = args[++i]; break;
                 case "--corelib": c.CoreLib = args[++i]; break;
@@ -431,7 +460,7 @@ sealed class Slice
 
     static readonly string[] ContractPrefixes =
     [
-        "System.RuntimeType", "System.Reflection.", "System.Runtime.Loader.", "System.StubHelpers.", "Internal.Runtime.", "System.Diagnostics.Tracing.",
+        "System.RuntimeType", "System.Reflection.", "System.Runtime.Loader.", "System.StubHelpers.", "Internal.Runtime.",
         "System.Runtime.CompilerServices.CastHelpers", "System.Runtime.CompilerServices.StaticsHelpers", "System.Runtime.EH", "System.Runtime.InteropServices.Marshal",
         "System.IRuntime", "System.Signature", "System.MdUtf8String", "System.DefaultBinder", "System.ModuleHandle", "System.Threading.ThreadPool", "System.Resources.",
     ];
@@ -576,11 +605,37 @@ sealed class Slice
         // A used type: its static constructor runs, and its virtual methods may be reached through the base type or an interface.
         foreach (var m in d.Methods)
             if (m.IsConstructor && m.IsStatic || m.IsVirtual || m.HasOverrides) Enqueue(m);
+        // An [EventData] type is a TraceLogging payload: EventSource.Write<T> reads its public properties by reflection (the annotation on T keeps
+        // them for NativeAOT), so their accessors are kept although no IL calls them (the event counters' payloads).
+        if (d.CustomAttributes.Any(a => a.AttributeType.FullName == "System.Diagnostics.Tracing.EventDataAttribute"))
+            KeepPublicProperties(d);
+    }
+
+    void KeepPublicProperties(TypeDefinition d)
+    {
+        foreach (var p in d.Properties)
+            foreach (var accessor in new[] { p.GetMethod, p.SetMethod })
+                if (accessor is { IsPublic: true }) Enqueue(accessor);
+    }
+
+    /// <summary>
+    /// [DynamicDependency(DynamicallyAccessedMemberTypes, typeof(X))] on a walked method, as ILLink honours it: the public properties it names stay
+    /// (the event counters' CounterPayload, which TraceLogging reads by reflection). Other member kinds are not named by the slices' code.
+    /// </summary>
+    void KeepDynamicDependencies(MethodDefinition m)
+    {
+        foreach (var a in m.CustomAttributes.Where(a => a.AttributeType.FullName == "System.Diagnostics.CodeAnalysis.DynamicDependencyAttribute"))
+            if (a.ConstructorArguments is [{ Value: int kinds }, { Value: TypeReference target }] && (kinds & 0x200) != 0 && SafeResolveType(target) is { } type)
+            {
+                UseType(type);
+                KeepPublicProperties(type);
+            }
     }
 
     void Walk(MethodDefinition m)
     {
         _current = m.DeclaringType.Name + "::" + m.Name;
+        KeepDynamicDependencies(m);
         UseType(m.DeclaringType);
         UseType(m.ReturnType);
         foreach (var p in m.Parameters) UseType(p.ParameterType);
@@ -592,7 +647,12 @@ sealed class Slice
             if (!Externs.TryGetValue(m.DeclaringType.FullName, out var set)) Externs[m.DeclaringType.FullName] = set = [];
             set.Add($"{kind} {m.Name}");
         }
-        if (!m.HasBody || Cli.Replacement(m) is not null) return;
+        if (Cli.Replacement(m) is { } replaced)
+        {
+            if (Cli.SelfTarget(Core, replaced) is { } self) Enqueue(self);
+            return;
+        }
+        if (!m.HasBody) return;
         var body = m.Body;
         foreach (var v in body.Variables) UseType(v.VariableType);
         foreach (var h in body.ExceptionHandlers) UseType(h.CatchType);

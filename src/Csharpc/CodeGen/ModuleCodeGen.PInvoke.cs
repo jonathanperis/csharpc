@@ -120,7 +120,18 @@ public sealed partial class ModuleCodeGen
         // libSystem.Native, which CoreLib's file-system IL P/Invokes, is csharpc's C# contract over its libc layer (corelib/IO/SystemNative.cs),
         // not the pack's shim: an internal call, bound by name. Only where the shim isn't linked for another library (Tar, ZipFile), whose
         // archive members would define the same symbols.
-        var nativeContract = !shim && library == "libSystem.Native" && !Types.Target.IsWindows && TryRequestNativeContract(library, entry);
+        // CoreLib's QCalls into the runtime (EventPipe's, which System.Diagnostics.Tracing's IL makes) are the same kind of contract
+        // (corelib/UpstreamTracing.cs), on every target.
+        var nativeContract = !shim && (library == "libSystem.Native" && !Types.Target.IsWindows || library == "QCall") && TryRequestNativeContract(library, entry);
+        if (library == "QCall" && !nativeContract)
+        {
+            // A runtime QCall without a contract: never a dlopen of "QCall" (a DllNotFoundException .NET never throws), but the explicit
+            // diagnostic, raised if the call is made (CSLLVM0008 for a program that can reach it).
+            var message = $"the runtime entry point '{entry}' is not supported by csharpc yet";
+            _ilBoundaries.Add((method, message));
+            UnsupportedBody(stub, $"'{method}' could not be compiled: {message}");
+            return lowered;
+        }
         var directPInvoke = DirectPInvokes.Count > 0 && (DirectPInvokes.Contains(library) || DirectPInvokes.Contains(library + "!" + entry));
         var direct = shim || directPInvoke || nativeContract || (Types.Target.IsWindows ? runtimeSymbol || coreLibSystemImport
             : s_directLinkLibraries.Contains(library) && !(Types.Target.IsDarwin && library.Contains(".so", StringComparison.Ordinal)));

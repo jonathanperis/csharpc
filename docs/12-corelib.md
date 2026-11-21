@@ -23,6 +23,9 @@
 > `CsharpcUpstream.dll`; chosen by the slicer's `csharpc` profile) is kept thin, and every member of it is listed here:
 > * `corelib/UpstreamSupport.cs`: the members the slice calls into the corelib for: SR texts, the string-comparer family,
 >   the throw helpers.
+> * `corelib/UpstreamTracing.cs`: the runtime QCalls System.Diagnostics.Tracing's IL makes (EventPipe's), bound by entry-point name like the
+>   libSystem.Native contract (`[RuntimeExport]` with a `QCall!` trigger, `ModuleCodeGen.PInvoke`): a disabled EventPipe and the thread's
+>   activity id. A QCall without a contract is a stub that ends the program with the "not supported by csharpc yet" diagnostic if called.
 > * `CsharpcCoreLib.Upstream.NumberBridge` (emitted by the slicer, `Emit.EmitNumberBridge`), the other direction: the corelib's
 >   double/float formatting calls the framework's own shortest round-trip digit generation (`Number.Grisu3`, then
 >   `Number.Dragon4`; `src/Csharpc/upstream-types/System.Number.txt` roots just those methods) through one signature,
@@ -202,8 +205,10 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   (all constructors, the `IsSupported` switch). `Type.GetMember(s)` and TypeInfo's `GetDeclared*`/`Declared*` are composed from the
   per-kind queries in RuntimeType's order (methods, constructors, properties, events, fields) with its name filter (exact, `IgnoreCase`,
   trailing `*`) and always return a `MemberInfo[]` (csharpc arrays carry their element type, and a `MethodInfo[]` would not be an
-  `IEnumerable<MemberInfo>`). Nested types are not described by the reflection metadata: asking for them alone, or for
-  `DeclaredNestedTypes`, throws `NotSupportedException`, while `MemberTypes.All`, `GetMembers` and `DeclaredMembers` leave them out.
+  `IEnumerable<MemberInfo>`). Nested types are described for a type whose nested types reach a
+  `[DynamicallyAccessedMembers(PublicNestedTypes | NonPublicNestedTypes)]` location (each kept nested type whole, as ILLink keeps it):
+  `Type.GetNestedType(s)` answers for those (`corelib/Reflection/NestedTypes.cs`) and throws `NotSupportedException` for other types, as do
+  `DeclaredNestedTypes` and asking `GetMember` for nested types alone, while `MemberTypes.All`, `GetMembers` and `DeclaredMembers` leave them out.
 * **`System.MathF` and floating-point math** (`CodeGen/Intrinsics.cs` `AddMathF`, `corelib/FloatingPointMath.cs`): what .NET calls
   through the C runtime is libm's float function (`sinf`, `powf`, `acoshf`, ...) or an exact LLVM intrinsic (`Sqrt`, `Floor`, `Round`,
   `FusedMultiplyAdd`, `CopySign`, `Max`/`Min` as IEEE 754-2019); the members that are C# in .NET are ports of
@@ -247,41 +252,17 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   at compile time): `new ResourceSet(file|stream|reader)` and subclassing `ResourceSet`. A resource set the closed world
   has no table for is still the explicit `NotSupportedException` of `GetString`.
 * **`System.Text.Json`**: no longer a shadow, it comes from the framework's IL (see [System.Text.Json](#systemtextjson)).
-* **`EventSource` and `EventListener`** (`corelib/Tracing/EventSource.cs`, `EventListener.cs`): a csharpc executable
-  has no EventPipe/ETW session, so what enables an `EventSource` is an in-process `EventListener` (derivable). Without
-  one `IsEnabled()` is false and `WriteEvent`/`WriteEventCore`/`Write` return at once. A listener's `EnableEvents`
-  builds the event table from the `[Event]` methods (the compiler records them as text, `EventSourceAttribute(type, 2)`
-  in `ModuleCodeGen.EventSource.cs`, instead of .NET's reflection), checks it as .NET checks a manifest (positive
-  ids, no duplicate ids, keywords defined in the nested `Keywords` class, defined opcodes, supported parameter types:
-  an error reaches the listener as an `EventSourceMessage` event and the source stays disabled), calls
-  `OnEventCommand`, and then `WriteEvent` dispatches to every listener whose level and keyword filter lets the event
-  through, newest listener first: `EventWrittenEventArgs` has .NET's id, name, level, keywords (with ETW's session
-  bits), opcode, task (an event with neither task nor opcode gets 0xFFFE minus its id), version, channel, tags,
-  message, payload names and values (the declared parameter types for the fixed-arity `WriteEvent` overloads, the
-  boxed arguments for `params object[]`), activity ids, thread id and time stamp. `OnEventSourceCreated` runs for
-  the sources that exist when a listener is created (from the listener's base constructor, before the derived
-  constructor, as in .NET) and for later ones; a new `EventSourceCreated` handler hears of the existing sources
-  at once. `Write(name)` / `Write(name, options)` dispatch (null `Payload` and `PayloadNames`). `Write<T>` reads the
-  payload as .NET does (`corelib/Tracing/SelfDescribing.cs`): the public instance properties of an anonymous type or a
-  type marked `[EventData]` (derived type first, `[EventIgnore]` honored), as scalars (primitives, enums, `Guid`,
-  `DateTime`, `DateTimeOffset`, `TimeSpan`, `decimal`, nullables), strings (null becomes `""`), nested payload types (a
-  read-only `IDictionary<string, object>`), and arrays (the array itself for primitives and `Guid`, an `object[]` of the
-  converted elements otherwise), through csharpc's reflection metadata (`T` is annotated `PublicProperties`; the compiler
-  adds the types of its properties, `MarkEventPayloadGraph`; an anonymous type has a Type object and getter functions
-  for it). The analysis runs whenever the source is enabled and fails as .NET does (`ArgumentException` for a
-  non-compliant type, `ArgumentNullException` for a primitive or enumerable `T`, `NotSupportedException` for string and
-  nested arrays, an `EventSourceMessage` event when the data can't be read); a self-describing event is checked
-  against the source's widest level and keywords and then goes to every listener that enabled the source. Not
-  reproduced (an explicit `NotSupportedException`): multi-dimensional array and non-array enumerable properties,
-  recursive payload types. Differences: a listener does not see the EventSources .NET's runtime
-  and libraries create (`Microsoft-Windows-DotNETRuntime`, `System.Runtime`, `System.Threading.Tasks.TplEventSource` ...),
-  so `GetSources()` lists only the program's own; the manifest check that .NET makes by reading each event method's IL
-  ("Event X was assigned event ID n but m was passed to WriteEvent") is not made; `SendCommand`, `GenerateManifest`
-  and the event counters are not implemented (CSLLVM0002), `WriteEventCore` of a `DateTime` parameter is a NotSupportedException (boxing one would link the whole date formatter), and a program that writes events with typed payloads links the boxed-primitive formatters its payload values need (the 446 sample grows from 204 to 274 KB). Without `#:property EventSourceSupport=true` (the file-based
-  app default) `EventSource.IsSupported` is false, a source never registers and no listener sees it, as in .NET.
-  What a program can observe without a listener is .NET's: the `IsSupported` feature switch, `Name` and `Guid` from
-  `[EventSource]` or derived from the name with .NET's SHA-1 name hashing, settings validation, traits,
-  `ConstructionException`, `ToString`.
+* **`EventSource`, `EventListener` and the event counters** are not shadows: System.Diagnostics.Tracing comes from CoreLib's IL
+  (`src/Csharpc/upstream-types/System.Diagnostics.Tracing.txt`, [System.Diagnostics.Tracing.md](il-first/System.Diagnostics.Tracing.md)):
+  the manifest, the listener dispatch, `Write<T>` (TraceLogging), `GenerateManifest`, `SendCommand` and the counters' polling thread are the
+  framework's code. What it asks of the runtime is csharpc's: the reflection over an event source class (its `[Event]` methods, their
+  parameters, the constants of the nested `Keywords`, `Tasks` and `Opcodes` classes), kept because `EventSource` carries
+  `[DynamicallyAccessedMembers]` on the class, which csharpc applies to every derived class as NativeAOT does
+  (`ModuleCodeGen.NoteAnnotatedHierarchy`, nested types in `ModuleCodeGen.NestedTypes.cs`); and EventPipe's QCalls, a disabled EventPipe
+  (`corelib/UpstreamTracing.cs`): no session ever exists, so the runtime's own provider never delivers events, while the thread's activity
+  id is kept per thread. The runtime and library event sources .NET creates on its own (`Microsoft-Windows-DotNETRuntime`, `System.Runtime`,
+  `TplEventSource` ...) are not created, so a listener sees the program's own. Without `#:property EventSourceSupport=true` (the file-based
+  app default) `EventSource.IsSupported` is false and the framework's code turns event sources off, as in .NET.
 
 * **`System.Uri`** (`corelib/Net/Uri.cs`, `UriRelative.cs`, `UriMembers.cs`): the URIs whose .NET behaviour needs no
   escaping rules (absolute http, https, ftp, ws and wss URIs with a DNS name or canonical IPv4 host, plain file
