@@ -1,5 +1,5 @@
 == certificates
-CN=csharpc test root, O=csharpc <- CN=csharpc test root, O=csharpc; v3 key=ECC sig=sha256ECDSA private=True serial=00AE7B18AE88782520
+CN=csharpc test root, O=csharpc <- CN=csharpc test root, O=csharpc; v3 key=ECC sig=sha256ECDSA private=True serial=(random)
   2.5.29.19 X509v3 Basic Constraints critical=True X509BasicConstraintsExtension
   2.5.29.15 X509v3 Key Usage critical=True X509KeyUsageExtension
   2.5.29.14 X509v3 Subject Key Identifier critical=False X509SubjectKeyIdentifierExtension

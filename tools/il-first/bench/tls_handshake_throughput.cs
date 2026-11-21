@@ -26,7 +26,7 @@ async Task<(SslStream client, SslStream server)> Connect(SslProtocols protocols)
     TcpClient serverTcp = await accept;
     serverTcp.NoDelay = true;
     var server = new SslStream(serverTcp.GetStream(), false);
-    var client = new SslStream(tcp.GetStream(), false, (s, c, ch, e) => c is not null);
+    var client = new SslStream(tcp.GetStream(), false);
     Task serverAuth = server.AuthenticateAsServerAsync(new SslServerAuthenticationOptions { ServerCertificate = cert, EnabledSslProtocols = protocols });
     await client.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = "localhost", EnabledSslProtocols = protocols,
         RemoteCertificateValidationCallback = (s, c, ch, e) => c is not null });
