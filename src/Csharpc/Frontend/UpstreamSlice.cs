@@ -65,6 +65,17 @@ public static class UpstreamSlice
         }
     }
 
+    /// <summary>
+    /// The built-in type a slice host class carries members of ("CsharpcCoreLib.Upstream.System.StringInterfaceMembers" -> "System.String"), or
+    /// null: stack traces name a hosted member by the type .NET declares it on.
+    /// </summary>
+    public static string? HostedType(string hostClass)
+    {
+        foreach (var (real, hosts) in MemberClasses)
+            if (hosts.Contains(hostClass)) return real;
+        return null;
+    }
+
     /// <summary>Whether the slice serves this CoreLib type (a hook that special-cases the shadow's representation must stand down).</summary>
     public static bool Serves(string real) => Entries.Any(e => e.Real == real);
 

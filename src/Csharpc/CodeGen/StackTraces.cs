@@ -879,7 +879,16 @@ public sealed class StackTraceInfo
             outermost = t;
         }
         var ns = md.GetString(md.GetTypeDefinition(outermost).Namespace);
-        ns = Frontend.UpstreamSlice.RealNamespace(ns); // a slice of the framework's IL reports the BCL's names, as a shadow does
+        // A member the slice hosts for a built-in type (String's, Char's...: Emit.DeclareHosted) is named by that type, as .NET declares it; a
+        // hosted instance member's leading `this` parameter is not part of .NET's signature.
+        var hosted = typeNames.Count == 1 ? Frontend.UpstreamSlice.HostedType(ns + "." + typeNames[0]) : null;
+        if (hosted is not null)
+        {
+            var dot = hosted.LastIndexOf('.');
+            ns = dot < 0 ? "" : hosted[..dot];
+            typeNames[0] = hosted[(dot + 1)..];
+        }
+        else ns = Frontend.UpstreamSlice.RealNamespace(ns); // a slice of the framework's IL reports the BCL's names, as a shadow does
         if (ns.Length > 0) sb.Append(ns).Append('.');
         sb.AppendJoin('.', typeNames).Append('.').Append(md.GetString(method.Name));
         var typeParameters = md.GetTypeDefinition(declaring).GetGenericParameters().Select(p => md.GetString(md.GetGenericParameter(p).Name)).ToArray();
@@ -893,9 +902,10 @@ public sealed class StackTraceInfo
             if (parameter.SequenceNumber > 0 && parameter.SequenceNumber <= names.Length) names[parameter.SequenceNumber - 1] = md.GetString(parameter.Name);
         }
         sb.Append('(');
-        for (var i = 0; i < names.Length; i++)
+        var first = hosted is not null && names.Length > 0 && names[0] == "this" ? 1 : 0;
+        for (var i = first; i < names.Length; i++)
         {
-            if (i > 0) sb.Append(", ");
+            if (i > first) sb.Append(", ");
             sb.Append(signature.ParameterTypes[i]);
             if (names[i] is { Length: > 0 } name) sb.Append(' ').Append(name);
         }
