@@ -19,4 +19,6 @@
 # Floating-point members from CoreLib IL (#423): a boxed number's IConvertible slots are filled member by member as the program dispatches
 # them, no longer whole (which linked DateTime's formatter and every calendar). linux-x86_64 measured 609 992 B after merging the integration
 # branch at d155238f; budget lowered 887 808 -> 630 784 (measured + max(4 KiB, 3 %)).
-linux-x86_64 jsonwriter 630784
+# Merged with the cryptography flip (#423): System.Text.Json's RandomNumberGenerator is the framework's over the libcrypto contract, as for json.
+# linux-x86_64 measured 634 872 B on the merge head 7be63c95 (text flip alone 609 992); budget 630 784 -> 655 360 (measured + 3 %).
+linux-x86_64 jsonwriter 655360
