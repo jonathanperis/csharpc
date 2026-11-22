@@ -41,8 +41,6 @@ internal static class CoreLibRuntime
         ["csrt_string_format"] = ("Number", "FormatComposite"),
         ["csrt_format_i128"] = ("Number", "FormatInt128"),
         // Math.Round(double, digits[, mode]) (Number.Parsing.cs)
-        ["csrt_math_round_digits"] = ("Number", "RoundDigits"),
-        ["csrt_math_round_mode"] = ("Number", "RoundMode"),
         // System.Decimal operations taking decimals by address (DecimalOps.cs); see also FunctionCodeGen.DecimalCall
         ["csrt_decimal_compare"] = ("DecimalOps", "CompareAt"),
         ["csrt_decimal_get_hash_code"] = ("DecimalOps", "HashAt"),

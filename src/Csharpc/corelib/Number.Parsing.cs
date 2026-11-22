@@ -112,68 +112,6 @@ namespace CsharpcCoreLib
             return CoreIntrinsics.BitsToDouble(bits | signBit);
         }
 
-        // ==========================================================================================
-        // Math.Round(double, digits[, mode]): on the exact decimal value (2.675 is 2.67499999... -> 2.67)
-        // ==========================================================================================
-
-        internal static double RoundDigits(double value, int digits) => RoundMode(value, digits, 0);
-
-        /// <summary>mode: 0 ToEven, 1 AwayFromZero, 2 ToZero, 3 ToNegativeInfinity, 4 ToPositiveInfinity.</summary>
-        internal static double RoundMode(double value, int digits, int mode) => RoundCore(value, digits, mode, false);
-
-        /// <summary>MathF.Round(x, digits, mode): the same exact decimal rounding, narrowed to the nearest float (not via a double).</summary>
-        internal static float RoundModeSingle(float value, int digits, int mode) => (float)RoundCore(value, digits, mode, true);
-
-        private static double RoundCore(double value, int digits, int mode, bool single)
-        {
-            if (digits < 0) throw new ArgumentOutOfRangeException("digits", "Rounding digits must be greater than or equal to 0.");
-            if ((uint)mode > 4)
-                throw new ArgumentException("The value '" + Int32ToDecStr(mode) + "' is not valid for this usage of the type MidpointRounding.", "mode");
-            if (digits > 400) digits = 400;  // beyond the last significant digit of any double
-            if (value != value || value >= 1e16 || value <= -1e16) return value;
-            if (value == 0) return value;
-            Span<byte> storage = stackalloc byte[DigitStorage];
-            var g = new DigitBuffer(storage);
-            g.IsFloat = true;
-            g.Neg = value < 0;
-            Decompose(value, out ulong f, out int e, out bool _);
-            ExactDigits(f, e, ref g);
-            int pos = g.Exp10 + digits;
-            if (pos < g.N)
-            {
-                bool up;
-                if (mode == 0 || mode == 1)
-                {
-                    if (pos < 0) up = false;
-                    else
-                    {
-                        byte d = g.D[pos];
-                        up = d > (byte)'5' || (d == (byte)'5' && (mode == 1 || pos + 1 < g.N || (pos > 0 && ((g.D[pos - 1] - '0') & 1) == 1)));
-                    }
-                }
-                else if (mode == 2) up = false;
-                else up = mode == 3 ? g.Neg : !g.Neg;  // a nonzero part is dropped
-                if (pos < 0)
-                {
-                    // Every digit is dropped: the result is 0 or one unit of 10^-digits.
-                    if (up) { g.D[0] = (byte)'1'; g.N = 1; g.Exp10 = 1 - digits; }
-                    else g.N = 0;
-                }
-                else
-                {
-                    int i = pos;
-                    if (up)
-                    {
-                        while (i > 0 && g.D[i - 1] == (byte)'9') i--;
-                        if (i > 0) g.D[i - 1]++;
-                        else { g.Exp10++; g.D[0] = (byte)'1'; i = 1; }
-                    }
-                    g.N = i;
-                }
-            }
-            while (g.N > 0 && g.D[g.N - 1] == (byte)'0') g.N--;
-            return single ? DigitsToSingle(g.D, g.N, g.Exp10, false, g.Neg) : DigitsToDouble(g.D, g.N, g.Exp10, false, g.Neg);
-        }
 
         // ==========================================================================================
         // Int128 / UInt128 -> string
