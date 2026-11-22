@@ -596,6 +596,35 @@ single-cast delegates. Invoking it calls each in order and returns the last resu
 events are their backing delegate field, and `+=`/`-=` combine and remove in place. Events with
 custom accessors call the user's `add`/`remove` methods.
 
+### Objects that do not escape (stack allocation)
+
+`CodeGen/HeapToStack.cs` (#457), at -O1 and up: an object or delegate of at most 128 bytes (512 per function) that never
+outlives the managed function creating it lives in that function's stack frame, as NativeAOT's JIT does since .NET 10. A
+capturing lambda passed to a method that only invokes it (`SpinWait.SpinUntil`, `List.ForEach`, a LINQ predicate) then allocates
+nothing; the environment the delegate points to stays on the heap, since storing it into the delegate is an escape.
+
+- The decision is made on the optimized module. With runtime LTO the pipeline would inline `csrt_alloc`'s fast path into every
+  caller, after which no allocation is visible, so before the pipeline the managed functions' `csrt_alloc` calls go through a
+  wrapper the inliner leaves alone (`csharpc.alloc.h2s`, `linkonce_odr`: a local function's signature would be rewritten by IPSCCP
+  and dead-argument elimination). Its call to `csrt_alloc`, and `csrt_alloc`'s call to `csrt_gc_alloc`, are always inlined, so
+  the wrapper is the whole fast path.
+- After the pipeline, a call with a constant size qualifies when its result is only loaded from, stored into, offset, compared
+  or passed to a parameter that keeps it in the frame. Parameters are checked the same way in the callee's body (memoized,
+  greatest fixpoint); declarations and indirect calls need LLVM's `nocapture`. LLVM's own `nocapture` inference is not used for
+  defined functions: it counts a comparison with null as a possible capture unless the pointer is known dereferenceable, and
+  nearly every managed method null-checks its arguments. Storing the pointer anywhere, returning it, a phi or select of it,
+  `ptrtoint` and everything else is an escape. Without phi/select the pointer cannot reach the next loop iteration, so one
+  entry-block slot serves every iteration, zeroed and given its method table at the allocation site. Tail calls that receive
+  the slot lose their `tail` marker.
+- The wrapper calls that stay are then inlined by LLVM's inliner with its usual cost model (forcing them inline everywhere grew
+  every executable by about 12 KB of cold allocation paths), and the functions that allocate get SROA, EarlyCSE, InstCombine,
+  SimplifyCFG, LICM, GVN and DSE again, everything else fenced off with `optnone`: the pipeline used to optimize the inlined fast
+  path with the code around it, and without that allocation-heavy programs ran up to 1.7x slower.
+- The collector needs nothing: stacks are scanned conservatively, so a stack object's fields stay roots, and a stack address is
+  not a heap object. Off under `--gc-nursery` and `--gc-concurrent` (their barriers take any non-alloca store target for a heap
+  address) and on WebAssembly (#460); arrays (#458) and allocations inside try regions (#459) stay on the heap.
+  `--no-stack-allocation` (or `CSHARPC_NO_STACK_ALLOCATION=1`) turns it off.
+
 ## Ranges
 
 `System.Index` uses .NET's own encoding: one `i32`, `n` from the start or `~n` from the end. `Range`

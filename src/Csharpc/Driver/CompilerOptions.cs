@@ -76,6 +76,8 @@ public sealed record CompilerOptions
     /// <summary>Sanitizers for the C runtime (e.g. "address,undefined"); test builds only.</summary>
     public string? Sanitize { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_SANITIZE") is { Length: > 0 } s ? s : null;
     public bool RuntimeLto { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_NO_RUNTIME_LTO") != "1";
+    /// <summary>Objects and delegates that do not escape their function live in its stack frame (-O1 and up; #457).</summary>
+    public bool StackAllocation { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_NO_STACK_ALLOCATION") != "1";
     /// <summary>
     /// Emit heap write barriers and build the runtime with the nursery as the default collector
     /// (CSHARPC_GC_NURSERY=1 / --gc-nursery). Off by default: barriers inflate binaries past the
@@ -147,6 +149,8 @@ public sealed record CompilerOptions
                                  (default: il, or $CSHARPC_CORELIB)
           --no-implicit-usings   Don't add the SDK's implicit global usings
           --no-runtime-lto       Link the runtime as objects instead of LTO-ing its bitcode
+          --no-stack-allocation  Heap-allocate every object (no escape analysis; -O1 and up place objects
+                                 that do not escape their method in its stack frame)
           --gc-concurrent        Emit the concurrent marker's write barrier (experimental, docs/adr/0020)
           --gc-nursery           Emit heap write barriers and enable the non-moving nursery by default
                                  (also CSHARPC_GC_NURSERY=1; off by default — see docs/adr/0004)
@@ -249,6 +253,7 @@ public sealed record CompilerOptions
                     break;
                 case "--no-implicit-usings": o.ImplicitUsings = false; break;
                 case "--no-runtime-lto": o.RuntimeLto = false; break;
+                case "--no-stack-allocation": o.StackAllocation = false; break;
                 case "--gc-nursery": o.GcNursery = true; break;
                 case "--gc-concurrent": o.GcConcurrent = true; break;
                 case "--stack-traces": o.StackTraces = true; break;
