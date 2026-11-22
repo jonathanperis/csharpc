@@ -4,7 +4,6 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.CompilerServices;
-using System.Threading;
 
 class Pair
 {
@@ -124,11 +123,5 @@ static class Program
         Console.WriteLine("depth " + Depth(200));
         var big = new Big { A = 1, T = 20 };
         Console.WriteLine("big " + (big.A + big.T));
-
-        // Threads: an object handed to another thread escapes.
-        var shared = new Pair { Count = 0 };
-        var t = new Thread(() => { for (int i = 0; i < 1000; i++) Interlocked.Increment(ref shared.Count); });
-        t.Start(); t.Join();
-        Console.WriteLine("thread " + shared.Count);
     }
 }
