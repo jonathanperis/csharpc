@@ -1,0 +1,14 @@
+entered True
+after one exit True
+after two False
+exit: The calling thread does not hold the lock.
+pulse: Object synchronization method was called from an unsynchronized block of code.
+wait: Object synchronization method was called from an unsynchronized block of code.
+null: obj
+other thread: entered False, try False, exit refused
+locked 320000
+consumed 200010000
+timed wait False, still entered True
+outer still entered True
+interrupted, entered True
+lock held True, monitor False
