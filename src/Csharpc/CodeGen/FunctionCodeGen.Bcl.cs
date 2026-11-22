@@ -242,6 +242,16 @@ public sealed partial class FunctionCodeGen
                 if (Native.LLVMGetFirstUse(lookup) == 0) { _eraseIfUnused.Remove(lookup); Native.LLVMInstructionEraseFromParent(lookup); }
             return result;
         }
+        // One side made from a method table (`formatType == typeof(NumberFormatInfo)`, CultureInfo.GetFormat and
+        // NumberFormatInfo.GetInstance on every number parse): test the other side against that method table instead of looking
+        // the Type object up (3.2 M lookups in componentmodel_throughput, #349).
+        foreach (var (known, other) in new[] { (a, b), (b, a) })
+        {
+            if (TypeObjectSource(known) is not { IsNull: false } mt) continue;
+            var same = CallRuntime("csrt_type_is_mt", L.I1, [L.Ptr, L.Ptr], other, mt);
+            if (Native.LLVMGetFirstUse(known) == 0) { _eraseIfUnused.Remove(known); Native.LLVMInstructionEraseFromParent(known); }
+            return equal ? same : _b.Not(same);
+        }
         return _b.ICmp(predicate, a, b);
     }
 
