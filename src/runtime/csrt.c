@@ -365,10 +365,27 @@ static void* const s_noop_dispose_slots[] = { (void*)noop_dispose };
 static struct { const csrt_MethodTable* type; const csrt_MethodTable* itf; void* const* slots; }* s_builtin_impls;
 static int s_builtin_count, s_builtin_cap;
 
+// Lookup by (type, interface): open addressing over registration index + 1 (0 = empty) in a .bss table that holds the
+// first 4096 registrations at most half full (later ones are searched). A failed `is IFoo` test on any object asks here
+// every time; the linear search was 900 instructions per test and 19 % of componentmodel_throughput (#349).
+#define BUILTIN_INDEX_BITS 13
+#define BUILTIN_INDEXED (1 << (BUILTIN_INDEX_BITS - 1))
+static uint32_t s_builtin_index[1 << BUILTIN_INDEX_BITS];
+
+static inline size_t builtin_hash(const csrt_MethodTable* type, const csrt_MethodTable* itf) {
+    return (size_t)((((uintptr_t)type >> 3) ^ ((uintptr_t)itf * 0x9E3779B97F4A7C15ull)) * 0xC2B2AE3D27D4EB4Full >> (64 - BUILTIN_INDEX_BITS));
+}
+
+// Registration runs in main's prologue, before other threads exist.
 void csrt_register_builtin_interface(const csrt_MethodTable* type, const csrt_MethodTable* itf, void* const* slots) {
     if (s_builtin_count == s_builtin_cap) {
         s_builtin_cap = s_builtin_cap ? s_builtin_cap * 2 : 64;
         s_builtin_impls = realloc(s_builtin_impls, sizeof *s_builtin_impls * (size_t)s_builtin_cap);
+    }
+    if (s_builtin_count < BUILTIN_INDEXED) {
+        size_t h = builtin_hash(type, itf);
+        while (s_builtin_index[h]) h = (h + 1) & ((1 << BUILTIN_INDEX_BITS) - 1);
+        s_builtin_index[h] = (uint32_t)s_builtin_count + 1;
     }
     s_builtin_impls[s_builtin_count].type = type;
     s_builtin_impls[s_builtin_count].itf = itf;
@@ -376,8 +393,13 @@ void csrt_register_builtin_interface(const csrt_MethodTable* type, const csrt_Me
     s_builtin_count++;
 }
 
+/// The first registration of (type, itf), as the linear search found it: probing visits entries in registration order.
 static bool builtin_registered(const csrt_MethodTable* type, const csrt_MethodTable* itf, void* const** slots) {
-    for (int i = 0; i < s_builtin_count; i++)
+    for (size_t h = builtin_hash(type, itf); s_builtin_index[h]; h = (h + 1) & ((1 << BUILTIN_INDEX_BITS) - 1)) {
+        int i = (int)s_builtin_index[h] - 1;
+        if (s_builtin_impls[i].type == type && s_builtin_impls[i].itf == itf) { *slots = s_builtin_impls[i].slots; return true; }
+    }
+    for (int i = BUILTIN_INDEXED; i < s_builtin_count; i++)
         if (s_builtin_impls[i].type == type && s_builtin_impls[i].itf == itf) { *slots = s_builtin_impls[i].slots; return true; }
     return false;
 }
