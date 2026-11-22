@@ -278,6 +278,12 @@ static int interruptible_wait_core(pthread_cond_t* cond, pthread_mutex_t* mutex,
     return rc;
 }
 
+/// A wait that was pulsed and interrupted at once returns as pulsed; the interrupt that interruptible_wait_core consumed stays
+/// pending for the thread's next blocking call, as in .NET, instead of being lost (#350).
+static void keep_interrupt_if(int rc) {
+    if (rc == EINTR && tl_current) atomic_store(&tl_current->interrupted, true);
+}
+
 CSRT_THROWS static void throw_interrupted(void) {
     throw_msg(&mt_thread_interrupted, "Thread was interrupted from a waiting state.");
 }
@@ -497,15 +503,18 @@ void csrt_threads_wait_foreground(void) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Monitors (`lock`, Monitor.*, System.Threading.Lock). The GC never moves objects, so a side
-// table keyed by address works; an entry lives while some thread holds, enters or waits for it.
+// Monitors (`lock`, Monitor.*, System.Threading.Lock). The GC never moves objects, so a side table keyed by address works.
 //
-// Every field of an entry is guarded by its bucket's lock, which is also the mutex its condition
-// variables wait with: an uncontended Enter/Exit pair is one short critical section each, with no
-// allocation (released entries go to the bucket's spare list, their condition variables still
-// initialized). Kestrel and System.IO.Pipelines take a lock on every read, write and flush, so this
-// is on the request path; the previous design (a pthread mutex per entry, calloc'd on every Enter and
-// freed on every Exit, four bucket-lock round trips) cost more than the work it protected.
+// A thin lock in the table (#350): an entry stays for as long as its object lives, so Enter and Exit find it without the
+// bucket lock and take or release the monitor with one atomic operation on its owner field, as NativeAOT's thin lock does in
+// the object header. The bucket lock is taken only to add an entry, to put a thread to sleep (contended Enter, Wait) and to
+// wake one (Exit with sleepers, Pulse); it is also the mutex the entry's condition variables wait with. Entries are never
+// unlinked, so a chain can be walked while another thread adds to it; the collector turns the entries of objects that died
+// into tombstones (csrt_monitors_prune, with the world stopped), which the next entry added to that bucket reuses. A thread
+// that uses an entry holds a reference to its object, so the object, and the entry, outlive that use. The previous design
+// took the bucket lock twice per lock/unlock pair and freed the entry when the last holder left: `lock` cost 26-30 ns
+// uncontended where NativeAOT's costs 9-10, and BlockingCollection's producers and consumers made 1.2 M futex calls where
+// NativeAOT made 1.2 k.
 // ---------------------------------------------------------------------------------------------
 // A thread in Monitor.Wait, queued in arrival order: Pulse releases the first one, PulseAll all of them,
 // as .NET's waiting queue does. The released flag is the condition a waiter re-checks, so a wakeup
@@ -520,23 +529,22 @@ typedef struct MonitorWaiter {
 } MonitorWaiter;
 
 typedef struct Monitor {
-    void* obj;
-    pthread_t owner;
-    int recursion;            // 0: free
-    int interest;             // threads owning, entering or waiting: the entry lives while > 0
-    int entering;             // threads blocked in Enter (or reacquiring after Wait) on `released`
+    void* obj;                // atomic: the object, or NULL for a tombstone (published with release, read with acquire)
+    int32_t owner;            // atomic: the owning thread's lock id, 0 when free
+    int32_t recursion;        // the owner's count
+    int32_t entering;         // atomic: threads asleep (or about to be) in Enter or reacquiring after Wait, on `released`
+    int32_t interest;         // threads parked on a System.Threading.Lock here (bucket lock)
     pthread_cond_t released;  // the owner left
     pthread_cond_t lock_released;  // a System.Threading.Lock with waiters parked here was released
-    MonitorWaiter* waiters;   // waiting threads, oldest first (guarded by the bucket lock)
+    MonitorWaiter* waiters;   // waiting threads, oldest first (bucket lock)
     MonitorWaiter* lock_waiters;  // threads in Lock.Wait on a System.Threading.Lock (its own condition, not Monitor.Wait's)
-    struct Monitor* next;
+    struct Monitor* next;     // set before the entry is published, never changed afterwards
 } Monitor;
 
 #define MONITOR_BUCKETS 256
 typedef struct {
     _Alignas(64) pthread_mutex_t lock;  // one cache line per bucket: unrelated locks don't share it
-    Monitor* head;
-    Monitor* spare;
+    Monitor* head;                      // atomic: entries are pushed here (bucket lock) and read without it
 } MonitorBucket;
 // A zeroed pthread mutex is an initialized one with glibc, Windows' SRW locks and WASI's emulation, so
 // the table lives in .bss and needs no initialization pass; macOS's initializer isn't all zeros.
@@ -555,11 +563,34 @@ static inline MonitorBucket* bucket_of(void* obj) {
     return &s_monitors[((uintptr_t)obj >> 4) * 0x9E3779B97F4A7C15ull >> 56];
 }
 
-/// A new entry for obj: a spare one, or a fresh one the first time a bucket needs it.
-__attribute__((noinline)) static Monitor* monitor_new(MonitorBucket* b, void* obj) {
-    Monitor* m = b->spare;
-    if (m) b->spare = m->next;
-    else {
+// A small number per thread (0 = none yet): the owner field of monitors and of System.Threading.Lock objects.
+static _Thread_local __attribute__((tls_model("local-exec"))) int32_t tl_lock_id;
+static int32_t s_lock_ids;
+
+static inline int32_t lock_id(void) {
+    int32_t id = tl_lock_id;
+    if (__builtin_expect(id == 0, 0)) id = tl_lock_id = __atomic_add_fetch(&s_lock_ids, 1, __ATOMIC_RELAXED);
+    return id;
+}
+
+/// The entry of obj, found without the bucket lock; NULL when there is none yet.
+static inline Monitor* monitor_lookup(MonitorBucket* b, void* obj) {
+    for (Monitor* m = __atomic_load_n(&b->head, __ATOMIC_ACQUIRE); m; m = m->next)
+        if (__atomic_load_n(&m->obj, __ATOMIC_ACQUIRE) == obj) return m;
+    return NULL;
+}
+
+/// The entry of obj, added if there is none (bucket locked): a tombstone of the bucket is reused, else a new one is pushed.
+static Monitor* monitor_find(MonitorBucket* b, void* obj, bool create) {
+    Monitor* tomb = NULL;
+    for (Monitor* m = b->head; m; m = m->next) {
+        void* o = __atomic_load_n(&m->obj, __ATOMIC_RELAXED);
+        if (o == obj) return m;
+        if (!o && !tomb) tomb = m;
+    }
+    if (!create) return NULL;
+    Monitor* m = tomb;
+    if (!m) {
         m = calloc(1, sizeof *m);
         if (!m) abort();
 #ifdef __APPLE__
@@ -568,122 +599,114 @@ __attribute__((noinline)) static Monitor* monitor_new(MonitorBucket* b, void* ob
         pthread_cond_init(&m->lock_released, NULL);
 #endif
     }
-    m->obj = obj;
-    m->recursion = m->interest = m->entering = 0;
-    m->waiters = NULL;
-    m->next = b->head;
-    b->head = m;
+    m->recursion = m->interest = 0;
+    __atomic_store_n(&m->owner, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&m->entering, 0, __ATOMIC_RELAXED);
+    m->waiters = m->lock_waiters = NULL;
+    __atomic_store_n(&m->obj, obj, __ATOMIC_RELEASE);
+    if (!tomb) {
+        m->next = b->head;
+        __atomic_store_n(&b->head, m, __ATOMIC_RELEASE);
+    }
     return m;
 }
 
-static Monitor* monitor_find(MonitorBucket* b, void* obj, bool create) {
-    Monitor* m = b->head;
-    while (m && m->obj != obj) m = m->next;
-    return m || !create ? m : monitor_new(b, obj);
-}
-
-/// Drops one thread's interest; the last one moves the entry to the spare list.
-__attribute__((noinline)) static void monitor_release_interest(MonitorBucket* b, Monitor* m) {
-    if (--m->interest > 0) return;
-    for (Monitor** p = &b->head; *p; p = &(*p)->next)
-        if (*p == m) { *p = m->next; break; }
-    m->obj = NULL;
-    m->waiters = NULL;
-    m->lock_waiters = NULL;
-    m->next = b->spare;
-    b->spare = m;
-}
-
-static inline bool monitor_owned_by_self(const Monitor* m) {
-    return m && m->recursion > 0 && pthread_equal(m->owner, pthread_self());
-}
-
-
-/// Before a contended Enter blocks: the bucket lock released, watch the owner's recursion for a while; true (bucket locked again)
-/// when the monitor is free, false (bucket locked) when the owner still holds it. The caller's interest keeps the entry alive.
-static bool monitor_spin_until_free(MonitorBucket* b, Monitor* m) {
+/// The entry of obj, adding it (under the bucket lock) the first time obj is locked.
+static inline Monitor* monitor_get(MonitorBucket* b, void* obj) {
+    Monitor* m = monitor_lookup(b, obj);
+    if (__builtin_expect(m != NULL, 1)) return m;
+    pthread_mutex_lock(&b->lock);
+    m = monitor_find(b, obj, true);
     pthread_mutex_unlock(&b->lock);
+    return m;
+}
+
+/// A System.Threading.Lock parked on this entry no longer needs it (bucket locked). The entry stays: the collector reclaims it.
+static void monitor_release_interest(MonitorBucket* b, Monitor* m) {
+    (void)b;
+    m->interest--;
+}
+
+/// With the world stopped, after marking: the entries of objects that died become tombstones (csrt_gc_object_alive is the
+/// collector's marked test). An entry still in use (owned, slept on, waited on, or parked on by a Lock) belongs to a live object anyway.
+bool csrt_gc_object_alive(uintptr_t obj);  // gc.c
+void csrt_monitors_prune(void) {
+    for (int i = 0; i < MONITOR_BUCKETS; i++)
+        for (Monitor* m = s_monitors[i].head; m; m = m->next) {
+            void* o = m->obj;
+            if (!o || csrt_gc_object_alive((uintptr_t)o)) continue;
+            if (m->owner || m->entering || m->interest || m->waiters || m->lock_waiters) continue;
+            __atomic_store_n(&m->obj, NULL, __ATOMIC_RELAXED);
+        }
+}
+
+static inline bool monitor_try_take(Monitor* m, int32_t self) {
+    int32_t expected = 0;
+    return __atomic_compare_exchange_n(&m->owner, &expected, self, false, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
+}
+
+/// Enter / TryEnter when another thread owns the monitor: spin a little, then sleep on `released` until the owner leaves.
+__attribute__((noinline)) static bool monitor_acquire_contended(MonitorBucket* b, Monitor* m, int32_t self, int32_t ms) {
+    if (ms == 0) return false;
     for (int i = 0; i < CONTENDED_SPINS; i++) {
         spin_pause();
-        // trylock: a spinner never sleeps on the bucket lock (the exiting owner, or another spinner, may hold it a moment).
-        if (__atomic_load_n(&m->recursion, __ATOMIC_RELAXED) == 0 && pthread_mutex_trylock(&b->lock) == 0) {
-            if (m->recursion == 0) return true;
-            pthread_mutex_unlock(&b->lock);
-        }
+        if (__atomic_load_n(&m->owner, __ATOMIC_RELAXED) == 0 && monitor_try_take(m, self)) return true;
     }
+    struct timespec deadline;
+    if (ms > 0) deadline_after(&deadline, ms);
     pthread_mutex_lock(&b->lock);
-    return m->recursion == 0;
-}
-
-/// Enter / TryEnter when another thread owns the monitor: wait for it (unlocks the bucket).
-static bool monitor_acquire_contended(MonitorBucket* b, Monitor* m, int32_t ms) {
-    if (ms == 0) {
-        monitor_release_interest(b, m);
-        pthread_mutex_unlock(&b->lock);
-        return false;
-    }
-    if (m->recursion > 0) {
-        struct timespec deadline;
-        if (ms > 0) deadline_after(&deadline, ms);
-        m->entering++;
-        while (m->recursion > 0) {
-            if (ms < 0) pthread_cond_wait(&m->released, &b->lock);
-            else if (pthread_cond_timedwait(&m->released, &b->lock, &deadline) == ETIMEDOUT && m->recursion > 0) {
-                m->entering--;
-                monitor_release_interest(b, m);
-                pthread_mutex_unlock(&b->lock);
-                return false;
-            }
+    // Counted before the last attempt (both sequentially consistent): an Exit that frees the monitor after that attempt fails
+    // sees the sleeper and signals, and it can't signal before this thread sleeps, since that needs the bucket lock.
+    __atomic_add_fetch(&m->entering, 1, __ATOMIC_SEQ_CST);
+    bool acquired = false;
+    for (;;) {
+        if (monitor_try_take(m, self)) { acquired = true; break; }
+        if (ms < 0) pthread_cond_wait(&m->released, &b->lock);
+        else if (pthread_cond_timedwait(&m->released, &b->lock, &deadline) == ETIMEDOUT) {
+            acquired = monitor_try_take(m, self);
+            break;
         }
-        m->entering--;
     }
-    m->owner = pthread_self();
-    m->recursion = 1;
+    __atomic_sub_fetch(&m->entering, 1, __ATOMIC_SEQ_CST);
     pthread_mutex_unlock(&b->lock);
-    return true;
+    return acquired;
 }
 
 /// Enter (ms < 0), TryEnter (ms == 0) or TryEnter with a timeout. The caller checked obj.
-static bool monitor_acquire(void* obj, int32_t ms) {
+static inline bool monitor_acquire(void* obj, int32_t ms) {
     MonitorBucket* b = bucket_of(obj);
-    pthread_mutex_lock(&b->lock);
-    Monitor* m = monitor_find(b, obj, true);
-    if (m->recursion > 0) {
-        if (!pthread_equal(m->owner, pthread_self())) {
-            m->interest++;
-            if (ms != 0 && monitor_spin_until_free(b, m)) {
-                m->owner = pthread_self();
-                __atomic_store_n(&m->recursion, 1, __ATOMIC_RELAXED);
-                pthread_mutex_unlock(&b->lock);
-                return true;
-            }
-            return monitor_acquire_contended(b, m, ms);
-        }
-        m->recursion++;
-    } else {
-        m->interest++;
-        m->owner = pthread_self();
-        m->recursion = 1;
-    }
-    pthread_mutex_unlock(&b->lock);
+    Monitor* m = monitor_get(b, obj);
+    int32_t self = lock_id();
+    if (__builtin_expect(monitor_try_take(m, self), 1)) { m->recursion = 1; return true; }
+    if (__atomic_load_n(&m->owner, __ATOMIC_RELAXED) == self) { m->recursion++; return true; }
+    if (!monitor_acquire_contended(b, m, self, ms)) return false;
+    m->recursion = 1;
     return true;
 }
 
-/// Exit: false (nothing changed) when the calling thread doesn't own the monitor.
-static bool monitor_exit(void* obj) {
-    MonitorBucket* b = bucket_of(obj);
+__attribute__((noinline)) static void monitor_wake(MonitorBucket* b, Monitor* m) {
     pthread_mutex_lock(&b->lock);
-    Monitor* m = monitor_find(b, obj, false);
-    if (!monitor_owned_by_self(m)) {
-        pthread_mutex_unlock(&b->lock);
-        return false;
-    }
-    if (m->recursion == 1) {
-        __atomic_store_n(&m->recursion, 0, __ATOMIC_RELEASE);  // spinners read it without the bucket lock
-        if (m->entering) pthread_cond_signal(&m->released);
-        monitor_release_interest(b, m);
-    } else m->recursion--;
+    pthread_cond_signal(&m->released);
     pthread_mutex_unlock(&b->lock);
+}
+
+/// Releases the monitor m that the calling thread owns completely (recursion already dropped), waking a sleeper if there is one.
+static inline void monitor_release(MonitorBucket* b, Monitor* m) {
+    __atomic_store_n(&m->owner, 0, __ATOMIC_SEQ_CST);
+    if (__atomic_load_n(&m->entering, __ATOMIC_SEQ_CST) > 0) monitor_wake(b, m);
+}
+
+static inline Monitor* monitor_owned(MonitorBucket* b, void* obj) {
+    Monitor* m = monitor_lookup(b, obj);
+    return m && __atomic_load_n(&m->owner, __ATOMIC_RELAXED) == lock_id() ? m : NULL;
+}
+
+/// Exit: false (nothing changed) when the calling thread doesn't own the monitor.
+static inline bool monitor_exit(void* obj) {
+    MonitorBucket* b = bucket_of(obj);
+    Monitor* m = monitor_owned(b, obj);
+    if (!m) return false;
+    if (--m->recursion == 0) monitor_release(b, m);
     return true;
 }
 
@@ -704,28 +727,22 @@ bool csrt_monitor_try_enter(void* obj, int32_t ms) {
 
 void csrt_monitor_exit(void* obj) {
     check_obj(obj);
-    if (!monitor_exit(obj)) throw_msg(&mt_sync_lock, k_unsynchronized);
+    // .NET 11's Monitor.Exit says this (its monitors are Lock objects); Wait and Pulse keep the older message.
+    if (!monitor_exit(obj)) throw_msg(&mt_sync_lock, "The calling thread does not hold the lock.");
 }
 
 bool csrt_monitor_is_entered(void* obj) {
     check_obj(obj);
-    MonitorBucket* b = bucket_of(obj);
-    pthread_mutex_lock(&b->lock);
-    bool result = monitor_owned_by_self(monitor_find(b, obj, false));
-    pthread_mutex_unlock(&b->lock);
-    return result;
+    return monitor_owned(bucket_of(obj), obj) != NULL;
 }
 
 /// The calling thread's monitor of obj, with its bucket locked; throws (unlocked) if it isn't the owner.
 static Monitor* owned_monitor_locked(void* obj, MonitorBucket** bucket) {
     check_obj(obj);
     MonitorBucket* b = bucket_of(obj);
+    Monitor* m = monitor_owned(b, obj);
+    if (!m) throw_msg(&mt_sync_lock, k_unsynchronized);
     pthread_mutex_lock(&b->lock);
-    Monitor* m = monitor_find(b, obj, false);
-    if (!monitor_owned_by_self(m)) {
-        pthread_mutex_unlock(&b->lock);
-        throw_msg(&mt_sync_lock, k_unsynchronized);
-    }
     *bucket = b;
     return m;
 }
@@ -740,37 +757,38 @@ static void remove_waiter(Monitor* m, MonitorWaiter* w) {
 bool csrt_monitor_wait(void* obj, int32_t ms) {
     MonitorBucket* b;
     Monitor* m = owned_monitor_locked(obj, &b);
-    int recursion = m->recursion;
-    // The owner's interest carries over to the waiting thread: the entry stays. Releasing ownership
-    // first lets a blocked Enter run and Pulse this waiter; the bucket lock is held until the wait,
-    // so the waiter is queued before any Pulse can run.
-    m->recursion = 0;
-    if (m->entering) pthread_cond_signal(&m->released);
+    int32_t self = lock_id();
+    int32_t recursion = m->recursion;
+    // Queued before the monitor is released, under the bucket lock until the wait: a Pulse needs the monitor and then the bucket
+    // lock, so it can't run before this waiter sleeps. A sleeper in Enter is woken directly (monitor_wake would take the bucket
+    // lock again).
     struct timespec d;
     if (ms >= 0) deadline_after(&d, ms);
-    MonitorWaiter self = { NULL, false };
-    pthread_cond_init(&self.cond, NULL);
+    MonitorWaiter self_waiter = { NULL, false };
+    pthread_cond_init(&self_waiter.cond, NULL);
     MonitorWaiter** tail = &m->waiters;
     while (*tail) tail = &(*tail)->next;
-    *tail = &self;
+    *tail = &self_waiter;
+    m->recursion = 0;
+    __atomic_store_n(&m->owner, 0, __ATOMIC_SEQ_CST);
+    if (__atomic_load_n(&m->entering, __ATOMIC_SEQ_CST) > 0) pthread_cond_signal(&m->released);
     int rc = 0;
-    while (!self.released) {
+    while (!self_waiter.released) {
         // Each return of the condition wait (pulse, interrupt kick, poll slice, spurious) re-checks the
         // flag. The bucket lock is the mutex the condition waits with.
-        rc = interruptible_wait_core(&self.cond, &b->lock, ms < 0 ? NULL : &d, true, true);
-        if (self.released) { rc = 0; break; }
-        if (rc == EINTR || rc == ETIMEDOUT) { remove_waiter(m, &self); break; }
+        rc = interruptible_wait_core(&self_waiter.cond, &b->lock, ms < 0 ? NULL : &d, true, true);
+        if (self_waiter.released) { keep_interrupt_if(rc); rc = 0; break; }
+        if (rc == EINTR || rc == ETIMEDOUT) { remove_waiter(m, &self_waiter); break; }
     }
     // Reacquire before returning or throwing, as .NET's Wait does. Enter itself is not interruptible.
-    m->entering++;
-    while (m->recursion > 0) pthread_cond_wait(&m->released, &b->lock);
-    m->entering--;
-    m->owner = pthread_self();
+    __atomic_add_fetch(&m->entering, 1, __ATOMIC_SEQ_CST);
+    while (!monitor_try_take(m, self)) pthread_cond_wait(&m->released, &b->lock);
+    __atomic_sub_fetch(&m->entering, 1, __ATOMIC_SEQ_CST);
     m->recursion = recursion;
     pthread_mutex_unlock(&b->lock);
     // No one signals it any more: Pulse dequeued this waiter (or the wait removed itself) under the bucket lock, and the
     // interrupt registration ended inside the wait.
-    pthread_cond_destroy(&self.cond);
+    pthread_cond_destroy(&self_waiter.cond);
     if (rc == EINTR) throw_interrupted();
     return rc != ETIMEDOUT;
 }
@@ -820,15 +838,6 @@ const csrt_BuiltinMethodTable csrt_Lock_MT = {
 };
 
 void* csrt_lock_new(void) { return csrt_alloc(&csrt_Lock_MT.header, sizeof(LockObject)); }
-
-static _Thread_local __attribute__((tls_model("local-exec"))) int32_t tl_lock_id;
-static int32_t s_lock_ids;
-
-static inline int32_t lock_id(void) {
-    int32_t id = tl_lock_id;
-    if (__builtin_expect(id == 0, 0)) id = tl_lock_id = __atomic_add_fetch(&s_lock_ids, 1, __ATOMIC_RELAXED);
-    return id;
-}
 
 static inline bool lock_try_acquire(LockObject* l, int32_t self) {
     int32_t expected = 0;
@@ -926,7 +935,7 @@ bool csrt_lock_wait(void* lock, int32_t ms) {
     int rc = 0;
     while (!self.released) {
         rc = interruptible_wait_core(&self.cond, &b->lock, ms < 0 ? NULL : &d, true, true);
-        if (self.released) { rc = 0; break; }
+        if (self.released) { keep_interrupt_if(rc); rc = 0; break; }
         if (rc == EINTR || rc == ETIMEDOUT) {
             for (MonitorWaiter** p = &m->lock_waiters; *p; p = &(*p)->next)
                 if (*p == &self) { *p = self.next; break; }
