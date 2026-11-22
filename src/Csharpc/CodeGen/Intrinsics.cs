@@ -491,8 +491,6 @@ internal static class Intrinsics
             t[$"System.Math.Max({type}, {type})"] = (g, inv) => SelectCompare(g, Arg(g, inv, 0), Arg(g, inv, 1), signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT);
             t[$"System.Math.Min({type}, {type})"] = (g, inv) => SelectCompare(g, Arg(g, inv, 0), Arg(g, inv, 1), signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT);
         }
-        t["System.Math.Round(double, int)"] = (g, inv) =>
-            g.CallRuntime("csrt_math_round_digits", g.Module.Llvm.F64, [g.Module.Llvm.F64, g.Module.Llvm.I32], Arg(g, inv, 0), Arg(g, inv, 1));
         foreach (var (name, to) in new[] { ("DoubleToInt64Bits(double)", "i64"), ("Int64BitsToDouble(long)", "f64"), ("DoubleToUInt64Bits(double)", "i64"),
                      ("UInt64BitsToDouble(ulong)", "f64"), ("SingleToInt32Bits(float)", "i32"), ("Int32BitsToSingle(int)", "f32"),
                      ("SingleToUInt32Bits(float)", "i32"), ("UInt32BitsToSingle(uint)", "f32") })

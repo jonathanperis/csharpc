@@ -694,10 +694,8 @@ internal static partial class BclValueTypes
             g.NullCheck(self);
             return g.CallCoreLib("StringRuntime", "EqualsObject", self, a[0]);
         };
-        t["System.Math.Round(double, System.MidpointRounding)"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (I32(g, 0), g.Llvm.I32), (a[1], g.Llvm.I32));
-        t["System.Math.Round(double, int, System.MidpointRounding)"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (a[1], g.Llvm.I32), (a[2], g.Llvm.I32));
+        // Math.Round / double.Round with digits or a MidpointRounding come from CoreLib's IL (upstream-types/System.Math.txt): its
+        // integer-based rounding ran 3x faster than csharpc's exact-decimal copy, which these entries used to route to (#453).
         // Generic-math statics (INumber<T> & co.) that code calls as double.Round(x), int.Max(a, b), ...
         foreach (var (type, bits) in new[] { ("double", 64), ("float", 32) })
         {
@@ -724,12 +722,6 @@ internal static partial class BclValueTypes
                 return g.Builder.Call(f.Type, f.Fn, [a[0], a[1]]);
             };
         }
-        t["double.Round(double, int)"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (a[1], g.Llvm.I32), (I32(g, 0), g.Llvm.I32));
-        t["double.Round(double, System.MidpointRounding)"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (I32(g, 0), g.Llvm.I32), (a[1], g.Llvm.I32));
-        t["double.Round(double, int, System.MidpointRounding)"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (a[1], g.Llvm.I32), (a[2], g.Llvm.I32));
         foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("uint", false), ("ulong", false), ("short", true), ("byte", false) })
         {
             t[$"{type}.Max({type}, {type})"] = (g, _, _, a, _) =>
