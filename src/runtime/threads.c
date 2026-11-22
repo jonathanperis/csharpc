@@ -627,13 +627,14 @@ static void monitor_release_interest(MonitorBucket* b, Monitor* m) {
     m->interest--;
 }
 
-/// With the world stopped, after marking: the entries of objects that died become tombstones. `alive` is the collector's
-/// marked test. An entry still in use (owned, slept on, waited on, or parked on by a Lock) belongs to a live object anyway.
-void csrt_monitors_prune(bool (*alive)(uintptr_t)) {
+/// With the world stopped, after marking: the entries of objects that died become tombstones (csrt_gc_object_alive is the
+/// collector's marked test). An entry still in use (owned, slept on, waited on, or parked on by a Lock) belongs to a live object anyway.
+bool csrt_gc_object_alive(uintptr_t obj);  // gc.c
+void csrt_monitors_prune(void) {
     for (int i = 0; i < MONITOR_BUCKETS; i++)
         for (Monitor* m = s_monitors[i].head; m; m = m->next) {
             void* o = m->obj;
-            if (!o || alive((uintptr_t)o)) continue;
+            if (!o || csrt_gc_object_alive((uintptr_t)o)) continue;
             if (m->owner || m->entering || m->interest || m->waiters || m->lock_waiters) continue;
             __atomic_store_n(&m->obj, NULL, __ATOMIC_RELAXED);
         }
