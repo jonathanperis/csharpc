@@ -414,6 +414,9 @@ public sealed class Compiler(CompilerOptions options)
         string? prebuiltObjectBase = null;
         if (options.OptLevel > 0)
         {
+            // Escape analysis (#457): not under the nursery or concurrent collectors, whose barriers take a store target that is no
+            // alloca for a heap address, and not on WebAssembly (its GC roots are spilled by RootSpilling, after this point).
+            var heapToStack = options.StackAllocation && !wasm && !options.GcNursery && !options.GcConcurrent;
             var pipeline = options.SizeLevel switch { 1 => "default<Os>", 2 => "default<Oz>", _ => $"default<O{options.OptLevel}>" };
             if (options.SizeLevel > 0) Optimizations.MarkOptimizeForSize(module, llvm, minimize: options.SizeLevel == 2);
             if (codegen.HasCoroutines) Optimizations.KeepStackAddressAggregatesOutOfInliner(module, llvm);
@@ -426,14 +429,16 @@ public sealed class Compiler(CompilerOptions options)
                 prebuiltWeakImports = WeakImports(module);
                 prebuiltObjectBase = Path.Combine(Path.GetTempPath(), $"csharpc-{Environment.ProcessId}-{Path.GetFileNameWithoutExtension(options.OutputPath)}");
                 prebuiltObjects = ParallelOptimize.TryRun(module, detached, pipeline, target, prebuiltObjectBase,
-                    options.Verbose ? m => Console.Error.WriteLine($"             {m}") : null);
+                    options.Verbose ? m => Console.Error.WriteLine($"             {m}") : null, heapToStack);
             }
             if (prebuiltObjects is null)
             {
+                var stackAllocation = heapToStack && Csharpc.CodeGen.HeapToStack.Prepare(module.Ref);
                 module.RunPasses(pipeline, target);
+                var onStack = stackAllocation ? Csharpc.CodeGen.HeapToStack.Run(module.Ref, target) : 0;
                 Csharpc.CodeGen.ConcurrentBarrierElision.Run(module.Ref, target);
                 TypeDataDetach.Reattach(module, detached, target);
-                Phase($"optimize ({pipeline})");
+                Phase($"optimize ({pipeline}){(stackAllocation ? $", {onStack} allocation(s) on the stack" : "")}");
             }
             else Phase($"optimize ({pipeline}) and codegen, {prebuiltObjects.Count} partitions");
         }

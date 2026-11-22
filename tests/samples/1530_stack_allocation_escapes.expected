@@ -1,0 +1,18 @@
+delegates 16000
+x/0/0
+xxxx/500/500
+xxxxxxx/1000/1000
+xxx/1500/1500
+pairs 2013885
+kept /kept/3
+listed /listed/10
+listed /listed/11
+listed /listed/12
+identity /identity/22
+chain 4,3,2,1,0
+distinct 4 last 3
+lock 8 hash stable True
+weak target type Pair
+caught pair 42
+depth 21598
+big 21
