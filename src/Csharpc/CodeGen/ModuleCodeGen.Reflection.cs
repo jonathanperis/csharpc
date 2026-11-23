@@ -592,29 +592,13 @@ public sealed partial class ModuleCodeGen
                 KeepAttributeArguments(attributes);
             // The declared attributes are exact; the list's count word says csc synthesizes more (Nullable, ...), which
             // makes the untyped queries and those for System attributes throw while a program's own attributes stay exact.
-            entry.Attributes = synthesizedUnknown
-                ? Attributes(new AttributeSet(attributes, 0, true, NullableExplicit: entry.Type is INamedTypeSymbol typed && NullableListKnown(typed.OriginalDefinition)))
-                : Attributes(attributes);
+            // NullabilityInfoContext keeps reading the list as it did before the bit was written (#199 is about the program's own
+            // untyped queries): the nullable part of a type list is csharpc's model of csc's [NullableContext]/[Nullable].
+            entry.Attributes = synthesizedUnknown ? Attributes(new AttributeSet(attributes, 0, true, NullableExplicit: true)) : Attributes(attributes);
             entry.Described |= RiAttributes;
             if (synthesizedUnknown && entry.Type is INamedTypeSymbol frameworkType && IsFrameworkReferenceType(frameworkType)) entry.Described |= RiAttributesUnknown | RiNullableExplicit;
             entry.InheritedAttributes = !synthesizedUnknown && entry.Type is INamedTypeSymbol { TypeKind: TypeKind.Class } named ? InheritedTypeAttributes(named, attributes) : null;
         }
-    }
-
-    /// <summary>
-    /// Whether an incomplete type list still has exactly the [NullableContext]/[Nullable] attributes csc emits, so NullabilityInfoContext
-    /// may read it while the program's own untyped queries report the list as unknown (#199): a source type whose nullable analysis is
-    /// exact (or whose members carry their full [Nullable] bytes), or a framework type whose nullable attributes come from its implementation.
-    /// </summary>
-    private bool NullableListKnown(INamedTypeSymbol definition)
-    {
-        if (definition.IsAnonymousType) return false;
-        if (definition.MetadataToken == 0 && definition.Locations.Any(l => l.IsInSource))
-        {
-            var info = NullableOf(definition);
-            return info.Exact || info.Explicit || info.Oblivious;
-        }
-        return FrameworkTypeNullable(definition) is not null;
     }
 
     /// <summary>
