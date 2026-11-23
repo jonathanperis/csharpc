@@ -1258,7 +1258,7 @@ namespace CsharpcCoreLib
                 if ((described & 128) != 0)
                     throw new NotSupportedException("Inherited custom attributes of '" + type + "' (from '" + b + "') are not supported by csharpc yet.");
                 if ((described & 16) == 0) continue;
-                if (ReflectionRecords.InfoAttributeCount(info) > 0)
+                if ((ReflectionRecords.InfoAttributeCount(info) & 0xFFFFFF) > 0)
                     throw new NotSupportedException("Inherited custom attributes of '" + type + "' (from '" + b + "') are not supported by csharpc yet.");
             }
         }
@@ -1339,7 +1339,7 @@ namespace CsharpcCoreLib
                 uint described = (uint)ReflectionRecords.InfoDescribed(info);
                 if ((described & 128) != 0 || (described & 16) == 0) return -1;
                 byte* records = ReflectionRecords.InfoAttributes(info);
-                int count = ReflectionRecords.InfoAttributeCount(info);
+                int count = ReflectionRecords.InfoAttributeCount(info) & 0xFFFFFF; // the flag bits of ModuleCodeGen.AttributeCount
                 for (int i = 0; i < count; i++)
                     if (TypeOf(ReflectionRecords.AttributeType(records + i * ReflectionRecords.AttributeSize)).FullName == fullName) return 1;
             }
