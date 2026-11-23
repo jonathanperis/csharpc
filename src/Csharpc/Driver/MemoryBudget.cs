@@ -12,18 +12,23 @@ namespace Csharpc.Driver;
 /// </summary>
 internal static class MemoryBudget
 {
-    private static bool s_returned;
+    /// <summary>
+    /// Held while a worker parses the whole bitcode image and prunes it to its partition, then returns what pruning freed
+    /// (<see cref="ReturnFreedMemory"/>): two whole parses at once took csharpc compiling itself to 14.3 GB at -O0 (#463).
+    /// Optimization and code generation, most of the time, run outside it.
+    /// </summary>
+    internal static readonly object ParseGate = new();
 
     /// <summary>
     /// Gives the memory the program's freed module still holds back to the system (glibc's malloc_trim), before the partitions
     /// parse. glibc keeps freed memory in the arena of the thread that freed it: the calling thread's partition reused it, the
     /// other workers' arenas could not, and csharpc compiling itself peaked at 14.3 GB at -O0 with two workers (#463). With the
-    /// memory returned, each worker takes what it parses (the budget then counts every worker). False where there is no glibc.
+    /// memory returned, the next whole parse gets it from the system. False where there is no glibc.
     /// </summary>
     public static bool ReturnFreedMemory()
     {
         if (!OperatingSystem.IsLinux()) return false;
-        try { MallocTrim(0); return s_returned = true; }
+        try { MallocTrim(0); return true; }
         catch (Exception e) when (e is EntryPointNotFoundException or DllNotFoundException) { return false; }
     }
 
@@ -39,9 +44,8 @@ internal static class MemoryBudget
 
     /// <summary>
     /// Workers to run: <paramref name="wanted"/>, or fewer (at least one) when the rest of the memory budget
-    /// does not hold that many parsed copies of the image. On Linux the memory the program's module gave back has
-    /// just been returned to the system (<see cref="ReturnFreedMemory"/>), so every worker counts; elsewhere the first
-    /// worker parses into that memory (freed, but still part of the working set) and is free. The budget is 90 %
+    /// does not hold that many copies of their partitions. Only one worker at a time holds the whole parsed image
+    /// (<see cref="ParseGate"/>): that one is free, the others hold a pruned partition and its code generator. The budget is 90 %
     /// of the memory the process may use (the machine's, or its container's), or CSHARPC_MEMORY_MB.
     /// </summary>
     public static int Workers(int wanted, long imageBytes, Action<string>? log)
@@ -52,7 +56,7 @@ internal static class MemoryBudget
             : (long)(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes * 0.9);
         var used = Environment.WorkingSet;
         var each = (long)(imageBytes * BytesPerImageByte);
-        var fit = each <= 0 ? wanted : (int)Math.Clamp((s_returned ? 0 : 1) + (budget - used) / each, 1, wanted);
+        var fit = each <= 0 ? wanted : (int)Math.Clamp(1 + (budget - used) / each, 1, wanted);
         if (fit < wanted)
             log?.Invoke($"memory: {fit} of {wanted} worker(s) ({budget >> 20} MB budget, {used >> 20} MB in use, ~{each >> 20} MB per extra worker)");
         return fit;

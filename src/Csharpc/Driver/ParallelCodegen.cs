@@ -134,16 +134,22 @@ public static class ParallelCodegen
         var context = LLVMContextCreate();
         try
         {
+            // A target machine must not emit two modules at once: one per partition.
+            using var machine = target.CreateSibling();
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            var m = image.Parse(context, "parallel code generation");
-            log?.Invoke($"partition {partition} parsed in {clock.ElapsedMilliseconds} ms, rss {Rss()} MB");
+            LLVMModuleRef m;
+            lock (MemoryBudget.ParseGate)
+            {
+                m = image.Parse(context, "parallel code generation");
+                log?.Invoke($"partition {partition} parsed in {clock.ElapsedMilliseconds} ms, rss {Rss()} MB");
+                clock.Restart();
+                try { Prune(m, partition, owned, machine); }
+                catch { LLVMDisposeModule(m); throw; }
+                MemoryBudget.ReturnFreedMemory();
+                log?.Invoke($"partition {partition} pruned in {clock.ElapsedMilliseconds} ms, rss {Rss()} MB");
+            }
             try
             {
-                // A target machine must not emit two modules at once: one per partition.
-                using var machine = target.CreateSibling();
-                clock.Restart();
-                Prune(m, partition, owned, machine);
-                log?.Invoke($"partition {partition} pruned in {clock.ElapsedMilliseconds} ms, rss {Rss()} MB");
                 clock.Restart();
                 if (LLVMTargetMachineEmitToFile(machine.Ref, m, path, LLVMCodeGenFileType.Object, out var error) != 0)
                     throw new InvalidOperationException($"LLVM code generation failed: {TakeMessage(error)}");
