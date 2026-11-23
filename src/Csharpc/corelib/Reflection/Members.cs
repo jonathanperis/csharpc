@@ -1448,6 +1448,17 @@ namespace CsharpcCoreLib
             finally { s_partialReads--; }
         }
 
+        /// <summary>CustomAttributeData.GetCustomAttributes(MemberInfo) called from the framework's IL (FunctionCodeGen.FrameworkStaticAttributeQuery):
+        /// the attributes csharpc models where it cannot complete the list.</summary>
+        public static IList<CustomAttributeData> MemberAttributeDataFramework(MemberInfo target)
+        {
+            ArgumentNullException.ThrowIfNull(target);
+            if (target is Type type) return GetTypeCustomAttributesDataFramework(type);
+            s_partialReads++;
+            try { return target.GetCustomAttributesData(); }
+            finally { s_partialReads--; }
+        }
+
         public static IList<CustomAttributeData> GetTypeCustomAttributesData(Type type)
         {
             byte* info = TypeAttributeInfo(type);
