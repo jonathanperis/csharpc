@@ -549,7 +549,7 @@ public sealed class StackTraceInfo
             if (RoslynFrontend.IsCoreLibTree(tree)) continue;
             var text = tree.GetText().ToString();
             if (!text.Contains("StackTrace", StringComparison.Ordinal) && !text.Contains("Exception", StringComparison.Ordinal)
-                && !text.Contains("catch", StringComparison.Ordinal))
+                && !text.Contains("catch", StringComparison.Ordinal) && !text.Contains("Source", StringComparison.Ordinal))
                 continue;
             SemanticModel? model = null;
             bool IsException(ExpressionSyntax expression)
