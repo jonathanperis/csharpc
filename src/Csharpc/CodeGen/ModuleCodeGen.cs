@@ -1361,15 +1361,19 @@ public sealed partial class ModuleCodeGen
             var asU64 = valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.ZExt, fn.Param(0), Llvm.I64);
             var asI64 = valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(signed ? LLVMOpcode.SExt : LLVMOpcode.ZExt, fn.Param(0), Llvm.I64);
             var flags = Runtime("csrt_enum_format_flags", Llvm.Ptr, Llvm.I64, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I1, Llvm.I64);
-            b.Ret(b.Call(flags.Type, flags.Fn, [asU64, valuesTable, namesTable, Llvm.ConstInt(Llvm.I32, members.Count),
-                signed ? Llvm.True : Llvm.False, asI64]));
+            var decomposed = b.Call(flags.Type, flags.Fn, [asU64, valuesTable, namesTable, Llvm.ConstInt(Llvm.I32, members.Count),
+                signed ? Llvm.True : Llvm.False, asI64]);
+            b.Ret(signed ? CultureNegative(b, decomposed, asI64) : decomposed);
             return lowered;
         }
-        var (name, argType, arg) = TypeMapper.IsSigned(underlying)
-            ? ("csrt_string_from_i64", Llvm.I64, valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.SExt, fn.Param(0), Llvm.I64))
-            : ("csrt_string_from_u64", Llvm.I64, valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.ZExt, fn.Param(0), Llvm.I64));
-        var format = Runtime(name, Llvm.Ptr, argType);
-        b.Ret(b.Call(format.Type, format.Fn, [arg]));
+        // An undefined value: the number, a negative one with the current culture's negative sign (#182).
+        if (TypeMapper.IsSigned(underlying))
+        {
+            b.Ret(CultureInt64ToString(b, valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.SExt, fn.Param(0), Llvm.I64)));
+            return lowered;
+        }
+        var format = Runtime("csrt_string_from_u64", Llvm.Ptr, Llvm.I64);
+        b.Ret(b.Call(format.Type, format.Fn, [valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.ZExt, fn.Param(0), Llvm.I64)]));
         return lowered;
     }
 

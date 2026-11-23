@@ -241,12 +241,39 @@ public sealed partial class ModuleCodeGen
         var done = b.AppendBlock(fn, "done");
         b.CondBr(b.ICmp(LLVMIntPredicate.EQ, formatted, LlvmContext.Null(Llvm.Ptr)), byName, done);
         b.PositionAtEnd(done);
-        b.Ret(formatted);
+        b.Ret(signed ? CultureNegative(b, formatted, asI64) : formatted);
         b.PositionAtEnd(byName);
         var general = EnumFormatter(enumType);
         b.Ret(b.Call(general.Type, general.Fn, [value]));
         return lowered;
     }
+    /// <summary>
+    /// The enum formatters in the C runtime (csrt_enum_format, csrt_enum_format_flags) return 1 for a negative number, which .NET writes
+    /// with the current culture's negative sign (#182): that one is formatted by the corelib's culture-aware Int64ToDecStr.
+    /// </summary>
+    internal LLVMValueRef CultureNegative(IrBuilder b, LLVMValueRef formatted, LLVMValueRef asI64)
+    {
+        var fn = Native.LLVMGetBasicBlockParent(b.InsertBlock);
+        var number = b.AppendBlock(fn, "negative.number");
+        var ready = b.AppendBlock(fn, "formatted");
+        var sentinel = b.Cast(LLVMOpcode.IntToPtr, Llvm.ConstInt(Llvm.I64, 1), Llvm.Ptr);
+        b.CondBr(b.ICmp(LLVMIntPredicate.EQ, formatted, sentinel), number, ready);
+        b.PositionAtEnd(number);
+        b.Ret(CultureInt64ToString(b, asI64));
+        b.PositionAtEnd(ready);
+        return formatted;
+    }
+
+    /// <summary>A signed integer as .NET's Int64.ToString() writes it, in the current culture (the corelib's Number.Int64ToDecStr).</summary>
+    internal LLVMValueRef CultureInt64ToString(IrBuilder b, LLVMValueRef asI64)
+    {
+        var owner = Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".Number")
+            ?? throw CompileError.Unsupported("corelib type 'Number' not found");
+        var method = owner.GetMembers("Int64ToDecStr").OfType<IMethodSymbol>().Single(m => m.IsStatic && m.Parameters.Length == 1);
+        var f = GetFunction(method);
+        return b.Call(f.Type, f.Fn, [asI64]);
+    }
+
     /// <summary>Enum.GetHashCode(): the underlying integer's GetHashCode (small types widen, 64-bit folds lo ^ hi).</summary>
     public LLVMValueRef EnumHash(IrBuilder b, LLVMValueRef value, INamedTypeSymbol enumType)
     {
