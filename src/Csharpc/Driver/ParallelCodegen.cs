@@ -99,7 +99,11 @@ public static class ParallelCodegen
         using var image = BitcodeImage.Write(m);
         log?.Invoke($"bitcode image {image.Size >> 20} MB, rss {Rss()} MB");
         module.Dispose();
-        log?.Invoke($"program module freed, rss {Rss()} MB");
+        // The context's types, constants and metadata outlive the module and, for a closed world, take gigabytes (#463); nothing
+        // in the program's context is used after this point (linking follows), and the partitions parse into contexts of their own.
+        module.Context.Dispose();
+        log?.Invoke($"program module and context freed, rss {Rss()} MB");
+        if (MemoryBudget.ReturnFreedMemory()) log?.Invoke($"freed memory returned to the system, rss {Rss()} MB");
         threads = MemoryBudget.Workers(threads, image.Size, log);
         var objects = Enumerable.Range(0, count).Select(i => $"{objectPathBase}.{i}.o").ToList();
         var next = -1;
@@ -130,18 +134,28 @@ public static class ParallelCodegen
         var context = LLVMContextCreate();
         try
         {
-            var m = image.Parse(context, "parallel code generation");
-            log?.Invoke($"partition {partition} parsed, rss {Rss()} MB");
+            // A target machine must not emit two modules at once: one per partition.
+            using var machine = target.CreateSibling();
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            LLVMModuleRef m;
+            lock (MemoryBudget.ParseGate)
+            {
+                m = image.Parse(context, "parallel code generation");
+                log?.Invoke($"partition {partition} parsed in {clock.ElapsedMilliseconds} ms, rss {Rss()} MB");
+                clock.Restart();
+                try { Prune(m, partition, owned, machine); }
+                catch { LLVMDisposeModule(m); throw; }
+                MemoryBudget.ReturnFreedMemory();
+                log?.Invoke($"partition {partition} pruned in {clock.ElapsedMilliseconds} ms, rss {Rss()} MB");
+            }
             try
             {
-                // A target machine must not emit two modules at once: one per partition.
-                using var machine = target.CreateSibling();
-                Prune(m, partition, owned, machine);
+                clock.Restart();
                 if (LLVMTargetMachineEmitToFile(machine.Ref, m, path, LLVMCodeGenFileType.Object, out var error) != 0)
                     throw new InvalidOperationException($"LLVM code generation failed: {TakeMessage(error)}");
+                log?.Invoke($"partition {partition} emitted in {clock.ElapsedMilliseconds} ms, rss {Rss()} MB");
             }
             finally { LLVMDisposeModule(m); }
-            log?.Invoke($"partition {partition} emitted, rss {Rss()} MB");
         }
         finally { LLVMContextDispose(context); }
     }
