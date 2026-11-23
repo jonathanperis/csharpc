@@ -592,7 +592,9 @@ public sealed partial class ModuleCodeGen
                 KeepAttributeArguments(attributes);
             // The declared attributes are exact; the list's count word says csc synthesizes more (Nullable, ...), which
             // makes the untyped queries and those for System attributes throw while a program's own attributes stay exact.
-            entry.Attributes = synthesizedUnknown ? Attributes(new AttributeSet(attributes, 0, true)) : Attributes(attributes);
+            // NullabilityInfoContext keeps reading the list as it did before the bit was written (#199 is about the program's own
+            // untyped queries): the nullable part of a type list is csharpc's model of csc's [NullableContext]/[Nullable].
+            entry.Attributes = synthesizedUnknown ? Attributes(new AttributeSet(attributes, 0, true, NullableExplicit: true)) : Attributes(attributes);
             entry.Described |= RiAttributes;
             if (synthesizedUnknown && entry.Type is INamedTypeSymbol frameworkType && IsFrameworkReferenceType(frameworkType)) entry.Described |= RiAttributesUnknown | RiNullableExplicit;
             entry.InheritedAttributes = !synthesizedUnknown && entry.Type is INamedTypeSymbol { TypeKind: TypeKind.Class } named ? InheritedTypeAttributes(named, attributes) : null;
@@ -1839,7 +1841,7 @@ public sealed partial class ModuleCodeGen
                     Checked(f.Type, "field type"), f.Get, f.Set, AttributeArray(f.Attributes), AttributeCount(f.Attributes), Llvm.ConstUInt(Llvm.I32, f.FieldAttributes))).ToList());
                 var events = ConstTable("csharpc.reflection.events", EventRecordType, e.Events.Select(EventRecordConstant).ToList());
                 entries.Add(Llvm.ConstStruct(Checked(e.Mt, "method table of " + e.Type), ctors, methods, AttributeArray(e.Attributes), properties,
-                    Llvm.ConstInt(Llvm.I32, e.Constructors.Count), Llvm.ConstInt(Llvm.I32, e.Methods.Count), Llvm.ConstInt(Llvm.I32, e.Attributes.Count),
+                    Llvm.ConstInt(Llvm.I32, e.Constructors.Count), Llvm.ConstInt(Llvm.I32, e.Methods.Count), AttributeCount(e.Attributes),
                     Llvm.ConstUInt(Llvm.I32, e.Described), Llvm.ConstInt(Llvm.I32, e.Properties.Count), Llvm.ConstInt(Llvm.I32, e.Fields.Count), fields,
                     events, Llvm.ConstInt(Llvm.I32, e.Events.Count),
                     AttributeArray(e.InheritedAttributes ?? []), Llvm.ConstInt(Llvm.I32, e.InheritedAttributes?.Count ?? 0), Llvm.ConstInt(Llvm.I32, e.InheritedAttributes is null ? 0 : 1)));
