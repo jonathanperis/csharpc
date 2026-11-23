@@ -1,0 +1,9 @@
+struct: ArgumentException: At least one object must implement IComparable. | inner none: 
+class: ArgumentException: At least one object must implement IComparable. | inner none: 
+same reference: 0
+null first: -1, null second: 1, both: 0
+generic struct: ArgumentException: At least one object must implement IComparable. | inner none: 
+Array.Sort: InvalidOperationException: Failed to compare two elements in the array. | inner ArgumentException: At least one object must implement IComparable.
+List.Sort: InvalidOperationException: Failed to compare two elements in the array. | inner ArgumentException: At least one object must implement IComparable.
+BinarySearch: InvalidOperationException: Failed to compare two elements in the array. | inner ArgumentException: At least one object must implement IComparable.
+single element sort: ok
