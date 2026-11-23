@@ -1258,7 +1258,7 @@ namespace CsharpcCoreLib
                 if ((described & 128) != 0)
                     throw new NotSupportedException("Inherited custom attributes of '" + type + "' (from '" + b + "') are not supported by csharpc yet.");
                 if ((described & 16) == 0) continue;
-                if (ReflectionRecords.InfoAttributeCount(info) > 0)
+                if ((ReflectionRecords.InfoAttributeCount(info) & 0xFFFFFF) > 0)
                     throw new NotSupportedException("Inherited custom attributes of '" + type + "' (from '" + b + "') are not supported by csharpc yet.");
             }
         }
@@ -1339,7 +1339,7 @@ namespace CsharpcCoreLib
                 uint described = (uint)ReflectionRecords.InfoDescribed(info);
                 if ((described & 128) != 0 || (described & 16) == 0) return -1;
                 byte* records = ReflectionRecords.InfoAttributes(info);
-                int count = ReflectionRecords.InfoAttributeCount(info);
+                int count = ReflectionRecords.InfoAttributeCount(info) & 0xFFFFFF; // the flag bits of ModuleCodeGen.AttributeCount
                 for (int i = 0; i < count; i++)
                     if (TypeOf(ReflectionRecords.AttributeType(records + i * ReflectionRecords.AttributeSize)).FullName == fullName) return 1;
             }
@@ -1445,6 +1445,17 @@ namespace CsharpcCoreLib
                     return (described & 16) == 0 ? AttributeData(null, 0) : AttributeData(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info));
                 return GetTypeCustomAttributesData(type);
             }
+            finally { s_partialReads--; }
+        }
+
+        /// <summary>CustomAttributeData.GetCustomAttributes(MemberInfo) called from the framework's IL (FunctionCodeGen.FrameworkStaticAttributeQuery):
+        /// the attributes csharpc models where it cannot complete the list.</summary>
+        public static IList<CustomAttributeData> MemberAttributeDataFramework(MemberInfo target)
+        {
+            ArgumentNullException.ThrowIfNull(target);
+            if (target is Type type) return GetTypeCustomAttributesDataFramework(type);
+            s_partialReads++;
+            try { return target.GetCustomAttributesData(); }
             finally { s_partialReads--; }
         }
 

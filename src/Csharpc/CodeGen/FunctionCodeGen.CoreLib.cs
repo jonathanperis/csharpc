@@ -728,9 +728,10 @@ public sealed partial class FunctionCodeGen
         var nonGeneric = comparable is null ? NonGenericComparable(t) : null;
         if (comparable is null && nonGeneric is null && t.TypeKind is not (TypeKind.Interface or TypeKind.TypeParameter) && t.SpecialType != SpecialType.System_Object)
         {
-            // .NET throws InvalidOperationException("Failed to compare two elements in the array.") at runtime.
-            ThrowAndContinue("System.InvalidOperationException", "Failed to compare two elements in the array.");
-            return L.ConstInt(i32, 0);
+            // .NET's Comparer<T>.Default for such a T is an ObjectComparer: Comparer.Default.Compare on the boxed values, which
+            // throws ArgumentException("At least one object must implement IComparable.") unless they are the same reference
+            // or null (#246). Sorts wrap it in their InvalidOperationException ("Failed to compare two elements in the array.").
+            return CallCoreLib("ObjectComparison", "Compare", t.IsValueType ? Box(a, t, at) : a, t.IsValueType ? Box(b, t, at) : b);
         }
 
         LLVMValueRef Call()

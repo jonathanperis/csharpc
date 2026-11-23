@@ -942,6 +942,14 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef? FrameworkStaticAttributeQuery(IInvocationOperation inv)
     {
         var method = inv.TargetMethod;
+        // CustomAttributeData.GetCustomAttributes(MemberInfo) (Microsoft.Extensions.Logging's ProviderAliasUtilities on a program's logger
+        // provider type): the partial answer too (#199); the program's own call keeps the shadow's exact-or-unknown answer.
+        if (method is { IsStatic: true, Name: "GetCustomAttributes", Parameters: [{ Type.Name: "MemberInfo" }] }
+            && method.ContainingType is { Name: "CustomAttributeData", ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } })
+        {
+            _m.NoteTypeAttributesQueried();
+            return CallCoreLib("ReflectionRuntime", "MemberAttributeDataFramework", EmitArgumentValue(inv.Arguments[0]));
+        }
         if (!method.IsStatic || method.ContainingType is not { Name: "Attribute", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } }
             || method.Parameters is not [{ Type.Name: "MemberInfo" }, ..] parameters) return null;
         var helper = method.Name switch
