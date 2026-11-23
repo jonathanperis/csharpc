@@ -255,6 +255,18 @@ public sealed partial class FunctionCodeGen
         return _b.ICmp(predicate, a, b);
     }
 
+    /// <summary>
+    /// A Type flag property (IsEnum, IsValueType, ...) of a Type made from a known method table — `typeof(T).IsEnum` in
+    /// generic code after monomorphization (DefaultInterpolatedStringHandler.AppendFormatted&lt;T&gt;): a constant, and neither the
+    /// lookup nor the type-info table is emitted. Null when the type is only known at run time.
+    /// </summary>
+    internal LLVMValueRef? KnownTypeFlag(LLVMValueRef type, ulong mask)
+    {
+        if (TypeObjectSource(type) is not { IsNull: false } mt || _m.KnownTypeFlags(mt) is not { } flags) return null;
+        if (Native.LLVMGetFirstUse(type) == 0) { _eraseIfUnused.Remove(type); Native.LLVMInstructionEraseFromParent(type); }
+        return (flags & mask) != 0 ? L.True : L.False;
+    }
+
     /// <summary>The method table a Type value was looked up from (a direct csrt_type_from_mt call), or null.</summary>
     private LLVMValueRef TypeObjectSource(LLVMValueRef value)
     {
