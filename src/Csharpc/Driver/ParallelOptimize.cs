@@ -201,6 +201,7 @@ public static class ParallelOptimize
         log?.Invoke($"bitcode image {image.Size >> 20} MB, rss {Rss()} MB");
         module.Dispose();
         log?.Invoke($"program module freed, rss {Rss()} MB");
+        if (MemoryBudget.ReturnFreedMemory()) log?.Invoke($"freed memory returned to the system, rss {Rss()} MB");
         threads = MemoryBudget.Workers(threads, image.Size, log);
         var objects = Enumerable.Range(0, count).Select(i => $"{objectPathBase}.{i}.o").ToList();
         var nextPartition = -1;
