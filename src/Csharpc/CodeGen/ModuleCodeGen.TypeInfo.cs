@@ -59,8 +59,19 @@ public sealed partial class ModuleCodeGen
     internal void RegisterTypeMethodTable(LLVMValueRef mt, object type)
     {
         if (!_canonMethodTable.IsNull && mt.Handle == _canonMethodTable.Handle) return; // a canonical form is not a type
-        if (_typeMtSeen.Add(mt.Handle)) _typeMts.Add((mt, type));
+        if (_typeMtSeen.Add(mt.Handle)) { _typeMts.Add((mt, type)); _typeOfMt[mt.Handle] = type; }
     }
+
+    private readonly Dictionary<nint, object> _typeOfMt = [];
+
+    /// <summary>
+    /// The flags the table would record for this method table's type (the same <see cref="TypeFlags"/>), or null when
+    /// the method table describes no known closed type. Lets `typeof(T).IsEnum` in generic code fold to a constant
+    /// after monomorphization instead of pulling the whole table into the program (#466).
+    /// </summary>
+    internal ulong? KnownTypeFlags(LLVMValueRef mt) =>
+        _typeOfMt.TryGetValue(mt.Handle, out var described) && described is ITypeSymbol type && !TypeSubstitution.IsOpen(type)
+            ? TypeFlags(RealType(type)) : null;
 
     private LLVMTypeRef TypeTableHeader => Llvm.Struct(Llvm.I64, Llvm.Ptr);
 

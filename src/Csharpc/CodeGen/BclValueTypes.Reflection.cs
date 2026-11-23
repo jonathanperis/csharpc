@@ -19,7 +19,7 @@ internal static partial class BclValueTypes
             Rt(g, fn, g.Llvm.Ptr, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
 
         foreach (var (property, mask) in ModuleCodeGen.TypeFlagProperties)
-            t[$"{Type}.get_{property}()"] = (g, _, self, _, _) =>
+            t[$"{Type}.get_{property}()"] = (g, _, self, _, _) => g.KnownTypeFlag(self, mask) ??
                 Rt(g, "csrt_type_flag", g.Llvm.I1, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr), (g.Llvm.ConstUInt(g.Llvm.I64, mask), g.Llvm.I64));
         // Kinds of types csharpc never creates Type objects for: by-refs, method generic parameters,
         // function pointers, COM objects, remoting.
