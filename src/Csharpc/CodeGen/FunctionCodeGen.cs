@@ -428,6 +428,9 @@ public sealed partial class FunctionCodeGen
                 while (target is IFieldReferenceOperation { Instance.Type.IsValueType: true } or IPropertyReferenceOperation { Instance.Type.IsValueType: true })
                     target = target is IFieldReferenceOperation f ? f.Instance : ((IPropertyReferenceOperation)target).Instance;
                 if (target is IFlowCaptureReferenceOperation r) result.Add(r.Id);
+                // `(p, _) = (new Point { X = 3 }, 0)`: the right side's control flow makes Roslyn capture the deconstruction's
+                // elements, which are assigned through those captures (#386).
+                else if (target is ITupleOperation tuple) AddTupleElementCaptures(tuple, result);
             }
         }
         // `s with { X = 1 }` on a struct captures a *copy* of s and mutates that copy.
@@ -436,6 +439,18 @@ public sealed partial class FunctionCodeGen
                 || capture.Value.Syntax.Parent is Microsoft.CodeAnalysis.CSharp.Syntax.WithExpressionSyntax { Expression: var operand }
                     && operand == capture.Value.Syntax)
                 result.Remove(capture.Id);
+    }
+
+    private static void AddTupleElementCaptures(ITupleOperation tuple, HashSet<CaptureId> result)
+    {
+        foreach (var element in tuple.Elements)
+        {
+            var e = element;
+            while (e is IConversionOperation { IsImplicit: true } conversion) e = conversion.Operand;
+            if (e is IFlowCaptureReferenceOperation r) result.Add(r.Id);
+            else if (e is ITupleOperation nested) AddTupleElementCaptures(nested, result);
+            else if (e is IDeclarationExpressionOperation { Expression: ITupleOperation declared }) AddTupleElementCaptures(declared, result);
+        }
     }
 
     private static void FindArrayEnumerators(ControlFlowGraph graph, Dictionary<CaptureId, ITypeSymbol> result)
