@@ -301,9 +301,9 @@ internal static partial class BclValueTypes
         g.CallCoreLib("ArrayChecks", "Copy", src, srcIndex, dst, dstIndex, length, longLength ? g.Llvm.True : g.Llvm.False);
         var conversion = Microsoft.CodeAnalysis.CSharp.CSharpExtensions.ClassifyConversion(g.Module.Compilation, e, de);
         if (e.IsValueType && de.IsReferenceType && conversion.IsBoxing)
-            g.CallCoreLibGenericMethod("ArrayChecks", "CopyBoxing", [e], src, srcIndex, dst, dstIndex, length);
+            g.CallCoreLibGenericMethod("ArrayChecks", "CopyBoxing", [e, de], src, srcIndex, dst, dstIndex, length);
         else if (e.IsReferenceType && de.IsValueType && conversion.IsUnboxing)
-            g.CallCoreLibGenericMethod("ArrayChecks", "CopyUnboxing", [de], src, srcIndex, dst, dstIndex, length);
+            g.CallCoreLibGenericMethod("ArrayChecks", "CopyUnboxing", [e, de], src, srcIndex, dst, dstIndex, length);
         else if (IsWidenablePrimitive(e) && IsWidenablePrimitive(de) && conversion is { IsImplicit: true, IsNumeric: true })
             g.EmitCountedLoop(length, i =>
             {

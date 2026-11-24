@@ -519,13 +519,22 @@ namespace CsharpcCoreLib
         /// (ICollection.CopyTo implementations): same element type, or object[] (elements boxed).
         /// </summary>
         // Array.Copy's element conversions (#365; BclValueTypes.ConvertingArrayCopy checked the arguments and chose the kind).
-        public static void CopyBoxing<T>(T[] source, long sourceIndex, object[] destination, long destinationIndex, long length)
+        // The arrays' runtime element types decide, as Array.CopyImpl's CanAssignArrayType does: a covariant destination (an object[]
+        // that is a string[]) or source (an object[] that is a string[]) the elements cannot go to throws before anything is copied.
+        // The static element types are the type arguments; only a covariant array (its runtime type differs) needs the reflection check.
+        public static void CopyBoxing<T, TDestination>(T[] source, long sourceIndex, object[] destination, long destinationIndex, long length)
         {
+            if (destination.GetType() != typeof(TDestination[])
+                && !destination.GetType().GetElementType().IsAssignableFrom(Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T)))
+                ThrowArrayTypeMismatch();
             for (long i = 0; i < length; i++) destination[destinationIndex + i] = CoreIntrinsics.Box(source[sourceIndex + i]);
         }
 
-        public static void CopyUnboxing<T>(object[] source, long sourceIndex, T[] destination, long destinationIndex, long length)
+        public static void CopyUnboxing<TSource, T>(object[] source, long sourceIndex, T[] destination, long destinationIndex, long length)
         {
+            if (source.GetType() != typeof(TSource[])
+                && !source.GetType().GetElementType().IsAssignableFrom(Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T)))
+                ThrowArrayTypeMismatch();
             for (long i = 0; i < length; i++)
             {
                 object o = source[sourceIndex + i];

@@ -61,6 +61,17 @@ static class Program
         Try("ICollection.CopyTo", collection, () => ((ICollection)new object[] { 3 }).CopyTo(collection, 0));
         var collectionOk = new string[1];
         Try("ICollection.CopyTo ok", collectionOk, () => ((ICollection)new object[] { "x" }).CopyTo(collectionOk, 0));
+        object[] covariantStrings = new string[] { "a", "b" };
+        var fromCovariant = new int[2];
+        Try("unbox from covariant string[]", fromCovariant, () => Array.Copy(covariantStrings, fromCovariant, 2));
+        object[] covariantDestination = new string[2];
+        Try("box into covariant string[]", covariantDestination, () => Array.Copy(ints, covariantDestination, 2));
+        object[] covariantComparables = new IComparable[2];
+        Try("box into covariant IComparable[]", covariantComparables, () => Array.Copy(ints, covariantComparables, 2));
+        object[] covariantValueTypes = new ValueType[] { 3, 4 };
+        var fromValueTypes = new int[2];
+        Try("unbox covariant ValueType[]", fromValueTypes, () => Array.Copy(covariantValueTypes, fromValueTypes, 2));
+
         var boxedFromCollection = new object[2];
         Try("ICollection int[] -> object[]", boxedFromCollection, () => ((ICollection)new[] { 1, 2 }).CopyTo(boxedFromCollection, 0));
     }
