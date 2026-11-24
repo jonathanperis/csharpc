@@ -1,0 +1,10 @@
+clone is self: True True
+built before Intern: True
+literal before Intern: True True
+Intern returns the first: True same as literal: False
+IsInterned after: True
+second Intern: True
+literal interned: True True
+empty: True False
+Intern(null): str
+IsInterned(null): str

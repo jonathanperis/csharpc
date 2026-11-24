@@ -26,6 +26,33 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.String")]
     internal static class StringExtras
     {
+        // string.Intern / IsInterned as NativeAOT has them (#103; NativeAOT is the drop-in target where it and the JIT differ): a table
+        // only Intern fills. Literals are not in it until interned (the JIT interns every literal up front), and Intern returns the
+        // first string interned with that value, so Intern(new string("ab")) is not the literal "ab" unless the literal came first.
+        private static readonly object s_internLock = new object();
+        private static Dictionary<string, string> s_interned;
+
+        public static string Intern(string str)
+        {
+            if (str == null) throw new ArgumentNullException("str");
+            lock (s_internLock)
+            {
+                s_interned ??= new Dictionary<string, string>();
+                if (!s_interned.TryGetValue(str, out string canonical)) s_interned.Add(str, canonical = str);
+                return canonical;
+            }
+        }
+
+        public static string IsInterned(string str)
+        {
+            if (str == null) throw new ArgumentNullException("str");
+            lock (s_internLock) return s_interned != null && s_interned.TryGetValue(str, out string canonical) ? canonical : null;
+        }
+
+        /// <summary>string.Clone: the string itself (strings are immutable), as .NET's.</summary>
+        [ShadowInstance]
+        public static object Clone(string s) => s;
+
         // The internal members of System.String that the framework's own CoreLib IL calls (docs/21-ownership.md, issue #191 part B);
         // the IL front-end resolves them here because the reference pack does not declare them (IlAssembly.ShadowedMember). Not through AsSpan:
         // with MemoryExtensions from the framework IL, AsSpan(string) is the framework's and calls GetRawStringData itself.

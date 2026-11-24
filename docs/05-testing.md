@@ -112,6 +112,15 @@ with `tests/culture-pin/CulturePin.cs` (a `[ModuleInitializer]` doing the same).
 A sample with a `NAME.env` file (`VAR=value` lines, e.g. `LC_ALL=pt_BR.UTF-8`) is recorded and run
 with that environment on both sides instead, without the pin.
 
+**NativeAOT as the oracle.** csharpc is a drop-in for NativeAOT, so where NativeAOT and the JIT print
+different things for the same program, csharpc matches NativeAOT. Such a sample has a `NAME.aot` file
+(one line naming the difference, e.g. `string.IsInterned`: the JIT interns every literal up front,
+NativeAOT only what `string.Intern` added). `tests/run.sh --regen` records it from its
+`dotnet publish -p:PublishAot=true` build instead of `dotnet run`, and `tests/check-oracle.sh` checks
+it the same way on every OS (`platform_aot_run` in `tests/platform.sh`). NativeAOT has no startup
+hooks, so on macOS and Windows its culture is the user's: an `.aot` sample must not print
+culture-dependent text.
+
 **WebAssembly.** `CSHARPC_TEST_TARGET=wasm32-wasip1` makes `tests/run.sh`, `tests/conformance.sh`
 and `tests/programs.sh` compile every test with `--target wasm32-wasip1` and run it with
 `tests/wasm-run.sh`: wasmtime with the environment inherited, the host file system preopened at `/`
