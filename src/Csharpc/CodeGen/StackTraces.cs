@@ -538,7 +538,7 @@ public sealed class StackTraceInfo
     /// <summary>
     /// The first place where the program turns an exception into text (<c>ToString()</c>, string
     /// interpolation or concatenation, passing it as <c>object</c>, e.g. to Console.WriteLine) or
-    /// reads <c>StackTrace</c>; null when it never does. Stack traces cost code size (a landing pad per
+    /// reads <c>StackTrace</c> or <c>Source</c>; null when it never does. Stack traces cost code size (a landing pad per
     /// call site), so only such programs record them. Exceptions that only ever reach the
     /// unhandled-exception report (stderr) are not looked for.
     /// </summary>
@@ -549,7 +549,7 @@ public sealed class StackTraceInfo
             if (RoslynFrontend.IsCoreLibTree(tree)) continue;
             var text = tree.GetText().ToString();
             if (!text.Contains("StackTrace", StringComparison.Ordinal) && !text.Contains("Exception", StringComparison.Ordinal)
-                && !text.Contains("catch", StringComparison.Ordinal))
+                && !text.Contains("catch", StringComparison.Ordinal) && !text.Contains("Source", StringComparison.Ordinal))
                 continue;
             SemanticModel? model = null;
             bool IsException(ExpressionSyntax expression)
@@ -561,12 +561,14 @@ public sealed class StackTraceInfo
             {
                 var found = node switch
                 {
-                    MemberAccessExpressionSyntax { Name.Identifier.ValueText: "StackTrace" or "ToString" } access => IsException(access.Expression),
+                    // Exception.Source tells a thrown exception (its throwing assembly, an explicit error in csharpc) from one never thrown
+                    // (null) by the frames recorded when it was thrown; without them a thrown one read as never thrown (#104).
+                    MemberAccessExpressionSyntax { Name.Identifier.ValueText: "StackTrace" or "ToString" or "Source" } access => IsException(access.Expression),
                     // ExceptionDispatchInfo.SetRemoteStackTrace refuses an exception that was already thrown, which it can tell only from
                     // the frames recorded when it was thrown.
                     MemberAccessExpressionSyntax { Name.Identifier.ValueText: "SetRemoteStackTrace" } => true,
                     ConditionalAccessExpressionSyntax { WhenNotNull: MemberBindingExpressionSyntax or InvocationExpressionSyntax { Expression: MemberBindingExpressionSyntax } } conditional
-                        when BoundMember(conditional.WhenNotNull) is "StackTrace" or "ToString" => IsException(conditional.Expression),
+                        when BoundMember(conditional.WhenNotNull) is "StackTrace" or "ToString" or "Source" => IsException(conditional.Expression),
                     InterpolationSyntax interpolation => IsException(interpolation.Expression),
                     BinaryExpressionSyntax { RawKind: (int)SyntaxKind.AddExpression } add => IsException(add.Left) || IsException(add.Right),
                     ArgumentSyntax argument when IsException(argument.Expression) =>
