@@ -149,6 +149,7 @@ typedef struct csrt_Thread {
     _Atomic int32_t state;
     bool background;
     bool parameterized;
+    int32_t priority_xor_normal; // Thread.Priority ^ ThreadPriority.Normal (2): the zero-initialised object reads Normal
     bool pool;               // a pool worker (always background)
     void* flow;              // the starting thread's execution-context flow (csrt_tl_flow), captured by Start
     atomic_bool interrupted; // Thread.Interrupt pending (consumed by the next interruptible wait)
@@ -458,6 +459,23 @@ bool csrt_thread_is_alive(csrt_Thread* t) {
 }
 
 int32_t csrt_thread_id(csrt_Thread* t) { if (!t) csrt_throw_null_reference(); return t->id; }
+
+// Thread.Priority (#97): kept per thread and reported back, as .NET on Linux (which leaves the OS priority alone without privileges);
+// .NET's errors: a value outside the enum first, then a thread that has finished.
+static void priority_check_alive(csrt_Thread* t) {
+    if (atomic_load(&t->state) == THREAD_STOPPED) throw_msg(&mt_thread_state, "Thread is dead; priority cannot be accessed.");
+}
+int32_t csrt_thread_get_priority(csrt_Thread* t) {
+    if (!t) csrt_throw_null_reference();
+    priority_check_alive(t);
+    return t->priority_xor_normal ^ 2;
+}
+void csrt_thread_set_priority(csrt_Thread* t, int32_t priority) {
+    if (!t) csrt_throw_null_reference();
+    if ((uint32_t)priority > 4) throw_msg(&mt_argument_out_of_range, "Value of flags is invalid.");
+    priority_check_alive(t);
+    t->priority_xor_normal = priority ^ 2;
+}
 csrt_String* csrt_thread_get_name(csrt_Thread* t) { if (!t) csrt_throw_null_reference(); return t->name; }
 /// The OS-level name of the calling thread (what top, perf and debuggers show), as .NET sets it on
 /// Linux: the first 15 characters (the kernel's limit), non-ASCII as '?'.
@@ -1027,6 +1045,19 @@ void csrt_event_dispose(csrt_Event* e);
           (void*)csrt_event_dispose } };
 EVENT_MT_DISPOSE(csrt_Semaphore_MT, "System.Threading.Semaphore")
 EVENT_MT_DISPOSE(csrt_Mutex_MT, "System.Threading.Mutex")
+
+// Type tests against WaitHandle and EventWaitHandle (#97): the events, mutexes and semaphores are runtime objects whose tables
+// have no base chain, so the test is "one of these tables" (EventWaitHandle: the two events). The name-only tables let a failed
+// cast report .NET's InvalidCastException through csrt_castclass.
+const csrt_MethodTable csrt_WaitHandle_MT = { NULL, "System.Threading.WaitHandle", 0, 0, NULL, 0, 0 };
+const csrt_MethodTable csrt_EventWaitHandle_MT = { NULL, "System.Threading.EventWaitHandle", 0, 0, NULL, 0, 0 };
+void* csrt_isinst_wait_handle(void* obj, bool events_only) {
+    if (!obj) return NULL;
+    const csrt_MethodTable* mt = *(const csrt_MethodTable* const*)obj;
+    if (mt == &csrt_ManualResetEvent_MT.header || mt == &csrt_AutoResetEvent_MT.header) return obj;
+    if (!events_only && (mt == &csrt_Mutex_MT.header || mt == &csrt_Semaphore_MT.header)) return obj;
+    return NULL;
+}
 
 static CSRT_THROWS void throw_object_disposed(void) {
     static const csrt_MethodTable mt = { NULL, "System.ObjectDisposedException", 0, 0, NULL, 0, 0 };

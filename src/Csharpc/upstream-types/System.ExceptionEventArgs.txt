@@ -1,0 +1,6 @@
+# The event arguments that carry an exception (#95, #97): ThreadExceptionEventArgs (WinForms' Application.ThreadException,
+# System.Threading) and UnhandledExceptionEventArgs (AppDomain.UnhandledException), with their handler delegates.
+System.Threading.ThreadExceptionEventArgs
+System.Threading.ThreadExceptionEventHandler
+System.UnhandledExceptionEventArgs
+System.UnhandledExceptionEventHandler

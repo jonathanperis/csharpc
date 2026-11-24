@@ -121,6 +121,7 @@ public sealed partial class FunctionCodeGen
                 "ManagedThreadId" => Rt("csrt_thread_id", L.I32, [L.Ptr], Self()),
                 "Name" => Rt("csrt_thread_get_name", L.Ptr, [L.Ptr], Self()),
                 "IsBackground" => Rt("csrt_thread_get_background", L.I1, [L.Ptr], Self()),
+                "Priority" => Rt("csrt_thread_get_priority", L.I32, [L.Ptr], Self()),
                 "IsThreadPoolThread" => L.False,
                 "CurrentCulture" or "CurrentUICulture" => CallCoreLib("CultureStrings", "GetThreadCulture",
                     _b.ICmp(LLVMIntPredicate.EQ, Self(), Rt("csrt_thread_current", L.Ptr, [])), name == "CurrentUICulture" ? L.True : L.False),
@@ -168,6 +169,7 @@ public sealed partial class FunctionCodeGen
         {
             case "Name": Rt("csrt_thread_set_name", L.Void, [L.Ptr, L.Ptr], self, v); break;
             case "IsBackground": Rt("csrt_thread_set_background", L.Void, [L.Ptr, L.I1], self, v); break;
+            case "Priority": Rt("csrt_thread_set_priority", L.Void, [L.Ptr, L.I32], self, v); break;
             case "CurrentCulture" or "CurrentUICulture":
                 CallCoreLib("CultureStrings", "SetThreadCulture", _b.ICmp(LLVMIntPredicate.EQ, self, Rt("csrt_thread_current", L.Ptr, [])), v,
                     p.Property.Name == "CurrentUICulture" ? L.True : L.False);
@@ -210,6 +212,8 @@ public sealed partial class FunctionCodeGen
                 case "TrySetApartmentState" when n == 1:
                     Self(); result = CallCoreLib("ThreadApartment", "TrySet", TArg(inv, 0)); return true;
                 case "Yield": result = Rt("csrt_thread_yield", L.I1, []); return true;
+                // No-ops in .NET Core (#97): hosts that cared about critical regions and thread affinity are gone.
+                case "BeginCriticalRegion" or "EndCriticalRegion" or "BeginThreadAffinity" or "EndThreadAffinity" when n == 0: return true;
                 case "SpinWait": Rt("csrt_thread_spin_wait", L.Void, [L.I32], TArg(inv, 0)); return true;
                 case "MemoryBarrier": Native.LLVMBuildFence(_b.Ref, LLVMAtomicOrdering.SequentiallyConsistent, 0, ""); return true;
             }
