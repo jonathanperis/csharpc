@@ -586,6 +586,14 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Threading.Tasks.ValueTask")]
     internal static class ValueTaskMembers
     {
+        // Equals(object) / GetHashCode (#96; a ValueTask is its task): equal when they wrap the same task, as .NET's (which also compares
+        // the IValueTaskSource token csharpc's ValueTask never has).
+        [ShadowInstance]
+        public static bool Equals(ValueTask task, object other) => other is ValueTask v && ReferenceEquals(task.AsTask(), v.AsTask());
+
+        [ShadowInstance]
+        public static int GetHashCode(ValueTask task) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(task.AsTask());
+
         public static ValueTask FromCanceled(CancellationToken cancellationToken) => new ValueTask(Task.FromCanceled(cancellationToken));
         public static ValueTask<TResult> FromCanceled<TResult>(CancellationToken cancellationToken) => new ValueTask<TResult>(Task.FromCanceled<TResult>(cancellationToken));
         // ValueTask<TResult> is a struct (ValueTaskOfT.cs): the result inline, as .NET's ValueTask.FromResult.

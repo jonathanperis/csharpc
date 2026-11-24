@@ -736,6 +736,16 @@ internal static class Intrinsics
                         ? g.CallRuntime("csrt_task_try_cancel", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], self)
                         : g.CallRuntime("csrt_task_cancel", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], self);
                 };
+                // TrySetFromTask (#96): corelib/Tasks/TaskExceptions.cs (TaskCompletionFrom) copies the completed task's outcome.
+                if (tryMode)
+                    t[generic ? $"{tcs}.TrySetFromTask({Tasks}.Task<TResult>)" : $"{tcs}.TrySetFromTask({Tasks}.Task)"] = (g, inv) =>
+                    {
+                        var self = g.EmitValue(inv.Instance!);
+                        g.NullCheck(self);
+                        return generic
+                            ? g.CallCoreLibGeneric("TaskCompletionFrom", "TrySetFromTask", ResultTypeOf(g, inv), self, Arg(g, inv, 0))
+                            : g.CallCoreLib("TaskCompletionFrom", "TrySetFromPlainTask", self, Arg(g, inv, 0));
+                    };
                 // (Try)SetCanceled(token): the TaskCanceledException an await throws carries the token.
                 t[$"{tcs}.{prefix}Canceled(System.Threading.CancellationToken)"] = (g, inv) =>
                 {

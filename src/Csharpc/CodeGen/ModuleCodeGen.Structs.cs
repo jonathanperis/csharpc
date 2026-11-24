@@ -461,6 +461,10 @@ public sealed partial class ModuleCodeGen
         b.PositionAtEnd(b.AppendBlock(fn, "entry"));
         var args = new LLVMValueRef[method.Parameters.Length + 1];
         args[0] = b.InBoundsGep(Llvm.I8, fn.Param(0), [Llvm.ConstInt(Llvm.I64, 8)], "payload");
+        // A corelib [ShadowInstance] static standing for the method takes the receiver by value (a library struct's override with no shadow
+        // of its own, ValueTask/CancellationToken's Equals and GetHashCode, #96): the value in the box, not its address.
+        if (CoreLib.Map(method) is { } mapped && CoreLib.IsInstanceShadow(mapped) && mapped.Parameters[0].RefKind == RefKind.None)
+            args[0] = b.Load(Types.Storage(mapped.Parameters[0].Type), args[0]);
         for (var i = 1; i < args.Length; i++) args[i] = fn.Param((uint)i);
         var result = b.Call(target.Type, target.Fn, args);
         if (method.ReturnsVoid) b.RetVoid(); else b.Ret(result);
