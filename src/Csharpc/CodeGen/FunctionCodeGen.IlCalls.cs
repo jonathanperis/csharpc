@@ -341,7 +341,9 @@ public sealed partial class FunctionCodeGen
         }
         if (values.Length != 1) return null;
         var (v, t) = (values[0], types[0]);
-        LLVMValueRef One() => t.SpecialType == SpecialType.System_Decimal ? Constant(1m, t) : Constant(1, t);
+        // 1 of the operand's type: 1.0 for float/double (`x++` on T = double through IL, #425), not an integer constant.
+        LLVMValueRef One() => t.SpecialType == SpecialType.System_Decimal ? Constant(1m, t)
+            : v.Type.IsFloatingPoint ? LlvmContext.ConstReal(v.Type, 1) : Constant(1, t);
         LLVMValueRef? result = name switch
         {
             "op_UnaryPlus" => v,
