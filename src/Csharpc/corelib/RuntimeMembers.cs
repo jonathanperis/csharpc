@@ -408,6 +408,39 @@ namespace CsharpcCoreLib
             catch (Exception e) { CoreIntrinsics.UnhandledException(e); }
         }
 
+        // UnhandledException (#97) is raised once, with a null sender and IsTerminating true, when an exception reaches the top of a thread with no
+        // handler, before the runtime prints it and terminates the process (runtime/eh.c); the first handler registers the raiser.
+        private static readonly object s_unhandledLock = new object();
+        private static UnhandledExceptionEventHandler s_unhandled;
+
+        public event UnhandledExceptionEventHandler UnhandledException
+        {
+            add
+            {
+                lock (s_unhandledLock) s_unhandled = (UnhandledExceptionEventHandler)Delegate.Combine(s_unhandled, value);
+                CoreIntrinsics.csrt_unhandled_exception_register();
+            }
+            remove
+            {
+                lock (s_unhandledLock) s_unhandled = (UnhandledExceptionEventHandler)Delegate.Remove(s_unhandled, value);
+            }
+        }
+
+        [RuntimeExport("csrt_unhandled_exception_raise", "csrt_unhandled_exception_register")]
+        internal static void RaiseUnhandledException(object exception)
+        {
+            UnhandledExceptionEventHandler handlers;
+            lock (s_unhandledLock) handlers = s_unhandled;
+            if (handlers == null) return;
+            // An exception a handler throws is not reported again: the process is terminating with the first one.
+            // .NET Core raises it with a null sender (AppContext.OnUnhandledException).
+            try { handlers(null, new UnhandledExceptionEventArgs(exception, true)); }
+            catch (Exception) { }
+        }
+
+        // The one app domain is never unloaded.
+        public bool IsFinalizingForUnload() => false;
+
         public Assembly Load(AssemblyName assemblyRef) => Assembly.Load(assemblyRef);
         public Assembly Load(string assemblyString) => Assembly.Load(assemblyString);
 

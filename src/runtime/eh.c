@@ -897,7 +897,16 @@ _Noreturn void csrt_fail_unhandled(void) {
     abort();
 }
 
+// AppDomain.UnhandledException (#97): the corelib's AppDomain registers its first handler here and exports
+// csrt_unhandled_exception_raise (RuntimeExport, triggered by the register call); programs that never subscribe link the
+// empty fallback. Raised once, before the report, as .NET raises it before printing the exception and terminating.
+__attribute__((weak)) void csrt_unhandled_exception_raise(void* exception) { (void)exception; }
+static int s_unhandled_registered, s_unhandled_raised;
+void csrt_unhandled_exception_register(void) { __atomic_store_n(&s_unhandled_registered, 1, __ATOMIC_RELEASE); }
+
 _Noreturn static void unhandled(void* exception) {
+    if (__atomic_load_n(&s_unhandled_registered, __ATOMIC_ACQUIRE) && !__atomic_exchange_n(&s_unhandled_raised, 1, __ATOMIC_ACQ_REL))
+        csrt_unhandled_exception_raise(exception);
     fflush(stdout);
     fputs("Unhandled exception. ", stderr);
     csrt_stderr_write_string(csrt_object_to_string(exception));
