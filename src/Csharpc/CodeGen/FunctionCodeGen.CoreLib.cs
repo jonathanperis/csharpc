@@ -173,8 +173,8 @@ public sealed partial class FunctionCodeGen
             "HasConverterResources" => _m.HasConverterResources() ? L.True : L.False,
             "HasNonStringResources" => _m.HasNonStringResources() ? L.True : L.False,
             "NestedTypeTable" => _b.Call(_m.NestedTypesFunction().Type, _m.NestedTypesFunction().Fn, [args[0], args[1]]),
-            // A CancellationToken is its source object (null: None), so these are reinterpretations.
-            "TokenSource" or "SourceToken" => args[0],
+            // A CancellationToken is its source object (null: None), a ValueTask its task (null: default), so these are reinterpretations.
+            "TokenSource" or "SourceToken" or "ValueTaskObject" => args[0],
             // `extern R csrt_name(...)`: a direct call of that C runtime function (runtime/*.c).
             _ when target.Name.StartsWith("csrt_", StringComparison.Ordinal) => CallRuntime(target.Name,
                 target.ReturnsVoid ? L.Void : T.Value(target.ReturnType), [.. target.Parameters.Select(p => T.Value(p.Type))], args),

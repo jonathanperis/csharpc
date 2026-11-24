@@ -409,6 +409,8 @@ public sealed partial class ModuleCodeGen
         if (Int128Support.Is128(type)) return Builtin(type.Name == "Int128" ? "csrt_Boxed_Int128_MT" : "csrt_Boxed_UInt128_MT");
         if (type is INamedTypeSymbol { Name: "CancellationTokenSource", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } })
             return Builtin("csrt_CancellationTokenSource_MT");
+        // typeof(ValueTask) / typeof(CancellationToken): the table their boxes carry (boxed.GetType() == typeof(...), #96).
+        if (type is INamedTypeSymbol pointerStruct && IsPointerLibraryStruct(pointerStruct)) return StructMethodTable(pointerStruct);
         // typeof(Task): the table plain tasks carry (the non-generic Task and Task<VoidTaskResult> are one runtime type).
         if (type is INamedTypeSymbol { Name: "Task", TypeArguments.Length: 0, ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } })
             return Builtin("csrt_Task_MT");
