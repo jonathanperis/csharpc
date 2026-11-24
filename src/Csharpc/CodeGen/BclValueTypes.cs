@@ -271,7 +271,7 @@ internal static partial class BclValueTypes
         if (de is null) throw CompileError.Unsupported($"'{m}' on a non-array argument", at);
         var references = e.IsReferenceType && de.IsReferenceType;
         if (!SymbolEqualityComparer.Default.Equals(e, de) && !references)
-            throw CompileError.Unsupported($"Array.Copy from {e}[] to {de}[] (element conversion)", at);
+            return ConvertingArrayCopy(g, at, e, de, src, srcIndex, dst, dstIndex, length, longLength);
         g.CallCoreLib("ArrayChecks", "Copy", src, srcIndex, dst, dstIndex, length, longLength ? g.Llvm.True : g.Llvm.False);
         // Between reference arrays the runtime element types decide (Array.CopyImpl): either array may be
         // covariant, and object[] -> string[] casts each element. Arrays of sealed types need no check.
@@ -286,6 +286,39 @@ internal static partial class BclValueTypes
             (length, g.Llvm.I64), (I64(g, (long)g.Types.Target.SizeOf(g.Types.Storage(e))), g.Llvm.I64));
         return default;
     }
+
+    /// <summary>
+    /// Array.Copy between arrays of different element types, one of them a value type (#365), as Array.CopyImpl classifies them
+    /// (CanAssignArrayType): boxing into a type the element boxes to, unboxing from a reference type (the exact type; Nullable&lt;T&gt;
+    /// takes null; the elements before a failing one stay copied), primitive widening; anything else throws ArrayTypeMismatchException.
+    /// Enum element types (which .NET copies to and from their underlying type) stay a diagnostic.
+    /// </summary>
+    private static LLVMValueRef ConvertingArrayCopy(FunctionCodeGen g, IOperation at, ITypeSymbol e, ITypeSymbol de, LLVMValueRef src,
+        LLVMValueRef srcIndex, LLVMValueRef dst, LLVMValueRef dstIndex, LLVMValueRef length, bool longLength)
+    {
+        if (e.TypeKind == TypeKind.Enum || de.TypeKind == TypeKind.Enum)
+            throw CompileError.Unsupported($"Array.Copy from {e}[] to {de}[] (element conversion of an enum)", at);
+        g.CallCoreLib("ArrayChecks", "Copy", src, srcIndex, dst, dstIndex, length, longLength ? g.Llvm.True : g.Llvm.False);
+        var conversion = Microsoft.CodeAnalysis.CSharp.CSharpExtensions.ClassifyConversion(g.Module.Compilation, e, de);
+        if (e.IsValueType && de.IsReferenceType && conversion.IsBoxing)
+            g.CallCoreLibGenericMethod("ArrayChecks", "CopyBoxing", [e], src, srcIndex, dst, dstIndex, length);
+        else if (e.IsReferenceType && de.IsValueType && conversion.IsUnboxing)
+            g.CallCoreLibGenericMethod("ArrayChecks", "CopyUnboxing", [de], src, srcIndex, dst, dstIndex, length);
+        else if (IsWidenablePrimitive(e) && IsWidenablePrimitive(de) && conversion is { IsImplicit: true, IsNumeric: true })
+            g.EmitCountedLoop(length, i =>
+            {
+                var value = g.LoadValue(g.ArrayElementAddress(src, e, g.Builder.BinOp(LLVMOpcode.Add, srcIndex, i)), e);
+                var widened = g.ConvertNumeric(value, e, de, at);
+                g.StoreValue(g.ToStorage(widened, de), g.ArrayElementAddress(dst, de, g.Builder.BinOp(LLVMOpcode.Add, dstIndex, i)));
+            });
+        else
+            g.CallCoreLib("ArrayChecks", "ThrowArrayTypeMismatch");
+        return default;
+    }
+
+    private static bool IsWidenablePrimitive(ITypeSymbol t) => t.SpecialType is SpecialType.System_Char or SpecialType.System_SByte or SpecialType.System_Byte
+        or SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Int32 or SpecialType.System_UInt32 or SpecialType.System_Int64
+        or SpecialType.System_UInt64 or SpecialType.System_Single or SpecialType.System_Double;
 
     // ---- TimeSpan ----------------------------------------------------------------------------
 
@@ -1075,7 +1108,10 @@ internal static partial class BclValueTypes
         // array.CopyTo(destination, index) is Array.Copy(array, 0, destination, index, array.Length) in .NET.
         BclHandler copyTo = (g, m, self, a, at) =>
         {
-            if (at is not IInvocationOperation { Instance: { } instance } || g.TypeOf(instance) is not IArrayTypeSymbol { Rank: 1 } arrayType)
+            // ((ICollection)array).CopyTo(...): the array under the conversion (#365).
+            var receiver = (at as IInvocationOperation)?.Instance;
+            while (receiver is IConversionOperation { Operand: var operand }) receiver = operand;
+            if (receiver is null || g.TypeOf(receiver) is not IArrayTypeSymbol { Rank: 1 } arrayType)
                 throw CompileError.Unsupported($"'{m}' on a value not statically known to be a one-dimensional array", at);
             g.NullCheck(self);
             return ArrayCopy(g, m, at, self, I64(g, 0), a[0], ToI64(g, a[1]), g.ArrayLength(self), longLength: false, arrayType.ElementType, destinationOrdinal: 0);

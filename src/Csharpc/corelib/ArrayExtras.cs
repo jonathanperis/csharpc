@@ -518,6 +518,27 @@ namespace CsharpcCoreLib
         /// Array.Copy(T[], ..., Array, ...) where the destination's element type is only known at run time
         /// (ICollection.CopyTo implementations): same element type, or object[] (elements boxed).
         /// </summary>
+        // Array.Copy's element conversions (#365; BclValueTypes.ConvertingArrayCopy checked the arguments and chose the kind).
+        public static void CopyBoxing<T>(T[] source, long sourceIndex, object[] destination, long destinationIndex, long length)
+        {
+            for (long i = 0; i < length; i++) destination[destinationIndex + i] = CoreIntrinsics.Box(source[sourceIndex + i]);
+        }
+
+        public static void CopyUnboxing<T>(object[] source, long sourceIndex, T[] destination, long destinationIndex, long length)
+        {
+            for (long i = 0; i < length; i++)
+            {
+                object o = source[sourceIndex + i];
+                // Array.CopyImpl unboxes the exact type only; a null element is a Nullable<T>'s null, else the copy stops here.
+                if (o is T value) destination[destinationIndex + i] = value;
+                else if (o == null && default(T) == null) destination[destinationIndex + i] = default;
+                else throw new InvalidCastException("At least one element in the source array could not be cast down to the destination array type.");
+            }
+        }
+
+        public static void ThrowArrayTypeMismatch() =>
+            throw new ArrayTypeMismatchException("Source array type cannot be assigned to destination array type.");
+
         public static void CopyToUntyped<T>(T[] source, long sourceIndex, Array destination, long destinationIndex, long length, bool longLength)
         {
             Copy(source, sourceIndex, destination, destinationIndex, length, longLength);
