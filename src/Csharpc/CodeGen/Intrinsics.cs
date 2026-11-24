@@ -736,6 +736,16 @@ internal static class Intrinsics
                         ? g.CallRuntime("csrt_task_try_cancel", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], self)
                         : g.CallRuntime("csrt_task_cancel", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], self);
                 };
+                // TrySetFromTask (#96): corelib/Tasks/TaskExceptions.cs (TaskCompletionFrom) copies the completed task's outcome.
+                if (tryMode)
+                    t[generic ? $"{tcs}.TrySetFromTask({Tasks}.Task<TResult>)" : $"{tcs}.TrySetFromTask({Tasks}.Task)"] = (g, inv) =>
+                    {
+                        var self = g.EmitValue(inv.Instance!);
+                        g.NullCheck(self);
+                        return generic
+                            ? g.CallCoreLibGeneric("TaskCompletionFrom", "TrySetFromTask", ResultTypeOf(g, inv), self, Arg(g, inv, 0))
+                            : g.CallCoreLib("TaskCompletionFrom", "TrySetFromPlainTask", self, Arg(g, inv, 0));
+                    };
                 // (Try)SetCanceled(token): the TaskCanceledException an await throws carries the token.
                 t[$"{tcs}.{prefix}Canceled(System.Threading.CancellationToken)"] = (g, inv) =>
                 {
@@ -838,7 +848,7 @@ internal static class Intrinsics
             var b = Arg(g, inv, inv.Instance is null ? 1 : 0);
             return g.Builder.ICmp(LLVMIntPredicate.EQ, a, b);
         };
-        t[$"{Th}.CancellationToken.Equals({Th}.CancellationToken)"] = sameSource;
+        // Equals(CancellationToken) is a corelib shadow (CancellationTokenMembers): a boxed token's IEquatable slot needs a function (#96).
         t[$"{Th}.CancellationToken.op_Equality({Th}.CancellationToken, {Th}.CancellationToken)"] = sameSource;
         t[$"{Th}.CancellationToken.op_Inequality({Th}.CancellationToken, {Th}.CancellationToken)"] = (g, inv) =>
             g.Builder.Not(sameSource(g, inv));
@@ -1036,7 +1046,8 @@ internal static class Intrinsics
         };
         t[$"{Tasks}.Task<TResult>.Result"] = result;
         t[$"{Tasks}.Task.CompletedTask"] = (g, _) => g.CallRuntime("csrt_task_completed_task", g.Module.Llvm.Ptr, []);
-        t[$"{Tasks}.ValueTask.CompletedTask"] = t[$"{Tasks}.Task.CompletedTask"];
+        // ValueTask.CompletedTask is default(ValueTask) in .NET (no task object: null here), so it equals `default` (#96).
+        t[$"{Tasks}.ValueTask.CompletedTask"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
     }
 
     private static FrozenDictionary<string, ConstructorHandler> BuildConstructors()
