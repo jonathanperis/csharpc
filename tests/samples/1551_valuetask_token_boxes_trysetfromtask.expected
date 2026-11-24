@@ -3,6 +3,11 @@ True False
 True False True
 True True True False System.Threading.CancellationToken True
 can be canceled: True
+True True True True
+True True False
+True False
+False True 0 False
+True True True True
 result: True 42 again: False
 completed: True RanToCompletion
 faulted: True Faulted x

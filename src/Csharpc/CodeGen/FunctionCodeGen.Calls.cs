@@ -815,8 +815,7 @@ public sealed partial class FunctionCodeGen
         INamedTypeSymbol { TypeKind: TypeKind.Struct } named when _m.IsUserType(named) => _m.StructMethodTable(named),
         // ValueTask and CancellationToken are library structs with no shadow of their own (their members are mapped one by one): their
         // boxes get a struct table like any struct's, with their Equals/GetHashCode overrides (#96).
-        INamedTypeSymbol { TypeKind: TypeKind.Struct, Name: "ValueTask" or "CancellationToken", ContainingType: null } named
-            when named.ContainingNamespace?.ToDisplayString() is "System.Threading.Tasks" or "System.Threading" && named.Arity == 0 => _m.StructMethodTable(named),
+        INamedTypeSymbol named when ModuleCodeGen.IsPointerLibraryStruct(named) => _m.StructMethodTable(named),
         INamedTypeSymbol { TypeKind: TypeKind.Interface } itf => _m.InterfaceMethodTable(itf),
         INamedTypeSymbol { IsTupleType: true } tuple => _m.TupleMethodTable(tuple, null!),
         INamedTypeSymbol memory when TypeMapper.IsMemory(memory) => _m.MemoryMethodTable(memory),

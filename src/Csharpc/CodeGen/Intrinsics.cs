@@ -848,7 +848,7 @@ internal static class Intrinsics
             var b = Arg(g, inv, inv.Instance is null ? 1 : 0);
             return g.Builder.ICmp(LLVMIntPredicate.EQ, a, b);
         };
-        t[$"{Th}.CancellationToken.Equals({Th}.CancellationToken)"] = sameSource;
+        // Equals(CancellationToken) is a corelib shadow (CancellationTokenMembers): a boxed token's IEquatable slot needs a function (#96).
         t[$"{Th}.CancellationToken.op_Equality({Th}.CancellationToken, {Th}.CancellationToken)"] = sameSource;
         t[$"{Th}.CancellationToken.op_Inequality({Th}.CancellationToken, {Th}.CancellationToken)"] = (g, inv) =>
             g.Builder.Not(sameSource(g, inv));
@@ -1046,7 +1046,8 @@ internal static class Intrinsics
         };
         t[$"{Tasks}.Task<TResult>.Result"] = result;
         t[$"{Tasks}.Task.CompletedTask"] = (g, _) => g.CallRuntime("csrt_task_completed_task", g.Module.Llvm.Ptr, []);
-        t[$"{Tasks}.ValueTask.CompletedTask"] = t[$"{Tasks}.Task.CompletedTask"];
+        // ValueTask.CompletedTask is default(ValueTask) in .NET (no task object: null here), so it equals `default` (#96).
+        t[$"{Tasks}.ValueTask.CompletedTask"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
     }
 
     private static FrozenDictionary<string, ConstructorHandler> BuildConstructors()

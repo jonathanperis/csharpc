@@ -20,6 +20,17 @@ static class Program
         Console.WriteLine($"{f is CancellationToken} {f is ValueType} {f.Equals(g)} {f.Equals(none)} {f} {f.GetHashCode() == g.GetHashCode()}");
         Console.WriteLine(f is CancellationToken token ? $"can be canceled: {token.CanBeCanceled}" : "no");
 
+        // The table typeof names is the boxes' table; IEquatable<T> dispatches; default is not a completed task's ValueTask.
+        Console.WriteLine($"{a.GetType() == typeof(ValueTask)} {typeof(ValueTask).IsInstanceOfType(a)} {f.GetType() == typeof(CancellationToken)} {typeof(CancellationToken).IsInstanceOfType(none)}");
+        Console.WriteLine($"{a is IEquatable<ValueTask> eq && eq.Equals(new ValueTask())} {((IEquatable<ValueTask>)c).Equals(new ValueTask(task))} {((IEquatable<ValueTask>)c).Equals(default)}");
+        Console.WriteLine($"{f is IEquatable<CancellationToken> teq && teq.Equals(cts.Token)} {((IEquatable<CancellationToken>)f).Equals(CancellationToken.None)}");
+        Console.WriteLine($"{new ValueTask().Equals(new ValueTask(Task.CompletedTask))} {new ValueTask().Equals(ValueTask.CompletedTask)} {new ValueTask().GetHashCode()} {a.Equals(new ValueTask(Task.CompletedTask))}");
+
+        // ValueTask.CompletedTask is default(ValueTask): equal to it, completed, awaitable, AsTask the completed task.
+        var completed = ValueTask.CompletedTask;
+        completed.GetAwaiter().GetResult();
+        Console.WriteLine($"{completed == default} {completed != new ValueTask(Task.CompletedTask)} {completed.IsCompletedSuccessfully} {ReferenceEquals(completed.AsTask(), Task.CompletedTask)}");
+
         var source = new TaskCompletionSource<int>();
         Console.WriteLine($"result: {source.TrySetFromTask(Task.FromResult(42))} {source.Task.Result} again: {source.TrySetFromTask(Task.FromResult(7))}");
         var plain = new TaskCompletionSource();

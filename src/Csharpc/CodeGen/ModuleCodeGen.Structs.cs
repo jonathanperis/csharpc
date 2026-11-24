@@ -381,7 +381,9 @@ public sealed partial class ModuleCodeGen
         var layout = GetStructLayout(type);
         if (!layout.MethodTable.IsNull) return layout.MethodTable;
 
-        var size = 8 + Types.Target.SizeOf(layout.LlvmType);
+        // ValueTask and CancellationToken are one pointer (their task, their source), not the reference assembly's fields: the size
+        // their boxes are allocated with (FunctionCodeGen.Box), which MemberwiseClone copies.
+        var size = 8 + Types.Target.SizeOf(IsPointerLibraryStruct(layout.Type) ? Types.Storage(layout.Type) : layout.LlvmType);
         // Same header as class method tables (TypeMapper.MethodTableHeader): base, name, size, flags,
         // interface map, interface count, reserved — then the vtable.
         var mtType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32,
@@ -412,6 +414,14 @@ public sealed partial class ModuleCodeGen
         return global;
     }
 
+    /// <summary>
+    /// ValueTask and CancellationToken: library structs csharpc represents as one pointer (the task, the source; null for default), whose
+    /// members are mapped one by one rather than shadowed. Their boxes get a struct table like a user struct's (#96).
+    /// </summary>
+    internal static bool IsPointerLibraryStruct(INamedTypeSymbol type) =>
+        type is { TypeKind: TypeKind.Struct, Arity: 0, ContainingType: null }
+        && (type.Name, type.ContainingNamespace?.ToDisplayString()) is ("ValueTask", "System.Threading.Tasks") or ("CancellationToken", "System.Threading");
+
     /// <summary>Interface map for a boxed struct: slots are unboxing thunks into the struct's methods.</summary>
     private (LLVMValueRef Map, int Count) EmitStructInterfaceMap(INamedTypeSymbol type)
     {
@@ -422,7 +432,8 @@ public sealed partial class ModuleCodeGen
         foreach (var itf in interfaces)
         {
             var slots = InterfaceSlots(itf).Select(member =>
-                type.FindImplementationForInterfaceMember(member) is IMethodSymbol impl && IsUserMethod(impl) && !impl.IsAbstract
+                type.FindImplementationForInterfaceMember(member) is IMethodSymbol impl && !impl.IsAbstract
+                    && (IsUserMethod(impl) || (IsPointerLibraryStruct(type) && CoreLib.Map(impl) is not null)) // their corelib shadows
                     ? UnboxingThunk(impl, slot: true)
                     : LlvmContext.Null(Llvm.Ptr)).ToArray();
             var slotsInit = LlvmContext.ConstArray(Llvm.Ptr, slots);

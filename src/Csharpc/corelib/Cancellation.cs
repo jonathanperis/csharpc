@@ -134,6 +134,10 @@ namespace CsharpcCoreLib
         [ShadowInstance]
         public static bool Equals(CancellationToken token, object other) => other is CancellationToken t && token == t;
 
+        // Equals(CancellationToken): also what a boxed token's IEquatable<CancellationToken> slot calls (#96).
+        [ShadowInstance]
+        public static bool Equals(CancellationToken token, CancellationToken other) => token == other;
+
         [ShadowInstance]
         public static int GetHashCode(CancellationToken token) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(CoreIntrinsics.TokenSource(token));
 
