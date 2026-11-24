@@ -337,7 +337,7 @@ csrt_String* csrt_pinvoke_string_from_native(void* p, int32_t encoding, bool rel
 
 /// string from a char*/length (new string(char*, int, int) and Marshal.PtrToStringUni).
 csrt_String* csrt_string_new_from_utf16(const uint16_t* chars, int32_t length) {
-    if (length < 0) length = 0;
+    if (length <= 0) return csrt_string_empty_object(); // string.Empty, as .NET's constructor returns (#492)
     csrt_String* s = csrt_string_alloc_checked(length);
     if (length) memcpy(s->chars, chars, 2 * (size_t)length);
     return s;

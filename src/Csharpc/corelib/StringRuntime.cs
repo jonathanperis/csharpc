@@ -28,6 +28,8 @@ namespace CsharpcCoreLib
         public static string Join(string separator, string[] value)
         {
             if (value == null) throw new ArgumentNullException("value");
+            // .NET's JoinCore (Concat(string[]) too): no copy for zero or one element; string.Empty or the element itself (#492).
+            if (value.Length <= 1) return value.Length == 0 ? "" : value[0] ?? "";
             int separatorLength = separator == null ? 0 : separator.Length;
             long total = 0;
             for (int i = 0; i < value.Length; i++) total += (value[i] == null ? 0 : value[i].Length) + (i > 0 ? separatorLength : 0);
@@ -59,13 +61,14 @@ namespace CsharpcCoreLib
         internal static string CreateRepeated(char c, int count)
         {
             ThrowHelper.IfNegative(count, "count");
+            if (count == 0) return ""; // string.Empty, as .NET's constructor returns (#492)
             string result = CoreIntrinsics.FastAllocateString(count);
             CoreIntrinsics.StringChars(result).Fill(c);
             return result;
         }
 
-        /// <summary>new string(char[]): null gives the empty string.</summary>
-        internal static string CreateFromChars(char[] value) => value == null ? "" : Copy(value);
+        /// <summary>new string(char[]): null or no characters give string.Empty (#492), as .NET's constructor.</summary>
+        internal static string CreateFromChars(char[] value) => value == null || value.Length == 0 ? "" : Copy(value);
 
         /// <summary>
         /// s[start..end] and list-pattern slices. Roslyn lowers s[a..b] to s.Substring(a, b - a) and codegen passes the range unchecked
