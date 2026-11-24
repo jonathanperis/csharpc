@@ -290,7 +290,7 @@ internal static partial class BclValueTypes
     /// <summary>
     /// Array.Copy between arrays of different element types, one of them a value type (#365), as Array.CopyImpl classifies them
     /// (CanAssignArrayType): boxing into a type the element boxes to, unboxing from a reference type (the exact type; Nullable&lt;T&gt;
-    /// takes null; the elements before a failing one stay copied), primitive widening; anything else throws ArrayTypeMismatchException.
+    /// takes null; the elements before a failing one stay copied), the CLR's primitive copies (PrimitiveArrayCopy); anything else throws ArrayTypeMismatchException.
     /// Enum element types (which .NET copies to and from their underlying type) stay a diagnostic.
     /// </summary>
     private static LLVMValueRef ConvertingArrayCopy(FunctionCodeGen g, IOperation at, ITypeSymbol e, ITypeSymbol de, LLVMValueRef src,
@@ -304,7 +304,10 @@ internal static partial class BclValueTypes
             g.CallCoreLibGenericMethod("ArrayChecks", "CopyBoxing", [e, de], src, srcIndex, dst, dstIndex, length);
         else if (e.IsReferenceType && de.IsValueType && conversion.IsUnboxing)
             g.CallCoreLibGenericMethod("ArrayChecks", "CopyUnboxing", [e, de], src, srcIndex, dst, dstIndex, length);
-        else if (IsWidenablePrimitive(e) && IsWidenablePrimitive(de) && conversion is { IsImplicit: true, IsNumeric: true })
+        else if (PrimitiveArrayCopy(e, de) == PrimitiveCopy.Reinterpret)
+            Rt(g, "csrt_array_copy", g.Llvm.Void, (src, g.Llvm.Ptr), (srcIndex, g.Llvm.I64), (dst, g.Llvm.Ptr), (dstIndex, g.Llvm.I64),
+                (length, g.Llvm.I64), (I64(g, (long)g.Types.Target.SizeOf(g.Types.Storage(e))), g.Llvm.I64));
+        else if (PrimitiveArrayCopy(e, de) == PrimitiveCopy.Widen)
             g.EmitCountedLoop(length, i =>
             {
                 var value = g.LoadValue(g.ArrayElementAddress(src, e, g.Builder.BinOp(LLVMOpcode.Add, srcIndex, i)), e);
@@ -316,9 +319,36 @@ internal static partial class BclValueTypes
         return default;
     }
 
-    private static bool IsWidenablePrimitive(ITypeSymbol t) => t.SpecialType is SpecialType.System_Char or SpecialType.System_SByte or SpecialType.System_Byte
-        or SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Int32 or SpecialType.System_UInt32 or SpecialType.System_Int64
-        or SpecialType.System_UInt64 or SpecialType.System_Single or SpecialType.System_Double;
+    private enum PrimitiveCopy { None, Reinterpret, Widen }
+
+    /// <summary>
+    /// How Array.Copy moves primitives of one type into an array of another: the CLR's rules (CanAssignArrayType), not C#'s implicit
+    /// conversions. Integers of one size and opposite sign, and char/ushort, are copied bit for bit (GetNormalizedIntegralArrayElementType;
+    /// ushort to char through the widening table); the widening table (RuntimeHelpers.CanPrimitiveWiden) converts by value, and allows
+    /// byte to char but no signed to unsigned widening; bool and every other pair throw. Checked against NativeAOT and the JIT on all pairs.
+    /// </summary>
+    private static PrimitiveCopy PrimitiveArrayCopy(ITypeSymbol e, ITypeSymbol de)
+    {
+        const SpecialType Char = SpecialType.System_Char, I1 = SpecialType.System_SByte, U1 = SpecialType.System_Byte,
+            I2 = SpecialType.System_Int16, U2 = SpecialType.System_UInt16, I4 = SpecialType.System_Int32, U4 = SpecialType.System_UInt32,
+            I8 = SpecialType.System_Int64, U8 = SpecialType.System_UInt64, I = SpecialType.System_IntPtr, U = SpecialType.System_UIntPtr,
+            R4 = SpecialType.System_Single, R8 = SpecialType.System_Double;
+        return (e.SpecialType, de.SpecialType) switch
+        {
+            (I1, U1) or (U1, I1) or (I2, U2) or (U2, I2) or (I4, U4) or (U4, I4) or (I8, U8) or (U8, I8) or (I, U) or (U, I)
+                or (Char, U2) or (U2, Char) => PrimitiveCopy.Reinterpret,
+            (Char, I4 or U4 or I8 or U8 or R4 or R8) => PrimitiveCopy.Widen,
+            (I1, I2 or I4 or I8 or R4 or R8) => PrimitiveCopy.Widen,
+            (U1, Char or I2 or U2 or I4 or U4 or I8 or U8 or R4 or R8) => PrimitiveCopy.Widen,
+            (I2, I4 or I8 or R4 or R8) => PrimitiveCopy.Widen,
+            (U2, I4 or U4 or I8 or U8 or R4 or R8) => PrimitiveCopy.Widen,
+            (I4, I8 or R4 or R8) => PrimitiveCopy.Widen,
+            (U4, I8 or U8 or R4 or R8) => PrimitiveCopy.Widen,
+            (I8 or U8, R4 or R8) => PrimitiveCopy.Widen,
+            (R4, R8) => PrimitiveCopy.Widen,
+            _ => PrimitiveCopy.None,
+        };
+    }
 
     // ---- TimeSpan ----------------------------------------------------------------------------
 
