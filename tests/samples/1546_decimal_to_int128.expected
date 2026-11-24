@@ -1,0 +1,12 @@
+int128 neg: -123456789012
+int128 max decimal: 79228162514264337593543950335
+int128 min decimal: -79228162514264337593543950335
+int128 small: 0
+int128 neg small: 0
+uint128: 12345
+uint128 max decimal: 79228162514264337593543950335
+uint128 neg fraction: 0
+uint128 neg: OverflowException: Arithmetic operation resulted in an overflow.
+round trip: -77
+generic int128: -42
+generic uint128: 42
