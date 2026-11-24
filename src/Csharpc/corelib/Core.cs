@@ -150,6 +150,8 @@ namespace CsharpcCoreLib
         // Cancellation (runtime/async.c, corelib/Cancellation.cs): a CancellationToken is its source.
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object TokenSource(System.Threading.CancellationToken token);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern System.Threading.CancellationToken SourceToken(object source);
+        /// <summary>A ValueTask is its task object (null: default, ValueTask.CompletedTask), read without AsTask's completed-task substitution.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object ValueTaskObject(System.Threading.Tasks.ValueTask task);
         // Reflection (corelib/Reflection/Members.cs, src/runtime/type.c): the compile-time tables' addresses.
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint TypeInfoTableAddress();
         /// <summary>Type attributes are read at run time (Type.GetCustomAttributesData through a MemberInfo): keeps their metadata.</summary>
@@ -225,6 +227,7 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_task_try_fault_many(object task, Exception[] exceptions);
         // AppDomain.ProcessExit's first subscription (runtime/csrt.c).
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_process_exit_register();
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_unhandled_exception_register();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_event_new(int kind, int count, int max);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_event_set(object e, int n);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_event_reset(object e);

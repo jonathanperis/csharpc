@@ -650,8 +650,18 @@ public sealed partial class FunctionCodeGen
             var test = _m.VariantDelegateTestFor(d);
             return _b.Call(test.Type, test.Fn, [value]);
         }
+        if (WaitHandleBase(target) is { } eventsOnly)
+            return CallRuntime("csrt_isinst_wait_handle", L.Ptr, [L.Ptr, L.I1], value, eventsOnly ? L.True : L.False);
         return CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], value, TypeTestMethodTable(target) ?? MethodTableFor(target, at));
     }
+
+    /// <summary>
+    /// WaitHandle / EventWaitHandle (#97): bases of the runtime's event, mutex and semaphore objects, whose tables have no base chain
+    /// (runtime/threads.c, csrt_isinst_wait_handle). True for EventWaitHandle (only the events), false for WaitHandle, null otherwise.
+    /// </summary>
+    private bool? WaitHandleBase(ITypeSymbol target) =>
+        target is INamedTypeSymbol { Name: "WaitHandle" or "EventWaitHandle", ContainingType: null, ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } named
+        && !_m.IsUserType(named) ? named.Name == "EventWaitHandle" : null;
 
     /// <summary>
     /// The runtime method table of a primitive's, decimal's, DateTime's or TimeSpan's box for a type test: a test matches only a box,
@@ -670,6 +680,19 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef CastClass(LLVMValueRef value, ITypeSymbol target, IOperation at)
     {
+        if (WaitHandleBase(target) is { } eventsOnly)
+        {
+            var matches = _b.ICmp(LLVMIntPredicate.NE, IsInst(value, target, at), LlvmContext.Null(L.Ptr));
+            var passes = _b.BinOp(LLVMOpcode.Or, matches, _b.ICmp(LLVMIntPredicate.EQ, value, LlvmContext.Null(L.Ptr)));
+            var mismatch = NewBlock("cast.fail");
+            var castOk = NewBlock("cast.done");
+            _b.CondBr(passes, castOk, mismatch);
+            _b.PositionAtEnd(mismatch);
+            CallRuntime("csrt_castclass", L.Ptr, [L.Ptr, L.Ptr], value, _m.ExternalGlobal(eventsOnly ? "csrt_EventWaitHandle_MT" : "csrt_WaitHandle_MT"));
+            _b.Br(castOk);
+            _b.PositionAtEnd(castOk);
+            return value;
+        }
         if (SharedHandleOf(SharedHandle.Cast, target) is { } shared) return CallRuntime("csrt_castclass", L.Ptr, [L.Ptr, L.Ptr], value, shared);
         if (IsDelegateBase(target))
         {
@@ -794,8 +817,8 @@ public sealed partial class FunctionCodeGen
         INamedTypeSymbol { Name: "CancellationTokenSource", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } =>
             _m.ExternalGlobal("csrt_CancellationTokenSource_MT"), // a runtime object (runtime/async.c)
         // ManualResetEvent and AutoResetEvent are runtime objects with a table each (runtime/threads.c; `new` makes
-        // them there): System.Transactions casts its lock's handle to ManualResetEvent. A test against their bases
-        // (WaitHandle, EventWaitHandle) stays an explicit diagnostic: the tables have no base chain to them.
+        // them there): System.Transactions casts its lock's handle to ManualResetEvent. Tests against their bases
+        // (WaitHandle, EventWaitHandle) are IsInst's WaitHandleBase.
         INamedTypeSymbol { Name: "ManualResetEvent" or "AutoResetEvent", ContainingType: null, ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } named =>
             _m.ExternalGlobal(named.Name == "ManualResetEvent" ? "csrt_ManualResetEvent_MT" : "csrt_AutoResetEvent_MT"),
         // Threads and locks are runtime objects of sealed types with one method table each (runtime/threads.c):
@@ -813,6 +836,9 @@ public sealed partial class FunctionCodeGen
         INamedTypeSymbol { TypeKind: TypeKind.Class } named when _m.IsUserType(named) || _m.IsLibraryException(named) =>
             _m.GetLayout(named).MethodTable,
         INamedTypeSymbol { TypeKind: TypeKind.Struct } named when _m.IsUserType(named) => _m.StructMethodTable(named),
+        // ValueTask and CancellationToken are library structs with no shadow of their own (their members are mapped one by one): their
+        // boxes get a struct table like any struct's, with their Equals/GetHashCode overrides (#96).
+        INamedTypeSymbol named when ModuleCodeGen.IsPointerLibraryStruct(named) => _m.StructMethodTable(named),
         INamedTypeSymbol { TypeKind: TypeKind.Interface } itf => _m.InterfaceMethodTable(itf),
         INamedTypeSymbol { IsTupleType: true } tuple => _m.TupleMethodTable(tuple, null!),
         INamedTypeSymbol memory when TypeMapper.IsMemory(memory) => _m.MemoryMethodTable(memory),

@@ -130,6 +130,17 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Threading.CancellationToken")]
     internal static class CancellationTokenMembers
     {
+        // Equals(object) / GetHashCode (#96; a token is its source): what a boxed token's table and token.Equals((object)other) call.
+        [ShadowInstance]
+        public static bool Equals(CancellationToken token, object other) => other is CancellationToken t && token == t;
+
+        // Equals(CancellationToken): also what a boxed token's IEquatable<CancellationToken> slot calls (#96).
+        [ShadowInstance]
+        public static bool Equals(CancellationToken token, CancellationToken other) => token == other;
+
+        [ShadowInstance]
+        public static int GetHashCode(CancellationToken token) => System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(CoreIntrinsics.TokenSource(token));
+
         // No ExecutionContext to capture: Register and UnsafeRegister agree.
         [ShadowInstance]
         public static CancellationTokenRegistrationImpl Register(CancellationToken token, Action callback)

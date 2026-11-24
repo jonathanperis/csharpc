@@ -213,11 +213,18 @@ static void* load_library(const char* name, bool throw_on_error, bool app_first)
 }
 
 void* csrt_pinvoke_load_library(const char* name, bool throw_on_error) { return load_library(name, throw_on_error, false); }
+// NativeLibrary.Load(name, assembly, searchPath): next to the application first when the search includes
+// DllImportSearchPath.AssemblyDirectory (the default), as a P/Invoke of that assembly would.
+void* csrt_pinvoke_load_library_from(const char* name, bool throw_on_error, bool app_first) { return load_library(name, throw_on_error, app_first); }
 static void* load_library_for_pinvoke(const char* name) { return load_library(name, true, true); }
 #endif
 #ifdef _WIN32
 // LoadLibrary searches the application's directory itself.
 static void* load_library_for_pinvoke(const char* name) { return csrt_pinvoke_load_library(name, true); }
+void* csrt_pinvoke_load_library_from(const char* name, bool throw_on_error, bool app_first) {
+    (void)app_first; // LoadLibrary's own search starts in the application's directory
+    return csrt_pinvoke_load_library(name, throw_on_error);
+}
 #endif
 
 /// Resolves `entry` in `library` (DllImport lazy binding); throws like .NET on failure.
