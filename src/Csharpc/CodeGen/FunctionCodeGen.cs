@@ -424,13 +424,11 @@ public sealed partial class FunctionCodeGen
                     IInvocationOperation { Instance.Type.IsValueType: true, TargetMethod.IsReadOnly: false } inv => inv.Instance,
                     _ => null,
                 };
-                // `s.X = v` / `s.P = v` where s is a captured struct: the capture is an lvalue too.
-                while (target is IFieldReferenceOperation { Instance.Type.IsValueType: true } or IPropertyReferenceOperation { Instance.Type.IsValueType: true })
-                    target = target is IFieldReferenceOperation f ? f.Instance : ((IPropertyReferenceOperation)target).Instance;
-                if (target is IFlowCaptureReferenceOperation r) result.Add(r.Id);
-                // `(p, _) = (new Point { X = 3 }, 0)`: the right side's control flow makes Roslyn capture the deconstruction's
-                // elements, which are assigned through those captures (#386).
-                else if (target is ITupleOperation tuple) AddTupleElementCaptures(tuple, result);
+                // `(p, _) = (new Point { X = 3 }, 0)` / `var (a, b) = ...`: the right side's control flow makes Roslyn capture the
+                // deconstruction's elements, which are assigned through those captures (#386).
+                if (target is IDeclarationExpressionOperation { Expression: ITupleOperation declared }) target = declared;
+                if (target is ITupleOperation tuple) AddTupleElementCaptures(tuple, result);
+                else AddLvalueCapture(target, result);
             }
         }
         // `s with { X = 1 }` on a struct captures a *copy* of s and mutates that copy.
@@ -441,15 +439,24 @@ public sealed partial class FunctionCodeGen
                 result.Remove(capture.Id);
     }
 
+    /// <summary>The capture an assignment writes through: the target itself, or the captured struct whose field or property it sets
+    /// (`s.X = v` / `s.P = v` where s is a captured struct must reach the original storage).</summary>
+    private static void AddLvalueCapture(IOperation? target, HashSet<CaptureId> result)
+    {
+        while (target is IFieldReferenceOperation { Instance.Type.IsValueType: true } or IPropertyReferenceOperation { Instance.Type.IsValueType: true })
+            target = target is IFieldReferenceOperation f ? f.Instance : ((IPropertyReferenceOperation)target).Instance;
+        if (target is IFlowCaptureReferenceOperation r) result.Add(r.Id);
+    }
+
     private static void AddTupleElementCaptures(ITupleOperation tuple, HashSet<CaptureId> result)
     {
         foreach (var element in tuple.Elements)
         {
             var e = element;
             while (e is IConversionOperation { IsImplicit: true } conversion) e = conversion.Operand;
-            if (e is IFlowCaptureReferenceOperation r) result.Add(r.Id);
-            else if (e is ITupleOperation nested) AddTupleElementCaptures(nested, result);
-            else if (e is IDeclarationExpressionOperation { Expression: ITupleOperation declared }) AddTupleElementCaptures(declared, result);
+            if (e is IDeclarationExpressionOperation declaration) e = declaration.Expression;
+            if (e is ITupleOperation nested) AddTupleElementCaptures(nested, result);
+            else AddLvalueCapture(e, result);
         }
     }
 
