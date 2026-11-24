@@ -197,6 +197,9 @@ public sealed partial class FunctionCodeGen
         var dst = T.Value(to);
         if (dst.Kind == LLVMTypeKind.Double) return CallRuntime("csrt_decimal_to_f64", L.F64, [L.Ptr], p);
         if (dst.Kind == LLVMTypeKind.Float) return CallRuntime("csrt_decimal_to_f32", L.F32, [L.Ptr], p);
+        // decimal -> Int128 / UInt128 (#182): 128 bits wide, past csrt_decimal_to_integer's 64.
+        if (dst.IntWidth == 128 && to.TypeKind != TypeKind.Enum)
+            return CallCoreLib("DecimalOps", TypeMapper.IsSigned(to) ? "ToInt128At" : "ToUInt128At", p);
         var kind = to.SpecialType switch
         {
             SpecialType.System_SByte => 1, SpecialType.System_Byte => 2, SpecialType.System_Int16 => 3,
