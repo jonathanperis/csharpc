@@ -608,6 +608,18 @@ namespace CsharpcCoreLib
             return (IntPtr)handle;
         }
 
+        // NativeLibrary.Load(name, assembly, searchPath) (#99): the DllImport search (the program's directory, then the system's), as
+        // csharpc's [DllImport]s get; every assembly is compiled in, so the assembly only has to be there. DllNotFoundException if absent.
+        public static IntPtr Load(string libraryName, System.Reflection.Assembly assembly, System.Runtime.InteropServices.DllImportSearchPath? searchPath)
+        {
+            if (libraryName == null) throw new ArgumentNullException("libraryName");
+            if (assembly == null) throw new ArgumentNullException("assembly");
+            byte* name = Utf8.ToNative(libraryName);
+            void* handle = Libc.csrt_pinvoke_load_library(name, 1);
+            Libc.free(name);
+            return (IntPtr)handle;
+        }
+
         public static bool TryLoad(string libraryPath, out IntPtr handle)
         {
             byte* name = Utf8.ToNative(libraryPath);

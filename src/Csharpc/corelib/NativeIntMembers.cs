@@ -17,6 +17,9 @@ namespace CsharpcCoreLib
         [ShadowInstance] public static long ToInt64(nint value) => value;
         [ShadowInstance] public static int ToInt32(nint value) => checked((int)value);
         [ShadowInstance] public static unsafe void* ToPointer(nint value) => (void*)value;
+        // IntPtr.Add / Subtract (#99): an offset in bytes, unchecked like nint arithmetic.
+        public static nint Add(nint pointer, int offset) => pointer + offset;
+        public static nint Subtract(nint pointer, int offset) => pointer - offset;
     }
 
     [ShadowMembers("System.UIntPtr")]
@@ -25,6 +28,8 @@ namespace CsharpcCoreLib
         // nuint.MaxValue (a property, not a constant: its width is the target's), which the framework's IL reads (Number.BigInteger).
         public static nuint MaxValue => unchecked((nuint)(nint)(-1));
         public static nuint MinValue => 0;
+        public static nuint Add(nuint pointer, int offset) => (nuint)((nint)pointer + offset);
+        public static nuint Subtract(nuint pointer, int offset) => (nuint)((nint)pointer - offset);
         public static nuint LeadingZeroCount(nuint value) => (nuint)System.Numerics.BitOperations.LeadingZeroCount(value);
         public static nuint BigMul(nuint left, nuint right, out nuint lower)
         {
