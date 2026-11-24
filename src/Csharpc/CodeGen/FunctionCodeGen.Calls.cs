@@ -434,8 +434,10 @@ public sealed partial class FunctionCodeGen
         var parameter = argument.Parameter!;
         if (parameter.RefKind is RefKind.In or RefKind.RefReadOnlyParameter) return AddressOrSpill(argument.Value);
         if (parameter.RefKind != RefKind.None) return AddressOf(argument.Value);
+        // S() on the target's parameter too: a local function of a generic local function takes the outer method's T (#425), which
+        // S(method) does not substitute (it is neither the local function's own type parameter nor its containing type's).
         var parameterType = target is not null && parameter.Ordinal < target.Parameters.Length
-            ? target.Parameters[parameter.Ordinal].Type
+            ? S(target.Parameters[parameter.Ordinal].Type)
             : S(parameter.Type);
         return Coerce(EmitValue(argument.Value), TypeOf(argument.Value), parameterType);
     }
