@@ -29,16 +29,19 @@ namespace CsharpcCoreLib
         // string.Intern / IsInterned as NativeAOT has them (#103; NativeAOT is the drop-in target where it and the JIT differ): a table
         // only Intern fills. Literals are not in it until interned (the JIT interns every literal up front), and Intern returns the
         // first string interned with that value, so Intern(new string("ab")) is not the literal "ab" unless the literal came first.
+        // The table starts with string.Empty in it, as NativeAOT's does: IsInterned("") is string.Empty before anything was interned.
         private static readonly object s_internLock = new object();
         private static Dictionary<string, string> s_interned;
+
+        private static Dictionary<string, string> InternTable() => s_interned ??= new Dictionary<string, string> { [string.Empty] = string.Empty };
 
         public static string Intern(string str)
         {
             if (str == null) throw new ArgumentNullException("str");
             lock (s_internLock)
             {
-                s_interned ??= new Dictionary<string, string>();
-                if (!s_interned.TryGetValue(str, out string canonical)) s_interned.Add(str, canonical = str);
+                var table = InternTable();
+                if (!table.TryGetValue(str, out string canonical)) table.Add(str, canonical = str);
                 return canonical;
             }
         }
@@ -46,7 +49,7 @@ namespace CsharpcCoreLib
         public static string IsInterned(string str)
         {
             if (str == null) throw new ArgumentNullException("str");
-            lock (s_internLock) return s_interned != null && s_interned.TryGetValue(str, out string canonical) ? canonical : null;
+            lock (s_internLock) return InternTable().TryGetValue(str, out string canonical) ? canonical : null;
         }
 
         /// <summary>string.Clone: the string itself (strings are immutable), as .NET's.</summary>

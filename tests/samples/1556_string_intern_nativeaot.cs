@@ -6,6 +6,8 @@ static class Program
     static string Make(params char[] c) => new string(c);
     static void Main()
     {
+        // NativeAOT's table starts with string.Empty in it (the JIT's has every literal).
+        Console.WriteLine($"empty before Intern: {ReferenceEquals(string.IsInterned(""), string.Empty)} {ReferenceEquals(string.IsInterned(new string('q', 1).Substring(1)), string.Empty)}");
         string built = Make('a', 'b');
         Console.WriteLine($"clone is self: {ReferenceEquals(built.Clone(), built)} {ReferenceEquals("lit".Clone(), "lit")}");
         Console.WriteLine($"built before Intern: {string.IsInterned(built) is null}");
