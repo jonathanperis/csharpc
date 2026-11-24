@@ -56,6 +56,14 @@ internal static class Int128Support
             case "op_OnesComplement":
                 handler = (g, _, _, a, _) => g.Builder.Not(a[0]);
                 return true;
+            // checked(-x) / checked(x++) on Int128 and UInt128 (through T too, #425): OverflowException like .NET's operators.
+            case "op_CheckedUnaryNegation":
+                handler = (g, m, _, a, _) => g.CheckedArithmetic("sub", g.Module.Llvm.ConstInt(a[0].Type, 0), a[0], TypeMapper.IsSigned(m.ContainingType));
+                return true;
+            case "op_CheckedIncrement" or "op_CheckedDecrement":
+                handler = (g, m, _, a, _) => g.CheckedArithmetic(m.Name == "op_CheckedIncrement" ? "add" : "sub", a[0], g.Module.Llvm.ConstInt(a[0].Type, 1),
+                    TypeMapper.IsSigned(m.ContainingType));
+                return true;
             case "op_Increment" or "op_Decrement":
                 handler = (g, m, _, a, _) => g.Builder.BinOp(m.Name == "op_Increment" ? LLVMOpcode.Add : LLVMOpcode.Sub, a[0], g.Module.Llvm.ConstInt(a[0].Type, 1));
                 return true;
