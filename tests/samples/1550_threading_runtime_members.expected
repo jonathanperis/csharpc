@@ -12,7 +12,7 @@ loh: Default
 loh set: CompactOnce
 loh after a full collection: Default
 bad loh: ArgumentOutOfRangeException: Enum value was out of legal range. (Parameter 'value')
-min threads: workers = processors True, io >= 1 True
+min threads: workers = processors True, io 1
 ManualResetEvent: WaitHandle True, EventWaitHandle True
 AutoResetEvent: WaitHandle True, EventWaitHandle True
 Mutex: WaitHandle True, EventWaitHandle False

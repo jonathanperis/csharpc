@@ -40,7 +40,7 @@ static class Program
         Try("bad loh", () => GCSettings.LargeObjectHeapCompactionMode = (GCLargeObjectHeapCompactionMode)5);
 
         ThreadPool.GetMinThreads(out var workers, out var io);
-        Console.WriteLine($"min threads: workers = processors {workers == Environment.ProcessorCount}, io >= 1 {io >= 1}");
+        Console.WriteLine($"min threads: workers = processors {workers == Environment.ProcessorCount}, io {io}");
 
         object[] handles = { new ManualResetEvent(false), new AutoResetEvent(true), new Mutex(), new Semaphore(1, 1), new SemaphoreSlim(1), "text" };
         foreach (var h in handles)
