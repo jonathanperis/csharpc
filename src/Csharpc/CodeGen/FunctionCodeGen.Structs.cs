@@ -460,7 +460,7 @@ public sealed partial class FunctionCodeGen
     }
 
     private sealed record TupleTargetPlan(IOperation Target, LLVMValueRef Address, List<TupleTargetPlan>? Nested, PropertyTarget? Property = null,
-        CovariantStore? Covariant = null);
+        CovariantStore? Covariant = null, PropertyCapture? CapturedProperty = null);
 
     /// <summary>A property (or indexer) deconstruction target: receiver and indexer arguments, already evaluated.</summary>
     private sealed record PropertyTarget(IPropertyReferenceOperation Reference, IPropertySymbol Property, LLVMValueRef Self,
@@ -481,6 +481,10 @@ public sealed partial class FunctionCodeGen
     private TupleTargetPlan PlanTarget(IOperation e)
     {
         if (e is IDiscardOperation) return new TupleTargetPlan(e, default, null);
+        // A property Roslyn captured before the right side's control flow (`(a[i].Prop, x) = (c ? 1 : 2, y)`): its receiver and
+        // arguments were evaluated at the capture; the store goes through its setter (#386).
+        if (e is IFlowCaptureReferenceOperation r && _cfg!.PropertyCaptures.TryGetValue(r.Id, out var captured))
+            return new TupleTargetPlan(e, default, null, CapturedProperty: captured);
         if (e is IPropertyReferenceOperation { Property.RefKind: RefKind.None } p)
         {
             var property = S(p.Property);
@@ -515,6 +519,11 @@ public sealed partial class FunctionCodeGen
             if (pt.Arguments is not null) _argumentCache = pt.Arguments;
             CallAccessor(pt.Reference, pt.Property.SetMethod!, pt.Self, [Coerce(value, valueType, pt.Property.Type)]);
             _argumentCache = saved;
+            return;
+        }
+        if (target.CapturedProperty is { } cp)
+        {
+            SetCapturedProperty(cp, Coerce(value, valueType, cp.Property.Type));
             return;
         }
         if (target.Address.Handle == 0) return;
