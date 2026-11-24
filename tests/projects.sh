@@ -100,6 +100,16 @@ for dir in "$ROOT"/tests/projects/cli-errors/*/; do
   else echo "FAIL $name: wrong diagnostic"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
 done
 
+# A target whose Environment.NewLine differs from the build host's (Windows from Linux or macOS, or the other way): the framework IL the
+# program uses is the host's, newline included, so csharpc refuses with a diagnostic instead of printing the host's newline (#430).
+cross_target=x86_64-pc-windows-gnu; [[ $HOST_OS == windows ]] && cross_target=x86_64-unknown-linux-gnu
+echo 'System.Console.WriteLine("hi");' > "$WORK/cross.cs"
+"$DOTNET" "$CSHARPC_DLL" "$WORK/cross.cs" --target "$cross_target" -o "$WORK/cross-out" > "$WORK/log" 2>&1; code=$?
+if [[ $code != 1 ]]; then echo "FAIL cross-target newline: exit code $code, expected 1"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1))
+elif grep -q "Unhandled exception" "$WORK/log"; then echo "FAIL cross-target newline: unhandled exception"; fail=$((fail+1))
+elif grep -q "Environment.NewLine" "$WORK/log"; then echo "PASS cross-target newline: diagnostic for $cross_target, exit code 1"; pass=$((pass+1))
+else echo "FAIL cross-target newline: wrong diagnostic"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+
 # NativeAOT's native-linking items (docs/16-interop-io.md, "Static archives and DirectPInvoke"): DirectPInvoke makes a library's
 # [DllImport]s direct calls and NativeLibrary adds a static archive to the link line. tests/projects/native/DirectPInvoke
 # calls a tiny C library, built here as a shared library (`dotnet run` loads it next to the program: the reference output)
