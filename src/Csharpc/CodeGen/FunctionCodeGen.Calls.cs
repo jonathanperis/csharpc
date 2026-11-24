@@ -329,11 +329,10 @@ public sealed partial class FunctionCodeGen
         if (concrete is ITypeParameterSymbol) return null;
         if (!_m.IsUserType(concrete)) return BuiltinStaticInterfaceMember(target, concrete); // primitives: generic-math paths, or an IL interface they implement inside CoreLib
         target = InterfaceMemberOverShadow(concrete, target);
-        var implementation = concrete.FindImplementationForInterfaceMember(target) as IMethodSymbol;
-        // A member whose own type arguments are set (`IAdapter.WaitAsync<int>`) is not found by Roslyn from the constructed symbol on every
-        // path (sample 1272): ask for the generic definition within the same containing type (keeping a nested type's arguments).
-        if (implementation is null && target.IsGenericMethod)
-            implementation = concrete.FindImplementationForInterfaceMember(target.ConstructedFrom) as IMethodSymbol;
+        // A member whose own type arguments are set (`IAdapter.WaitAsync<int>`, `IDecoder<byte>.Wrap<ByteDecoder>`) is not found by Roslyn from
+        // the constructed symbol (null on some paths, sample 1272; InvalidOperationException on others, #192): ask for the generic definition
+        // within the same containing type (keeping the interface's and a nested type's arguments); its type arguments are applied below.
+        var implementation = concrete.FindImplementationForInterfaceMember(target.IsGenericMethod ? target.ConstructedFrom : target) as IMethodSymbol;
         implementation ??= ShadowStaticMember(concrete, target);
         // A generic static abstract member (`static abstract bool IsNullableAt<TState>(...)`) is implemented by the type's
         // generic method definition: it takes the call's type arguments, or its body would be lowered open.
