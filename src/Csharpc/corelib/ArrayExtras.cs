@@ -525,7 +525,7 @@ namespace CsharpcCoreLib
         public static void CopyBoxing<T, TDestination>(T[] source, long sourceIndex, object[] destination, long destinationIndex, long length)
         {
             if (destination.GetType() != typeof(TDestination[])
-                && !destination.GetType().GetElementType().IsAssignableFrom(Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T)))
+                && !AcceptsElement(destination.GetType().GetElementType(), typeof(T)))
                 ThrowArrayTypeMismatch();
             for (long i = 0; i < length; i++) destination[destinationIndex + i] = CoreIntrinsics.Box(source[sourceIndex + i]);
         }
@@ -533,7 +533,7 @@ namespace CsharpcCoreLib
         public static void CopyUnboxing<TSource, T>(object[] source, long sourceIndex, T[] destination, long destinationIndex, long length)
         {
             if (source.GetType() != typeof(TSource[])
-                && !source.GetType().GetElementType().IsAssignableFrom(Nullable.GetUnderlyingType(typeof(T)) ?? typeof(T)))
+                && !AcceptsElement(source.GetType().GetElementType(), typeof(T)))
                 ThrowArrayTypeMismatch();
             for (long i = 0; i < length; i++)
             {
@@ -544,6 +544,12 @@ namespace CsharpcCoreLib
                 else throw new InvalidCastException("At least one element in the source array could not be cast down to the destination array type.");
             }
         }
+
+        // Whether a reference array of `element` and a value-type array of `valueType` can be copied into each other (CanAssignArrayType):
+        // the value type is assignable to the element type. Nullable<T> is assignable only to its base classes, object and ValueType: it
+        // implements none of T's interfaces (an int?[] doesn't copy to an IComparable[]), unlike C#'s boxing conversion.
+        private static bool AcceptsElement(Type element, Type valueType) =>
+            Nullable.GetUnderlyingType(valueType) != null ? element == typeof(object) || element == typeof(ValueType) : element.IsAssignableFrom(valueType);
 
         public static void ThrowArrayTypeMismatch() =>
             throw new ArrayTypeMismatchException("Source array type cannot be assigned to destination array type.");

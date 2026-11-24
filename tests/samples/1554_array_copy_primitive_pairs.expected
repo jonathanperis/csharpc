@@ -138,7 +138,7 @@ IntPtr Int32 X
 IntPtr UInt32 X
 IntPtr Int64 X
 IntPtr UInt64 X
-IntPtr UIntPtr 18446744073709551609
+IntPtr UIntPtr 7
 IntPtr Single X
 IntPtr Double X
 UIntPtr Boolean X

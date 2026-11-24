@@ -1,5 +1,6 @@
 // Array.Copy between primitive arrays of different element types, every pair (#365): the CLR's table (same-size integers
 // of opposite sign and char/ushort bit for bit, its widening table by value, bool and the rest ArrayTypeMismatchException), not C#'s conversions.
+// The nint value is non-negative, so the output is the same with 4- and 8-byte pointers (wasm32).
 using System;
 static class Program
 {
@@ -144,19 +145,19 @@ static class Program
         T<ulong,nuint>(new ulong[] { 18000000000000000000UL });
         T<ulong,float>(new ulong[] { 18000000000000000000UL });
         T<ulong,double>(new ulong[] { 18000000000000000000UL });
-        T<nint,bool>(new nint[] { (nint)(-7) });
-        T<nint,char>(new nint[] { (nint)(-7) });
-        T<nint,sbyte>(new nint[] { (nint)(-7) });
-        T<nint,byte>(new nint[] { (nint)(-7) });
-        T<nint,short>(new nint[] { (nint)(-7) });
-        T<nint,ushort>(new nint[] { (nint)(-7) });
-        T<nint,int>(new nint[] { (nint)(-7) });
-        T<nint,uint>(new nint[] { (nint)(-7) });
-        T<nint,long>(new nint[] { (nint)(-7) });
-        T<nint,ulong>(new nint[] { (nint)(-7) });
-        T<nint,nuint>(new nint[] { (nint)(-7) });
-        T<nint,float>(new nint[] { (nint)(-7) });
-        T<nint,double>(new nint[] { (nint)(-7) });
+        T<nint,bool>(new nint[] { (nint)7 });
+        T<nint,char>(new nint[] { (nint)7 });
+        T<nint,sbyte>(new nint[] { (nint)7 });
+        T<nint,byte>(new nint[] { (nint)7 });
+        T<nint,short>(new nint[] { (nint)7 });
+        T<nint,ushort>(new nint[] { (nint)7 });
+        T<nint,int>(new nint[] { (nint)7 });
+        T<nint,uint>(new nint[] { (nint)7 });
+        T<nint,long>(new nint[] { (nint)7 });
+        T<nint,ulong>(new nint[] { (nint)7 });
+        T<nint,nuint>(new nint[] { (nint)7 });
+        T<nint,float>(new nint[] { (nint)7 });
+        T<nint,double>(new nint[] { (nint)7 });
         T<nuint,bool>(new nuint[] { (nuint)9 });
         T<nuint,char>(new nuint[] { (nuint)9 });
         T<nuint,sbyte>(new nuint[] { (nuint)9 });

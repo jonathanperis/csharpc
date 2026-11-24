@@ -300,9 +300,9 @@ internal static partial class BclValueTypes
             throw CompileError.Unsupported($"Array.Copy from {e}[] to {de}[] (element conversion of an enum)", at);
         g.CallCoreLib("ArrayChecks", "Copy", src, srcIndex, dst, dstIndex, length, longLength ? g.Llvm.True : g.Llvm.False);
         var conversion = Microsoft.CodeAnalysis.CSharp.CSharpExtensions.ClassifyConversion(g.Module.Compilation, e, de);
-        if (e.IsValueType && de.IsReferenceType && conversion.IsBoxing)
+        if (e.IsValueType && de.IsReferenceType && conversion.IsBoxing && NullableAssignable(e, de))
             g.CallCoreLibGenericMethod("ArrayChecks", "CopyBoxing", [e, de], src, srcIndex, dst, dstIndex, length);
-        else if (e.IsReferenceType && de.IsValueType && conversion.IsUnboxing)
+        else if (e.IsReferenceType && de.IsValueType && conversion.IsUnboxing && NullableAssignable(de, e))
             g.CallCoreLibGenericMethod("ArrayChecks", "CopyUnboxing", [e, de], src, srcIndex, dst, dstIndex, length);
         else if (PrimitiveArrayCopy(e, de) == PrimitiveCopy.Reinterpret)
             Rt(g, "csrt_array_copy", g.Llvm.Void, (src, g.Llvm.Ptr), (srcIndex, g.Llvm.I64), (dst, g.Llvm.Ptr), (dstIndex, g.Llvm.I64),
@@ -318,6 +318,11 @@ internal static partial class BclValueTypes
             g.CallCoreLib("ArrayChecks", "ThrowArrayTypeMismatch");
         return default;
     }
+
+    // C#'s boxing conversion takes Nullable<T> to T's interfaces; the CLR assigns Nullable<T> only to its base classes, object and
+    // ValueType, so Array.Copy between an int?[] and an IComparable[] throws ArrayTypeMismatchException.
+    private static bool NullableAssignable(ITypeSymbol valueType, ITypeSymbol reference) =>
+        !TypeMapper.IsNullable(valueType) || reference.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType;
 
     private enum PrimitiveCopy { None, Reinterpret, Widen }
 
