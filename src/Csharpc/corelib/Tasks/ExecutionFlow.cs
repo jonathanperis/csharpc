@@ -156,6 +156,14 @@ namespace CsharpcCoreLib
         private static void QueueClosure<TState>(Action<TState> callBack, TState state, bool flowContext) =>
             Queue(() => callBack(state), flowContext);
 
+        // The pool's thresholds as .NET's portable thread pool reports them by default (#97): one worker per processor, and its
+        // legacy minimum of one I/O completion thread (completion threads are not a separate pool on Linux and macOS).
+        public static void GetMinThreads(out int workerThreads, out int completionPortThreads)
+        {
+            workerThreads = Environment.ProcessorCount;
+            completionPortThreads = OperatingSystem.IsWindows() ? Environment.ProcessorCount : 1;
+        }
+
         public static bool QueueUserWorkItem(WaitCallback callBack) => QueueUserWorkItem(callBack, null);
 
         public static bool QueueUserWorkItem(WaitCallback callBack, object state)

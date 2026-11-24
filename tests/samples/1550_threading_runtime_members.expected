@@ -1,0 +1,24 @@
+regions: ok
+priority: Normal
+priority set: Highest
+invalid priority: ArgumentOutOfRangeException: Value of flags is invalid.
+current: BelowNormal
+dead get: ThreadStateException: Thread is dead; priority cannot be accessed.
+dead set: ThreadStateException: Thread is dead; priority cannot be accessed.
+server gc: False, latency: Interactive
+latency set: SustainedLowLatency
+NoGCRegion: ArgumentOutOfRangeException: Enum value was out of legal range. (Parameter 'value')
+loh: Default
+loh set: CompactOnce
+loh after a full collection: Default
+bad loh: ArgumentOutOfRangeException: Enum value was out of legal range. (Parameter 'value')
+min threads: workers = processors True, io >= 1 True
+ManualResetEvent: WaitHandle True, EventWaitHandle True
+AutoResetEvent: WaitHandle True, EventWaitHandle True
+Mutex: WaitHandle True, EventWaitHandle False
+Semaphore: WaitHandle True, EventWaitHandle False
+SemaphoreSlim: WaitHandle False, EventWaitHandle False
+String: WaitHandle False, EventWaitHandle False
+cast: Mutex
+bad cast: InvalidCastException: Unable to cast object of type 'System.Threading.Semaphore' to type 'System.Threading.EventWaitHandle'.
+null: False True

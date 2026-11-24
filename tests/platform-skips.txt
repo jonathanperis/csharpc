@@ -333,3 +333,4 @@ windows 1522_negotiate_gss_from_il  known gap: X.509, RSA, ECC and TLS are serve
 wasi 1522_negotiate_gss_from_il  known gap: no OpenSSL or sockets for TLS on WebAssembly (WASI); csharpc's copies lack these members (#449)
 wasi 1532_monitor_thin_lock_table  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 1540_enum_negative_value_culture_sign  .NET on WASI is globalization-invariant: CultureInfo("sv-SE") throws CultureNotFoundException
+wasi 1550_threading_runtime_members  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
