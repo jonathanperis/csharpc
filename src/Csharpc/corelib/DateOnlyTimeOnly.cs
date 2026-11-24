@@ -20,6 +20,13 @@ namespace CsharpcCoreLib
             _dayNumber = (int)(DateTimeOps.DateToTicks(year, month, day) / TicksPerDay);
         }
 
+        // .NET: the calendar's date as a DateTime (calendar.ToDateTime validates it and throws as .NET does), then its day number (#197).
+        public DateOnlyImpl(int year, int month, int day, Calendar calendar)
+        {
+            ArgumentNullException.ThrowIfNull(calendar);
+            _dayNumber = (int)(calendar.ToDateTime(year, month, day, 0, 0, 0, 0).Ticks / TicksPerDay);
+        }
+
         private static DateOnly Make(long dayNumber) => (DateOnly)(object)new DateOnlyImpl((int)dayNumber, false);
         private DateTime Midnight => CoreIntrinsics.MakeDateTime(_dayNumber * TicksPerDay);
 
@@ -129,6 +136,13 @@ namespace CsharpcCoreLib
                 throw new ArgumentOutOfRangeException(null, "Hour, Minute, and Second parameters describe an un-representable DateTime.");
             if ((uint)millisecond >= 1000) throw new ArgumentOutOfRangeException("millisecond", "Valid values are between 0 and 999, inclusive.");
             _ticks = hour * TicksPerHour + minute * TicksPerMinute + second * TicksPerSecond + millisecond * TicksPerMs;
+        }
+
+        // .NET 7+: the microsecond overload, validated after the other parts as .NET does (#197).
+        public TimeOnlyImpl(int hour, int minute, int second, int millisecond, int microsecond) : this(hour, minute, second, millisecond)
+        {
+            if ((uint)microsecond >= 1000) throw new ArgumentOutOfRangeException("microsecond", "Valid values are between 0 and 999, inclusive.");
+            _ticks += microsecond * 10L;
         }
 
         private static TimeOnly Make(long ticks) => (TimeOnly)(object)new TimeOnlyImpl(ticks, false);

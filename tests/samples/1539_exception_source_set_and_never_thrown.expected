@@ -1,0 +1,4 @@
+never thrown: null
+set before throw: Preset.Source
+set after catch: Late.Source
+set to null: null
