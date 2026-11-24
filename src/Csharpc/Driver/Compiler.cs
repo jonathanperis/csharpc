@@ -37,6 +37,13 @@ public sealed class Compiler(CompilerOptions options)
         // The CoreLib slice cut for the target's pointer size (wasm32: the 32-bit one, #382), before anything reads its map.
         UpstreamSlice.UseTarget(pointer32: wasm);
         if (UpstreamSlice.MissingSliceError is { } sliceError) return Fail(sliceError);
+        // The 64-bit slice is cut from the build host's framework, whose Environment.NewLine is already a literal in the IL (StringBuilder.AppendLine,
+        // TextWriter.WriteLine through it): a target whose newline differs would print the host's, silently (#430). wasm32's slice is
+        // the 32-bit one, cut from the linux-arm runtime pack on every host, so its "\n" is wasm's.
+        if (!wasm && windows != OperatingSystem.IsWindows())
+            return Fail($"compiling for '{triple}' on a {(OperatingSystem.IsWindows() ? "Windows" : "non-Windows")} host is not supported by csharpc yet: "
+                + "the framework code it compiles comes from this host, whose Environment.NewLine (\\r\\n on Windows, \\n elsewhere) is built into it; "
+                + "build on a host of the target's OS family");
         // Before the corelib index or the framework index is read: they depend on which shadows are mapped. The Windows
         // native-TLS mode is the same mechanism with a hand-picked family of shadows (NativeTls).
         try
