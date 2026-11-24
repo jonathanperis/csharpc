@@ -22,6 +22,7 @@ namespace CsharpcCoreLib
         [DllImport("__Internal")] public static extern int csrt_get_last_system_error();
         [DllImport("__Internal")] public static extern void csrt_set_last_system_error(int error);
         [DllImport("__Internal")] public static extern void* csrt_pinvoke_load_library(byte* name, byte throwOnError);
+        [DllImport("__Internal")] public static extern void* csrt_pinvoke_load_library_from(byte* name, byte throwOnError, byte appFirst);
         [DllImport("__Internal")] public static extern void* csrt_native_library_get_export(void* handle, byte* entry, byte throwOnError);
         [DllImport("__Internal")] public static extern void* csrt_pinvoke_resolve(byte* library, byte* entry);
 
@@ -609,13 +610,15 @@ namespace CsharpcCoreLib
         }
 
         // NativeLibrary.Load(name, assembly, searchPath) (#99): the DllImport search (the program's directory, then the system's), as
-        // csharpc's [DllImport]s get; every assembly is compiled in, so the assembly only has to be there. DllNotFoundException if absent.
+        // csharpc's [DllImport]s get, unless searchPath leaves out AssemblyDirectory; every assembly is compiled in, so the assembly
+        // only has to be there. DllNotFoundException if absent.
         public static IntPtr Load(string libraryName, System.Reflection.Assembly assembly, System.Runtime.InteropServices.DllImportSearchPath? searchPath)
         {
             if (libraryName == null) throw new ArgumentNullException("libraryName");
             if (assembly == null) throw new ArgumentNullException("assembly");
             byte* name = Utf8.ToNative(libraryName);
-            void* handle = Libc.csrt_pinvoke_load_library(name, 1);
+            bool appFirst = searchPath is not { } paths || (paths & System.Runtime.InteropServices.DllImportSearchPath.AssemblyDirectory) != 0;
+            void* handle = Libc.csrt_pinvoke_load_library_from(name, 1, appFirst ? (byte)1 : (byte)0);
             Libc.free(name);
             return (IntPtr)handle;
         }
