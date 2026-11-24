@@ -477,6 +477,33 @@ namespace CsharpcCoreLib
             return negative ? (long)(0UL - magnitude) : (long)magnitude;
         }
 
+        /// <summary>(Int128)decimal / (UInt128)decimal (#182): truncated toward zero; every decimal fits in 96 bits, so only a negative
+        /// value to UInt128 overflows (.NET's message is the default one).</summary>
+        internal static Int128 ToInt128At(ref decimal d)
+        {
+            UInt128 magnitude = TruncatedMagnitude(d, out bool negative);
+            return negative ? -(Int128)magnitude : (Int128)magnitude;
+        }
+
+        internal static UInt128 ToUInt128At(ref decimal d)
+        {
+            UInt128 magnitude = TruncatedMagnitude(d, out bool negative);
+            if (negative) throw new OverflowException("Arithmetic operation resulted in an overflow.");
+            return magnitude;
+        }
+
+        private static UInt128 TruncatedMagnitude(decimal d, out bool negative)
+        {
+            Span<uint> sm = stackalloc uint[4];
+            var m = new BigNum(sm);
+            Load(d, ref m);
+            for (int s = Scale(d); s > 0; s--) m.DivRemSmall(10);
+            negative = IsNegative(d) && !m.IsZero;
+            UInt128 magnitude = 0;
+            for (int i = m.Len - 1; i >= 0; i--) magnitude = (magnitude << 32) | m.W[i];
+            return magnitude;
+        }
+
         // ==========================================================================================
         // Parsing: NumberStyles.Number (invariant): whitespace, sign, thousands separators, decimal point
         // ==========================================================================================
