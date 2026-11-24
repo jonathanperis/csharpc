@@ -386,6 +386,21 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitIncrementOrDecrement(IIncrementOrDecrementOperation op)
     {
+        // `x++` on `T : IIncrementOperators<T>` (#425): the static abstract operator, resolved once T is known, as for unary and
+        // binary operators. A user or library type calls its own operator; a primitive takes the built-in increment below.
+        var abstractOnPrimitive = false;
+        if (op.OperatorMethod is { IsStatic: true, ContainingType.TypeKind: TypeKind.Interface } abstractOp)
+        {
+            var concrete = S(op.ConstrainedToType ?? TypeOf(op.Target)!);
+            abstractOnPrimitive = concrete.SpecialType is not (SpecialType.None or SpecialType.System_Object);
+            var impl = abstractOnPrimitive ? null : ResolveStaticInterfaceMember(S(abstractOp), concrete) ?? OwnIncrementOperator(concrete, abstractOp.Name);
+            if (impl is not null)
+                return ReadModifyWrite(op.Target, old =>
+                {
+                    var updated = !_m.IsUserMethod(impl) && BclValueTypes.TryGet(impl, out var library) ? library(this, impl, default, [old], op) : DirectCall(impl, [old]);
+                    return (updated, op.IsPostfix ? old : updated);
+                });
+        }
         if (op.OperatorMethod is { } incrementMethod && !_m.IsUserMethod(incrementMethod)
             && BclValueTypes.TryGet(S(incrementMethod), out var libraryIncrement))
             return ReadModifyWrite(op.Target, old =>
@@ -399,7 +414,7 @@ public sealed partial class FunctionCodeGen
                 var updated = DirectCall(S(userIncrement), [old]); // static T operator ++(T)
                 return (updated, op.IsPostfix ? old : updated);
             });
-        if (op.OperatorMethod is not null) throw CompileError.Unsupported("user-defined ++/--", op);
+        if (op.OperatorMethod is not null && !abstractOnPrimitive) throw CompileError.Unsupported("user-defined ++/--", op);
         var type = TypeOf(op.Target)!;
         var increment = op.Kind == OperationKind.Increment;
         if (IsPointer(type))
@@ -436,6 +451,16 @@ public sealed partial class FunctionCodeGen
                     : _b.BinOp(increment ? LLVMOpcode.Add : LLVMOpcode.Sub, old, L.ConstInt(llvmType, 1));
             return (updated, op.IsPostfix ? old : updated);
         });
+    }
+
+    /// <summary>A library type's own `operator ++`/`--` (Int128, BigInteger, ...) for the interface member <paramref name="name"/>
+    /// (op_Increment, op_CheckedIncrement, op_Decrement, op_CheckedDecrement); a checked one falls back to the unchecked operator.</summary>
+    private static IMethodSymbol? OwnIncrementOperator(ITypeSymbol concrete, string name)
+    {
+        if (concrete is not INamedTypeSymbol named) return null;
+        IMethodSymbol? Find(string n) => named.GetMembers(n).OfType<IMethodSymbol>()
+            .FirstOrDefault(m => m.IsStatic && m.MethodKind == MethodKind.UserDefinedOperator && m.Parameters.Length == 1);
+        return Find(name) ?? (name.Contains("Checked", StringComparison.Ordinal) ? Find(name.Replace("Checked", "", StringComparison.Ordinal)) : null);
     }
 
     // ======================================================================================
