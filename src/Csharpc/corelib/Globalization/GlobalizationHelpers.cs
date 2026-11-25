@@ -151,38 +151,6 @@ namespace CsharpcCoreLib.Globalization
             GetUnicodeCategoryInternal(value, index, out _);
     }
 
-    // System.TimeZoneInfoOptions: the slicer's csharpc profile points the framework's references to it here (#426).
-    public enum TimeZoneInfoOptions
-    {
-        None = 1,
-        NoThrowOnInvalidTime = 2,
-    }
-
-    /// <summary>The members of TimeZoneInfo the formatting/parsing code uses, on csharpc's local-zone code (DateTimeOps).</summary>
-    internal sealed class TimeZoneInfo
-    {
-        private static TimeZoneInfo? s_local;
-        private readonly bool _utc;
-
-        private TimeZoneInfo(bool utc) => _utc = utc;
-
-        internal static TimeZoneInfo Local => s_local ??= new TimeZoneInfo(false);
-
-        internal TimeSpan GetUtcOffset(DateTime dateTime) => GetUtcOffset(dateTime, TimeZoneInfoOptions.NoThrowOnInvalidTime);
-
-        internal TimeSpan GetUtcOffset(DateTime dateTime, TimeZoneInfoOptions flags) =>
-            _utc ? TimeSpan.Zero : new TimeSpan(DateTimeOps.LocalUtcOffsetTicks(CoreIntrinsics.DateTimeData(dateTime)));
-
-        internal static TimeSpan GetLocalUtcOffset(DateTime dateTime, TimeZoneInfoOptions flags) => Local.GetUtcOffset(dateTime, flags);
-
-        internal static TimeSpan GetUtcOffsetFromUtc(DateTime time, TimeZoneInfo zone, out bool isDaylightSavings, out bool isAmbiguousLocalDst)
-        {
-            isDaylightSavings = false;
-            long offset = DateTimeOps.OffsetFromUtcTicks(time.Ticks, out isAmbiguousLocalDst);
-            return new TimeSpan(offset);
-        }
-    }
-
     /// <summary>DateTime / DateTimeOffset internals (constants, TryCreate, the Local-with-ambiguity constructor).</summary>
     internal static class DateTimeHelpers
     {
