@@ -11,4 +11,5 @@
   <data name="Raw" type="System.Byte[], mscorlib" mimetype="application/x-microsoft.net.object.bytearray.base64"><value>cmF3IGJ5dGVz</value></data>
   <data name="RawStream" type="System.Resources.ResXFileRef, System.Windows.Forms"><value>picture.bin;System.IO.MemoryStream, mscorlib</value></data>
   <data name="BrokenFile" type="System.Resources.ResXFileRef, System.Windows.Forms"><value>picture.bin;Repro.Broken, PreserializedBinary</value></data>
+  <data name="NoStreamFile" type="System.Resources.ResXFileRef, System.Windows.Forms"><value>picture.bin;Repro.NoStream, PreserializedBinary</value></data>
 </root>

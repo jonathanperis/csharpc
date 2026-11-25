@@ -108,8 +108,14 @@ public static class ResourceConverters
                 && c.Parameters is [{ Type: { Name: "Stream", ContainingNamespace: { Name: "IO", ContainingNamespace.Name: "System" } } }]);
             if (!compilation.IsSymbolAccessibleWithin(type, compilation.Assembly)) continue;
             var fullName = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            if (type.IsAbstract) continue; // (.NET's abstract-class error is not reproduced: GetObject's explicit error stays)
             if (streamConstructor is null)
-                streamCases.AppendLine($"                case {Literal(name)}: throw new global::System.MissingMethodException({Literal($"Constructor on type '{name}' not found.")}, new global::System.MissingMethodException(\"Member not found.\"));");
+            {
+                // .NET's binder adds "Member not found." only when some public constructor takes one argument but not a Stream.
+                var inner = type.InstanceConstructors.Any(c => c.DeclaredAccessibility == Accessibility.Public && c.Parameters.Length == 1)
+                    ? ", new global::System.MissingMethodException(\"Member not found.\")" : "";
+                streamCases.AppendLine($"                case {Literal(name)}: throw new global::System.MissingMethodException({Literal($"Constructor on type '{name}' not found.")}{inner});");
+            }
             else if (compilation.IsSymbolAccessibleWithin(streamConstructor, compilation.Assembly))
                 streamCases.AppendLine($"                case {Literal(name)}: try {{ return new object[] {{ new {fullName}(data) }}; }} catch (global::System.Exception e) {{ throw new global::System.Reflection.TargetInvocationException(e); }}");
         }

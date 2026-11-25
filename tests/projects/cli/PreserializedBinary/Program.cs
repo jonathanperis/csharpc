@@ -28,6 +28,13 @@ sealed class Broken
     public Broken(Stream stream) => throw new InvalidDataException("bad header: " + stream.Length);
 }
 
+// No constructor takes one argument: .NET's MissingMethodException then has no inner exception.
+sealed class NoStream
+{
+    public NoStream() { }
+    public NoStream(Stream stream, int length) { }
+}
+
 sealed class BlobConverter : TypeConverter
 {
     public override bool CanConvertFrom(ITypeDescriptorContext? context, Type sourceType) => sourceType == typeof(byte[]) || base.CanConvertFrom(context, sourceType);
@@ -41,7 +48,7 @@ static class Program
     static void Main()
     {
         var resources = new ResourceManager("Repro.Assets", typeof(Program).Assembly);
-        foreach (var name in new[] { "Icon", "Picture", "Empty", "Raw", "RawStream", "BrokenFile" })
+        foreach (var name in new[] { "Icon", "Picture", "Empty", "Raw", "RawStream", "BrokenFile", "NoStreamFile" })
         {
             try
             {
