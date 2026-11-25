@@ -758,6 +758,10 @@ namespace CsharpcCoreLib
             return true;
         }
 
+        /// <summary>CoreLib's internal DateTime.IsAmbiguousDaylightSavingTime (TimeZoneInfo from IL, #98): the Local-ambiguous-DST kind bits.</summary>
+        [ShadowInstance]
+        public static bool IsAmbiguousDaylightSavingTime(DateTime @this) => (D(@this) & unchecked((long)0xC000000000000000UL)) == unchecked((long)0xC000000000000000UL);
+
         /// <summary>DateTime(long ticks, DateTimeKind kind, bool isAmbiguousDst): a Local value whose ambiguous-DST flag is given.</summary>
         [ShadowConstructor]
         public static DateTime Create(long ticks, DateTimeKind kind, bool isAmbiguousDst) =>
