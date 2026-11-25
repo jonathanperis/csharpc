@@ -21,6 +21,7 @@ static class Program
         // Concat and Join hand back an operand rather than copying it, as .NET's do; Replace makes a new empty string.
         string s = new string('x', 2);
         Console.WriteLine($"identity: {ReferenceEquals(s + "", s)} {ReferenceEquals("" + s, s)} {ReferenceEquals(string.Concat(s, null), s)} {ReferenceEquals(string.Concat(new[] { s }), s)} {ReferenceEquals(string.Join(",", new[] { s }), s)} {ReferenceEquals(s + s, s)}");
+        Console.WriteLine($"empty pieces: {ReferenceEquals(string.Join("", new[] { "", "" }), empty)} {ReferenceEquals(string.Concat(new[] { "", "", "" }), empty)} {ReferenceEquals(string.Join(",", new[] { "", "" }), empty)} {ReferenceEquals(string.Concat("", "", ""), empty)}");
         string? none = null;
         Console.WriteLine($"null operands: {ReferenceEquals(none + none, empty)} {ReferenceEquals(string.Join(",", new string?[] { null }), empty)}");
     }

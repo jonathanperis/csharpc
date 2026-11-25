@@ -33,6 +33,7 @@ namespace CsharpcCoreLib
             int separatorLength = separator == null ? 0 : separator.Length;
             long total = 0;
             for (int i = 0; i < value.Length; i++) total += (value[i] == null ? 0 : value[i].Length) + (i > 0 ? separatorLength : 0);
+            if (total == 0) return ""; // several empty pieces: string.Empty too, as .NET's JoinCore
             string result = AllocateString(total);
             Span<char> dst = CoreIntrinsics.StringChars(result);
             int at = 0;
