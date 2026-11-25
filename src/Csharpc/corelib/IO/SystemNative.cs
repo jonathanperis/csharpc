@@ -65,6 +65,9 @@ namespace CsharpcCoreLib
         [DllImport("libc")] private static extern int fchmod(int fd, int mode);
         [DllImport("libc")] private static extern int flock(int fd, int operation);
         [DllImport("libc")] private static extern int fstatfs(int fd, byte* buffer);
+        [DllImport("libc")] private static extern int statfs(byte* path, byte* buffer);
+        [DllImport("libc")] private static extern int statvfs(byte* path, byte* buffer);
+        [DllImport("libc")] private static extern byte* realpath(byte* path, byte* resolved);
         [DllImport("libc")] private static extern uint geteuid();
         [DllImport("libc")] private static extern uint getegid();
         [DllImport("libc")] private static extern int getgroups(int size, uint* list);
@@ -1213,6 +1216,89 @@ namespace CsharpcCoreLib
             NativeMemory.Free(buffer);
             endmntent(stream);
             return 0;
+#endif
+        }
+
+        /// <summary>
+        /// SystemNative_GetSpaceInfoForMountPoint (DriveInfo's sizes, #102): pal_mount.c's block size times the free, available and total
+        /// block counts, from statvfs on Linux and statfs on macOS; zeros and -1 (errno set) when the call fails. A MountPointInformation
+        /// is three uint64s: AvailableFreeSpace, TotalFreeSpace, TotalSize.
+        /// </summary>
+        [RuntimeExport("SystemNative_GetSpaceInfoForMountPoint", Trigger + "SystemNative_GetSpaceInfoForMountPoint")]
+        public static int GetSpaceInfoForMountPoint(byte* name, ulong* info)
+        {
+            info[0] = info[1] = info[2] = 0;
+#if CSHARPC_TARGET_WASI
+            return Fail(58 /* ENOTSUP */);
+#else
+            byte* st = stackalloc byte[2168];   // struct statvfs (Linux, 112 bytes) / struct statfs (macOS, 2168)
+#if CSHARPC_TARGET_MACOS
+            if (statfs(name, st) != 0) return -1;
+            ulong bsize = *(uint*)st, blocks = *(ulong*)(st + 8), free = *(ulong*)(st + 16), available = *(ulong*)(st + 24);
+#else
+            if (statvfs(name, st) != 0) return -1;
+            ulong bsize = *(ulong*)st, blocks = *(ulong*)(st + 16), free = *(ulong*)(st + 24), available = *(ulong*)(st + 32);
+#endif
+            info[0] = bsize * available;
+            info[1] = bsize * free;
+            info[2] = bsize * blocks;
+            return 0;
+#endif
+        }
+
+        /// <summary>
+        /// SystemNative_GetFileSystemTypeNameForMountPoint (DriveInfo.DriveFormat and DriveType, #102), as pal_mount.c: macOS gives the
+        /// file system's name (statfs f_fstypename; ERANGE when the buffer is shorter than MFSTYPENAMELEN) and type -1, Linux its magic
+        /// (statfs f_type), which the framework names, and an empty name. On failure the name is empty and the type -1.
+        /// </summary>
+        [RuntimeExport("SystemNative_GetFileSystemTypeNameForMountPoint", Trigger + "SystemNative_GetFileSystemTypeNameForMountPoint")]
+        public static int GetFileSystemTypeNameForMountPoint(byte* name, byte* formatName, int bufferLength, long* formatType)
+        {
+            int result;
+#if CSHARPC_TARGET_WASI
+            result = Fail(58 /* ENOTSUP */);
+#else
+            byte* st = stackalloc byte[2168];   // struct statfs: 120 bytes on Linux, 2168 on macOS
+            result = statfs(name, st);
+            if (result == 0)
+            {
+#if CSHARPC_TARGET_MACOS
+                if (bufferLength < 16 + 1) result = Fail(34 /* ERANGE */);
+                CopyCString(st + 72, formatName, bufferLength);   // f_fstypename[16]
+                *formatType = -1;
+#else
+                *formatType = *(long*)st;       // f_type (__fsword_t, the first field)
+                CopyCString(null, formatName, bufferLength);
+#endif
+            }
+#endif
+            if (result != 0)
+            {
+                CopyCString(null, formatName, bufferLength);
+                *formatType = -1;
+            }
+            return result;
+        }
+
+        /// <summary>pal_utilities.h's SafeStringCopy: at most size - 1 bytes of source (null: none) and the terminator.</summary>
+        private static void CopyCString(byte* source, byte* destination, int size)
+        {
+            if (size <= 0) return;
+            int i = 0;
+            if (source != null)
+                for (; i < size - 1 && source[i] != 0; i++) destination[i] = source[i];
+            destination[i] = 0;
+        }
+
+        /// <summary>SystemNative_RealPath (#102): realpath(path, NULL), a malloc'd canonical path the framework frees, or null with errno set.</summary>
+        [RuntimeExport("SystemNative_RealPath", Trigger + "SystemNative_RealPath")]
+        public static byte* RealPath(byte* path)
+        {
+#if CSHARPC_TARGET_WASI
+            Fail(58 /* ENOTSUP */);
+            return null;
+#else
+            return realpath(path, null);
 #endif
         }
 
