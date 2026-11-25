@@ -479,6 +479,8 @@ int32_t csrt_object_get_hash_code_default(void* self);
 
 // Strings -----------------------------------------------------------------------------------
 csrt_String* csrt_string_concat(csrt_String* a, csrt_String* b);
+csrt_String* csrt_string_concat_net(csrt_String* a, csrt_String* b);  // string.Concat / `+`: .NET's identities (#492)
+csrt_String* csrt_string_empty_object(void);                        // string.Empty (csrt_string_empty)
 bool csrt_string_equals(csrt_String* a, csrt_String* b);
 int32_t csrt_string_get_hash_code(csrt_String* s); // Marvin, seeded per process
 void csrt_string_hash_init(void);                  // draws the seed (csrt_init)

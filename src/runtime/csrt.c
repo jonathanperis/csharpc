@@ -218,6 +218,13 @@ csrt_Array* csrt_new_array_primitive_noclear(int64_t element_size, int64_t lengt
     return new_array(&csrt_PrimitiveArray_MT.header, element_size, length, false);
 }
 
+/// string.Empty: the one empty string (#492). .NET's string constructors, Concat and span ToString return it for no characters
+/// (other operations, Replace for one, make a new empty string), and compiled code's "" literal and string.Empty are this object
+/// (ModuleCodeGen.StringLiteral). Outside the GC heap, like the literals.
+const struct __attribute__((aligned(8))) { const csrt_MethodTable* mt; int32_t length; uint16_t chars[1]; } csrt_string_empty = { &csrt_String_MT.header, 0, { 0 } };
+#define EMPTY_STRING ((csrt_String*)&csrt_string_empty)
+csrt_String* csrt_string_empty_object(void) { return EMPTY_STRING; }
+
 /// Every runtime string allocation goes through here. Lengths are 64-bit so callers can pass sums
 /// (a + b, count * n) without wrapping; anything above the CLR limit is an OutOfMemoryException.
 csrt_String* csrt_string_alloc_checked(int64_t length) {
@@ -858,6 +865,14 @@ int32_t csrt_object_get_hash_code_default(void* self) { return (int32_t)(((uintp
 bool csrt_string_is_null_or_empty(csrt_String* s) { return !s || s->length == 0; }
 
 
+
+/// string.Concat(a, b) and `a + b` as .NET's: an empty (or null) operand gives the other one itself, both empty give string.Empty
+/// (#492). csrt_string_concat, below, always makes a new string (the runtime's own callers).
+csrt_String* csrt_string_concat_net(csrt_String* a, csrt_String* b) {
+    if (!a || a->length == 0) return b && b->length ? b : EMPTY_STRING;
+    if (!b || b->length == 0) return a;
+    return csrt_string_concat(a, b);
+}
 
 csrt_String* csrt_string_concat(csrt_String* a, csrt_String* b) {
     int32_t la = a ? a->length : 0, lb = b ? b->length : 0;
