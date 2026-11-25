@@ -21,6 +21,10 @@ static class Program
             try { _ = missing.TotalSize; Console.WriteLine("no exception"); }
             catch (DriveNotFoundException e) { Console.WriteLine(e.GetType().Name); }
         }
-        else Console.WriteLine("missing ready: False\nDriveNotFoundException");
+        else
+        {
+            Console.WriteLine("missing ready: False");
+            Console.WriteLine("DriveNotFoundException");
+        }
     }
 }
