@@ -461,7 +461,23 @@ namespace CsharpcCoreLib
         public void Kill()
         {
 #if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
-            if (_lookedUp) { if (IsRunning(_pid)) kill(_pid, 9); return; } // SIGKILL; a process that already exited is no error
+            if (_lookedUp)
+            {
+                // kill(2) takes 0 as the caller's process group and a negative id as a group or every process the user may signal:
+                // .NET's Process.Kill passes such an id through (GetProcessById(0) and (-1) succeed, as kill(id, 0) does), which would
+                // kill this program's group or the user's session. csharpc refuses that explicitly rather than reproduce it.
+                if (_pid <= 0)
+                    throw new InvalidOperationException("Process.Kill on process id " + _pid.ToString() + " would signal a process group, not one process; csharpc does not send it.");
+                // Process.Unix.SignalCore: nothing once an exit was observed; ESRCH (already gone) is no error, any other is a Win32Exception.
+                if (_exitObserved) return;
+                if (kill(_pid, 9) != 0)
+                {
+                    int error = Marshal.GetLastSystemError();
+                    if (error == 3) return; // ESRCH
+                    throw new System.ComponentModel.Win32Exception(error);
+                }
+                return;
+            }
 #endif
             RequireStarted();
             if (_exited || Reap(wait: false)) return;

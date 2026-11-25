@@ -37,5 +37,8 @@ using (var child = Process.Start(start)!)
 try { Process.GetProcessById(int.MaxValue); }
 catch (ArgumentException e) { Console.WriteLine(e.Message); }
 
+// kill(0, 0) succeeds (it checks this program's process group), so .NET's lookup of id 0 succeeds too.
+using (var group = Process.GetProcessById(0)) Console.WriteLine($"id 0 looked up: {group.Id}");
+
 try { Console.WriteLine(new Process().ProcessName); }
 catch (InvalidOperationException e) { Console.WriteLine(e.Message); }
