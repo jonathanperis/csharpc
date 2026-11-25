@@ -4,6 +4,7 @@
 # host RID and overwrite RID nupkgs). Writes a minimal DotnetTool v2 pointer.
 #
 #   tools/pack-tool-pointer.sh <version> [nupkg-dir]
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VERSION="${1:?usage: pack-tool-pointer.sh <version> [nupkg-dir]}"

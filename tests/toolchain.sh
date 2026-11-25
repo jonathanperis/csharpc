@@ -7,6 +7,7 @@
 #   2. When the runtime's bitcode can't be read, the error says why and what to set.
 #
 # Linux and macOS (Homebrew llvm@18 / apt's llvm-18); skipped elsewhere or when no such install exists.
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

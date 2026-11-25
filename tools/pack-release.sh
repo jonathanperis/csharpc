@@ -12,6 +12,7 @@
 #
 # Env: CSHARPC_VERSION (default: Version from the csproj), CSHARPC_LIBLLVM (required if
 # not discoverable on this host).
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 RID="${1:?usage: pack-release.sh <rid> [output-dir]}"

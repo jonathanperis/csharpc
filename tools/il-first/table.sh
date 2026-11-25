@@ -2,6 +2,7 @@
 # Prints the per-library table of ADR 0023 (libraries and CoreLib types served from the framework's IL) as one Markdown table,
 # from its rows in docs/il-first/<library>.md: one file per library, so flips of different libraries never edit the same file.
 #   tools/il-first/table.sh > table.md
+source "$(dirname "${BASH_SOURCE[0]}")/../../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -euo pipefail
 dir="$(cd "$(dirname "$0")/../.." && pwd)/docs/il-first"
 first=1

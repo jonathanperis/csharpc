@@ -9,6 +9,7 @@
 # file, which is not counted); the median wall time of N runs of each (default 7), after checking that both print the same; with
 # --callgrind, the instructions each executes (valgrind --tool=callgrind), for CPU-bound programs. Prints one Markdown row per
 # program. Run it niced on a shared machine: nice -n 19 ionice -c3 tools/il-first/measure-aot.sh ...
+source "$(dirname "${BASH_SOURCE[0]}")/../../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 [ -d "$HOME/.dotnet11" ] && export PATH="$HOME/.dotnet11:$PATH"

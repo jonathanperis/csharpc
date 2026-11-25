@@ -11,6 +11,7 @@
 # FORTIFY (references *_chk functions), CET (IBT/SHSTK in .note.gnu.property), RPATH/RUNPATH,
 # separate code (no 4 KiB file page holds both code and anything else: ELF headers, constants,
 # data), and the largest page size the PT_LOAD layout is valid for.
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 
 # "<offset> <vaddr> <filesz> <memsz> <flags> <align>" per PT_LOAD, in decimal (flags without spaces,

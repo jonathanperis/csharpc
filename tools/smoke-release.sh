@@ -6,6 +6,7 @@
 # exit code to what real .NET recorded.
 #
 #   tools/smoke-release.sh <archive> [repo-root]
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -euo pipefail
 ARCHIVE="${1:?usage: smoke-release.sh <archive.tar.gz|.zip> [repo-root]}"
 ROOT="${2:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"

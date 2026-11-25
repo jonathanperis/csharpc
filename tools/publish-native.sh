@@ -6,6 +6,7 @@
 #   artifacts/csharpc-native/csharpc hello.cs -o hello
 #
 # The output directory also holds runtime/ and corelib/, which csharpc finds next to itself.
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-$ROOT/artifacts/csharpc-native}"

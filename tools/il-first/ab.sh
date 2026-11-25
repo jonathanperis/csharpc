@@ -27,6 +27,7 @@
 # Environment: DOTNET, CSHARPC_FLAGS (extra compiler flags), CSHARPC_TEST_TIMEOUT (seconds per run, default 90).
 # Samples with a .diagnostics file (programs csharpc must reject) are skipped. Linux/macOS hosts; run niced on a
 # shared machine, e.g.  nice -n 19 ionice -c3 tools/il-first/ab.sh System.Linq linq
+source "$(dirname "${BASH_SOURCE[0]}")/../../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

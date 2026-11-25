@@ -12,6 +12,7 @@
 # the invariant culture as its current culture (tests/oracle-hook). A test with a NAME.aot file runs as its PublishAot build:
 # NativeAOT is its oracle (tests/platform.sh). Slow (one `dotnet run` per test); meant for CI and for porting
 # to a new OS. Exits non-zero if any unlisted test differs.
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOTNET="${DOTNET:-dotnet}"

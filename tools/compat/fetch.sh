@@ -3,6 +3,7 @@
 # and extracts only the directories the corpus uses. Nothing from the corpus is executed here.
 #
 #   tools/compat/fetch.sh [CORPUS_DIR]      (default /tmp/compat-corpus)
+source "$(dirname "${BASH_SOURCE[0]}")/../../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -euo pipefail
 CORPUS="${1:-/tmp/compat-corpus}"
 # repo  commit  paths-to-extract...

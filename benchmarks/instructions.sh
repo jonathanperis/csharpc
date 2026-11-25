@@ -3,6 +3,7 @@
 # Unlike wall-clock times this is deterministic, so CI runs are comparable across machines and
 # runs; it doesn't cover the .NET JIT or NativeAOT (a JIT's count is mostly the JIT itself).
 #   benchmarks/instructions.sh [filter]     prints a Markdown table
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROGRAMS="$ROOT/benchmarks/programs"

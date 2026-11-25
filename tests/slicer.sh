@@ -10,6 +10,7 @@
 # CSHARPC_UPSTREAM_MAP pointing at the slice, runs it and compares stdout and the exit code with the recording made on real
 # .NET. These paths are off by default, so the differential suite never reaches them; this script is how they are tested.
 # Needs the Mono.Cecil of the ILLink tasks package the SDK restores (see slice.sh). Not part of the merge gate.
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export PATH="$HOME/.dotnet11:$PATH" DOTNET_CLI_TELEMETRY_OPTOUT=1 DOTNET_NOLOGO=1

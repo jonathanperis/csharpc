@@ -9,6 +9,7 @@
 # The assemblies are the ones csharpc compiles from the shared frameworks' IL for the app (`csharpc -v`
 # prints the choice), minus the Windows-only servers (IIS, HTTP.sys), which no Linux build reaches, and
 # System.Net.Requests (WebRequest).
+source "$(dirname "${BASH_SOURCE[0]}")/../../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 CSHARPC="${CSHARPC:-$ROOT/src/Csharpc/bin/Release/net11.0/csharpc.dll}"

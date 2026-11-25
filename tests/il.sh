@@ -17,6 +17,7 @@
 # `dotnet run` prints (and exit with the same code). One app is also compiled from loose files with -r.
 #
 # Usage: tests/il.sh [name-filter]
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
