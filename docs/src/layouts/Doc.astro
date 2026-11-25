@@ -1,0 +1,36 @@
+---
+import Base from './Base.astro';
+import { navigation, readingOrder } from '../lib/nav';
+
+interface Props { id: string; title: string; source: string }
+const { id, title, source } = Astro.props;
+const groups = await navigation();
+const order = await readingOrder();
+const at = order.findIndex((d) => d.id === id);
+const prev = at > 0 ? order[at - 1] : undefined;
+const next = at >= 0 && at < order.length - 1 ? order[at + 1] : undefined;
+---
+<Base title={title} current="docs" menu>
+  <div class="docs">
+    <aside class="sidebar">
+      {groups.map((g) => (
+        <>
+          <h2>{g.label}</h2>
+          <ul>
+            {g.items.map((d) => (
+              <li><a href={d.href} aria-current={d.id === id ? 'page' : undefined}>{d.short}</a></li>
+            ))}
+          </ul>
+        </>
+      ))}
+    </aside>
+    <main class="doc-main">
+      <article class="prose"><slot /></article>
+      <a class="edit-link" href={`https://github.com/jonathanperis/csharpc/blob/main/docs/${source}`}>View this page's source on GitHub</a>
+      <nav class="doc-footer">
+        {prev && <a href={prev.href}><small>Previous</small>{prev.short}</a>}
+        {next && <a class="next" href={next.href}><small>Next</small>{next.short}</a>}
+      </nav>
+    </main>
+  </div>
+</Base>

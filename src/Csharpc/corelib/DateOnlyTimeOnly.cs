@@ -150,6 +150,9 @@ namespace CsharpcCoreLib
         public static TimeOnly MinValue => Make(0);
         public static TimeOnly MaxValue => Make(TicksPerDay - 1);
 
+        /// <summary>CoreLib's internal TimeOnly.ToDateTime (TimeZoneInfo's transition times, #98): a DateTime of these ticks, Unspecified.</summary>
+        internal DateTime ToDateTime() => new DateTime(_ticks);
+
         public int Hour => (int)(_ticks / TicksPerHour);
         public int Minute => (int)(_ticks / TicksPerMinute % 60);
         public int Second => (int)(_ticks / TicksPerSecond % 60);

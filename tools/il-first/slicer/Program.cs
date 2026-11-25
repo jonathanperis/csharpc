@@ -234,9 +234,10 @@ sealed class Cli
                         "GetLocaleInfoInt", "GetLocaleInfoGroupingSizes", "GetLocales", "GetCalendars", "GetCalendarInfo", "EnumCalendarInfo", "GetLatestJapaneseEra",
                         "GetJapaneseEraStartDate", "ChangeCase", "ChangeCaseInvariant", "ChangeCaseTurkish", "InitOrdinalCasingPage", "InitOrdinalLowerCasingPage",
                         "GetSortHandle", "CloseSortHandle", "CompareString", "IndexOf", "LastIndexOf", "StartsWith", "EndsWith", "GetSortKey", "GetSortVersion",
-                        "ToAscii", "ToUnicode"])
+                        "ToAscii", "ToUnicode", "GetTimeZoneDisplayName", "IanaIdToWindowsId", "WindowsIdToIanaId"])
                         c.Replace["Interop/Globalization::" + member] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamGlobalizationInterop::" + member;
                     c.Redirect["Interop/Globalization/ResultCode"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamGlobalizationResultCode";
+                    c.Redirect["Interop/Globalization/TimeZoneDisplayNameType"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamTimeZoneDisplayNameType";
                     c.Redirect["System.Globalization.CalendarId"] = "CsharpcCoreLib:CsharpcCoreLib.Globalization.CalendarId";
                     c.Redirect["System.Globalization.CalendarDataType"] = "CsharpcCoreLib:CsharpcCoreLib.Globalization.CalendarDataType";
                     // Invariant mode and ICU loading stay the corelib's: the project's InvariantGlobalization is compiled into the program, WASI is
@@ -246,7 +247,6 @@ sealed class Cli
                     c.Replace["System.Globalization.CultureInfo::get_CurrentUICulture"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamCultureInfo::GetCurrentUICulture";
                     // GetFormat's DateTimeFormatInfo case through the runtime, so formatting a number doesn't link DateTimeFormatInfo and the calendars.
                     c.Replace["System.Globalization.CultureInfo::GetFormat"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamCultureInfo::GetFormat";
-                    c.Redirect["System.TimeZoneInfoOptions"] = "CsharpcCoreLib:CsharpcCoreLib.Globalization.TimeZoneInfoOptions";
                     c.Redirect["System.Globalization.GlobalizationMode"] = "CsharpcCoreLib:CsharpcCoreLib.Globalization.GlobalizationMode";
                     // The Windows CoreLib carries both globalization back ends and picks one by GlobalizationMode.UseNls. .NET uses ICU on Windows
                     // unless the System.Globalization.UseNls switch is set, and csharpc always does (its GlobalizationMode answers false): the NLS

@@ -190,6 +190,25 @@ namespace CsharpcCoreLib.Globalization
             internal static bool EnumCalendarInfo(delegate* unmanaged<char*, IntPtr, void> callback, string localeName, CalendarId calendarId, CalendarDataType calendarDataType, IntPtr context) =>
                 EnumCalendarInfoNative((IntPtr)callback, localeName, (ushort)calendarId, (int)calendarDataType, context) != 0;
 
+            // ---- time zones (Interop.TimeZoneInfo.cs; TimeZoneInfo from CoreLib's IL, #98) ----
+#if CSHARPC_TARGET_WASI
+            internal static int GetTimeZoneDisplayName(string localeName, string timeZoneId, int type, char* result, int resultLength) { GlobalizationMode.EnsureIcuLoaded(); throw new PlatformNotSupportedException(); }
+            internal static int IanaIdToWindowsId(string ianaId, char* windowsId, int windowsIdLength) { GlobalizationMode.EnsureIcuLoaded(); throw new PlatformNotSupportedException(); }
+            internal static int WindowsIdToIanaId(string windowsId, IntPtr region, char* ianaId, int ianaIdLength) { GlobalizationMode.EnsureIcuLoaded(); throw new PlatformNotSupportedException(); }
+#else
+            [DllImport(Lib, EntryPoint = "GlobalizationNative_GetTimeZoneDisplayName", CharSet = CharSet.Unicode)]
+            private static extern int GetTimeZoneDisplayNameIcu(string localeName, string timeZoneId, int type, char* result, int resultLength);
+            internal static int GetTimeZoneDisplayName(string localeName, string timeZoneId, int type, char* result, int resultLength) { GlobalizationMode.EnsureIcuLoaded(); return GetTimeZoneDisplayNameIcu(localeName, timeZoneId, type, result, resultLength); }
+
+            [DllImport(Lib, EntryPoint = "GlobalizationNative_IanaIdToWindowsId", CharSet = CharSet.Unicode)]
+            private static extern int IanaIdToWindowsIdIcu(string ianaId, char* windowsId, int windowsIdLength);
+            internal static int IanaIdToWindowsId(string ianaId, char* windowsId, int windowsIdLength) { GlobalizationMode.EnsureIcuLoaded(); return IanaIdToWindowsIdIcu(ianaId, windowsId, windowsIdLength); }
+
+            [DllImport(Lib, EntryPoint = "GlobalizationNative_WindowsIdToIanaId", CharSet = CharSet.Unicode)]
+            private static extern int WindowsIdToIanaIdIcu(string windowsId, IntPtr region, char* ianaId, int ianaIdLength);
+            internal static int WindowsIdToIanaId(string windowsId, IntPtr region, char* ianaId, int ianaIdLength) { GlobalizationMode.EnsureIcuLoaded(); return WindowsIdToIanaIdIcu(windowsId, region, ianaId, ianaIdLength); }
+#endif
+
 #if CSHARPC_TARGET_WASI
             internal static int GetLatestJapaneseEra() { GlobalizationMode.EnsureIcuLoaded(); throw new PlatformNotSupportedException(); }
 #else

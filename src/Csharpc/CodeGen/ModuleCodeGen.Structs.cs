@@ -433,7 +433,7 @@ public sealed partial class ModuleCodeGen
         {
             var slots = InterfaceSlots(itf).Select(member =>
                 type.FindImplementationForInterfaceMember(member) is IMethodSymbol impl && !impl.IsAbstract
-                    && (IsUserMethod(impl) || (IsPointerLibraryStruct(type) && CoreLib.Map(impl) is not null)) // their corelib shadows
+                    && (IsUserMethod(impl) || (IsPointerLibraryStruct(type) && !SymbolEqualityComparer.Default.Equals(CoreLib.Map(impl), impl))) // their corelib shadows
                     ? UnboxingThunk(impl, slot: true)
                     : LlvmContext.Null(Llvm.Ptr)).ToArray();
             var slotsInit = LlvmContext.ConstArray(Llvm.Ptr, slots);
