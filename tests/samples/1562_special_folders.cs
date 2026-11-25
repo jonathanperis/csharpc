@@ -1,4 +1,4 @@
-// Environment.GetFolderPath for the user's folders (#315), with HOME pointed at a scratch directory (1562_special_folders.env):
+// Environment.GetFolderPath for the user's folders (#315), with HOME pointed at a scratch directory and the XDG variables empty (.env):
 // Linux takes them from $HOME and the XDG variables; macOS from NSFileManager's user domain, whatever HOME says (as .NET's
 // SystemNative_SearchPath). DoNotVerify: the path whether or not it exists.
 using System;
