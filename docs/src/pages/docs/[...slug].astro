@@ -126,8 +126,10 @@ const base = import.meta.env.BASE_URL.replace(/\/$/, '');
       if (menuToggle) menuToggle.addEventListener('click', toggleMenu);
       if (overlay) overlay.addEventListener('click', toggleMenu);
 
+      // Bring the current document into view inside the sidebar's own scroller only (scrollIntoView would also scroll the page).
+      const list = sidebar.querySelector('.sidebar-nav-container');
       const active = sidebar.querySelector('.nav-item.active');
-      if (active) active.scrollIntoView({ block: 'center' });
+      if (list && active) list.scrollTop = active.offsetTop - list.offsetTop - list.clientHeight / 2;
 
       // The sidebar filter: hides documents whose title or file name does not match, and empty groups.
       const searchInput = document.getElementById('searchInput');

@@ -337,6 +337,7 @@ body { display: block; }
 }
 
 /* csharpc: per-document pages, so a pager instead of one long scroll. */
+.content .docs-command-center h1 { font-size: clamp(2rem, 4vw, 3.5rem); line-height: 1; text-shadow: none; }
 a.repo-title { display: block; text-decoration: none; }
 .content pre { background: oklch(18% 0.026 158 / 0.92) !important; }
 .content table { display: block; overflow-x: auto; }
@@ -370,6 +371,8 @@ a.repo-title { display: block; text-decoration: none; }
 .doc-pager .next { margin-left: auto; text-align: right; }
 
 @media (max-width: 820px) {
+  /* The mobile bar is sticky: keep heading anchors from landing under it. */
+  html { scroll-padding-top: 4.5rem; }
   .doc-pager { flex-direction: column; }
   .doc-pager a { max-width: 100%; }
 }
