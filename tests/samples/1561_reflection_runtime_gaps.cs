@@ -15,6 +15,9 @@ class Unmarked
     public static int Twice(int x) => x * 2;
     public int Count { get; set; } = 3;
     public string Field = "field";
+    public static string StaticField = "static";
+    public int this[int i] { get => i * 10; set => Last = value + i; }
+    public int Last;
 }
 enum Color { Red, Green, Blue }
 delegate void Handler();
@@ -47,6 +50,12 @@ static class Program
         Try("InvokeMember field", () => typeof(Unmarked).InvokeMember("Field", BindingFlags.GetField | BindingFlags.Public | BindingFlags.Instance, null, target, null));
         Try("InvokeMember field or property", () => typeof(Unmarked).InvokeMember("Count", BindingFlags.GetField | BindingFlags.GetProperty | BindingFlags.Public | BindingFlags.Instance, null, target, null));
         Try("InvokeMember missing field", () => typeof(Unmarked).InvokeMember("Nope", BindingFlags.GetField | BindingFlags.Public | BindingFlags.Instance, null, target, null));
+        Try("InvokeMember no binding flags", () => $"{typeof(Unmarked).InvokeMember("Twice", BindingFlags.InvokeMethod, null, null, [21])} {typeof(Unmarked).InvokeMember("StaticField", BindingFlags.GetField, null, null, null)}");
+        Try("InvokeMember get field with args", () => typeof(Unmarked).InvokeMember("Field", BindingFlags.GetField, null, target, ["x"]));
+        Try("InvokeMember set field two args", () => typeof(Unmarked).InvokeMember("Field", BindingFlags.SetField, null, target, ["a", "b"]));
+        Try("InvokeMember set field no args", () => typeof(Unmarked).InvokeMember("Field", BindingFlags.SetField, null, target, null));
+        Try("InvokeMember indexer", () => { typeof(Unmarked).InvokeMember("Item", BindingFlags.SetProperty, null, target, [3, 5]); return $"{typeof(Unmarked).InvokeMember("Item", BindingFlags.GetProperty, null, target, [3])} {target.Last}"; });
+        Try("InvokeMember property extra arg", () => typeof(Unmarked).InvokeMember("Count", BindingFlags.GetProperty, null, target, [1]));
         Try("InvokeMember missing", () => typeof(Unmarked).InvokeMember("Nope", BindingFlags.InvokeMethod, null, target, null));
         Try("InvokeMember no action", () => typeof(Unmarked).InvokeMember("Greet", BindingFlags.Public, null, target, null));
         Try("GetType resolver", () => Type.GetType("Unmarked", null, (assembly, name, ignoreCase) => assembly == null ? typeof(Unmarked) : null)?.Name);

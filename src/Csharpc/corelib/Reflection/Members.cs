@@ -1602,27 +1602,44 @@ namespace CsharpcCoreLib
                 throw new ArgumentException("Must specify binding flags describing the invoke operation required (BindingFlags.InvokeMethod CreateInstance GetField SetField GetProperty SetProperty).", "bindingFlags");
             if ((invokeAttr & BindingFlags.CreateInstance) != 0)
                 throw new NotSupportedException("Type.InvokeMember with BindingFlags.CreateInstance is not supported by csharpc yet.");
-            args ??= new object[0];
             BindingFlags lookup = invokeAttr & ~Actions;
-            if ((lookup & (BindingFlags.Public | BindingFlags.NonPublic)) == 0) lookup |= BindingFlags.Public;
-            if ((lookup & (BindingFlags.Instance | BindingFlags.Static)) == 0) lookup |= BindingFlags.Instance;
+            // No member-binding flags at all: public instance and static members, as .NET's (static unless creating an instance).
+            if (((int)invokeAttr & 0xFF) == 0) lookup |= BindingFlags.Instance | BindingFlags.Public | BindingFlags.Static;
+            if ((invokeAttr & BindingFlags.GetField) != 0 && args != null && args.Length > 0)
+                throw new ArgumentException("No arguments can be provided to Get a field value.", "bindingFlags");
+            if ((invokeAttr & BindingFlags.SetField) != 0)
+            {
+                if (args == null) throw new ArgumentNullException("providedArgs");
+                if (args.Length != 1) throw new ArgumentException("Only the field value can be specified to set a field value.", "bindingFlags");
+            }
             if ((invokeAttr & (BindingFlags.GetField | BindingFlags.SetField)) != 0)
             {
                 // No such field: .NET goes on to the properties and methods when those flags are set too, else MissingFieldException.
                 FieldInfo field = type.GetField(name, lookup);
                 if (field != null)
                 {
-                    if ((invokeAttr & BindingFlags.SetField) != 0) { field.SetValue(target, args.Length > 0 ? args[args.Length - 1] : null); return null; }
+                    if ((invokeAttr & BindingFlags.SetField) != 0) { field.SetValue(target, args[0]); return null; }
                     return field.GetValue(target);
                 }
                 if ((invokeAttr & (BindingFlags.InvokeMethod | BindingFlags.GetProperty | BindingFlags.SetProperty)) == 0)
                     throw new MissingFieldException("Field '" + type.FullName + "." + name + "' not found.");
             }
+            args ??= new object[0];
             if ((invokeAttr & (BindingFlags.GetProperty | BindingFlags.SetProperty)) != 0 && (invokeAttr & BindingFlags.InvokeMethod) == 0)
             {
-                PropertyInfo property = type.GetProperty(name, lookup) ?? throw new MissingMethodException("Method '" + type.FullName + "." + name + "' not found.");
-                if ((invokeAttr & BindingFlags.SetProperty) != 0) { property.SetValue(target, args.Length > 0 ? args[args.Length - 1] : null); return null; }
-                return property.GetValue(target);
+                // A property's accessor takes the index arguments (an indexer is "Item"), and a setter the value last.
+                bool set = (invokeAttr & BindingFlags.SetProperty) != 0;
+                int indexCount = set ? args.Length - 1 : args.Length;
+                foreach (PropertyInfo property in type.GetProperties(lookup))
+                {
+                    if (!string.Equals(property.Name, name, (lookup & BindingFlags.IgnoreCase) != 0 ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
+                        || property.GetIndexParameters().Length != indexCount || indexCount < 0) continue;
+                    object[] index = null;
+                    if (indexCount > 0) { index = new object[indexCount]; Array.Copy(args, index, indexCount); }
+                    if (set) { property.SetValue(target, args[args.Length - 1], index); return null; }
+                    return property.GetValue(target, index);
+                }
+                throw new MissingMethodException("Method '" + type.FullName + "." + name + "' not found.");
             }
             MethodInfo chosen = null;
             foreach (MethodInfo method in type.GetMethods(lookup))
