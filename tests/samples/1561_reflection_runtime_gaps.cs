@@ -17,6 +17,7 @@ class Unmarked
     public string Field = "field";
     public static string StaticField = "static";
     public int this[int i] { get => i * 10; set => Last = value + i; }
+    public string this[string key] => "key " + key;
     public int Last;
 }
 enum Color { Red, Green, Blue }
@@ -55,6 +56,7 @@ static class Program
         Try("InvokeMember set field two args", () => typeof(Unmarked).InvokeMember("Field", BindingFlags.SetField, null, target, ["a", "b"]));
         Try("InvokeMember set field no args", () => typeof(Unmarked).InvokeMember("Field", BindingFlags.SetField, null, target, null));
         Try("InvokeMember indexer", () => { typeof(Unmarked).InvokeMember("Item", BindingFlags.SetProperty, null, target, [3, 5]); return $"{typeof(Unmarked).InvokeMember("Item", BindingFlags.GetProperty, null, target, [3])} {target.Last}"; });
+        Try("InvokeMember indexer by type", () => $"{typeof(Unmarked).InvokeMember("Item", BindingFlags.GetProperty, null, target, ["k"])} {typeof(Unmarked).InvokeMember("Item", BindingFlags.GetProperty, null, target, [4])}");
         Try("InvokeMember property extra arg", () => typeof(Unmarked).InvokeMember("Count", BindingFlags.GetProperty, null, target, [1]));
         Try("InvokeMember missing", () => typeof(Unmarked).InvokeMember("Nope", BindingFlags.InvokeMethod, null, target, null));
         Try("InvokeMember no action", () => typeof(Unmarked).InvokeMember("Greet", BindingFlags.Public, null, target, null));

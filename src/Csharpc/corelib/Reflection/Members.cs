@@ -1593,6 +1593,18 @@ namespace CsharpcCoreLib
         /// property (Get/SetProperty) or field (Get/SetField) of that name; with no lookup flags, public instance members. Several methods
         /// that fit the arguments need .NET's DefaultBinder to choose: not supported yet (explicit error), as is CreateInstance.
         /// </summary>
+        /// <summary>Whether each argument can be passed to its parameter (null to a reference or Nullable&lt;T&gt; parameter).</summary>
+        private static bool ArgumentsFit(ParameterInfo[] parameters, object[] args)
+        {
+            for (int i = 0; i < parameters.Length && i < args.Length; i++)
+            {
+                Type parameterType = parameters[i].ParameterType;
+                bool fits = args[i] == null ? !parameterType.IsValueType || Nullable.GetUnderlyingType(parameterType) != null : parameterType.IsInstanceOfType(args[i]);
+                if (!fits) return false;
+            }
+            return true;
+        }
+
         public static object InvokeMember(Type type, string name, BindingFlags invokeAttr, Binder binder, object target, object[] args)
         {
             ArgumentNullException.ThrowIfNull(name);
@@ -1630,16 +1642,23 @@ namespace CsharpcCoreLib
                 // A property's accessor takes the index arguments (an indexer is "Item"), and a setter the value last.
                 bool set = (invokeAttr & BindingFlags.SetProperty) != 0;
                 int indexCount = set ? args.Length - 1 : args.Length;
+                // The index arguments must fit the property's index parameters, as the method arguments do below; several properties that
+                // fit (overloaded indexers) need .NET's DefaultBinder to choose: an explicit error.
+                PropertyInfo chosenProperty = null;
                 foreach (PropertyInfo property in type.GetProperties(lookup))
                 {
-                    if (!string.Equals(property.Name, name, (lookup & BindingFlags.IgnoreCase) != 0 ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)
-                        || property.GetIndexParameters().Length != indexCount || indexCount < 0) continue;
-                    object[] index = null;
-                    if (indexCount > 0) { index = new object[indexCount]; Array.Copy(args, index, indexCount); }
-                    if (set) { property.SetValue(target, args[args.Length - 1], index); return null; }
-                    return property.GetValue(target, index);
+                    if (!string.Equals(property.Name, name, (lookup & BindingFlags.IgnoreCase) != 0 ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) continue;
+                    ParameterInfo[] indexes = property.GetIndexParameters();
+                    if (indexCount < 0 || indexes.Length != indexCount || !ArgumentsFit(indexes, args)) continue;
+                    if (chosenProperty != null)
+                        throw new NotSupportedException("Type.InvokeMember choosing between overloads of '" + name + "' is not supported by csharpc yet.");
+                    chosenProperty = property;
                 }
-                throw new MissingMethodException("Method '" + type.FullName + "." + name + "' not found.");
+                if (chosenProperty == null) throw new MissingMethodException("Method '" + type.FullName + "." + name + "' not found.");
+                object[] index = null;
+                if (indexCount > 0) { index = new object[indexCount]; Array.Copy(args, index, indexCount); }
+                if (set) { chosenProperty.SetValue(target, args[args.Length - 1], index); return null; }
+                return chosenProperty.GetValue(target, index);
             }
             MethodInfo chosen = null;
             foreach (MethodInfo method in type.GetMethods(lookup))
@@ -1647,11 +1666,7 @@ namespace CsharpcCoreLib
                 if (!string.Equals(method.Name, name, (lookup & BindingFlags.IgnoreCase) != 0 ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) continue;
                 ParameterInfo[] parameters = method.GetParameters();
                 if (parameters.Length != args.Length) continue;
-                bool fits = true;
-                for (int i = 0; i < args.Length && fits; i++)
-                    fits = args[i] == null ? !parameters[i].ParameterType.IsValueType || Nullable.GetUnderlyingType(parameters[i].ParameterType) != null
-                        : parameters[i].ParameterType.IsInstanceOfType(args[i]);
-                if (!fits) continue;
+                if (!ArgumentsFit(parameters, args)) continue;
                 if (chosen != null)
                     throw new NotSupportedException("Type.InvokeMember choosing between overloads of '" + name + "' is not supported by csharpc yet.");
                 chosen = method;
