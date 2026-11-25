@@ -916,9 +916,12 @@ public sealed partial class FunctionCodeGen
             "GetNestedType" or "GetNestedTypes" => ModuleCodeGen.DamNestedTypes,
             // GetMember(s) look through every kind; the name filter of a GetMember also matches ".ctor", so it stays unrestricted.
             "GetMember" or "GetMembers" => ModuleCodeGen.DamMethods | ModuleCodeGen.DamConstructors | ModuleCodeGen.DamProperties | ModuleCodeGen.DamFields | ModuleCodeGen.DamEvents,
+            // typeof(X).InvokeMember("M", ...) (#104): .NET's InvokeMember annotates `this` with its InvokeMemberMembers (methods,
+            // constructors, properties and fields); a literal name keeps the members of that name, as for GetMethod.
+            "InvokeMember" => ModuleCodeGen.DamMethods | ModuleCodeGen.DamConstructors | ModuleCodeGen.DamProperties | ModuleCodeGen.DamFields,
             _ => 0,
         };
-        if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds, target.Name is "GetProperty" or "GetMethod" or "GetField" or "GetEvent" ? name : null);
+        if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds, target.Name is "GetProperty" or "GetMethod" or "GetField" or "GetEvent" or "InvokeMember" ? name : null);
         // typeof(G<,>).MakeGenericType(...): G is instantiated over the types the program rooted for reflection.
         if (target.Name == "MakeGenericType" && type is INamedTypeSymbol { IsGenericType: true } open && (open.IsUnboundGenericType || open.IsDefinition))
             _m.NoteMakeGenericDefinition(open);

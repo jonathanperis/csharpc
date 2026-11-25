@@ -561,7 +561,7 @@ public sealed class StackTraceInfo
             {
                 var found = node switch
                 {
-                    // Exception.Source tells a thrown exception (its throwing assembly, an explicit error in csharpc) from one never thrown
+                    // Exception.Source tells a thrown exception ("<unknown>", as NativeAOT has it) from one never thrown
                     // (null) by the frames recorded when it was thrown; without them a thrown one read as never thrown (#104).
                     MemberAccessExpressionSyntax { Name.Identifier.ValueText: "StackTrace" or "ToString" or "Source" } access => IsException(access.Expression),
                     // ExceptionDispatchInfo.SetRemoteStackTrace refuses an exception that was already thrown, which it can tell only from

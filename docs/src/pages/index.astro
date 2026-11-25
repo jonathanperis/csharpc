@@ -1,0 +1,92 @@
+---
+import Base from '../layouts/Base.astro';
+import { measure } from '../lib/codebase';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const doc = (id: string) => `${base}/docs/${id}/`;
+const areas = measure();
+const total = areas.reduce((s, a) => s + a.lines, 0);
+const fmt = (n: number) => n.toLocaleString('en-US');
+
+const stages = [
+  ['C# source or IL', '.cs files, a .csproj, or DLLs and NuGet packages'],
+  ['Roslyn', 'parsing, binding and every diagnostic, exactly the official compiler\'s'],
+  ['ControlFlowGraph', 'Roslyn\'s CFG as the mid-level IR; IL is read into the same shape'],
+  ['Lowering', 'generics, closures, async, exceptions, reflection metadata'],
+  ['LLVM IR + LTO', 'optimized together with the corelib and the csrt runtime'],
+  ['Native executable', 'one hardened file: no JIT, no CoreCLR'],
+];
+const cards = [
+  ['00-vision', 'Vision', 'What csharpc is for, its goals and non-goals.'],
+  ['02-architecture', 'Architecture', 'The pipeline, its phases and how the pieces fit.'],
+  ['03-lowering', 'Lowering', 'How each C# construct becomes LLVM IR, with real output.'],
+  ['04-runtime', 'Runtime', 'csrt: the GC, exceptions, threads and the C / C# boundary.'],
+  ['08-drop-in', 'Drop-in toolchain', '.csproj input and dotnet build / run / publish.'],
+  ['05-testing', 'Testing', 'Every test is recorded from real .NET and compared byte for byte.'],
+  ['17-security', 'Security', 'Hardening on by default, sanitizers, fuzzing.'],
+  ['06-roadmap', 'Roadmap', 'Milestones, the support matrix and what comes next.'],
+];
+---
+<Base title="csharpc" current="home">
+  <main class="page">
+    <section class="hero">
+      <h1>A C# front-end for <span>LLVM</span>.</h1>
+      <p>
+        csharpc compiles C# source, and .NET libraries shipped as IL, straight to small, fast native executables:
+        what clang is to C and rustc to Rust. Use it on its own, or as the AOT layer behind
+        <code>dotnet publish -p:PublishAot=true</code>.
+      </p>
+      <div class="actions">
+        <a class="button primary" href={`${base}/docs/`}>Read the docs</a>
+        <a class="button" href={`${base}/codebase/`}>Explore the codebase</a>
+        <a class="button" href="https://github.com/jonathanperis/csharpc">GitHub</a>
+      </div>
+    </section>
+
+    <h2 class="section-title">The one rule</h2>
+    <p>
+      A program compiled by csharpc behaves exactly like the same program under real .NET: byte-identical output and
+      the same exit code. Every test is recorded from <code>dotnet run</code> (or from NativeAOT where the two differ),
+      and anything csharpc cannot do yet is an explicit diagnostic, never a guess.
+      Priorities, in order: <b>security, speed, size</b>.
+    </p>
+
+    <h2 class="section-title">How a program is compiled</h2>
+    <div class="pipeline">
+      {stages.map(([name, text], i) => (
+        <>
+          {i > 0 && <span class="arrow" aria-hidden="true">→</span>}
+          <div class="stage"><b>{name}</b><small>{text}</small></div>
+        </>
+      ))}
+    </div>
+
+    <h2 class="section-title">Quick start</h2>
+    <pre class="terminal"><span class="c"># Linux, macOS or Windows; .NET 11 SDK, LLVM 18 and clang</span>
+dotnet build src/Csharpc -c Release
+dotnet src/Csharpc/bin/Release/net11.0/csharpc.dll hello.cs -o hello
+./hello
+
+<span class="c"># or compile a whole project</span>
+dotnet src/Csharpc/bin/Release/net11.0/csharpc.dll MyApp.csproj -o myapp</pre>
+    <p class="note">Setup per platform, WebAssembly (<code>--target wasm32-wasip1</code>) and the MSBuild integration are in the <a href={doc('08-drop-in')}>drop-in guide</a>.</p>
+
+    <h2 class="section-title">Documentation</h2>
+    <div class="cards">
+      {cards.map(([id, name, text]) => (
+        <a class="card" href={doc(id)}><b>{name}</b><span>{text}</span></a>
+      ))}
+    </div>
+
+    <h2 class="section-title">The codebase at a glance</h2>
+    <p>
+      {fmt(total)} lines across {areas.length} areas, counted when this site was built.
+      The <a href={`${base}/codebase/`}>codebase map</a> breaks each one down by responsibility.
+    </p>
+    <div class="cards">
+      {areas.map((a) => (
+        <a class="card" href={`${base}/codebase/#${a.key}`}><b>{a.name} · {Math.round((100 * a.lines) / total)} %</b><span>{a.summary}</span></a>
+      ))}
+    </div>
+  </main>
+</Base>

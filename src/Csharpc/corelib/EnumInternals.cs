@@ -40,6 +40,21 @@ namespace CsharpcCoreLib
         }
 
 
+        // Enum.TryParse(Type, string, [bool,] out object) with a Type known at run time (#104), as .NET's: a null or non-enum Type throws,
+        // a null text or one that names no value (or overflows the underlying type) gives false and null.
+        public static bool TryParse(Type enumType, string value, out object result) => TryParse(enumType, value, false, out result);
+
+        public static bool TryParse(Type enumType, string value, bool ignoreCase, out object result)
+        {
+            ArgumentNullException.ThrowIfNull(enumType);
+            if (!enumType.IsEnum) throw new ArgumentException("Type provided must be an Enum.", "enumType");
+            result = null;
+            if (value == null) return false;
+            try { result = EnumRuntime.Parse(enumType, value, ignoreCase); return true; }
+            catch (ArgumentException) { return false; }
+            catch (OverflowException) { return false; }
+        }
+
         public static bool TryFormatUnconstrained<TEnum>(TEnum value, Span<char> destination, out int charsWritten, ReadOnlySpan<char> format = default)
         {
             string text = format.IsEmpty ? ((Enum)(object)value).ToString() : ((Enum)(object)value).ToString(format.ToString());

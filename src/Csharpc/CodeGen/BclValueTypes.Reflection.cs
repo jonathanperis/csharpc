@@ -223,6 +223,17 @@ internal static partial class BclValueTypes
         t["System.Type.GetType(string)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "GetTypeByName", a[0]);
         t["System.Type.GetType(string, bool)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "GetTypeByName", a[0], a[1]);
         t["System.Type.GetType(string, bool, bool)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "GetTypeByName", a[0], a[1], a[2]);
+        // Type.GetType with assembly and type resolvers (#104), and Type.InvokeMember: ReflectionRuntime.
+        const string AsmResolver = "System.Func<System.Reflection.AssemblyName, System.Reflection.Assembly>";
+        const string TypeResolver = "System.Func<System.Reflection.Assembly, string, bool, System.Type>";
+        t[$"System.Type.GetType(string, {AsmResolver}, {TypeResolver})"] = (g, _, _, a, _) =>
+            g.CallCoreLib("ReflectionRuntime", "GetTypeWithResolvers", a[0], a[1], a[2], g.Llvm.False, g.Llvm.False);
+        t[$"System.Type.GetType(string, {AsmResolver}, {TypeResolver}, bool)"] = (g, _, _, a, _) =>
+            g.CallCoreLib("ReflectionRuntime", "GetTypeWithResolvers", a[0], a[1], a[2], a[3], g.Llvm.False);
+        t[$"System.Type.GetType(string, {AsmResolver}, {TypeResolver}, bool, bool)"] = (g, _, _, a, _) =>
+            g.CallCoreLib("ReflectionRuntime", "GetTypeWithResolvers", a[0], a[1], a[2], a[3], a[4]);
+        t["System.Type.InvokeMember(string, System.Reflection.BindingFlags, System.Reflection.Binder, object, object[])"] = (g, _, self, a, _) =>
+            g.CallCoreLib("ReflectionRuntime", "InvokeMember", self, a[0], a[1], a[2], a[3], a[4]);
         t["System.Type.GetTypeCode(System.Type)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "GetTypeCode", a[0]);
         t["System.Activator.CreateInstance(System.Type)"] = (g, _, _, a, _) =>
             g.CallCoreLib("ReflectionRuntime", "ActivatorCreateInstance", a[0]);

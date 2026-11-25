@@ -68,10 +68,16 @@ namespace CsharpcCoreLib
         // The sets created so far, by culture name: csharpc is invariant-culture, so only the neutral set ("") exists.
         private readonly Dictionary<string, ResourceSetImpl> _sets = new Dictionary<string, ResourceSetImpl>();
 
+        // ResourceManager's public constants and the protected fields a subclass reads (#104), as .NET's.
+        public static readonly int MagicNumber = unchecked((int)0xBEEFCACE);
+        public static readonly int HeaderVersionNumber = 1;
+        protected Assembly MainAssembly;
+
         public ResourceManagerImpl(Type resourceSource)
         {
             if (resourceSource == null) throw new ArgumentNullException("resourceSource");
             _baseName = resourceSource.FullName;
+            MainAssembly = resourceSource.Assembly;
         }
 
         public ResourceManagerImpl(string baseName, Assembly assembly)
@@ -79,6 +85,7 @@ namespace CsharpcCoreLib
             if (baseName == null) throw new ArgumentNullException("baseName");
             if (assembly == null) throw new ArgumentNullException("assembly");
             _baseName = baseName;
+            MainAssembly = assembly;
         }
 
         public virtual string BaseName => _baseName;
