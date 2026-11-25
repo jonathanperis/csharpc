@@ -45,6 +45,7 @@ jobs:
         working-directory: docs
         env:
           NODE_ENV: production
+          PUBLIC_GA_ID: ${{ secrets.PUBLIC_GA_ID }}
         run: bun run build
 
       - name: Upload artifact

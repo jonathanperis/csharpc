@@ -63,8 +63,8 @@ The docs describe the code as it is. When a feature lands, update the feature ma
 
 ## The site
 
-These files are also published at [jonathanperis.github.io/csharpc](https://jonathanperis.github.io/csharpc/), with a
-[codebase map](https://jonathanperis.github.io/csharpc/codebase/) counted from the repository on every build. The site is
+These files are also published at [jonathanperis.dev/csharpc](https://jonathanperis.dev/csharpc/), with a
+[codebase map](https://jonathanperis.dev/csharpc/codebase/) counted from the repository on every build. The site is
 plain [Astro](https://astro.build) in this directory: it renders the Markdown files as they are (links between documents
 go to their pages, links into the repository go to GitHub), so a document is written once and reads well in both places.
 `.github/workflows/pages.yml` rebuilds and deploys it on every push to `main`. To work on it locally:
