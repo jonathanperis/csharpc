@@ -1555,6 +1555,88 @@ namespace CsharpcCoreLib
             return found;
         }
 
+        /// <summary>
+        /// Type.GetType(name, assemblyResolver, typeResolver[, throwOnError[, ignoreCase]]) (#104), as .NET's TypeNameResolver for a type name
+        /// without generic arguments, nesting or modifiers: an assembly-qualified name's assembly comes from assemblyResolver (else
+        /// Assembly.Load), then the type from typeResolver(assembly, name, ignoreCase) (else the assembly's GetType, or the usual lookup
+        /// without an assembly). Other names with a resolver are not supported yet (explicit error).
+        /// </summary>
+        public static Type GetTypeWithResolvers(string typeName, Func<AssemblyName, Assembly> assemblyResolver, Func<Assembly, string, bool, Type> typeResolver,
+            bool throwOnError, bool ignoreCase)
+        {
+            ArgumentNullException.ThrowIfNull(typeName);
+            if (assemblyResolver == null && typeResolver == null) return GetTypeByName(typeName, throwOnError, ignoreCase);
+            string name = StripAssembly(typeName);
+            if (name.IndexOfAny(new[] { '[', '+', '*', '&' }) >= 0)
+                throw new NotSupportedException("Type.GetType with resolvers for a generic, nested, pointer or by-ref type name is not supported by csharpc yet.");
+            Assembly assembly = null;
+            int comma = typeName.IndexOf(',');
+            if (comma >= 0)
+            {
+                var assemblyName = new AssemblyName(typeName.Substring(comma + 1).Trim());
+                assembly = assemblyResolver != null ? assemblyResolver(assemblyName) : Assembly.Load(assemblyName);
+                if (assembly == null)
+                {
+                    if (throwOnError) throw new System.IO.FileNotFoundException("Could not load file or assembly '" + assemblyName.FullName + "'. The system cannot find the file specified.");
+                    return null;
+                }
+            }
+            Type type = typeResolver != null ? typeResolver(assembly, name, ignoreCase)
+                : assembly != null ? assembly.GetType(name, false, ignoreCase) : GetTypeByName(name, false, ignoreCase);
+            if (type == null && throwOnError)
+                throw new TypeLoadException("Could not resolve type '" + name + "'" + (assembly != null ? " in assembly '" + assembly.FullName + "'." : "."));
+            return type;
+        }
+
+        /// <summary>
+        /// Type.InvokeMember(name, flags, binder, target, args) (#104) for what needs no binder choice, as .NET's: a method (InvokeMethod),
+        /// property (Get/SetProperty) or field (Get/SetField) of that name; with no lookup flags, public instance members. Several methods
+        /// that fit the arguments need .NET's DefaultBinder to choose: not supported yet (explicit error), as is CreateInstance.
+        /// </summary>
+        public static object InvokeMember(Type type, string name, BindingFlags invokeAttr, Binder binder, object target, object[] args)
+        {
+            ArgumentNullException.ThrowIfNull(name);
+            const BindingFlags Actions = BindingFlags.InvokeMethod | BindingFlags.CreateInstance | BindingFlags.GetField | BindingFlags.SetField
+                | BindingFlags.GetProperty | BindingFlags.SetProperty;
+            if ((invokeAttr & Actions) == 0)
+                throw new ArgumentException("Must specify binding flags describing the invoke operation required (BindingFlags.InvokeMethod CreateInstance GetField SetField GetProperty SetProperty).", "bindingFlags");
+            if ((invokeAttr & BindingFlags.CreateInstance) != 0)
+                throw new NotSupportedException("Type.InvokeMember with BindingFlags.CreateInstance is not supported by csharpc yet.");
+            args ??= new object[0];
+            BindingFlags lookup = invokeAttr & ~Actions;
+            if ((lookup & (BindingFlags.Public | BindingFlags.NonPublic)) == 0) lookup |= BindingFlags.Public;
+            if ((lookup & (BindingFlags.Instance | BindingFlags.Static)) == 0) lookup |= BindingFlags.Instance;
+            if ((invokeAttr & (BindingFlags.GetField | BindingFlags.SetField)) != 0)
+            {
+                FieldInfo field = type.GetField(name, lookup) ?? throw new MissingFieldException("Field '" + type.FullName + "." + name + "' not found.");
+                if ((invokeAttr & BindingFlags.SetField) != 0) { field.SetValue(target, args.Length > 0 ? args[args.Length - 1] : null); return null; }
+                return field.GetValue(target);
+            }
+            if ((invokeAttr & (BindingFlags.GetProperty | BindingFlags.SetProperty)) != 0 && (invokeAttr & BindingFlags.InvokeMethod) == 0)
+            {
+                PropertyInfo property = type.GetProperty(name, lookup) ?? throw new MissingMethodException("Method '" + type.FullName + "." + name + "' not found.");
+                if ((invokeAttr & BindingFlags.SetProperty) != 0) { property.SetValue(target, args.Length > 0 ? args[args.Length - 1] : null); return null; }
+                return property.GetValue(target);
+            }
+            MethodInfo chosen = null;
+            foreach (MethodInfo method in type.GetMethods(lookup))
+            {
+                if (!string.Equals(method.Name, name, (lookup & BindingFlags.IgnoreCase) != 0 ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) continue;
+                ParameterInfo[] parameters = method.GetParameters();
+                if (parameters.Length != args.Length) continue;
+                bool fits = true;
+                for (int i = 0; i < args.Length && fits; i++)
+                    fits = args[i] == null ? !parameters[i].ParameterType.IsValueType || Nullable.GetUnderlyingType(parameters[i].ParameterType) != null
+                        : parameters[i].ParameterType.IsInstanceOfType(args[i]);
+                if (!fits) continue;
+                if (chosen != null)
+                    throw new NotSupportedException("Type.InvokeMember choosing between overloads of '" + name + "' is not supported by csharpc yet.");
+                chosen = method;
+            }
+            if (chosen == null) throw new MissingMethodException("Method '" + type.FullName + "." + name + "' not found.");
+            return chosen.Invoke(chosen.IsStatic ? null : target, args);
+        }
+
         public static Type GetTypeByName(string typeName) => GetTypeByName(typeName, false, false);
         public static Type GetTypeByName(string typeName, bool throwOnError) => GetTypeByName(typeName, throwOnError, false);
 

@@ -286,7 +286,8 @@ public sealed partial class FunctionCodeGen
             else if (type.IsValueType) args.Add(Spill(value)); // struct `this` is an address
             else { NullCheck(value); args.Add(value); }
             args.AddRange(temps);
-            if (!_m.IsUserMethod(method)) throw CompileError.Unsupported($"library Deconstruct '{method}'", pattern);
+            // A library Deconstruct the corelib supplies (TupleExtensions, #104) is called like any library method.
+            if (!_m.IsUserMethod(method) && _m.CoreLib.Map(method) is null) throw CompileError.Unsupported($"library Deconstruct '{method}'", pattern);
             DirectCall(method, [.. args]);
             var types = outs.Select(p => S(p.Type)).ToArray();
             return (temps.Select((t, i) => LoadValue(t, types[i])).ToArray(), types);
