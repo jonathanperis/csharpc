@@ -335,3 +335,4 @@ wasi 1532_monitor_thin_lock_table  needs threads: Thread.Start throws PlatformNo
 wasi 1540_enum_negative_value_culture_sign  .NET on WASI is globalization-invariant: CultureInfo("sv-SE") throws CultureNotFoundException
 wasi 1550_threading_runtime_members  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 1553_interop_gap_members     loads a shared library with NativeLibrary.Load: WASI has no dynamic libraries
+wasi 1559_driveinfo               WASI has no statfs/statvfs: DriveFormat and the drive sizes throw IOException (ENOTSUP)

@@ -5,6 +5,7 @@
 #   2. dotnet build -p:UseCsharpc=true  (targets imported directly) (MSBuild integration)
 #   3. dotnet run   -p:UseCsharpc=true                              (`dotnet run` runs native code)
 #   4. dotnet publish -p:PublishCsharpc=true via the Csharpc.Sdk NuGet package from a local feed
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
