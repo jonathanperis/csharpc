@@ -56,6 +56,6 @@ export default defineConfig({
   build: { inlineStylesheets: 'always' },
   markdown: {
     rehypePlugins: [rehypeRepoLinks],
-    shikiConfig: { themes: { light: 'github-light', dark: 'github-dark' }, wrap: false },
+    shikiConfig: { theme: 'github-dark', wrap: false },
   },
 });
