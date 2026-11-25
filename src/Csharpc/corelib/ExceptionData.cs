@@ -17,6 +17,9 @@ namespace CsharpcCoreLib
 
         private sealed class StringBox { public string Value; }
 
+        /// <summary>TypeInitializationException(fullTypeName, innerException)'s message (.NET's SR.TypeInitialization_Type).</summary>
+        public static string TypeInitializerMessage(string fullTypeName) => "The type initializer for '" + fullTypeName + "' threw an exception.";
+
         public static string GetHelpLink(Exception exception) => s_helpLink.TryGetValue(exception, out StringBox box) ? box.Value : null;
         public static void SetHelpLink(Exception exception, string value) => s_helpLink.GetOrCreateValue(exception).Value = value;
 
