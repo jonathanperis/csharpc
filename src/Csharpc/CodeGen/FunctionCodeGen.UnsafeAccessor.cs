@@ -101,11 +101,20 @@ public sealed partial class FunctionCodeGen
             }
             case 0: // constructor: the return type is the type to create
             {
-                if (S(target.ReturnType) is not INamedTypeSymbol { TypeKind: TypeKind.Class or TypeKind.Struct } owner || !_m.IsUserType(owner))
+                if (S(target.ReturnType) is not INamedTypeSymbol { TypeKind: TypeKind.Class or TypeKind.Struct } owner)
                     throw CompileError.Unsupported($"[UnsafeAccessor] constructor of '{target.ReturnType}'", inv);
                 var parameterTypes = target.Parameters.Select(p => S(p.Type)).ToArray();
+                // DateTime's private DateTime(ulong dateData) (CoreLib's own, absent from the reference assemblies): csharpc's DateTime
+                // is that `_dateData` (corelib/DateTimeOps.cs), so the value is the argument itself (#99).
+                if (BclValueTypes.IsDateTime(owner) && parameterTypes is [{ SpecialType: SpecialType.System_UInt64 }])
+                    return EmitArgument(args[0], target);
                 var ctor = owner.InstanceConstructors.FirstOrDefault(c => c.Parameters.Select(p => S(p.Type)).SequenceEqual(parameterTypes, SymbolEqualityComparer.Default))
                     ?? throw CompileError.Unsupported($"[UnsafeAccessor] constructor of '{owner}' not found", inv);
+                // A library type (DateTime, a corelib shadow, a type with intrinsic constructors): created as `new T(...)` would be, so its
+                // own representation applies (#99); a constructor csharpc has no implementation for stays that explicit diagnostic.
+                if (!_m.IsUserType(owner))
+                    return EmitObjectCreation(new IlObjectCreationOperation(inv.Syntax, ctor,
+                        [.. args.Select((a, i) => (IArgumentOperation)new IlArgumentOperation(a.Syntax, ctor.Parameters[i], a.Value))]));
                 if (owner.TypeKind == TypeKind.Struct)
                 {
                     // A struct is created in place: a zeroed value whose address is the constructor's `this` (the corelib's
