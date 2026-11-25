@@ -1,8 +1,10 @@
 // System.Diagnostics.Process. Linux and macOS start processes with posix_spawnp (ArgumentList, the working
 // directory, the environment, redirected standard output and error read through pipes, WaitForExit,
-// ExitCode, Kill); Windows, WASI, ShellExecute, a redirected standard input and Arguments command lines
-// are explicit NotSupportedExceptions. The current process (GetCurrentProcess: Id, CPU times, working
-// set on Linux) works everywhere. ProcessStartInfo is a property bag, as in .NET.
+// ExitCode, Kill) and look up processes they did not start (GetProcessById, GetProcesses, ProcessName,
+// Modules and MainModule, read from /proc on Linux and libproc on macOS, as .NET does); Windows, WASI,
+// ShellExecute, a redirected standard input and Arguments command lines are explicit NotSupportedExceptions.
+// The current process (GetCurrentProcess: Id, CPU times, working set on Linux) works everywhere.
+// ProcessStartInfo is a property bag, as in .NET.
 #nullable disable
 using System;
 using System.Collections.Generic;
@@ -124,6 +126,250 @@ namespace CsharpcCoreLib
 #endif
         }
 
+        // ---- other processes (#102): GetProcessById, GetProcesses, ProcessName, Modules, as .NET's ProcessManager.Linux/OSX ----
+        private readonly bool _lookedUp;
+        private ProcessImpl(int pid, bool lookedUp) { _pid = pid; _lookedUp = lookedUp; }
+
+        public static Process GetProcessById(int processId)
+        {
+            if (!IsRunning(processId)) throw new ArgumentException("Process with an Id of " + processId.ToString() + " is not running.");
+            return (Process)(object)new ProcessImpl(processId, lookedUp: true);
+        }
+
+        public static Process GetProcessById(int processId, string machineName)
+        {
+            RequireLocalMachine(machineName);
+            return GetProcessById(processId);
+        }
+
+        public static Process[] GetProcesses()
+        {
+            var ids = ProcessIds();
+            var processes = new Process[ids.Count];
+            for (int i = 0; i < ids.Count; i++) processes[i] = (Process)(object)new ProcessImpl(ids[i], lookedUp: true);
+            return processes;
+        }
+
+        public static Process[] GetProcesses(string machineName)
+        {
+            RequireLocalMachine(machineName);
+            return GetProcesses();
+        }
+
+        private static void RequireLocalMachine(string machineName)
+        {
+            ArgumentNullException.ThrowIfNull(machineName);
+            if (machineName != "." && !string.Equals(machineName, Environment.MachineName, StringComparison.OrdinalIgnoreCase))
+                throw new PlatformNotSupportedException("Remote machines are not supported on this platform.");
+        }
+
+        /// <summary>
+        /// The id ProcessName and Modules read (EnsureState(HaveNonExitedId) in .NET). On Unix .NET throws for an exit only once it
+        /// has observed one without refreshing (Process.Unix's ThrowIfExited(refresh: false)): a started child that was waited for or
+        /// found exited, or a looked-up process whose HasExited returned true. Otherwise a name read before stays cached, and a new
+        /// read of an exited process fails in the reader.
+        /// </summary>
+        private int AssociatedPid()
+        {
+            if (_current) return Environment.ProcessId;
+            if (!_lookedUp && !_started) throw new InvalidOperationException("No process is associated with this object.");
+            if (_lookedUp ? _exitObserved : _exited)
+                throw new InvalidOperationException("Cannot process request because the process (" + _pid.ToString() + ") has exited.");
+            return _pid;
+        }
+
+        private bool _exitObserved;
+
+        private string _processName;
+
+        public string ProcessName
+        {
+            get
+            {
+                int pid = AssociatedPid(); // (checked even when the name is cached, as .NET's EnsureState comes first)
+                return _processName ??= ProcessNameOf(pid);
+            }
+        }
+
+        private ProcessModuleCollection _modules;
+
+        public ProcessModuleCollection Modules => _modules ??= (ProcessModuleCollection)(object)ModulesOf(AssociatedPid());
+
+        public ProcessModule MainModule
+        {
+            get
+            {
+                var modules = Modules;
+                return modules.Count > 0 ? modules[0] : null;
+            }
+        }
+
+#if CSHARPC_TARGET_LINUX
+        private static bool IsRunning(int pid) => kill(pid, 0) == 0 || Marshal.GetLastSystemError() == 1; // EPERM: alive, someone else's
+
+        /// <summary>ProcessManager.Linux.EnumerateProcessIds: the numeric directories of /proc.</summary>
+        private static List<int> ProcessIds()
+        {
+            var ids = new List<int>();
+            foreach (var dir in Directory.EnumerateDirectories("/proc"))
+                if (int.TryParse(Path.GetFileName(dir), System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out int pid))
+                    ids.Add(pid);
+            return ids;
+        }
+
+        /// <summary>
+        /// Process.GetUntruncatedProcessName: /proc/pid/stat's comm is cut to 15 bytes, so the name is argv[0]'s file name (or argv[1]'s, for a
+        /// script) when it starts with comm, case-insensitively; comm otherwise.
+        /// </summary>
+        private static string ProcessNameOf(int pid)
+        {
+            string stat;
+            try { stat = File.ReadAllText("/proc/" + pid.ToString() + "/stat"); }
+            catch (IOException) { throw new InvalidOperationException("Process has exited, so the requested information is not available."); }
+            int open = stat.IndexOf('('), close = stat.LastIndexOf(')');
+            string comm = open >= 0 && close > open ? stat.Substring(open + 1, close - open - 1) : string.Empty;
+            byte[] cmdline;
+            try { cmdline = File.ReadAllBytes("/proc/" + pid.ToString() + "/cmdline"); }
+            catch (IOException) { return comm; }
+            int argEnd = Array.IndexOf(cmdline, (byte)0);
+            if (argEnd < 0) return comm;
+            if (NameFromArg(cmdline, 0, argEnd, comm) is { } first) return first;
+            int nextEnd = Array.IndexOf(cmdline, (byte)0, argEnd + 1);
+            return nextEnd < 0 ? comm : NameFromArg(cmdline, argEnd + 1, nextEnd, comm) ?? comm;
+
+            static string NameFromArg(byte[] bytes, int start, int end, string prefix)
+            {
+                int slash = Array.LastIndexOf(bytes, (byte)'/', end - 1, end - start);
+                int nameStart = slash >= start ? slash + 1 : start;
+                string name = Encoding.UTF8.GetString(bytes, nameStart, end - nameStart);
+                return name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? name : null;
+            }
+        }
+
+        /// <summary>
+        /// ProcessManager.Linux.GetModules: /proc/pid/maps parsed as Interop.procfs.ParseMapsModules does (adjacent mappings of one file merged,
+        /// a module kept only when one of its mappings is readable and executable), the executable moved to the front.
+        /// </summary>
+        private static ProcessModuleCollectionImpl ModulesOf(int pid)
+        {
+            var modules = new ProcessModuleCollectionImpl();
+            string[] lines;
+            try { lines = File.ReadAllLines("/proc/" + (pid == Environment.ProcessId ? "self" : pid.ToString()) + "/maps"); }
+            catch (IOException) { return modules; }
+            catch (UnauthorizedAccessException) { return modules; }
+            ProcessModuleImpl module = null;
+            bool readAndExec = false;
+            foreach (var line in lines)
+            {
+                if (!TryParseMapsLine(line, out long start, out int size, out bool rx, out string path)) { Commit(); continue; }
+                if (module != null && module.FileName == path && (long)module.BaseAddress + module.ModuleMemorySize == start)
+                {
+                    module.ModuleMemorySize += size;
+                    readAndExec |= rx;
+                    continue;
+                }
+                Commit();
+                module = new ProcessModuleImpl(path, Path.GetFileName(path)) { ModuleMemorySize = size, BaseAddress = new IntPtr(start) };
+                readAndExec = rx;
+            }
+            Commit();
+            string exe = pid == Environment.ProcessId ? Environment.ProcessPath : ReadLinkOrNull("/proc/" + pid.ToString() + "/exe");
+            if (exe != null)
+                for (int i = 0; i < modules.Count; i++)
+                    if (modules.ImplAt(i).FileName == exe)
+                    {
+                        if (i > 0) modules.MoveToFront(i);
+                        break;
+                    }
+            return modules;
+
+            void Commit()
+            {
+                if (readAndExec && module != null) { modules.AddImpl(module); module = null; }
+            }
+        }
+
+        // "start-end perms offset dev inode path": the path is everything after the fifth field (it may contain spaces).
+        private static bool TryParseMapsLine(string line, out long start, out int size, out bool readAndExec, out string path)
+        {
+            start = 0; size = -1; readAndExec = false; path = null;
+            var fields = new string[5];
+            int position = 0;
+            for (int f = 0; f < 5; f++)
+            {
+                while (position < line.Length && line[position] == ' ') position++;
+                int fieldStart = position;
+                while (position < line.Length && line[position] != ' ') position++;
+                if (position == fieldStart) return false;
+                fields[f] = line.Substring(fieldStart, position - fieldStart);
+            }
+            int dash = fields[0].IndexOf('-');
+            if (dash <= 0
+                || !long.TryParse(fields[0].AsSpan(0, dash), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out start)
+                || !long.TryParse(fields[0].AsSpan(dash + 1), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out long end))
+                return false;
+            size = (int)(end - start);
+            if (size < 0) return false;
+            readAndExec = fields[1].Contains('r') && fields[1].Contains('x');
+            while (position < line.Length && line[position] == ' ') position++;
+            if (position >= line.Length) return false;
+            path = line.Substring(position);
+            return true;
+        }
+
+        private static string ReadLinkOrNull(string path)
+        {
+            try { return new FileInfo(path).LinkTarget; }
+            catch (IOException) { return null; }
+            catch (UnauthorizedAccessException) { return null; }
+        }
+#elif CSHARPC_TARGET_MACOS
+        [DllImport("libc")] private static extern int proc_pidpath(int pid, byte* buffer, uint size);
+        [DllImport("libc")] private static extern int proc_listallpids(int* buffer, int size);
+
+        private static bool IsRunning(int pid) => kill(pid, 0) == 0 || Marshal.GetLastSystemError() == 1; // EPERM: alive, someone else's
+
+        /// <summary>ProcessManager.OSX: proc_listallpids, sized by a first call.</summary>
+        private static List<int> ProcessIds()
+        {
+            int count = proc_listallpids(null, 0);
+            var ids = new List<int>();
+            if (count <= 0) return ids;
+            var buffer = new int[count + 16];
+            fixed (int* p = buffer) count = proc_listallpids(p, buffer.Length * sizeof(int));
+            for (int i = 0; i < count && i < buffer.Length; i++) ids.Add(buffer[i]);
+            return ids;
+        }
+
+        private static string ExecutablePath(int pid)
+        {
+            byte* buffer = stackalloc byte[4096]; // PROC_PIDPATHINFO_MAXSIZE
+            int length = proc_pidpath(pid, buffer, 4096);
+            return length > 0 ? Encoding.UTF8.GetString(buffer, length) : null;
+        }
+
+        /// <summary>ProcessManager.OSX.GetProcessName: the file name of the executable's path; "" when it cannot be read.</summary>
+        private static string ProcessNameOf(int pid) => ExecutablePath(pid) is { Length: > 0 } path ? Path.GetFileName(path) : string.Empty;
+
+        /// <summary>ProcessManager.BSD.GetModules: macOS lists no modules, only the executable (MainModule's reason to exist).</summary>
+        private static ProcessModuleCollectionImpl ModulesOf(int pid)
+        {
+            var modules = new ProcessModuleCollectionImpl();
+            if (ExecutablePath(pid) is { Length: > 0 } path) modules.AddImpl(new ProcessModuleImpl(path, Path.GetFileName(path)));
+            return modules;
+        }
+#else
+        private static bool IsRunning(int pid) => pid == Environment.ProcessId;
+        private static List<int> ProcessIds() => throw new NotSupportedException("Process.GetProcesses is not supported by csharpc yet on this platform.");
+
+        private static string ProcessNameOf(int pid) => pid == Environment.ProcessId && Environment.ProcessPath is { } path
+            ? Path.GetFileNameWithoutExtension(path)
+            : throw new NotSupportedException("Process.ProcessName of another process is not supported by csharpc yet on this platform.");
+
+        private static ProcessModuleCollectionImpl ModulesOf(int pid) =>
+            throw new NotSupportedException("Process.Modules is not supported by csharpc yet on this platform.");
+#endif
+
         // ---- started processes (Linux and macOS: posix_spawnp, pipes for the redirected streams) ----
         private int _pid;
         private bool _started, _exited;
@@ -149,13 +395,14 @@ namespace CsharpcCoreLib
         public StreamReader StandardError => _stderr ?? throw new InvalidOperationException("StandardError has not been redirected or the process hasn't started yet.");
         public StreamWriter StandardInput => _stdin ?? throw new InvalidOperationException("StandardIn has not been redirected.");
 
-        public int Id { get { if (_current) return Environment.ProcessId; RequireStarted(); return _pid; } }
+        public int Id { get { if (_current) return Environment.ProcessId; if (_lookedUp) return _pid; RequireStarted(); return _pid; } }
 
         public bool HasExited
         {
             get
             {
                 if (_current) return false;
+                if (_lookedUp) return _exitObserved || (_exitObserved = !IsRunning(_pid));
                 RequireStarted();
                 return _exited || Reap(wait: false);
             }
@@ -213,6 +460,9 @@ namespace CsharpcCoreLib
 
         public void Kill()
         {
+#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
+            if (_lookedUp) { if (IsRunning(_pid)) kill(_pid, 9); return; } // SIGKILL; a process that already exited is no error
+#endif
             RequireStarted();
             if (_exited || Reap(wait: false)) return;
 #if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
@@ -229,6 +479,7 @@ namespace CsharpcCoreLib
 
         private void RequireStarted()
         {
+            if (_lookedUp) throw new NotSupportedException("Waiting for, or reading the exit code of, a process csharpc did not start (Process.GetProcessById, GetProcesses) is not supported by csharpc yet.");
             if (!_started) throw new InvalidOperationException("No process is associated with this object.");
         }
 
@@ -450,5 +701,59 @@ namespace CsharpcCoreLib
             }
         }
 #endif
+    }
+
+    /// <summary>System.Diagnostics.ProcessModule: a file mapped into a process (ProcessModule.cs).</summary>
+    [Shadows("System.Diagnostics.ProcessModule")]
+    public class ProcessModuleImpl : IDisposable
+    {
+        private readonly string _fileName, _moduleName;
+        private FileVersionInfo _versionInfo;
+
+        internal ProcessModuleImpl(string fileName, string moduleName) { _fileName = fileName; _moduleName = moduleName; }
+
+        public string ModuleName => _moduleName;
+        public string FileName => _fileName;
+        public IntPtr BaseAddress { get; internal set; }
+        public int ModuleMemorySize { get; internal set; }
+        public IntPtr EntryPointAddress { get; internal set; }
+        public FileVersionInfo FileVersionInfo => _versionInfo ??= FileVersionInfo.GetVersionInfo(_fileName);
+
+        // Component.ToString() is the type's full name without a site; ProcessModule appends the module name.
+        public override string ToString() => "System.Diagnostics.ProcessModule (" + ModuleName + ")";
+
+        public void Dispose() { }
+    }
+
+    /// <summary>System.Diagnostics.ProcessModuleCollection: a read-only list of ProcessModule (ProcessModuleCollection.cs).</summary>
+    [Shadows("System.Diagnostics.ProcessModuleCollection")]
+    public class ProcessModuleCollectionImpl : System.Collections.ReadOnlyCollectionBase
+    {
+        protected internal ProcessModuleCollectionImpl() { }
+
+        public ProcessModuleCollectionImpl(ProcessModule[] processModules)
+        {
+            ArgumentNullException.ThrowIfNull(processModules);
+            InnerList.AddRange(processModules);
+        }
+
+        public ProcessModule this[int index] => (ProcessModule)InnerList[index];
+
+        public int IndexOf(ProcessModule module) => InnerList.IndexOf(module);
+
+        public bool Contains(ProcessModule module) => InnerList.Contains(module);
+
+        public void CopyTo(ProcessModule[] array, int index) => InnerList.CopyTo(array, index);
+
+        internal void AddImpl(ProcessModuleImpl module) => InnerList.Add(module);
+
+        internal ProcessModuleImpl ImplAt(int index) => (ProcessModuleImpl)InnerList[index];
+
+        internal void MoveToFront(int index)
+        {
+            object module = InnerList[index];
+            InnerList.RemoveAt(index);
+            InnerList.Insert(0, module);
+        }
     }
 }
