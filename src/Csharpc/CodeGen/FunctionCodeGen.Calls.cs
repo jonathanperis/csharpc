@@ -1413,8 +1413,9 @@ public sealed partial class FunctionCodeGen
     // Strings
     // ======================================================================================
 
+    // string.Concat / `+` as .NET's: an empty operand gives the other one itself, both empty give string.Empty (#492).
     internal LLVMValueRef ConcatStrings(LLVMValueRef a, LLVMValueRef b) =>
-        CallRuntime("csrt_string_concat", L.Ptr, [L.Ptr, L.Ptr], a, b);
+        CallRuntime("csrt_string_concat_net", L.Ptr, [L.Ptr, L.Ptr], a, b);
 
     /// <summary>Strips conversions to object (boxing) so the value can be formatted by its real type.</summary>
     internal static IOperation Unbox(IOperation op)
