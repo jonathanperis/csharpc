@@ -40,6 +40,9 @@ namespace CsharpcCoreLib
         public bool RedirectStandardOutput { get; set; }
         public bool RedirectStandardError { get; set; }
         public bool CreateNoWindow { get; set; }
+        // Windows' shell-execute error dialog (#102): kept as set; nothing reads it on Unix, as in .NET.
+        public bool ErrorDialog { get; set; }
+        public IntPtr ErrorDialogParentHandle { get; set; }
         public Encoding StandardOutputEncoding { get; set; }
         public Encoding StandardErrorEncoding { get; set; }
         public Encoding StandardInputEncoding { get; set; }

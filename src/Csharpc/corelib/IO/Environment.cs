@@ -19,6 +19,7 @@ namespace CsharpcCoreLib
         [DllImport("kernel32")] private static extern uint GetCurrentProcessId();
         [DllImport("kernel32")] private static extern char* GetCommandLineW();
         [DllImport("advapi32")] private static extern int GetUserNameW(char* buffer, uint* size);
+        [DllImport("secur32")] private static extern int GetUserNameExW(int nameFormat, char* buffer, uint* size);
         [DllImport("kernel32", CharSet = CharSet.Unicode)] private static extern uint ExpandEnvironmentStringsW(string src, char* dst, uint size);
 
         // .NET on Windows: Win32's ExpandEnvironmentStrings, retried with the size it asks for.
@@ -104,6 +105,26 @@ namespace CsharpcCoreLib
                 char* buffer = stackalloc char[257];
                 uint size = 257;
                 return GetUserNameW(buffer, &size) != 0 && size > 0 ? new string(buffer, 0, (int)size - 1) : "Windows User";
+            }
+        }
+
+        /// <summary>
+        /// Environment.UserDomainName (#102), as .NET's on Windows: the domain part of the account's SAM-compatible name ("DOMAIN\user",
+        /// GetUserNameEx(NameSamCompatible)); the USERDOMAIN variable, then the machine name, when that is not available.
+        /// </summary>
+        public static string UserDomainName
+        {
+            get
+            {
+                char* buffer = stackalloc char[512];
+                uint size = 512;
+                if (GetUserNameExW(2 /* NameSamCompatible */, buffer, &size) != 0)
+                {
+                    var account = new string(buffer, 0, (int)size);
+                    int slash = account.IndexOf('\\');
+                    if (slash > 0) return account.Substring(0, slash);
+                }
+                return GetEnvironmentVariable("USERDOMAIN") ?? MachineName;
             }
         }
 
@@ -195,6 +216,8 @@ namespace CsharpcCoreLib
         }
 
         public static string UserName => GetEnvironmentVariable("USER") ?? "";
+        /// <summary>Environment.UserDomainName (#102): the machine name on Unix, as .NET's.</summary>
+        public static string UserDomainName => Environment.MachineName;
 #if CSHARPC_TARGET_WASI
         // WASI has no process ids or host names: the id is the one wasi-libc's getpid emulation reports.
         public static int ProcessId => 42;

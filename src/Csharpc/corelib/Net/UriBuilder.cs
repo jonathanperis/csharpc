@@ -50,6 +50,28 @@ namespace CsharpcCoreLib
 
         public UriBuilderImpl(string scheme, string host, int port, string pathValue) : this(scheme, host, port) { Path = pathValue; }
 
+        /// <summary>
+        /// UriBuilder(scheme, host, port, path, extraValue) (#102), as .NET's: the extra value is a query ("?..."), a fragment ("#...")
+        /// or a query followed by a fragment; anything else is an ArgumentException. Null or empty adds nothing.
+        /// </summary>
+        public UriBuilderImpl(string scheme, string host, int port, string path, string extraValue) : this(scheme, host, port, path)
+        {
+            if (string.IsNullOrEmpty(extraValue)) return;
+            if (extraValue[0] == '#') _fragment = extraValue;
+            else if (extraValue[0] == '?')
+            {
+                int fragmentIndex = extraValue.IndexOf('#');
+                if (fragmentIndex == -1) _query = extraValue;
+                else
+                {
+                    _query = extraValue.Substring(0, fragmentIndex);
+                    _fragment = extraValue.Substring(fragmentIndex);
+                }
+            }
+            else throw new ArgumentException("Extra portion of URI not valid.", "extraValue");
+            _changed = true;
+        }
+
         public string Scheme
         {
             get => _scheme;

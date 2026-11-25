@@ -1,0 +1,11 @@
+domain: True
+ErrorDialog: True
+ErrorDialogParentHandle: 0
+default: False
+query: https://example.com:8443/path?q=1
+fragment: http://h:80/p#frag
+both: http://h/a/b?x=1#f
+parts: ?x|#y
+empty: http://h:1/p
+null: http://h:1/p
+bad: ArgumentException: Extra portion of URI not valid. (Parameter 'extraValue')
