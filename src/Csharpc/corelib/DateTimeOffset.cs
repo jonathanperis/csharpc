@@ -62,7 +62,7 @@ namespace CsharpcCoreLib
         {
             if (dateTime.Kind != DateTimeKind.Utc)
             {
-                TimeSpan offset = Globalization.TimeZoneInfo.GetLocalUtcOffset(dateTime, Globalization.TimeZoneInfoOptions.NoThrowOnInvalidTime);
+                TimeSpan offset = System.TimeZoneInfo.Local.GetUtcOffset(dateTime);
                 _offsetMinutes = ValidateOffset(offset);
                 _dateTime = ValidateDate(dateTime, offset);
             }
@@ -77,7 +77,7 @@ namespace CsharpcCoreLib
         {
             if (dateTime.Kind == DateTimeKind.Local)
             {
-                if (offset != Globalization.TimeZoneInfo.GetLocalUtcOffset(dateTime, Globalization.TimeZoneInfoOptions.NoThrowOnInvalidTime))
+                if (offset != System.TimeZoneInfo.Local.GetUtcOffset(dateTime))
                     throw new ArgumentException("The UTC Offset of the local dateTime parameter does not match the offset argument.", "offset");
             }
             else if (dateTime.Kind == DateTimeKind.Utc)
@@ -312,7 +312,7 @@ namespace CsharpcCoreLib
 
         private static DateTimeOffset ToLocalTime(DateTime utcDateTime, bool throwOnOverflow)
         {
-            TimeSpan offset = Globalization.TimeZoneInfo.GetLocalUtcOffset(utcDateTime, Globalization.TimeZoneInfoOptions.NoThrowOnInvalidTime);
+            TimeSpan offset = System.TimeZoneInfo.Local.GetUtcOffset(utcDateTime);
             long localTicks = utcDateTime.Ticks + offset.Ticks;
             if ((ulong)localTicks > MaxTicks)
             {
