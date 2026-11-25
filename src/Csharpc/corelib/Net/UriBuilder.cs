@@ -69,6 +69,9 @@ namespace CsharpcCoreLib
                 }
             }
             else throw new ArgumentException("Extra portion of URI not valid.", "extraValue");
+            // A bare delimiter is no query or fragment, as .NET's.
+            if (_query.Length == 1) _query = string.Empty;
+            if (_fragment.Length == 1) _fragment = string.Empty;
             _changed = true;
         }
 

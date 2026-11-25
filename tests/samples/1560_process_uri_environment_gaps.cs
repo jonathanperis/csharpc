@@ -25,5 +25,7 @@ static class Program
         Try("empty", () => new UriBuilder("http", "h", 1, "p", "").Uri);
         Try("null", () => new UriBuilder("http", "h", 1, "p", null).Uri);
         Try("bad", () => new UriBuilder("http", "h", 1, "p", "x=1").Uri);
+        foreach (var extra in new[] { "?", "#", "?#", "?a#", "?#b" })
+            Try("delimiters " + extra, () => { var b = new UriBuilder("http", "h", 1, "p", extra); return $"[{b.Query}] [{b.Fragment}] {b.Uri}"; });
     }
 }

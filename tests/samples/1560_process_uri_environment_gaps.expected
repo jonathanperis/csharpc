@@ -9,3 +9,8 @@ parts: ?x|#y
 empty: http://h:1/p
 null: http://h:1/p
 bad: ArgumentException: Extra portion of URI not valid. (Parameter 'extraValue')
+delimiters ?: [] [] http://h:1/p
+delimiters #: [] [] http://h:1/p
+delimiters ?#: [] [] http://h:1/p
+delimiters ?a#: [?a] [] http://h:1/p?a
+delimiters ?#b: [] [#b] http://h:1/p#b
