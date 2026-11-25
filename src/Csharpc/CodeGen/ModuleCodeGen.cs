@@ -1289,6 +1289,8 @@ public sealed partial class ModuleCodeGen
     public LLVMValueRef StringLiteral(string value)
     {
         if (_strings.TryGetValue(value, out var g)) return g;
+        // "" is the runtime's one empty string (csrt_string_empty, #492): the object every empty string the runtime makes is, as in .NET.
+        if (value.Length == 0) return _strings[value] = ExternalGlobal("csrt_string_empty");
         // The char after the last one is 0, as in .NET (`fixed (char* p = s)` and native code reading wide strings rely on it);
         // padding often provides it for free, but not on every layout (wasm32's 4-byte header).
         var chars = value.Select(c => Llvm.ConstInt(Llvm.I16, c)).Append(Llvm.ConstInt(Llvm.I16, 0)).ToArray();
