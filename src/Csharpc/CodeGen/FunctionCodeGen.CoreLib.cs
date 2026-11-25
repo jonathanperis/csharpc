@@ -67,7 +67,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef GetCapturedProperty(PropertyCapture pc)
     {
-        var getter = pc.Property.GetMethod ?? throw CompileError.Unsupported($"reading set-only property '{pc.Property.Name}'", pc.Property);
+        var getter = GetterOf(pc.Property) ?? throw CompileError.Unsupported($"reading set-only property '{pc.Property.Name}'", pc.Property);
         return CallAccessorDirect(getter, CapturedAccessorArgs(pc, getter, []));
     }
 
