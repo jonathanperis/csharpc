@@ -22,6 +22,12 @@ sealed class Blob
     public override string ToString() => $"{Via}: {Data.Length} bytes [{string.Join(",", Data.Take(6))}]";
 }
 
+// A (Stream) constructor that throws: Activator.CreateInstance wraps it in TargetInvocationException.
+sealed class Broken
+{
+    public Broken(Stream stream) => throw new InvalidDataException("bad header: " + stream.Length);
+}
+
 sealed class BlobConverter : TypeConverter
 {
     public override bool CanConvertFrom(ITypeDescriptorContext? context, Type sourceType) => sourceType == typeof(byte[]) || base.CanConvertFrom(context, sourceType);
@@ -35,7 +41,7 @@ static class Program
     static void Main()
     {
         var resources = new ResourceManager("Repro.Assets", typeof(Program).Assembly);
-        foreach (var name in new[] { "Icon", "Picture", "Empty", "Raw", "RawStream" })
+        foreach (var name in new[] { "Icon", "Picture", "Empty", "Raw", "RawStream", "BrokenFile" })
         {
             try
             {
@@ -48,7 +54,7 @@ static class Program
                 };
                 Console.WriteLine($"{name}: {shown} [{o?.GetType().Name}]");
             }
-            catch (Exception e) { Console.WriteLine($"{name}: {e.GetType().Name}: {e.Message}"); }
+            catch (Exception e) { Console.WriteLine($"{name}: {e.GetType().Name}: {e.Message}" + (e.InnerException is { } inner ? $" ({inner.GetType().Name}: {inner.Message})" : "")); }
         }
         // Each GetObject creates the object again.
         Console.WriteLine(ReferenceEquals(resources.GetObject("Icon"), resources.GetObject("Icon")));

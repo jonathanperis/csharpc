@@ -101,12 +101,17 @@ public static class ResourceConverters
                 resourceCases.AppendLine($"                case {Literal(name)}: return new object[] {{ {creation}.ConvertFromInvariantString(text) }};");
                 bytesCases.AppendLine($"                case {Literal(name)}: return new object[] {{ {creation}.ConvertFrom(data) }};");
             }
-            var streamConstructor = type.InstanceConstructors.Any(c => c.DeclaredAccessibility == Accessibility.Public && !type.IsAbstract
+            // Activator.CreateInstance(type, stream): a public (Stream) constructor, whose exception comes wrapped in a
+            // TargetInvocationException; none is a MissingMethodException with .NET's inner one. A type (or constructor) the generated
+            // code can't name gets no case, so GetObject's explicit "not supported" error stays.
+            var streamConstructor = type.InstanceConstructors.FirstOrDefault(c => c.DeclaredAccessibility == Accessibility.Public && !type.IsAbstract
                 && c.Parameters is [{ Type: { Name: "Stream", ContainingNamespace: { Name: "IO", ContainingNamespace.Name: "System" } } }]);
-            var fullName = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Replace("global::", "");
-            streamCases.AppendLine(streamConstructor
-                ? $"                case {Literal(name)}: return new object[] {{ new {fullName}(data) }};"
-                : $"                case {Literal(name)}: throw new System.MissingMethodException({Literal($"Constructor on type '{name}' not found.")});");
+            if (!compilation.IsSymbolAccessibleWithin(type, compilation.Assembly)) continue;
+            var fullName = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            if (streamConstructor is null)
+                streamCases.AppendLine($"                case {Literal(name)}: throw new global::System.MissingMethodException({Literal($"Constructor on type '{name}' not found.")}, new global::System.MissingMethodException(\"Member not found.\"));");
+            else if (compilation.IsSymbolAccessibleWithin(streamConstructor, compilation.Assembly))
+                streamCases.AppendLine($"                case {Literal(name)}: try {{ return new object[] {{ new {fullName}(data) }}; }} catch (global::System.Exception e) {{ throw new global::System.Reflection.TargetInvocationException(e); }}");
         }
 
         if (resourceCases.Length == 0 && streamCases.Length == 0) return target;
