@@ -287,6 +287,7 @@ enum {
 // Bits above 31 (uint64_t flags).
 #define CSRT_TI_REFERENCE_TYPE (1ull << 32)      /* for variance and array covariance */
 #define CSRT_TI_NO_HIERARCHY (1ull << 33)        /* base type not described (open generic types) */
+#define CSRT_TI_SERIALIZABLE (1ull << 34)        /* Type.IsSerializable (ModuleCodeGen.TypeInfo.cs) */
 #define CSRT_TI_ARRAY_INTERFACE (1ull << 35)     /* IList<T>, ICollection<T>, IEnumerable<T>, IReadOnlyList<T>, IReadOnlyCollection<T> */
 #define CSRT_TI_NO_INTERFACES (1ull << 36)       /* implemented interfaces not described (open generic types) */
 #define CSRT_TI_INTERFACES_INEXACT (1ull << 37)  /* the list misses interfaces .NET reports: GetInterfaces() can't answer */

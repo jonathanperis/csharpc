@@ -732,7 +732,7 @@ public sealed partial class ModuleCodeGen
             ConstructedGeneric = 1 << 20, GenericParameter = 1 << 21, ContainsGenericParameters = 1 << 22, Pointer = 1 << 23,
             SZArray = 1 << 24, VariableBoundArray = 1 << 25, TypeDefinition = 1 << 26, ByRefLike = 1 << 27, Nullable = 1 << 28,
             HasElementType = 1 << 29;
-        public const ulong ReferenceType = 1UL << 32, NoHierarchy = 1UL << 33,
+        public const ulong ReferenceType = 1UL << 32, NoHierarchy = 1UL << 33, Serializable = 1UL << 34,
             ArrayInterface = 1UL << 35, NoInterfaces = 1UL << 36, InterfacesInexact = 1UL << 37;
         public const int ElementClassShift = 40;
     }
@@ -750,6 +750,7 @@ public sealed partial class ModuleCodeGen
         ["IsGenericTypeParameter"] = TI.GenericParameter, ["ContainsGenericParameters"] = TI.ContainsGenericParameters,
         ["IsPointer"] = TI.Pointer, ["IsSZArray"] = TI.SZArray, ["IsVariableBoundArray"] = TI.VariableBoundArray,
         ["IsTypeDefinition"] = TI.TypeDefinition, ["IsByRefLike"] = TI.ByRefLike, ["HasElementType"] = TI.HasElementType,
+        ["IsSerializable"] = TI.Serializable,
     };
 
     private ulong TypeFlags(ITypeSymbol type)
@@ -757,7 +758,7 @@ public sealed partial class ModuleCodeGen
         switch (type)
         {
             case IArrayTypeSymbol array:
-                return TI.Class | TI.Public | TI.Sealed | TI.Array | TI.HasElementType | TI.ReferenceType
+                return TI.Class | TI.Public | TI.Sealed | TI.Array | TI.HasElementType | TI.ReferenceType | TI.Serializable
                     | (array.IsSZArray ? TI.SZArray : TI.VariableBoundArray) | (IsVisible(array.ElementType) ? TI.Visible : 0);
             case IPointerTypeSymbol pointer:
                 return TI.Class | TI.Public | TI.Pointer | TI.HasElementType | (IsVisible(pointer.PointedAtType) ? TI.Visible : 0);
@@ -797,6 +798,7 @@ public sealed partial class ModuleCodeGen
                 if (named.IsRefLikeType) f |= TI.ByRefLike;
                 if (named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T) f |= TI.Nullable;
                 if (named.IsReferenceType) f |= TI.ReferenceType;
+                if (IsSerializable(named)) f |= TI.Serializable;
                 if (!IsDef(named) && s_arrayInterfaces.Contains(Mangler.MetadataName(named.OriginalDefinition))) f |= TI.ArrayInterface;
                 f |= (ulong)ElementClass(named) << TI.ElementClassShift;
                 return f;
@@ -805,6 +807,28 @@ public sealed partial class ModuleCodeGen
                 return 0;
         }
     }
+
+    /// <summary>
+    /// Type.IsSerializable (#104), as .NET's: the [Serializable] flag of the type's metadata, or a type that is or derives from System.Enum or
+    /// System.Delegate (every enum and delegate type, which .NET counts as serializable whatever their flags say).
+    /// </summary>
+    private bool IsSerializable(INamedTypeSymbol type)
+    {
+        if (type.IsSerializable) return true;
+        // A framework type bound from a reference assembly: the implementation's flag (Frontend.FrameworkAttributes.IsSerializable).
+        var definition = type.OriginalDefinition;
+        if (definition.DeclaringSyntaxReferences.IsEmpty && definition.ContainingAssembly is { } assembly && Il.OwnerOf(definition) is null
+            && Frontend.FrameworkAttributes.IsSerializable(assembly.Name, MetadataFullName(definition)))
+            return true;
+        for (ITypeSymbol? t = type; t is not null; t = t.BaseType)
+            if (t.SpecialType is SpecialType.System_Enum or SpecialType.System_Delegate) return true;
+        return false;
+    }
+
+    /// <summary>"Ns.Outer+Inner`1": a type's full name as metadata stores it.</summary>
+    private static string MetadataFullName(INamedTypeSymbol type) =>
+        type.ContainingType is { } outer ? MetadataFullName(outer) + "+" + type.MetadataName
+            : type.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + type.MetadataName : type.MetadataName;
 
     /// <summary>Primitives that share array storage: int[] and uint[] (and enums over int) are castable to each other.</summary>
     private static int ElementClass(ITypeSymbol type) =>
