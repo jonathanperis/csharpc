@@ -336,3 +336,4 @@ wasi 1540_enum_negative_value_culture_sign  .NET on WASI is globalization-invari
 wasi 1550_threading_runtime_members  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
 wasi 1553_interop_gap_members     loads a shared library with NativeLibrary.Load: WASI has no dynamic libraries
 wasi 1559_driveinfo               WASI has no statfs/statvfs: DriveFormat and the drive sizes throw IOException (ENOTSUP)
+macos 1562_special_folders        live: macOS takes the user folders from NSFileManager (the real home, not $HOME), Linux from $HOME and XDG; recorded on each
