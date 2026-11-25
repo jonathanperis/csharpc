@@ -1,5 +1,5 @@
-1370_unsupported_struct_field_in_base.cs(8,32): error CSLLVM0001: not supported by csharpc yet: struct 'System.ModuleHandle'
-1370_unsupported_struct_field_in_base.cs(19,32): error CSLLVM0001: not supported by csharpc yet: struct 'System.ModuleHandle'
-1370_unsupported_struct_field_in_base.cs(8,39): error CSLLVM0001: not supported by csharpc yet: struct 'System.ModuleHandle'
-1370_unsupported_struct_field_in_base.cs(8,44): error CSLLVM0001: not supported by csharpc yet: struct 'System.ModuleHandle'
+1370_unsupported_struct_field_in_base.cs(8,59): error CSLLVM0001: not supported by csharpc yet: struct 'System.Runtime.InteropServices.ArrayWithOffset'
+1370_unsupported_struct_field_in_base.cs(19,59): error CSLLVM0001: not supported by csharpc yet: struct 'System.Runtime.InteropServices.ArrayWithOffset'
+1370_unsupported_struct_field_in_base.cs(8,66): error CSLLVM0001: not supported by csharpc yet: struct 'System.Runtime.InteropServices.ArrayWithOffset'
+1370_unsupported_struct_field_in_base.cs(8,71): error CSLLVM0001: not supported by csharpc yet: struct 'System.Runtime.InteropServices.ArrayWithOffset'
 csharpc: error : 4 construct(s) not supported by csharpc yet

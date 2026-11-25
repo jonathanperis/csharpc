@@ -336,6 +336,23 @@ namespace CsharpcCoreLib
             return CoreIntrinsics.csrt_array_new_of_type(arrayType, length);
         }
 
+        /// <summary>
+        /// Array.CreateInstanceFromArrayType(Type, params int[] lengths) (#104), with .NET's checks and messages: one length per dimension,
+        /// none negative. A one-dimensional array type is created as above; a rectangular one from a run-time Type is not supported yet.
+        /// </summary>
+        public static Array CreateInstanceFromArrayType(Type arrayType, int[] lengths)
+        {
+            ArgumentNullException.ThrowIfNull(arrayType);
+            ArgumentNullException.ThrowIfNull(lengths);
+            if (!arrayType.IsArray) throw new ArgumentException("Must be an array type.", "arrayType");
+            if (arrayType.GetArrayRank() != lengths.Length) throw new ArgumentException("Indices length does not match the array rank.");
+            for (int i = 0; i < lengths.Length; i++)
+                if (lengths[i] < 0) throw new ArgumentOutOfRangeException("lengths[" + i + "]", "Non-negative number required.");
+            if (lengths.Length != 1)
+                throw new NotSupportedException("Array.CreateInstanceFromArrayType of a multi-dimensional array type is not supported by csharpc yet.");
+            return CreateInstanceFromArrayType(arrayType, lengths[0]);
+        }
+
         /// <summary>Array.Sort(Array, IComparer) of a one-dimensional array: the elements are sorted as objects and stored back.</summary>
         public static void Sort(Array array, System.Collections.IComparer comparer)
         {

@@ -31,6 +31,39 @@ public static class FrameworkAttributes
         }
     }
 
+    private static readonly Dictionary<string, HashSet<string>?> s_serializable = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Whether the shared framework's implementation of a type carries TypeAttributes.Serializable (Type.IsSerializable, #104): the
+    /// reference assemblies do not (it is a metadata flag their sources leave out). The type is looked up by its full metadata name
+    /// ("Ns.Outer+Inner`1") in System.Private.CoreLib and in the implementation assembly named like its reference assembly.
+    /// </summary>
+    public static bool IsSerializable(string referenceAssembly, string fullName)
+    {
+        lock (s_lock)
+            return (SerializableTypesOf("System.Private.CoreLib")?.Contains(fullName) ?? false)
+                || (SerializableTypesOf(referenceAssembly)?.Contains(fullName) ?? false);
+    }
+
+    private static HashSet<string>? SerializableTypesOf(string assembly)
+    {
+        if (s_serializable.TryGetValue(assembly, out var known)) return known;
+        HashSet<string>? names = null;
+        if (SharedFramework.Directory is { } dir && File.Exists(Path.Combine(dir, assembly + ".dll")))
+        {
+            try
+            {
+                using var pe = new PEReader(File.OpenRead(Path.Combine(dir, assembly + ".dll")));
+                var md = pe.GetMetadataReader();
+                names = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var handle in md.TypeDefinitions)
+                    if ((md.GetTypeDefinition(handle).Attributes & System.Reflection.TypeAttributes.Serializable) != 0) names.Add(FullName(md, handle));
+            }
+            catch (Exception e) when (e is IOException or UnauthorizedAccessException or BadImageFormatException or InvalidOperationException) { names = null; }
+        }
+        return s_serializable[assembly] = names;
+    }
+
     private static (string, IReadOnlyList<FrameworkAttribute>)? Read()
     {
         if (SharedFramework.Directory is not { } dir) return null;
