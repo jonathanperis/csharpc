@@ -32,6 +32,7 @@
 #              CSHARPC_FLAGS="-g" (extra compiler flags, e.g. run the suite with debug info), CSHARPC_OPT=-O0 (same as --opt), CSHARPC_TEST_TIMEOUT=20 (seconds per binary),
 #              DOTNET=path/to/dotnet, CSHARPC_TEST_TARGET=wasm32-wasip1 (compile for WebAssembly and run with
 #              wasmtime; see tests/platform.sh).
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 export NuGetAudit=false # NU1903 about Microsoft.DotNet.ILCompiler (file-based apps) would land in recorded stdout
 
