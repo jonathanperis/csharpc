@@ -1608,9 +1608,15 @@ namespace CsharpcCoreLib
             if ((lookup & (BindingFlags.Instance | BindingFlags.Static)) == 0) lookup |= BindingFlags.Instance;
             if ((invokeAttr & (BindingFlags.GetField | BindingFlags.SetField)) != 0)
             {
-                FieldInfo field = type.GetField(name, lookup) ?? throw new MissingFieldException("Field '" + type.FullName + "." + name + "' not found.");
-                if ((invokeAttr & BindingFlags.SetField) != 0) { field.SetValue(target, args.Length > 0 ? args[args.Length - 1] : null); return null; }
-                return field.GetValue(target);
+                // No such field: .NET goes on to the properties and methods when those flags are set too, else MissingFieldException.
+                FieldInfo field = type.GetField(name, lookup);
+                if (field != null)
+                {
+                    if ((invokeAttr & BindingFlags.SetField) != 0) { field.SetValue(target, args.Length > 0 ? args[args.Length - 1] : null); return null; }
+                    return field.GetValue(target);
+                }
+                if ((invokeAttr & (BindingFlags.InvokeMethod | BindingFlags.GetProperty | BindingFlags.SetProperty)) == 0)
+                    throw new MissingFieldException("Field '" + type.FullName + "." + name + "' not found.");
             }
             if ((invokeAttr & (BindingFlags.GetProperty | BindingFlags.SetProperty)) != 0 && (invokeAttr & BindingFlags.InvokeMethod) == 0)
             {

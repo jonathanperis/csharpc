@@ -287,7 +287,9 @@ public sealed partial class FunctionCodeGen
             else { NullCheck(value); args.Add(value); }
             args.AddRange(temps);
             // A library Deconstruct the corelib supplies (TupleExtensions, #104) is called like any library method.
-            if (!_m.IsUserMethod(method) && _m.CoreLib.Map(method) is null) throw CompileError.Unsupported($"library Deconstruct '{method}'", pattern);
+            // (CoreLib.Map returns the method itself when the corelib has no shadow for it.)
+            if (!_m.IsUserMethod(method) && SymbolEqualityComparer.Default.Equals(_m.CoreLib.Map(method), method))
+                throw CompileError.Unsupported($"library Deconstruct '{method}'", pattern);
             DirectCall(method, [.. args]);
             var types = outs.Select(p => S(p.Type)).ToArray();
             return (temps.Select((t, i) => LoadValue(t, types[i])).ToArray(), types);

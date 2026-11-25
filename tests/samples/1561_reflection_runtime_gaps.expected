@@ -3,6 +3,8 @@ InvokeMember method: hello world
 InvokeMember static: 42
 InvokeMember property: 7
 InvokeMember field: field
+InvokeMember field or property: 7
+InvokeMember missing field: MissingFieldException: Field 'Unmarked.Nope' not found.
 InvokeMember missing: MissingMethodException: Method 'Unmarked.Nope' not found.
 InvokeMember no action: ArgumentException: Must specify binding flags describing the invoke operation required (BindingFlags.InvokeMethod CreateInstance GetField SetField GetProperty SetProperty). (Parameter 'bindingFlags')
 GetType resolver: Unmarked

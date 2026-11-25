@@ -45,6 +45,8 @@ static class Program
         Try("InvokeMember static", () => typeof(Unmarked).InvokeMember("Twice", BindingFlags.InvokeMethod | BindingFlags.Public | BindingFlags.Static, null, null, [21]));
         Try("InvokeMember property", () => { typeof(Unmarked).InvokeMember("Count", BindingFlags.SetProperty, null, target, [7]); return typeof(Unmarked).InvokeMember("Count", BindingFlags.GetProperty, null, target, null); });
         Try("InvokeMember field", () => typeof(Unmarked).InvokeMember("Field", BindingFlags.GetField | BindingFlags.Public | BindingFlags.Instance, null, target, null));
+        Try("InvokeMember field or property", () => typeof(Unmarked).InvokeMember("Count", BindingFlags.GetField | BindingFlags.GetProperty | BindingFlags.Public | BindingFlags.Instance, null, target, null));
+        Try("InvokeMember missing field", () => typeof(Unmarked).InvokeMember("Nope", BindingFlags.GetField | BindingFlags.Public | BindingFlags.Instance, null, target, null));
         Try("InvokeMember missing", () => typeof(Unmarked).InvokeMember("Nope", BindingFlags.InvokeMethod, null, target, null));
         Try("InvokeMember no action", () => typeof(Unmarked).InvokeMember("Greet", BindingFlags.Public, null, target, null));
         Try("GetType resolver", () => Type.GetType("Unmarked", null, (assembly, name, ignoreCase) => assembly == null ? typeof(Unmarked) : null)?.Name);
