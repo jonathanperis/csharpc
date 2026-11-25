@@ -66,7 +66,6 @@ namespace CsharpcCoreLib
         [DllImport("libc")] private static extern int flock(int fd, int operation);
         [DllImport("libc")] private static extern int fstatfs(int fd, byte* buffer);
         [DllImport("libc")] private static extern int statfs(byte* path, byte* buffer);
-        [DllImport("libc")] private static extern int statvfs(byte* path, byte* buffer);
         [DllImport("libc")] private static extern byte* realpath(byte* path, byte* resolved);
         [DllImport("libc")] private static extern uint geteuid();
         [DllImport("libc")] private static extern uint getegid();
@@ -1220,9 +1219,9 @@ namespace CsharpcCoreLib
         }
 
         /// <summary>
-        /// SystemNative_GetSpaceInfoForMountPoint (DriveInfo's sizes, #102): pal_mount.c's block size times the free, available and total
-        /// block counts, from statvfs on Linux and statfs on macOS; zeros and -1 (errno set) when the call fails. A MountPointInformation
-        /// is three uint64s: AvailableFreeSpace, TotalFreeSpace, TotalSize.
+        /// SystemNative_GetSpaceInfoForMountPoint (DriveInfo's sizes, #102): pal_mount.c's f_bsize times the available, free and total
+        /// block counts, from statfs (Linux and macOS both have pal_mount.c's HAVE_NON_LEGACY_STATFS); zeros and -1 (errno set) when the
+        /// call fails. A MountPointInformation is three uint64s: AvailableFreeSpace, TotalFreeSpace, TotalSize.
         /// </summary>
         [RuntimeExport("SystemNative_GetSpaceInfoForMountPoint", Trigger + "SystemNative_GetSpaceInfoForMountPoint")]
         public static int GetSpaceInfoForMountPoint(byte* name, ulong* info)
@@ -1231,13 +1230,13 @@ namespace CsharpcCoreLib
 #if CSHARPC_TARGET_WASI
             return Fail(58 /* ENOTSUP */);
 #else
-            byte* st = stackalloc byte[2168];   // struct statvfs (Linux, 112 bytes) / struct statfs (macOS, 2168)
-#if CSHARPC_TARGET_MACOS
+            byte* st = stackalloc byte[2168];   // struct statfs: 120 bytes on Linux, 2168 on macOS
             if (statfs(name, st) != 0) return -1;
+#if CSHARPC_TARGET_MACOS
             ulong bsize = *(uint*)st, blocks = *(ulong*)(st + 8), free = *(ulong*)(st + 16), available = *(ulong*)(st + 24);
 #else
-            if (statvfs(name, st) != 0) return -1;
-            ulong bsize = *(ulong*)st, blocks = *(ulong*)(st + 16), free = *(ulong*)(st + 24), available = *(ulong*)(st + 32);
+            // f_type, f_bsize, f_blocks, f_bfree, f_bavail: 8 bytes each (__fsword_t and fsblkcnt_t on LP64).
+            ulong bsize = *(ulong*)(st + 8), blocks = *(ulong*)(st + 16), free = *(ulong*)(st + 24), available = *(ulong*)(st + 32);
 #endif
             info[0] = bsize * available;
             info[1] = bsize * free;
