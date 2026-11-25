@@ -73,7 +73,9 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef SetCapturedProperty(PropertyCapture pc, LLVMValueRef value)
     {
-        if (pc.Property.SetMethod is not { } setter)
+        // A getter-only override writes through the nearest overridden property's setter (as SetProperty does).
+        var setter = pc.Property.SetMethod ?? (pc.Property.IsOverride ? SetterOf(pc.Property) : null);
+        if (setter is null)
         {
             // Get-only auto-property assigned in a constructor: write its backing field.
             var field = BackingField(pc.Property);
