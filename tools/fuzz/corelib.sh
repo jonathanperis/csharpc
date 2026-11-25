@@ -5,7 +5,6 @@
 # culture cases ("culture" mode: formatting, parsing, comparison and casing with ICU cultures).
 #   tools/fuzz/corelib.sh [rounds] [cases-per-round] [first-seed]     (default 20 x 20000, seed 1)
 # Reproduce a reported round with the same seed: tools/fuzz/corelib.sh 1 <cases> <seed>.
-source "$(dirname "${BASH_SOURCE[0]}")/../../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"

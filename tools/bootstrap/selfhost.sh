@@ -11,7 +11,6 @@
 #
 # Usage: tools/bootstrap/selfhost.sh [-O0|-O2] [sample-name-filter ...]
 # Environment: CSHARPC_THREADS (compile threads), SELFHOST_SKIP_COMPILE=1 (reuse an existing csharpc-native).
-source "$(dirname "${BASH_SOURCE[0]}")/../../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

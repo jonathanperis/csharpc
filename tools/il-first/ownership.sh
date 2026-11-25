@@ -4,7 +4,6 @@
 # Whole-file overrides in ownership.cs for files a flip deletes are ignored, so a flip need not edit ownership.cs either.
 #   tools/il-first/ownership.sh [--summary | --contract | --unmatched]
 # Needs the pinned .NET SDK (global.json); reads the shared framework of the runtime it runs on.
-source "$(dirname "${BASH_SOURCE[0]}")/../../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 [ -d "$HOME/.dotnet11" ] && export PATH="$HOME/.dotnet11:$PATH"

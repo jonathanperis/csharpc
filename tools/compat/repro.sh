@@ -3,7 +3,6 @@
 # shows whether stdout and the exit code agree.
 #
 #   tools/compat/repro.sh tools/compat/repros/*.cs
-source "$(dirname "${BASH_SOURCE[0]}")/../../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DOTNET="${DOTNET:-dotnet}"

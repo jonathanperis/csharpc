@@ -2,7 +2,6 @@
 # Build and run the csrt libFuzzer harness under ASan + UBSan.
 #   tools/fuzz/run.sh [seconds-per-run] [jobs]     (default 300 s, 1 job)
 # Crashes are written to tools/fuzz/artifacts/; the corpus persists in tools/fuzz/corpus/.
-source "$(dirname "${BASH_SOURCE[0]}")/../../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"

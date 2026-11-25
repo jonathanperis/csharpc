@@ -8,7 +8,6 @@
 # Every binary's stdout must match the .expected file recorded from real .NET, otherwise the row
 # is marked MISMATCH. Times are wall-clock, best of $RUNS (default 3), in milliseconds.
 # Environment: RUNS=3, NO_AOT=1 (skip NativeAOT), DOTNET=path/to/dotnet.
-source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

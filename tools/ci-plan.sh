@@ -3,7 +3,6 @@
 # The five merge-bar check names (test (<platform>)) are produced only by a full or docs-only
 # run of .github/workflows/ci.yml. A partial run never reports those names as success.
 # See docs/05-testing.md.
-source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

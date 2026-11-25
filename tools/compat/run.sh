@@ -18,7 +18,6 @@
 # (aot is NATIVEAOT-OK, NATIVEAOT-UNSUPPORTED, or "-" when not measured; a time or size is "-" when
 # there is no executable), and $WORK/logs/<id>/*. The summary is printed by tools/compat/analyze.py,
 # which run.sh calls at the end.
-source "$(dirname "${BASH_SOURCE[0]}")/../../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

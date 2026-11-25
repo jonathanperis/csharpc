@@ -7,7 +7,6 @@
 #
 # Usage: tools/bootstrap/native-diff.sh [-O0|-O2] sample-name ...
 # Environment: NATIVE_DIFF_DIR (where the IR files and logs are kept; default: a temporary directory).
-source "$(dirname "${BASH_SOURCE[0]}")/../../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

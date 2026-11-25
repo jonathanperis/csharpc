@@ -6,7 +6,6 @@
 #
 # Usage: tools/bootstrap/compare-compilers.sh BASELINE_BIN_DIR [-O0|-O2] [--emit KIND] INPUT...
 #        (INPUT: a .cs file, a project, or an assembly; --emit llvm-ir compares the IR, the default compares the executables)
-source "$(dirname "${BASH_SOURCE[0]}")/../../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

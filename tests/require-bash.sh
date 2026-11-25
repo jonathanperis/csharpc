@@ -1,4 +1,4 @@
-# Sourced first by the test, benchmark and tool scripts (#198): they run under `set -u` with arrays that may be empty, which bash
+# Sourced first by the test scripts (#198): they run under `set -u` with arrays that may be empty, which bash
 # before 4.4 reports as unbound ("TARGET_FLAGS[@]: unbound variable"), and use other bash 4 features. macOS's /bin/bash is 3.2: a
 # newer bash (Homebrew's) runs the script instead, with the same arguments; without one, the script stops with what to install.
 if [ "${BASH_VERSINFO[0]}" -lt 4 ] || { [ "${BASH_VERSINFO[0]}" -eq 4 ] && [ "${BASH_VERSINFO[1]}" -lt 4 ]; }; then
