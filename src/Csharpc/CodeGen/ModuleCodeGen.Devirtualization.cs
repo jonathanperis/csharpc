@@ -29,9 +29,9 @@ public sealed partial class ModuleCodeGen
         var root = ClassLayout.RootOf(target);
 
         IMethodSymbol? unique = null;
-        foreach (var type in HierarchyTypes)
+        foreach (var type in DescendantsServed(receiver))
         {
-            if (type.TypeKind != TypeKind.Class || type.IsAbstract || type.IsStatic || !DerivesFromOrEqualsServed(type, receiver)) continue;
+            if (type.TypeKind != TypeKind.Class || type.IsAbstract || type.IsStatic) continue;
             if (type.IsGenericType || TypeSubstitution.IsGenericContext(type)) return null;
             var implementation = ResolveSlot(type, root);
             if (implementation is null) return null;
@@ -76,10 +76,9 @@ public sealed partial class ModuleCodeGen
         var key = ((INamedTypeSymbol)type.OriginalDefinition, (INamedTypeSymbol)interfaceType.OriginalDefinition);
         if (_reimplemented.TryGetValue(key, out var known)) return known;
         var found = false;
-        foreach (var candidate in HierarchyTypes)
+        foreach (var candidate in DescendantsServed(key.Item1))
         {
-            if (candidate.TypeKind != TypeKind.Class || SymbolEqualityComparer.Default.Equals(candidate.OriginalDefinition, key.Item1)
-                || !DerivesFromOrEqualsServed(candidate, key.Item1)) continue;
+            if (candidate.TypeKind != TypeKind.Class || SymbolEqualityComparer.Default.Equals(candidate.OriginalDefinition, key.Item1)) continue;
             foreach (var declared in candidate.Interfaces)
                 if (SymbolEqualityComparer.Default.Equals(declared.OriginalDefinition, key.Item2)
                     || declared.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i.OriginalDefinition, key.Item2)))
@@ -92,20 +91,39 @@ public sealed partial class ModuleCodeGen
         return _reimplemented[key] = found;
     }
 
+    private Dictionary<INamedTypeSymbol, List<INamedTypeSymbol>>? _descendantsServed;
+
     /// <summary>
-    /// <see cref="DerivesFromOrEquals"/> through the types csharpc serves a library type with: a program class names the reference assembly's
-    /// base (`class L : EventListener`), while the framework's IL that makes the virtual call names the type that serves it (the slice's
-    /// EventListener). Without the mapping, the program's classes would be missing from the subtree, and a call whose only other override is
-    /// the framework's own (XplatEventLogger.OnEventSourceCreated) would be devirtualized to it.
+    /// The hierarchy's types deriving from or equal to <paramref name="baseType"/>, in HierarchyTypes order, through the types csharpc
+    /// serves a library type with: a program class names the reference assembly's base (`class L : EventListener`), while the
+    /// framework's IL that makes the virtual call names the type that serves it (the slice's EventListener). Without the mapping, the
+    /// program's classes would be missing from the subtree, and a call whose only other override is the framework's own
+    /// (XplatEventLogger.OnEventSourceCreated) would be devirtualized to it. Indexed once, since HierarchyTypes (the program's and the
+    /// IL's types) is complete before any method is lowered: each devirtualized method used to walk every type's base chain (#93).
     /// </summary>
-    private bool DerivesFromOrEqualsServed(INamedTypeSymbol type, INamedTypeSymbol baseType)
+    private List<INamedTypeSymbol> DescendantsServed(INamedTypeSymbol baseType)
     {
-        var wanted = baseType.OriginalDefinition;
-        for (var t = type; t is not null; t = t.BaseType)
-            if (SymbolEqualityComparer.Default.Equals(t.OriginalDefinition, wanted)
-                || CoreLib.TryMap(t) is { } served && SymbolEqualityComparer.Default.Equals(served.OriginalDefinition, wanted))
-                return true;
-        return false;
+        if (_descendantsServed is null)
+        {
+            var index = new Dictionary<INamedTypeSymbol, List<INamedTypeSymbol>>(SymbolEqualityComparer.Default);
+            var keys = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
+            foreach (var type in HierarchyTypes)
+            {
+                keys.Clear();
+                for (var t = type; t is not null; t = t.BaseType)
+                {
+                    keys.Add(t.OriginalDefinition);
+                    if (CoreLib.TryMap(t) is { } served) keys.Add(served.OriginalDefinition);
+                }
+                foreach (var key in keys)
+                {
+                    if (!index.TryGetValue(key, out var list)) index[key] = list = [];
+                    list.Add(type);
+                }
+            }
+            _descendantsServed = index;
+        }
+        return _descendantsServed.TryGetValue(baseType.OriginalDefinition, out var found) ? found : [];
     }
 
     internal static bool DerivesFromOrEquals(INamedTypeSymbol type, INamedTypeSymbol baseType)
