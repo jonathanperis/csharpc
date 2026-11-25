@@ -68,6 +68,8 @@ before every commit that touches `src/`.
 
 - Every test is a deterministic C# program plus `.expected` output (and `.exitcode` for non-zero
   exits, `.stdin` for input) recorded by running it under `dotnet run` — real .NET is the oracle.
+  Where NativeAOT and the JIT differ, csharpc matches NativeAOT: give the sample a `NAME.aot` file (the
+  difference, one line) and `--regen` records it from its PublishAot build (docs/05-testing.md).
 - Add a test: write `tests/samples/NNN_name.cs`, then `tests/run.sh --regen NNN_name`, then
   `tests/run.sh --all-opts NNN_name`. Same pattern for `tests/conformance.sh --regen` and
   `tests/programs.sh --regen`.

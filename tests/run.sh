@@ -4,6 +4,7 @@
 #   tests/run.sh              compile every tests/samples/*.cs with csharpc, run it, and compare
 #                             stdout + exit code against the recorded .NET results
 #   tests/run.sh --regen      (re)record the expected results by running each sample on real .NET
+#                             (its PublishAot build when it has a NAME.aot file: NativeAOT is its oracle)
 #                             (`dotnet run file.cs`), which is the oracle for C# semantics
 #   tests/run.sh --opt -O0    run the suite at a specific optimization level (default -O2)
 #   tests/run.sh --all-opts   run the suite at -O0 and -O2
@@ -111,8 +112,14 @@ if [[ $REGEN == 1 ]]; then
     # WarningLevel=0 keeps compiler warnings out of stdout; strip_warnings is a safety net.
     stdin_file=/dev/null; [[ -f "$SAMPLES/$name.stdin" ]] && stdin_file="$SAMPLES/$name.stdin"
     read -ra test_env <<< "$(platform_env "$SAMPLES" "$name")"
-    (cd "$SAMPLES" && env "${test_env[@]}" "$DOTNET" run "$name.cs" -p:WarningLevel=0 -p:NuGetAudit=false 2>/dev/null < "$stdin_file") > "$SAMPLES/$name.raw"
-    code=$?
+    if platform_is_aot "$SAMPLES" "$name"; then
+      # NativeAOT is this sample's oracle (NAME.aot, tests/platform.sh): its PublishAot build, not `dotnet run`.
+      code="$(platform_aot_run "$SAMPLES" "$name" "$stdin_file" "$SAMPLES/$name.raw" "${test_env[@]}")"
+      [[ $code == 125 ]] && { rm -f "$SAMPLES/$name.raw"; echo "publish failed"; continue; }
+    else
+      (cd "$SAMPLES" && env "${test_env[@]}" "$DOTNET" run "$name.cs" -p:WarningLevel=0 -p:NuGetAudit=false 2>/dev/null < "$stdin_file") > "$SAMPLES/$name.raw"
+      code=$?
+    fi
     strip_warnings < "$SAMPLES/$name.raw" > "$SAMPLES/$name.expected"
     rm -f "$SAMPLES/$name.raw"
     if [[ $code != 0 ]]; then echo "$code" > "$SAMPLES/$name.exitcode"; else rm -f "$SAMPLES/$name.exitcode"; fi
