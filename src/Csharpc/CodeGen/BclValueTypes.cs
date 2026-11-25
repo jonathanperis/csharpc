@@ -271,7 +271,7 @@ internal static partial class BclValueTypes
         if (de is null) throw CompileError.Unsupported($"'{m}' on a non-array argument", at);
         var references = e.IsReferenceType && de.IsReferenceType;
         if (!SymbolEqualityComparer.Default.Equals(e, de) && !references)
-            throw CompileError.Unsupported($"Array.Copy from {e}[] to {de}[] (element conversion)", at);
+            return ConvertingArrayCopy(g, at, e, de, src, srcIndex, dst, dstIndex, length, longLength);
         g.CallCoreLib("ArrayChecks", "Copy", src, srcIndex, dst, dstIndex, length, longLength ? g.Llvm.True : g.Llvm.False);
         // Between reference arrays the runtime element types decide (Array.CopyImpl): either array may be
         // covariant, and object[] -> string[] casts each element. Arrays of sealed types need no check.
@@ -285,6 +285,74 @@ internal static partial class BclValueTypes
         Rt(g, "csrt_array_copy", g.Llvm.Void, (src, g.Llvm.Ptr), (srcIndex, g.Llvm.I64), (dst, g.Llvm.Ptr), (dstIndex, g.Llvm.I64),
             (length, g.Llvm.I64), (I64(g, (long)g.Types.Target.SizeOf(g.Types.Storage(e))), g.Llvm.I64));
         return default;
+    }
+
+    /// <summary>
+    /// Array.Copy between arrays of different element types, one of them a value type (#365), as Array.CopyImpl classifies them
+    /// (CanAssignArrayType): boxing into a type the element boxes to, unboxing from a reference type (the exact type; Nullable&lt;T&gt;
+    /// takes null; the elements before a failing one stay copied), the CLR's primitive copies (PrimitiveArrayCopy); anything else throws ArrayTypeMismatchException.
+    /// Enum element types (which .NET copies to and from their underlying type) stay a diagnostic.
+    /// </summary>
+    private static LLVMValueRef ConvertingArrayCopy(FunctionCodeGen g, IOperation at, ITypeSymbol e, ITypeSymbol de, LLVMValueRef src,
+        LLVMValueRef srcIndex, LLVMValueRef dst, LLVMValueRef dstIndex, LLVMValueRef length, bool longLength)
+    {
+        if (e.TypeKind == TypeKind.Enum || de.TypeKind == TypeKind.Enum)
+            throw CompileError.Unsupported($"Array.Copy from {e}[] to {de}[] (element conversion of an enum)", at);
+        g.CallCoreLib("ArrayChecks", "Copy", src, srcIndex, dst, dstIndex, length, longLength ? g.Llvm.True : g.Llvm.False);
+        var conversion = Microsoft.CodeAnalysis.CSharp.CSharpExtensions.ClassifyConversion(g.Module.Compilation, e, de);
+        if (e.IsValueType && de.IsReferenceType && conversion.IsBoxing && NullableAssignable(e, de))
+            g.CallCoreLibGenericMethod("ArrayChecks", "CopyBoxing", [e, de], src, srcIndex, dst, dstIndex, length);
+        else if (e.IsReferenceType && de.IsValueType && conversion.IsUnboxing && NullableAssignable(de, e))
+            g.CallCoreLibGenericMethod("ArrayChecks", "CopyUnboxing", [e, de], src, srcIndex, dst, dstIndex, length);
+        else if (PrimitiveArrayCopy(e, de) == PrimitiveCopy.Reinterpret)
+            Rt(g, "csrt_array_copy", g.Llvm.Void, (src, g.Llvm.Ptr), (srcIndex, g.Llvm.I64), (dst, g.Llvm.Ptr), (dstIndex, g.Llvm.I64),
+                (length, g.Llvm.I64), (I64(g, (long)g.Types.Target.SizeOf(g.Types.Storage(e))), g.Llvm.I64));
+        else if (PrimitiveArrayCopy(e, de) == PrimitiveCopy.Widen)
+            g.EmitCountedLoop(length, i =>
+            {
+                var value = g.LoadValue(g.ArrayElementAddress(src, e, g.Builder.BinOp(LLVMOpcode.Add, srcIndex, i)), e);
+                var widened = g.ConvertNumeric(value, e, de, at);
+                g.StoreValue(g.ToStorage(widened, de), g.ArrayElementAddress(dst, de, g.Builder.BinOp(LLVMOpcode.Add, dstIndex, i)));
+            });
+        else
+            g.CallCoreLib("ArrayChecks", "ThrowArrayTypeMismatch");
+        return default;
+    }
+
+    // C#'s boxing conversion takes Nullable<T> to T's interfaces; the CLR assigns Nullable<T> only to its base classes, object and
+    // ValueType, so Array.Copy between an int?[] and an IComparable[] throws ArrayTypeMismatchException.
+    private static bool NullableAssignable(ITypeSymbol valueType, ITypeSymbol reference) =>
+        !TypeMapper.IsNullable(valueType) || reference.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType;
+
+    private enum PrimitiveCopy { None, Reinterpret, Widen }
+
+    /// <summary>
+    /// How Array.Copy moves primitives of one type into an array of another: the CLR's rules (CanAssignArrayType), not C#'s implicit
+    /// conversions. Integers of one size and opposite sign, and char/ushort, are copied bit for bit (GetNormalizedIntegralArrayElementType;
+    /// ushort to char through the widening table); the widening table (RuntimeHelpers.CanPrimitiveWiden) converts by value, and allows
+    /// byte to char but no signed to unsigned widening; bool and every other pair throw. Checked against NativeAOT and the JIT on all pairs.
+    /// </summary>
+    private static PrimitiveCopy PrimitiveArrayCopy(ITypeSymbol e, ITypeSymbol de)
+    {
+        const SpecialType Char = SpecialType.System_Char, I1 = SpecialType.System_SByte, U1 = SpecialType.System_Byte,
+            I2 = SpecialType.System_Int16, U2 = SpecialType.System_UInt16, I4 = SpecialType.System_Int32, U4 = SpecialType.System_UInt32,
+            I8 = SpecialType.System_Int64, U8 = SpecialType.System_UInt64, I = SpecialType.System_IntPtr, U = SpecialType.System_UIntPtr,
+            R4 = SpecialType.System_Single, R8 = SpecialType.System_Double;
+        return (e.SpecialType, de.SpecialType) switch
+        {
+            (I1, U1) or (U1, I1) or (I2, U2) or (U2, I2) or (I4, U4) or (U4, I4) or (I8, U8) or (U8, I8) or (I, U) or (U, I)
+                or (Char, U2) or (U2, Char) => PrimitiveCopy.Reinterpret,
+            (Char, I4 or U4 or I8 or U8 or R4 or R8) => PrimitiveCopy.Widen,
+            (I1, I2 or I4 or I8 or R4 or R8) => PrimitiveCopy.Widen,
+            (U1, Char or I2 or U2 or I4 or U4 or I8 or U8 or R4 or R8) => PrimitiveCopy.Widen,
+            (I2, I4 or I8 or R4 or R8) => PrimitiveCopy.Widen,
+            (U2, I4 or U4 or I8 or U8 or R4 or R8) => PrimitiveCopy.Widen,
+            (I4, I8 or R4 or R8) => PrimitiveCopy.Widen,
+            (U4, I8 or U8 or R4 or R8) => PrimitiveCopy.Widen,
+            (I8 or U8, R4 or R8) => PrimitiveCopy.Widen,
+            (R4, R8) => PrimitiveCopy.Widen,
+            _ => PrimitiveCopy.None,
+        };
     }
 
     // ---- TimeSpan ----------------------------------------------------------------------------
@@ -1075,7 +1143,10 @@ internal static partial class BclValueTypes
         // array.CopyTo(destination, index) is Array.Copy(array, 0, destination, index, array.Length) in .NET.
         BclHandler copyTo = (g, m, self, a, at) =>
         {
-            if (at is not IInvocationOperation { Instance: { } instance } || g.TypeOf(instance) is not IArrayTypeSymbol { Rank: 1 } arrayType)
+            // ((ICollection)array).CopyTo(...): the array under the conversion (#365).
+            var receiver = (at as IInvocationOperation)?.Instance;
+            while (receiver is IConversionOperation { Operand: var operand }) receiver = operand;
+            if (receiver is null || g.TypeOf(receiver) is not IArrayTypeSymbol { Rank: 1 } arrayType)
                 throw CompileError.Unsupported($"'{m}' on a value not statically known to be a one-dimensional array", at);
             g.NullCheck(self);
             return ArrayCopy(g, m, at, self, I64(g, 0), a[0], ToI64(g, a[1]), g.ArrayLength(self), longLength: false, arrayType.ElementType, destinationOrdinal: 0);

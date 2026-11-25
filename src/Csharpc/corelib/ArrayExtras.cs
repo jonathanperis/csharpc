@@ -518,6 +518,42 @@ namespace CsharpcCoreLib
         /// Array.Copy(T[], ..., Array, ...) where the destination's element type is only known at run time
         /// (ICollection.CopyTo implementations): same element type, or object[] (elements boxed).
         /// </summary>
+        // Array.Copy's element conversions (#365; BclValueTypes.ConvertingArrayCopy checked the arguments and chose the kind).
+        // The arrays' runtime element types decide, as Array.CopyImpl's CanAssignArrayType does: a covariant destination (an object[]
+        // that is a string[]) or source (an object[] that is a string[]) the elements cannot go to throws before anything is copied.
+        // The static element types are the type arguments; only a covariant array (its runtime type differs) needs the reflection check.
+        public static void CopyBoxing<T, TDestination>(T[] source, long sourceIndex, object[] destination, long destinationIndex, long length)
+        {
+            if (destination.GetType() != typeof(TDestination[])
+                && !AcceptsElement(destination.GetType().GetElementType(), typeof(T)))
+                ThrowArrayTypeMismatch();
+            for (long i = 0; i < length; i++) destination[destinationIndex + i] = CoreIntrinsics.Box(source[sourceIndex + i]);
+        }
+
+        public static void CopyUnboxing<TSource, T>(object[] source, long sourceIndex, T[] destination, long destinationIndex, long length)
+        {
+            if (source.GetType() != typeof(TSource[])
+                && !AcceptsElement(source.GetType().GetElementType(), typeof(T)))
+                ThrowArrayTypeMismatch();
+            for (long i = 0; i < length; i++)
+            {
+                object o = source[sourceIndex + i];
+                // Array.CopyImpl unboxes the exact type only; a null element is a Nullable<T>'s null, else the copy stops here.
+                if (o is T value) destination[destinationIndex + i] = value;
+                else if (o == null && default(T) == null) destination[destinationIndex + i] = default;
+                else throw new InvalidCastException("At least one element in the source array could not be cast down to the destination array type.");
+            }
+        }
+
+        // Whether a reference array of `element` and a value-type array of `valueType` can be copied into each other (CanAssignArrayType):
+        // the value type is assignable to the element type. Nullable<T> is assignable only to its base classes, object and ValueType: it
+        // implements none of T's interfaces (an int?[] doesn't copy to an IComparable[]), unlike C#'s boxing conversion.
+        private static bool AcceptsElement(Type element, Type valueType) =>
+            Nullable.GetUnderlyingType(valueType) != null ? element == typeof(object) || element == typeof(ValueType) : element.IsAssignableFrom(valueType);
+
+        public static void ThrowArrayTypeMismatch() =>
+            throw new ArrayTypeMismatchException("Source array type cannot be assigned to destination array type.");
+
         public static void CopyToUntyped<T>(T[] source, long sourceIndex, Array destination, long destinationIndex, long length, bool longLength)
         {
             Copy(source, sourceIndex, destination, destinationIndex, length, longLength);
