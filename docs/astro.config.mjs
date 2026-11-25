@@ -49,7 +49,7 @@ export default defineConfig({
   integrations: [sitemap()],
   output: 'static',
   outDir: 'out',
-  site: 'https://jonathanperis.github.io',
+  site: 'https://jonathanperis.dev',
   base: isProd ? '/csharpc' : '/',
   trailingSlash: 'always',
   // One small stylesheet: inline it so each page is a single request.
