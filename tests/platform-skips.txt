@@ -338,3 +338,5 @@ wasi 1553_interop_gap_members     loads a shared library with NativeLibrary.Load
 wasi 1559_driveinfo               WASI has no statfs/statvfs: DriveFormat and the drive sizes throw IOException (ENOTSUP)
 macos 1562_special_folders        live: macOS takes the user folders from NSFileManager (the real home, not $HOME), Linux from $HOME and XDG; recorded on each
 windows 1562_special_folders      known gap: Environment.GetFolderPath on Windows (the known folders) is not supported by csharpc yet; an explicit NotSupportedException
+wasi 1567_named_pipes             WASI has no Unix domain sockets or pipes: System.IO.Pipes does not work there
+windows 1567_named_pipes          known gap: System.IO.Pipes on Windows is not supported by csharpc yet (it is compiled from IL on Linux and macOS); an explicit NotSupportedException

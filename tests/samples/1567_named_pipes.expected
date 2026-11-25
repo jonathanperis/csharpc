@@ -1,0 +1,8 @@
+connected: server True, client True
+can read/write: True/True, transmission Byte
+server got: ping from client
+client got: pong from server
+after disconnect: server False
+client read after disconnect: 0
+anonymous: anonymous (Byte, Byte)
+no server: TimeoutException
