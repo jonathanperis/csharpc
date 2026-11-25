@@ -87,6 +87,29 @@ platform_oracle_hook() {
   export ORACLE_HOOK
 }
 
+# NativeAOT as the oracle. Where NativeAOT and the JIT print different things for the same program (string.IsInterned:
+# the JIT interns every literal up front, NativeAOT only what it is asked to), csharpc matches NativeAOT, the PublishAot
+# drop-in target. Such a test has a <dir>/<name>.aot file (one line: the difference) and is recorded and checked with its
+# PublishAot build instead of `dotnet run`. Startup hooks don't exist under NativeAOT, so on macOS and Windows its culture
+# is the user's: an .aot test must not print culture-dependent text (Linux runs in the C locale, as always).
+platform_is_aot() { [[ -f "$1/$2.aot" ]]; }
+
+# platform_aot_run <dir> <name> <stdin> <out> [VAR=value ...]: publishes <dir>/<name>.cs with PublishAot (into a
+# scratch directory), runs it with <stdin>, writes stdout to <out> and prints the exit status. A failed publish prints
+# the build log to stderr and the status 125.
+platform_aot_run() {
+  local dir="$1" name="$2" in="$3" out="$4" pub
+  pub="$(mktemp -d)"
+  if ! (cd "$dir" && "${DOTNET:-dotnet}" publish "$name.cs" -o "$pub/bin" -p:PublishAot=true -p:WarningLevel=0 -p:NuGetAudit=false \
+          -p:AllowUnsafeBlocks=true -v quiet -nologo > "$pub/log" 2>&1); then
+    echo "PublishAot of $name failed:" >&2; cat "$pub/log" >&2; rm -rf "$pub"; echo 125; return
+  fi
+  (env "${@:5}" "$pub/bin/$name$EXE_SUFFIX" < "$in") > "$out" 2>/dev/null
+  local code=$?
+  rm -rf "$pub"
+  echo "$code"
+}
+
 # platform_live_expected <dir> <file.cs> <stdin> <out> [VAR=value ...]: records stdout to <out>, prints the
 # exit status. With environment assignments (a NAME.env test) .NET runs under them without the hook.
 platform_live_expected() {
