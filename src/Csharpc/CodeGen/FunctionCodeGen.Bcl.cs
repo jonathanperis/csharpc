@@ -293,8 +293,12 @@ public sealed partial class FunctionCodeGen
             instance = boxing.Operand;
         if (TypeOf(instance) is { IsValueType: true } valueType)
         {
+            // Nullable<T>.GetType() boxes first (#104): a null value is a NullReferenceException, any other is a T.
             if (TypeMapper.IsNullable(valueType))
-                throw CompileError.Unsupported("GetType() on a nullable value type", inv);
+            {
+                NullCheck(Box(EmitValue(instance), valueType, inv));
+                return TypeObject(((INamedTypeSymbol)valueType).TypeArguments[0], inv);
+            }
             EmitValue(instance); // keep side effects
             return TypeObject(valueType, inv);
         }
