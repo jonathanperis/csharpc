@@ -20,6 +20,13 @@ namespace CsharpcCoreLib
             _dayNumber = (int)(DateTimeOps.DateToTicks(year, month, day) / TicksPerDay);
         }
 
+        // .NET: the calendar's date as a DateTime (calendar.ToDateTime validates it and throws as .NET does), then its day number (#197).
+        public DateOnlyImpl(int year, int month, int day, Calendar calendar)
+        {
+            ArgumentNullException.ThrowIfNull(calendar);
+            _dayNumber = (int)(calendar.ToDateTime(year, month, day, 0, 0, 0, 0).Ticks / TicksPerDay);
+        }
+
         private static DateOnly Make(long dayNumber) => (DateOnly)(object)new DateOnlyImpl((int)dayNumber, false);
         private DateTime Midnight => CoreIntrinsics.MakeDateTime(_dayNumber * TicksPerDay);
 
@@ -36,6 +43,9 @@ namespace CsharpcCoreLib
         public static DateOnly FromDateTime(DateTime dateTime) => Make(dateTime.Ticks / TicksPerDay);
 
         public int DayNumber => _dayNumber;
+
+        // The constructor CoreLib's own DateOnly code (its hosted parsing members) creates values with.
+        private DateOnlyImpl(uint dayNumber) { _dayNumber = (int)dayNumber; }
         public int Year => Midnight.Year;
         public int Month => Midnight.Month;
         public int Day => Midnight.Day;
@@ -96,64 +106,7 @@ namespace CsharpcCoreLib
         public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null) =>
             NumberTryFormat.CopyUtf8(ToString(format.Length == 0 ? "d" : new string(format), provider), utf8Destination, out bytesWritten);
 
-        // ---- parsing (.NET's DateTimeParse with the provider's DateTimeFormatInfo) ------------------
-        private static DateOnly Parsed(string s, IFormatProvider provider, DateTimeStyles style) => Make(Globalization.DateOnlyTimeOnlyCulture.Parse(s, provider, style, true));
-
-        private static DateOnly ParsedExact(string s, string[] formats, IFormatProvider provider, DateTimeStyles style) =>
-            Make(Globalization.DateOnlyTimeOnlyCulture.ParseExact(s, formats, provider, style, true));
-
-        private static bool TryParsed(string s, IFormatProvider provider, DateTimeStyles style, out DateOnly result)
-        {
-            bool ok = Globalization.DateOnlyTimeOnlyCulture.TryParse(s, provider, style, true, out long value);
-            result = ok ? Make(value) : default;
-            return ok;
-        }
-
-        private static bool TryParsedExact(string s, string[] formats, IFormatProvider provider, DateTimeStyles style, out DateOnly result)
-        {
-            bool ok = Globalization.DateOnlyTimeOnlyCulture.TryParseExact(s, formats, provider, style, true, out long value);
-            result = ok ? Make(value) : default;
-            return ok;
-        }
-
-        public static DateOnly Parse(string s) => Parsed(s, null, DateTimeStyles.None);
-        public static DateOnly Parse(string s, IFormatProvider provider) => Parsed(s, provider, DateTimeStyles.None);
-        public static DateOnly Parse(string s, IFormatProvider provider, DateTimeStyles style) => Parsed(s, provider, style);
-        public static DateOnly Parse(ReadOnlySpan<char> s, IFormatProvider provider) => Parsed(s.ToString(), provider, DateTimeStyles.None);
-        public static DateOnly Parse(ReadOnlySpan<char> s, IFormatProvider provider, DateTimeStyles style) => Parsed(s.ToString(), provider, style);
-        public static DateOnly ParseExact(string s, string format) => ParseExact(s, format, null, DateTimeStyles.None);
-        public static DateOnly ParseExact(string s, string format, IFormatProvider provider) => ParseExact(s, format, provider, DateTimeStyles.None);
-        public static DateOnly ParseExact(string s, string format, IFormatProvider provider, DateTimeStyles style)
-        {
-            if (s == null) throw new ArgumentNullException("s");
-            if (format == null) throw new ArgumentNullException("format");
-            return ParsedExact(s, new string[] { format }, provider, style);
-        }
-        public static DateOnly ParseExact(string s, string[] formats) => ParsedExact(s, formats, null, DateTimeStyles.None);
-        public static DateOnly ParseExact(string s, string[] formats, IFormatProvider provider, DateTimeStyles style) => ParsedExact(s, formats, provider, style);
-        public static bool TryParse(string s, out DateOnly result) => TryParsed(s, null, DateTimeStyles.None, out result);
-        public static bool TryParse(string s, IFormatProvider provider, out DateOnly result) => TryParsed(s, provider, DateTimeStyles.None, out result);
-        public static bool TryParse(string s, IFormatProvider provider, DateTimeStyles style, out DateOnly result) => TryParsed(s, provider, style, out result);
-        public static bool TryParse(ReadOnlySpan<char> s, out DateOnly result) => TryParsed(s.ToString(), null, DateTimeStyles.None, out result);
-        public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, out DateOnly result) => TryParsed(s.ToString(), provider, DateTimeStyles.None, out result);
-        public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, DateTimeStyles style, out DateOnly result) => TryParsed(s.ToString(), provider, style, out result);
-        public static bool TryParseExact(string s, string format, out DateOnly result) => TryParseExact(s, format, null, DateTimeStyles.None, out result);
-        public static bool TryParseExact(string s, string format, IFormatProvider provider, DateTimeStyles style, out DateOnly result)
-        {
-            if (s == null || format == null)
-            {
-                if ((style & ~DateTimeStyles.AllowWhiteSpaces) != 0) throw new ArgumentException("The DateTimeStyles value is invalid for parsing a DateOnly or TimeOnly.", "style");
-                result = default;
-                return false;
-            }
-            return TryParsedExact(s, new string[] { format }, provider, style, out result);
-        }
-        public static bool TryParseExact(string s, string[] formats, out DateOnly result) => TryParsedExact(s, formats, null, DateTimeStyles.None, out result);
-        public static bool TryParseExact(string s, string[] formats, IFormatProvider provider, DateTimeStyles style, out DateOnly result) =>
-            TryParsedExact(s, formats, provider, style, out result);
-
-        internal static string Required(string format) => format ?? throw new ArgumentNullException("format");
-        internal static string[] Required(string[] formats) => formats ?? throw new ArgumentNullException("formats");
+        // Parse / TryParse / ParseExact / TryParseExact: the framework's own, from its IL (src/Csharpc/upstream-types/System.Globalization.txt).
     }
 
     [Shadows("System.TimeOnly")]
@@ -164,6 +117,9 @@ namespace CsharpcCoreLib
         private readonly long _ticks;
 
         private TimeOnlyImpl(long ticks, bool _) { _ticks = ticks; }
+
+        // The constructor CoreLib's own TimeOnly code (its hosted parsing members) creates values with.
+        private TimeOnlyImpl(ulong ticks) { _ticks = (long)ticks; }
 
         public TimeOnlyImpl(long ticks)
         {
@@ -180,6 +136,13 @@ namespace CsharpcCoreLib
                 throw new ArgumentOutOfRangeException(null, "Hour, Minute, and Second parameters describe an un-representable DateTime.");
             if ((uint)millisecond >= 1000) throw new ArgumentOutOfRangeException("millisecond", "Valid values are between 0 and 999, inclusive.");
             _ticks = hour * TicksPerHour + minute * TicksPerMinute + second * TicksPerSecond + millisecond * TicksPerMs;
+        }
+
+        // .NET 7+: the microsecond overload, validated after the other parts as .NET does (#197).
+        public TimeOnlyImpl(int hour, int minute, int second, int millisecond, int microsecond) : this(hour, minute, second, millisecond)
+        {
+            if ((uint)microsecond >= 1000) throw new ArgumentOutOfRangeException("microsecond", "Valid values are between 0 and 999, inclusive.");
+            _ticks += microsecond * 10L;
         }
 
         private static TimeOnly Make(long ticks) => (TimeOnly)(object)new TimeOnlyImpl(ticks, false);
@@ -262,80 +225,6 @@ namespace CsharpcCoreLib
         public bool TryFormat(Span<byte> utf8Destination, out int bytesWritten, ReadOnlySpan<char> format = default, IFormatProvider provider = null) =>
             NumberTryFormat.CopyUtf8(ToString(format.Length == 0 ? "t" : new string(format), provider), utf8Destination, out bytesWritten);
 
-        // ---- parsing (.NET's DateTimeParse with the provider's DateTimeFormatInfo) ------------------
-        private static TimeOnly Parsed(string s, IFormatProvider provider, DateTimeStyles style) => Make(Globalization.DateOnlyTimeOnlyCulture.Parse(s, provider, style, false));
-
-        private static TimeOnly ParsedExact(string s, string[] formats, IFormatProvider provider, DateTimeStyles style) =>
-            Make(Globalization.DateOnlyTimeOnlyCulture.ParseExact(s, formats, provider, style, false));
-
-        private static bool TryParsed(string s, IFormatProvider provider, DateTimeStyles style, out TimeOnly result)
-        {
-            bool ok = Globalization.DateOnlyTimeOnlyCulture.TryParse(s, provider, style, false, out long value);
-            result = ok ? Make(value) : default;
-            return ok;
-        }
-
-        private static bool TryParsedExact(string s, string[] formats, IFormatProvider provider, DateTimeStyles style, out TimeOnly result)
-        {
-            bool ok = Globalization.DateOnlyTimeOnlyCulture.TryParseExact(s, formats, provider, style, false, out long value);
-            result = ok ? Make(value) : default;
-            return ok;
-        }
-
-        public static TimeOnly Parse(string s) => Parsed(s, null, DateTimeStyles.None);
-        public static TimeOnly Parse(string s, IFormatProvider provider) => Parsed(s, provider, DateTimeStyles.None);
-        public static TimeOnly Parse(string s, IFormatProvider provider, DateTimeStyles style) => Parsed(s, provider, style);
-        public static TimeOnly Parse(ReadOnlySpan<char> s, IFormatProvider provider) => Parsed(s.ToString(), provider, DateTimeStyles.None);
-        public static TimeOnly Parse(ReadOnlySpan<char> s, IFormatProvider provider, DateTimeStyles style) => Parsed(s.ToString(), provider, style);
-        public static TimeOnly ParseExact(string s, string format) => ParseExact(s, format, null, DateTimeStyles.None);
-        public static TimeOnly ParseExact(string s, string format, IFormatProvider provider) => ParseExact(s, format, provider, DateTimeStyles.None);
-        public static TimeOnly ParseExact(string s, string format, IFormatProvider provider, DateTimeStyles style)
-        {
-            if (s == null) throw new ArgumentNullException("s");
-            if (format == null) throw new ArgumentNullException("format");
-            return ParsedExact(s, new string[] { format }, provider, style);
-        }
-        public static TimeOnly ParseExact(string s, string[] formats) => ParsedExact(s, formats, null, DateTimeStyles.None);
-        public static TimeOnly ParseExact(string s, string[] formats, IFormatProvider provider, DateTimeStyles style) => ParsedExact(s, formats, provider, style);
-        public static bool TryParse(string s, out TimeOnly result) => TryParsed(s, null, DateTimeStyles.None, out result);
-        public static bool TryParse(string s, IFormatProvider provider, out TimeOnly result) => TryParsed(s, provider, DateTimeStyles.None, out result);
-        public static bool TryParse(string s, IFormatProvider provider, DateTimeStyles style, out TimeOnly result) => TryParsed(s, provider, style, out result);
-        public static bool TryParse(ReadOnlySpan<char> s, out TimeOnly result) => TryParsed(s.ToString(), null, DateTimeStyles.None, out result);
-        public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, out TimeOnly result) => TryParsed(s.ToString(), provider, DateTimeStyles.None, out result);
-        public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, DateTimeStyles style, out TimeOnly result) => TryParsed(s.ToString(), provider, style, out result);
-        public static bool TryParseExact(string s, string format, out TimeOnly result) => TryParseExact(s, format, null, DateTimeStyles.None, out result);
-        public static bool TryParseExact(string s, string format, IFormatProvider provider, DateTimeStyles style, out TimeOnly result)
-        {
-            if (s == null || format == null)
-            {
-                if ((style & ~DateTimeStyles.AllowWhiteSpaces) != 0) throw new ArgumentException("The DateTimeStyles value is invalid for parsing a DateOnly or TimeOnly.", "style");
-                result = default;
-                return false;
-            }
-            return TryParsedExact(s, new string[] { format }, provider, style, out result);
-        }
-        public static bool TryParseExact(string s, string[] formats, out TimeOnly result) => TryParsedExact(s, formats, null, DateTimeStyles.None, out result);
-        public static bool TryParseExact(string s, string[] formats, IFormatProvider provider, DateTimeStyles style, out TimeOnly result) =>
-            TryParsedExact(s, formats, provider, style, out result);
-
-        /// <summary>Does a custom format use one of <paramref name="letters"/> outside quotes and escapes?</summary>
-        internal static bool HasSpecifier(string format, string letters)
-        {
-            for (int i = 0; i < format.Length; i++)
-            {
-                char c = format[i];
-                if (c == '\\') { i++; continue; }
-                if (c == '\'' || c == '"')
-                {
-                    int end = format.IndexOf(c, i + 1);
-                    if (end < 0) return false;
-                    i = end;
-                    continue;
-                }
-                if (letters.IndexOf(c) >= 0) return true;
-            }
-            return false;
-        }
-
+        // Parse / TryParse / ParseExact / TryParseExact: the framework's own, from its IL (src/Csharpc/upstream-types/System.Globalization.txt).
     }
 }

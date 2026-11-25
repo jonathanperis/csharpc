@@ -1,0 +1,14 @@
+# The integer types' static generic-math members (INumberBase / INumber / IBinaryNumber / IBinaryInteger), served from their own CoreLib IL
+# where csharpc has no lowering of its own (#391; FunctionCodeGen.BuiltinInterfaceMembers.cs HostedBuiltinMember). The slicer carries them in
+# one host class per type (tools/il-first/slicer: `host:` roots); intrinsics, corelib shadows and the generic-math paths keep priority.
+# Int128 and UInt128 included: their IL reads the halves _lower/_upper of csharpc's 128-bit integer (FunctionCodeGen.BuiltinPrivateFields.cs) and calls their
+# non-public static helpers, which the slicer hosts with them (#393).
+host:System.Byte,System.SByte,System.Int16,System.UInt16,System.Int32,System.UInt32,System.Int64,System.UInt64,System.IntPtr,System.UIntPtr,System.Int128,System.UInt128::Log2,PopCount,LeadingZeroCount,TrailingZeroCount,IsPow2,RotateLeft,RotateRight,Abs,Clamp,Min,Max,MinMagnitude,MaxMagnitude,MinMagnitudeNumber,MaxMagnitudeNumber,MinNumber,MaxNumber,Sign,DivRem,CopySign,IsNegative,IsPositive,IsEvenInteger,IsOddInteger,IsZero,IsCanonical,IsComplexNumber,IsFinite,IsImaginaryNumber,IsInfinity,IsInteger,IsNaN,IsNegativeInfinity,IsNormal,IsPositiveInfinity,IsRealNumber,IsSubnormal,CreateChecked,CreateSaturating,CreateTruncating,TryConvertFromChecked,TryConvertFromSaturating,TryConvertFromTruncating,TryConvertToChecked,TryConvertToSaturating,TryConvertToTruncating,get_MinValue,get_MaxValue,get_Zero,get_One,get_AdditiveIdentity,get_MultiplicativeIdentity,get_NegativeOne,get_Radix,get_AllBitsSet
+# Math.Clamp's overloads (decimal has no intrinsic; the others keep theirs, which check min > max the same way: #392).
+host:System.Math::Clamp
+# double and float from and to the types csharpc's generic-math paths don't convert (double.CreateTruncating(Int128), #393). The TryConvert*
+# members are what CreateChecked/Saturating/Truncating call on the other type (a constrained call on their TOther).
+host:System.Double,System.Single::CreateChecked,CreateSaturating,CreateTruncating,TryConvertFromChecked,TryConvertFromSaturating,TryConvertFromTruncating,TryConvertToChecked,TryConvertToSaturating,TryConvertToTruncating,get_NaN,get_PositiveInfinity,get_NegativeInfinity,get_NegativeZero,get_Epsilon,get_MinValue,get_MaxValue,get_Zero,get_One,get_NegativeOne,get_Pi,get_E,get_Tau
+# char's conversions, which int.CreateTruncating<char> and the other integers' Create* call on it as their TOther (Guid's and Number's
+# parsing over IUtfChar<char>, #416).
+host:System.Char::CreateChecked,CreateSaturating,CreateTruncating,TryConvertFromChecked,TryConvertFromSaturating,TryConvertFromTruncating,TryConvertToChecked,TryConvertToSaturating,TryConvertToTruncating

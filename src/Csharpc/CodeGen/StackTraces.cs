@@ -136,6 +136,9 @@ public sealed class StackTraceInfo
         /// <summary>Not listed (System.Diagnostics.StackTrace.ShowInStackTrace): [StackTraceHidden] on the method or
         /// its declaring type, or [MethodImpl(AggressiveInlining)]; still listed as a trace's last frame.</summary>
         Hidden = 2,
+        /// <summary>A call in tail position of optimized framework code (<see cref="TailCallFrame"/>): .NET's precompiled
+        /// code makes it a jump, so the frame is gone by the time the callee throws (src/runtime/eh.c, TRACE_TAILCALL).</summary>
+        TailCall = 8,
     }
 
     /// <summary>One IL assembly whose methods are frames: the program's own (`csharpc app.dll`), or a library.</summary>
@@ -308,7 +311,102 @@ public sealed class StackTraceInfo
         var token = method.OriginalDefinition.MetadataToken;
         if (module.Frames.TryGetValue(token, out var known)) return known;
         var (name, flags) = FormatIlFrame(module, MetadataTokens.MethodDefinitionHandle(token & 0xFFFFFF));
-        return module.Frames[token] = Intern(_methods, _methodIndex, name, flags);
+        var frame = module.Frames[token] = Intern(_methods, _methodIndex, name, flags);
+        _ilFrameOrigins.Add((frame, owner, token & 0xFFFFFF));
+        _originOf[frame] = (owner, token & 0xFFFFFF);
+        return frame;
+    }
+
+    private readonly Dictionary<int, (Frontend.Il.IlAssembly Owner, int Rid)> _originOf = [];
+    private readonly Dictionary<int, int> _tailCallFrames = [];
+
+    /// <summary>
+    /// The entry of <paramref name="frame"/> for its call sites in tail position (<see cref="FrameFlags.TailCall"/>): the same text,
+    /// flagged, and the same method for <see cref="InlinedFramePairs"/>.
+    /// </summary>
+    public int TailCallFrame(int frame)
+    {
+        if (_tailCallFrames.TryGetValue(frame, out var known)) return known;
+        var tail = Intern(_methods, _methodIndex, _methods[frame], _methodFlags.GetValueOrDefault(frame) | FrameFlags.TailCall);
+        if (_originOf.TryGetValue(frame, out var origin)) _ilFrameOrigins.Add((tail, origin.Owner, origin.Rid));
+        return _tailCallFrames[frame] = tail;
+    }
+
+    /// <summary>
+    /// Whether code compiled from <paramref name="owner"/> is .NET's precompiled framework (the shared framework's assemblies and
+    /// the CoreLib slice), whose frames follow ReadyToRun's inlining and tail calls.
+    /// </summary>
+    public static bool IsPrecompiledFramework(Frontend.Il.IlAssembly owner) => owner.IsFramework || owner.Name == "CsharpcUpstream";
+
+    /// <summary>Every IL frame with the assembly and method it was made from, for <see cref="InlinedFramePairs"/>.</summary>
+    private readonly List<(int Frame, Frontend.Il.IlAssembly Owner, int Rid)> _ilFrameOrigins = [];
+
+    /// <summary>
+    /// (inlinee frame, inliner frame) pairs: framework methods that .NET's ReadyToRun code inlined into another framework method
+    /// (<see cref="ReadyToRunInlines"/>), both frames of this program. The runtime leaves an inlinee's frame out where the frames
+    /// above it, up to the method it was inlined into, were all inlined there too (src/runtime/eh.c, trace_physical): the frames
+    /// .NET prints for an exception thrown through precompiled framework code. CoreLib's frames come from the slice
+    /// (CsharpcUpstream) or the corelib and are matched to System.Private.CoreLib's methods by their text; the other framework
+    /// assemblies' frames are their own methods. (A generic method the JIT instantiates over a program's value type at run time
+    /// is not precompiled and keeps its frames there; its R2R inlining is applied all the same.)
+    /// </summary>
+    private List<(int Inlinee, int Inliner)> InlinedFramePairs()
+    {
+        var pairs = new HashSet<(int, int)>();
+        var coreLib = SharedFramework.Directory is { } dir ? Path.Combine(dir, "System.Private.CoreLib.dll") : null;
+        Dictionary<string, List<int>>? coreLibByText = null;
+        var byAssembly = new Dictionary<string, Dictionary<int, List<int>>>(StringComparer.Ordinal);
+        foreach (var (frame, owner, rid) in _ilFrameOrigins)
+        {
+            string path;
+            IEnumerable<int> rids;
+            if (owner.IsCoreLib || owner.Name == "CsharpcUpstream")
+            {
+                if (coreLib is null || !File.Exists(coreLib)) continue;
+                coreLibByText ??= FrameTextIndex(coreLib);
+                if (!coreLibByText.TryGetValue(_methods[frame], out var matches)) continue;
+                (path, rids) = (coreLib, matches);
+            }
+            else if (owner.IsFramework) (path, rids) = (owner.Path, [rid]);
+            else continue;
+            if (!byAssembly.TryGetValue(path, out var frames)) byAssembly[path] = frames = [];
+            foreach (var r in rids)
+            {
+                if (!frames.TryGetValue(r, out var list)) frames[r] = list = [];
+                if (!list.Contains(frame)) list.Add(frame);
+            }
+        }
+        foreach (var (path, frames) in byAssembly)
+        {
+            var inlines = ReadyToRunInlines.Of(path);
+            foreach (var (rid, inlinees) in frames)
+            {
+                if (!inlines.TryGetValue(rid, out var inliners)) continue;
+                foreach (var inliner in inliners)
+                    if (frames.TryGetValue(inliner, out var inlinerFrames))
+                        foreach (var a in inlinees)
+                            foreach (var b in inlinerFrames)
+                                if (a != b) pairs.Add((a, b));
+            }
+        }
+        return [.. pairs.OrderBy(p => p.Item1).ThenBy(p => p.Item2)];
+    }
+
+    /// <summary>Frame text → method RIDs of an assembly (several where a state machine's MoveNext prints as its kickoff method).</summary>
+    private static Dictionary<string, List<int>> FrameTextIndex(string path)
+    {
+        var index = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        using var pe = new PEReader(File.OpenRead(path));
+        var module = new IlModule(pe.GetMetadataReader());
+        foreach (var handle in module.Metadata.MethodDefinitions)
+        {
+            string name;
+            try { name = FormatIlFrame(module, handle).Name; }
+            catch (BadImageFormatException) { continue; }
+            if (!index.TryGetValue(name, out var list)) index[name] = list = [];
+            list.Add(MetadataTokens.GetRowNumber(handle));
+        }
+        return index;
     }
 
     private static (string Name, FrameFlags Flags) FormatIlFrame(IlModule module, MethodDefinitionHandle handle)
@@ -440,7 +538,7 @@ public sealed class StackTraceInfo
     /// <summary>
     /// The first place where the program turns an exception into text (<c>ToString()</c>, string
     /// interpolation or concatenation, passing it as <c>object</c>, e.g. to Console.WriteLine) or
-    /// reads <c>StackTrace</c>; null when it never does. Stack traces cost code size (a landing pad per
+    /// reads <c>StackTrace</c> or <c>Source</c>; null when it never does. Stack traces cost code size (a landing pad per
     /// call site), so only such programs record them. Exceptions that only ever reach the
     /// unhandled-exception report (stderr) are not looked for.
     /// </summary>
@@ -451,7 +549,7 @@ public sealed class StackTraceInfo
             if (RoslynFrontend.IsCoreLibTree(tree)) continue;
             var text = tree.GetText().ToString();
             if (!text.Contains("StackTrace", StringComparison.Ordinal) && !text.Contains("Exception", StringComparison.Ordinal)
-                && !text.Contains("catch", StringComparison.Ordinal))
+                && !text.Contains("catch", StringComparison.Ordinal) && !text.Contains("Source", StringComparison.Ordinal))
                 continue;
             SemanticModel? model = null;
             bool IsException(ExpressionSyntax expression)
@@ -463,9 +561,14 @@ public sealed class StackTraceInfo
             {
                 var found = node switch
                 {
-                    MemberAccessExpressionSyntax { Name.Identifier.ValueText: "StackTrace" or "ToString" } access => IsException(access.Expression),
+                    // Exception.Source tells a thrown exception (its throwing assembly, an explicit error in csharpc) from one never thrown
+                    // (null) by the frames recorded when it was thrown; without them a thrown one read as never thrown (#104).
+                    MemberAccessExpressionSyntax { Name.Identifier.ValueText: "StackTrace" or "ToString" or "Source" } access => IsException(access.Expression),
+                    // ExceptionDispatchInfo.SetRemoteStackTrace refuses an exception that was already thrown, which it can tell only from
+                    // the frames recorded when it was thrown.
+                    MemberAccessExpressionSyntax { Name.Identifier.ValueText: "SetRemoteStackTrace" } => true,
                     ConditionalAccessExpressionSyntax { WhenNotNull: MemberBindingExpressionSyntax or InvocationExpressionSyntax { Expression: MemberBindingExpressionSyntax } } conditional
-                        when BoundMember(conditional.WhenNotNull) is "StackTrace" or "ToString" => IsException(conditional.Expression),
+                        when BoundMember(conditional.WhenNotNull) is "StackTrace" or "ToString" or "Source" => IsException(conditional.Expression),
                     InterpolationSyntax interpolation => IsException(interpolation.Expression),
                     BinaryExpressionSyntax { RawKind: (int)SyntaxKind.AddExpression } add => IsException(add.Left) || IsException(add.Right),
                     ArgumentSyntax argument when IsException(argument.Expression) =>
@@ -778,7 +881,16 @@ public sealed class StackTraceInfo
             outermost = t;
         }
         var ns = md.GetString(md.GetTypeDefinition(outermost).Namespace);
-        ns = Frontend.UpstreamSlice.RealNamespace(ns); // a slice of the framework's IL reports the BCL's names, as a shadow does
+        // A member the slice hosts for a built-in type (String's, Char's...: Emit.DeclareHosted) is named by that type, as .NET declares it; a
+        // hosted instance member's leading `this` parameter is not part of .NET's signature.
+        var hosted = typeNames.Count == 1 ? Frontend.UpstreamSlice.HostedType(ns + "." + typeNames[0]) : null;
+        if (hosted is not null)
+        {
+            var dot = hosted.LastIndexOf('.');
+            ns = dot < 0 ? "" : hosted[..dot];
+            typeNames[0] = hosted[(dot + 1)..];
+        }
+        else ns = Frontend.UpstreamSlice.RealNamespace(ns); // a slice of the framework's IL reports the BCL's names, as a shadow does
         if (ns.Length > 0) sb.Append(ns).Append('.');
         sb.AppendJoin('.', typeNames).Append('.').Append(md.GetString(method.Name));
         var typeParameters = md.GetTypeDefinition(declaring).GetGenericParameters().Select(p => md.GetString(md.GetGenericParameter(p).Name)).ToArray();
@@ -792,9 +904,10 @@ public sealed class StackTraceInfo
             if (parameter.SequenceNumber > 0 && parameter.SequenceNumber <= names.Length) names[parameter.SequenceNumber - 1] = md.GetString(parameter.Name);
         }
         sb.Append('(');
-        for (var i = 0; i < names.Length; i++)
+        var first = hosted is not null && names.Length > 0 && names[0] == "this" ? 1 : 0;
+        for (var i = first; i < names.Length; i++)
         {
-            if (i > 0) sb.Append(", ");
+            if (i > first) sb.Append(", ");
             sb.Append(signature.ParameterTypes[i]);
             if (names[i] is { Length: > 0 } name) sb.Append(' ').Append(name);
         }
@@ -858,7 +971,7 @@ public sealed class StackTraceInfo
     internal Dictionary<string, (LLVMValueRef Table, int Count)> LibraryTables { get; } = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// { names, names_size, names_length, method_count, unused, files } (csrt_TraceTables): the frame names,
+    /// { names, names_size, names_length, method_count, inlined_count, files, inlined } (csrt_TraceTables): the frame names,
     /// '\0'-terminated one after the other and DEFLATE-compressed (the runtime inflates them the first time it
     /// formats a trace: a program that records the frames of whole IL libraries has thousands, ~1.2 MB of
     /// text that compresses ~8:1), and the documents' paths.
@@ -877,8 +990,12 @@ public sealed class StackTraceInfo
             deflate.Write(text.GetBuffer(), 0, (int)text.Length);
         LLVMValueRef Global(string name, LLVMValueRef init) =>
             m.Module.AddGlobal(name, Native.LLVMTypeOf(init), init, constant: true, linkage: LLVMLinkage.Internal);
+        // The inlined frames (InlinedFramePairs): inlinee << 32 | inliner, sorted, for a binary search.
+        var inlined = InlinedFramePairs();
+        var pairs = inlined.Count == 0 ? LlvmContext.Null(l.Ptr)
+            : Global("csharpc.trace.inlined", LlvmContext.ConstArray(l.I64, [.. inlined.Select(p => l.ConstUInt(l.I64, (ulong)(uint)p.Inlinee << 32 | (uint)p.Inliner))]));
         return l.ConstStruct(Global("csharpc.trace.names", l.ConstBytes(compressed.ToArray())),
-            l.ConstInt(l.I32, compressed.Length), l.ConstInt(l.I32, text.Length), l.ConstInt(l.I32, _methods.Count), l.ConstInt(l.I32, 0),
-            Global("csharpc.trace.files", LlvmContext.ConstArray(l.Ptr, [.. _files.Select(m.CString)])));
+            l.ConstInt(l.I32, compressed.Length), l.ConstInt(l.I32, text.Length), l.ConstInt(l.I32, _methods.Count), l.ConstInt(l.I32, inlined.Count),
+            Global("csharpc.trace.files", LlvmContext.ConstArray(l.Ptr, [.. _files.Select(m.CString)])), pairs);
     }
 }

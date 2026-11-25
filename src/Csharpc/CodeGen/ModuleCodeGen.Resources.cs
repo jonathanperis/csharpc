@@ -26,11 +26,42 @@ public sealed partial class ModuleCodeGen
     internal LLVMValueRef ResourceStringsBlob()
     {
         // Resources an ILLink substitution removes under the program's feature switches stay out (ModuleCodeGen.IlSubstitutions.cs).
-        _resourceBlob ??= Encode(Il.Assemblies.SelectMany(a => a.ReadStringResources().Where(e => !IsResourceRemoved(a, e.BaseName + ".resources")))
+        // The texts of a library's SR getters are literals in the getters (ModuleCodeGen.ResourceLiterals.cs); its table is kept only when a lowered
+        // method looks texts up by a key it computes.
+        _resourceBlob ??= Encode(Il.Assemblies.SelectMany(a => a.ReadStringResources().Where(e => !IsResourceRemoved(a, e.BaseName + ".resources")
+                && (_srTablesNeeded || a.IsCoreLib || !IsSrBaseName(e.BaseName))))
             .Concat(ProgramResources.SelectMany(r => Csharpc.Frontend.Il.IlAssembly.StringResources(r.Name, r.Bytes, r.Assembly)))
             .SelectMany(e => new[] { e.BaseName, e.Key, e.Value }));
         return StringLiteral(_resourceBlob);
     }
+
+    private (bool NonString, bool Converter)? _storedResourceKinds;
+
+    /// <summary>
+    /// Which kinds of stored values the program's string resources include (corelib/Resources.cs): any non-string value ("\uFFFF\u0001type..."),
+    /// and any DeserializingResourceReader creates with a TypeConverter ("...\u00023\u0001text"). Constants for the corelib: without the first,
+    /// ResourceManager's object creation (date, time-span, Guid parsing, the TypeConverters) is dead code, and without the second TypeDescriptor
+    /// is, so a program that only constructs a ResourceManager (an EventSource's manifest builder takes one) does not link them.
+    /// </summary>
+    private (bool NonString, bool Converter) StoredResourceKinds() => _storedResourceKinds ??= Scan(
+        Il.Assemblies.SelectMany(a => a.ReadStringResources()).Select(e => e.Value)
+            .Concat(ProgramResources.SelectMany(r => Csharpc.Frontend.Il.IlAssembly.StringResources(r.Name, r.Bytes, r.Assembly)).Select(e => e.Value)));
+
+    private static (bool, bool) Scan(IEnumerable<string> values)
+    {
+        bool nonString = false, converter = false;
+        foreach (var v in values)
+            if (v.StartsWith("\uFFFF\u0001", StringComparison.Ordinal))
+            {
+                nonString = true;
+                if (v.Contains("\u00023\u0001", StringComparison.Ordinal)) { converter = true; break; }
+            }
+        return (nonString, converter);
+    }
+
+    internal bool HasNonStringResources() => StoredResourceKinds().NonString;
+
+    internal bool HasConverterResources() => StoredResourceKinds().Converter;
 
     /// <summary>
     /// Full names of the assemblies Assembly.Load can return (corelib/Reflection/Assembly.cs): the program's

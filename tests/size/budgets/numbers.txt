@@ -1,0 +1,28 @@
+# Dictionary<TKey,TValue>, HashSet<T> and CollectionsMarshal come from the framework's IL too (ADR 0023, #274). linux-x86_64 measured on top of the Linq flip: async 177 600,
+# collections 163 032 (+13.7 %), linq 277 048, numbers 143 912 (+11.5 %), regex 875 072, regexoptions 2 097 888 (the corelib's culture caches are Dictionary<string, ...>, so every
+# program that formats a number carries the real Resize/Remove/enumerator code and its tables); hello, exceptions and typeinfo unchanged. The other platforms' async,
+# collections, linq and numbers budgets moved by the same number of bytes until the CI rounds of that PR give their own measurements.
+# The shortest round-trip digits of double and float come from CoreLib's Grisu3/Dragon4 (the framework's IL, #348), a measured speed gain paid in size:
+# the StringBuilder throughput program runs in 1 299 ms where it took 3 721 (NativeAOT 1 761), 10.97 G instructions where it took 38.39 G (NativeAOT 12.36 G);
+# numbers 143 688 to 151 880 B on linux-x86_64 (+8 192: Dragon4's big-integer code and power tables). The other platforms moved by the same number of
+# bytes until CI gives their own measurements.
+# Globalization from the framework's IL (#426): CultureInfo  CultureData  NumberFormatInfo  TextInfo and CompareInfo are CoreLib's own  so a program
+# that formats a number carries the framework's culture initialization (culture data over ICU  its locale tables  the culture caches). linux-x86_64
+# measured 231 544 B (budget 156 672 -> 236 544; NativeAOT carries the same code); the other platforms moved by the same 79 872 B until CI measures them.
+# Number formatting and parsing from the framework's IL (#426): CoreLib's System.Number and the primitives' own ToString/TryFormat/Parse/TryParse replace
+# the corelib's smaller copies, a measured speed gain (number_format_parse_throughput 1 388 to 1 026 ms, 12.53 G to 8.53 G instructions; NativeAOT 1 202 ms).
+# linux-x86_64 236024 -> 254096 B (+18072); budget = measured + 3 %; the other platforms moved by the same 25600 B until CI measures them.
+# String's and Char's library members from CoreLib IL (#423), measured with the floating-point flip after merging the integration branch at
+# d155238f: linux-x86_64 277 960 B (budget 262 144 -> 286 720, measured + max(4 KiB, 3 %)). A program that searches, compares or cases a
+# string carries CoreLib's own vectorized search, ordinal ignore-case comparison and casing tables instead of the corelib's scalar copies:
+# a measured speed gain paid in size (tools/il-first/bench/string_throughput.cs 0.183 -> 0.126 s, 1 472 M -> 920 M instructions), which also
+# fixed two silent differences (#439, #440). The other platforms moved by the same 24 576 B until CI measures them.
+linux-x86_64 numbers 286720
+linux-aarch64 numbers 282624
+macos-arm64 numbers 311296
+windows-x86_64 numbers 300032
+# wasm32's Grisu3/Dragon4 come from the slice cut from the 32-bit CoreLib (#382), in place of #377's corelib fallback: measured 146 678 to
+# 155 984 B (+9 306), a measured speed gain like on the other targets (#348); budget = measured + 3 %.
+# #424 CI round 7 (head f66f4324, with the number flip) measured wasi-wasm32 271 969 B (budget 266240 -> 280576, measured + 3 %): the number flip's
+# other-platform budgets had moved by linux-x86_64's growth, which wasm32's code exceeds.
+wasi-wasm32 numbers 305152

@@ -254,7 +254,8 @@ public sealed partial class ModuleCodeGen
         using var timer = Stats.Time("generic interface dispatchers/index");
         foreach (var (type, _) in _layouts)
         {
-            if (type is not { TypeKind: TypeKind.Class, IsAbstract: false } || !_indexedImplementers.Add(type)) continue;
+            // (a canonical form is a layout, not a class objects can have: the dispatchers see its exact instantiations)
+            if (type is not { TypeKind: TypeKind.Class, IsAbstract: false } || IsCanonDependent(type) || !_indexedImplementers.Add(type)) continue;
             _classSequence.Add(type);
             foreach (var itf in type.AllInterfaces) AddImplementer(_classesByInterface, itf, type);
         }

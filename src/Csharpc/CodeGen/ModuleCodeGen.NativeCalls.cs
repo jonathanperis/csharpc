@@ -64,8 +64,8 @@ public sealed partial class ModuleCodeGen
     internal LoweredFunction? NativeCallStub(IMethodSymbol signature)
     {
         if (NativeShapeOf(signature) is not { } shape) return null;
-        var key = string.Join(",", signature.Parameters.Select(p => (p.RefKind == RefKind.None ? "" : "&") + p.Type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat)))
-            + "->" + signature.ReturnType.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        var key = string.Join(",", signature.Parameters.Select(p => (p.RefKind == RefKind.None ? "" : "&") + IdentityKey(p.Type)))
+            + "->" + IdentityKey(signature.ReturnType);
         if (_nativeCallStubs.TryGetValue(key, out var existing)) return existing;
 
         List<LLVMTypeRef> managed = [Llvm.Ptr];

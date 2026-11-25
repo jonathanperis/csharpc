@@ -1,0 +1,29 @@
+IsLetter: 48973 48858166215
+IsDigit: 370 152447060
+IsLetterOrDigit: 49343 49028733285
+IsNumber: 735 267164927
+IsUpper: 1132 358152916
+IsLower: 1448 593169824
+IsPunctuation: 628 369547742
+IsSymbol: 3854 1454415420
+IsSeparator: 19 4383509
+IsWhiteSpace: 25 4389466
+IsControl: 65 163745
+IsSurrogate: 2048 3577708544
+IsAsciiHexDigitLower: 16 34902
+IsAsciiHexDigitUpper: 16 28950
+categories 24783657 upper -2734902 lower 2681186 numeric 298762.16676587303
+0.5
+0
+True True
+1F600 2
+I ı Ÿ
+Q False 0
+True xy
+ConvertFromUtf32 surrogate: ArgumentOutOfRangeException: A valid UTF32 value is between 0x000000 and 0x10ffff, inclusive, and should not include surrogate codepoint values (0x00d800 ~ 0x00dfff). (Parameter 'utf32')
+ConvertToUtf32 bad pair: ArgumentOutOfRangeException: A valid high surrogate character is between 0xd800 and 0xdbff, inclusive. (Parameter 'highSurrogate')
+ConvertToUtf32 lone high: ArgumentException: Found a high surrogate char without a following low surrogate at index: 0. The input may not be in this encoding, or may not contain valid Unicode (UTF-16) characters. (Parameter 's')
+IsLetter index: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'index')
+IsDigit null: ArgumentNullException: Value cannot be null. (Parameter 's')
+Parse long: FormatException: String must be exactly one character long.
+Parse null: ArgumentNullException: Value cannot be null. (Parameter 's')

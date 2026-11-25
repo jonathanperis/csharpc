@@ -11,6 +11,9 @@
 // diagnostic): server certificate selection callbacks and SslClientHelloInfo callbacks, local certificate selection
 // callbacks, cipher suite policies, client certificate renegotiation (NegotiateClientCertificateAsync), the
 // CipherAlgorithm/HashAlgorithm/KeyExchangeAlgorithm properties.
+// Linux compiles System.Security.Cryptography and System.Net.Security from the framework's IL over the OpenSSL and GSS contracts
+// (Crypto/CryptoNative*.cs, Net/NetSecurityNative.cs; docs/il-first/System.Net.Security.md); the other targets keep this copy (#449).
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_MACOS || CSHARPC_TARGET_WASI
 #nullable disable
 #if CSHARPC_OPENSSL
 using System;
@@ -30,6 +33,19 @@ using System.Threading.Tasks;
 
 namespace CsharpcCoreLib
 {
+    [Shadows("System.Net.Security.SslClientHelloInfo")]
+    public readonly struct SslClientHelloInfoImpl
+    {
+        public string ServerName { get; }
+        public SslProtocols SslProtocols { get; }
+
+        public SslClientHelloInfoImpl(string serverName, SslProtocols sslProtocols)
+        {
+            ServerName = serverName;
+            SslProtocols = sslProtocols;
+        }
+    }
+
     [Shadows("System.Net.Security.AuthenticatedStream")]
     public abstract class AuthenticatedStreamImpl : Stream
     {
@@ -1086,4 +1102,5 @@ namespace CsharpcCoreLib
         }
     }
 }
+#endif
 #endif

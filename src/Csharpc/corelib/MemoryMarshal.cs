@@ -17,6 +17,16 @@ namespace CsharpcCoreLib
     internal static unsafe class MemoryMarshalImpl
     {
         /// <summary>
+        /// CoreLib-internal: the span's first element, or a non-null dummy reference for an empty span (pinning gives a non-null pointer
+        /// either way), which the framework's globalization IL passes to native code with the length 0 (#426).
+        /// </summary>
+        public static ref T GetNonNullPinnableReference<T>(ReadOnlySpan<T> span) =>
+            ref span.Length != 0 ? ref MemoryMarshal.GetReference(span) : ref Unsafe.AsRef<T>((void*)1);
+
+        public static ref T GetNonNullPinnableReference<T>(Span<T> span) =>
+            ref span.Length != 0 ? ref MemoryMarshal.GetReference(span) : ref Unsafe.AsRef<T>((void*)1);
+
+        /// <summary>
         /// The array behind a Memory: csharpc's Memory&lt;T&gt; is a bare { pointer, length }, so the array is the heap
         /// object the pointer is in, when that is a T[] (not a string, native or MemoryManager memory).
         /// </summary>

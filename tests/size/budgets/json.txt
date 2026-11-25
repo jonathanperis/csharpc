@@ -1,0 +1,25 @@
+# json and jsonwriter are the framework's own System.Text.Json compiled from IL (ADR 0023, #286): the owner accepted that growth for exactness and speed
+# (shadow before the flip: json 369 432 B, jsonwriter 275 352 B); measured 6 656 792 and 953 456 B on linux-x86_64 (on top of the Linq and Dictionary/HashSet flips), the only platform with budgets for them so far.
+# SR getters as string literals (#272): linux-x86_64 measured json 1 567 872 (main's CI: 1 769 784), jsonwriter 801 560 (1 015 400), regex 818 312 (925 312),
+# regexoptions 2 046 216 (2 153 144); those four budgets lowered to measured + max(4 KiB, 3 %).
+# BFloat16 and Decimal32/64/128 from CoreLib IL (#405): json measured 1 643 496 B on linux-x86_64 (1 571 032 before), budget raised to measured + 3 %.
+# The program only names the four types in typeof (System.Text.Json's NumberHandingIsApplicable), but a struct's method table lowers its
+# ToString/Equals/GetHashCode and dispatched interface slots without a box (#420), which now pulls in upstream's IEEE formatting.
+# Globalization from the framework's IL (#426): CultureInfo  CultureData  NumberFormatInfo  TextInfo and CompareInfo are CoreLib's own  so a program
+# that formats a number carries the framework's culture initialization (culture data over ICU  its locale tables  the culture caches). linux-x86_64
+# measured 1 732 152 B (budget 1 693 696 -> 1 736 704; NativeAOT carries the same code); the other platforms moved by the same 43 008 B until CI measures them.
+# Encoding, Utf8, Ascii and Base64 from CoreLib IL (#423): System.Text.Json transcodes through the framework's own Utf8Utility, Ascii and Base64
+# code (vector and scalar paths) instead of the corelib's smaller copies, which runs 3.1x (encoding) and 5x (Ascii/Base64) faster. linux-x86_64 measured
+# 1 743 536 B against 1 724 336 B on the integration head (+19 200 B); budget 1736704 -> 1744896.
+# Convert from CoreLib IL (#423), measured after merging the integration branch at 61211692: linux-x86_64 1 661 512 B; budget lowered to
+# measured + max(4 KiB, 3 %), rounded up to 4 KiB.
+# System.Security.Cryptography's hash/HMAC/cipher/RNG family from the framework's IL on Linux (#423, docs/il-first/System.Security.Cryptography.md):
+# System.Text.Json calls RandomNumberGenerator, which is now the framework's own (OpenSSL's RAND_bytes through the C# CryptoNative contract, as
+# under .NET on Linux) instead of the corelib's getentropy copy. linux-x86_64 measured 1 724 920 B against 1 706 024 B on the integration head
+# (+18 896 B); budget 1712128 -> 1732608 (measured + 4 KiB, rounded up to 4 KiB). The crypto throughput program runs 2.15x faster with the flip.
+# Floating-point members from CoreLib IL (#423): a boxed number's IConvertible slots are filled member by member as the program dispatches
+# them, no longer whole (which linked DateTime's formatter and every calendar). linux-x86_64 measured 1 453 128 B after merging the integration
+# branch at d155238f; budget lowered 1 712 128 -> 1 499 136 (measured + max(4 KiB, 3 %)).
+# Merged with the cryptography flip above (+18 896 B on its own, about 1 472 000 B combined): the budget still holds; the merge head is measured
+# before the push.
+linux-x86_64 json 1499136

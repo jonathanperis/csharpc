@@ -58,8 +58,20 @@ public sealed partial class ModuleCodeGen
 
     internal void RegisterTypeMethodTable(LLVMValueRef mt, object type)
     {
-        if (_typeMtSeen.Add(mt.Handle)) _typeMts.Add((mt, type));
+        if (!_canonMethodTable.IsNull && mt.Handle == _canonMethodTable.Handle) return; // a canonical form is not a type
+        if (_typeMtSeen.Add(mt.Handle)) { _typeMts.Add((mt, type)); _typeOfMt[mt.Handle] = type; }
     }
+
+    private readonly Dictionary<nint, object> _typeOfMt = [];
+
+    /// <summary>
+    /// The flags the table would record for this method table's type (the same <see cref="TypeFlags"/>), or null when
+    /// the method table describes no known closed type. Lets `typeof(T).IsEnum` in generic code fold to a constant
+    /// after monomorphization instead of pulling the whole table into the program (#466).
+    /// </summary>
+    internal ulong? KnownTypeFlags(LLVMValueRef mt) =>
+        _typeOfMt.TryGetValue(mt.Handle, out var described) && described is ITypeSymbol type && !TypeSubstitution.IsOpen(type)
+            ? TypeFlags(RealType(type)) : null;
 
     private LLVMTypeRef TypeTableHeader => Llvm.Struct(Llvm.I64, Llvm.Ptr);
 
@@ -393,7 +405,7 @@ public sealed partial class ModuleCodeGen
     private sealed record HiddenInterface(string FullName, string Namespace, string Name, IReadOnlyList<ITypeSymbol> Arguments,
         string Assembly, IReadOnlyList<int> Variances)
     {
-        public string Key { get; } = FullName + "[" + string.Join(",", Arguments.Select(a => a.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))) + "]";
+        public string Key { get; } = FullName + "[" + string.Join(",", Arguments.Select(IdentityKey)) + "]";
     }
 
     /// <summary>Interface identity across symbols and HiddenInterfaces.</summary>
@@ -418,7 +430,7 @@ public sealed partial class ModuleCodeGen
         var named = (INamedTypeSymbol)type;
         var definition = named.OriginalDefinition;
         if (!definition.DeclaringSyntaxReferences.IsEmpty || definition.ContainingAssembly is not { } assembly || CoreLib.IsCoreLib(definition)
-            || SharedFramework.InterfacesOf(assembly.Name, Mangler.MetadataName(definition)) is not { } metadata)
+            || SharedFramework.InterfacesOf(Frontend.TwinReference.OriginalName(assembly.Name), Mangler.MetadataName(definition)) is not { } metadata)
             return named.Interfaces;
         var mapped = MapInterfaces(metadata, ChainArguments(named), ref exact);
         return mapped;
@@ -575,7 +587,7 @@ public sealed partial class ModuleCodeGen
     private static readonly (string Table, string Type)[] s_boxedRuntimeTypes =
     [
         ("csrt_Boxed_Decimal_MT", "System.Decimal"), ("csrt_Boxed_TimeSpan_MT", "System.TimeSpan"),
-        ("csrt_Boxed_DateTime_MT", "System.DateTime"), ("csrt_Boxed_BigInteger_MT", "System.Numerics.BigInteger"),
+        ("csrt_Boxed_DateTime_MT", "System.DateTime"),
         ("csrt_Boxed_Int128_MT", "System.Int128"), ("csrt_Boxed_UInt128_MT", "System.UInt128"),
     ];
 
@@ -587,7 +599,7 @@ public sealed partial class ModuleCodeGen
     {
         var parameters = ChainArguments(owner);
         var parameter = (ITypeParameterSymbol)parameters[position];
-        var key = "typeparam:" + owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + ":" + position;
+        var key = "typeparam:" + IdentityKey(owner) + ":" + position;
         if (_arrayMethodTables.TryGetValue(key, out var existing)) return existing;
         var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(parameter.Name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0));
@@ -808,9 +820,7 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>Type.IsVisible: public all the way out, and so are the type arguments.</summary>
     /// <summary>
-    /// A nested type's accessibility: the program's own private nested types are bound as internal when its
-    /// reflection-based JSON metadata is generated (JsonReflectionContexts.WithPrivateNestedTypesInternal), so
-    /// those read the real one from the assembly.
+    /// A nested type's accessibility, read from the assembly's own metadata (the binding compilation may see a private nested type as internal).
     /// </summary>
     private Accessibility NestedAccessibility(INamedTypeSymbol type)
     {
@@ -911,8 +921,12 @@ public sealed partial class ModuleCodeGen
                 return FullNameOf(pointer.PointedAtType, ref unknown) is { } p ? p + "*" : null;
             case INamedTypeSymbol named:
             {
-                if (CoreLib.IsCoreLib(named.OriginalDefinition)) unknown = true;  // corelib-internal: no .NET counterpart
                 var definition = Mangler.MetadataName(named.OriginalDefinition);
+                // A type of a framework slice (ADR 0023) the reference pack doesn't name, such as a private nested type
+                // (SemaphoreSlim+TaskNode): the slice copies CoreLib's types under a namespace prefix, so the name is .NET's without it.
+                // Any other corelib-internal type has no .NET counterpart.
+                // (Mangler.MetadataName already gives the name without the prefix.)
+                if (CoreLib.IsCoreLib(named.OriginalDefinition) && !IsSliceType(named.OriginalDefinition)) unknown = true;
                 var arguments = ChainArguments(named);
                 if (arguments.Count == 0 || IsDef(named)) return definition;
                 if (arguments.Any(TypeSubstitution.IsOpen)) return null;
@@ -929,6 +943,12 @@ public sealed partial class ModuleCodeGen
             default:
                 return null;
         }
+    }
+
+    private static bool IsSliceType(INamedTypeSymbol type)
+    {
+        while (type.ContainingType is { } outer) type = outer;
+        return type.ContainingNamespace.ToDisplayString().StartsWith(Frontend.UpstreamSlice.Prefix + ".", StringComparison.Ordinal);
     }
 
     private static string ArraySuffix(IArrayTypeSymbol array) =>
@@ -965,7 +985,7 @@ public sealed partial class ModuleCodeGen
                 var top = definition;
                 while (top.ContainingType is { } outer) top = outer;
                 var ns = top.ContainingNamespace is { IsGlobalNamespace: false } n ? n.ToDisplayString() : "";
-                return SharedFramework.DefiningAssembly(assembly.Identity.Name, ns, top.MetadataName);
+                return SharedFramework.DefiningAssembly(Frontend.TwinReference.OriginalName(assembly.Identity.Name), ns, top.MetadataName);
             }
             default:
                 return null;

@@ -170,7 +170,7 @@ void csrt_weak_free(intptr_t handle);
 
 // Exceptions (eh.c) -----------------------------------------------------------------------------
 // Exception objects: { mt, String* message, Exception* inner, String* paramName, String* actualValue,
-// int32[] trace, inners, token, hresult, eh_clause, eh_frame }. Throwing raises an Itanium-ABI unwind (_Unwind_RaiseException) handled by
+// int32[] trace, inners, token, hresult, eh_clause, eh_frame, data, remote_trace }. Throwing raises an Itanium-ABI unwind (_Unwind_RaiseException) handled by
 // csrt_personality; see eh.c. Mirrored by ModuleCodeGen.GetLibraryExceptionLayout.
 typedef struct csrt_Exception {
     const csrt_MethodTable* mt;
@@ -187,6 +187,7 @@ typedef struct csrt_Exception {
     const void* eh_clause;
     void* eh_frame;
     void* data;                 // TaskCanceledException.Task (the canceled task); null otherwise
+    csrt_String* remote_trace;  // ExceptionDispatchInfo.SetRemoteStackTrace's text, which StackTrace starts with; null: none
 } csrt_Exception;
 typedef struct { csrt_MethodTable header; void* vtable[4]; } csrt_ExceptionMethodTable;
 enum { CSRT_SLOT_GET_MESSAGE = 3 };
@@ -196,6 +197,7 @@ int32_t csrt_exception_get_hresult(void* exception);
 void csrt_exception_set_token(void* exception, void* token);
 void* csrt_exception_get_token(void* exception);
 void csrt_exception_set_hresult(void* exception, int32_t hresult);
+int32_t csrt_exception_set_remote_trace(void* exception, csrt_String* text);
 CSRT_THROWS void csrt_rethrow(void* exception);
 CSRT_THROWS void csrt_propagate(void* exception);
 // Exception filters (eh.c): the records of the try regions whose `when` clauses run in the first pass.
@@ -375,7 +377,8 @@ enum { CSRT_RI_PUBLIC_CONSTRUCTORS = 1, CSRT_RI_NONPUBLIC_CONSTRUCTORS = 2, CSRT
        CSRT_RI_NONPUBLIC_METHODS = 8, CSRT_RI_ATTRIBUTES = 16, CSRT_RI_PUBLIC_PROPERTIES = 32, CSRT_RI_NONPUBLIC_PROPERTIES = 64,
        CSRT_RI_ATTRIBUTES_UNKNOWN = 128 /* the type's attributes can't be listed exactly: querying them throws */,
        CSRT_RI_PUBLIC_FIELDS = 256, CSRT_RI_NONPUBLIC_FIELDS = 512,
-       CSRT_RI_PUBLIC_EVENTS = 1024, CSRT_RI_NONPUBLIC_EVENTS = 2048 };
+       CSRT_RI_PUBLIC_EVENTS = 1024, CSRT_RI_NONPUBLIC_EVENTS = 2048,
+       CSRT_RI_FIELDS_HIDDEN = 8192 /* a reference-assembly type in the chain hides its non-public fields */ };
 enum { CSRT_PROPERTY_PUBLIC = 1 /* an accessor is public */, CSRT_PROPERTY_STATIC = 2 };
 typedef struct csrt_PropertyRecord {
     const char* name;
@@ -468,6 +471,7 @@ void csrt_array_copy_checked(void* source, int64_t source_index, void* destinati
                              const csrt_MethodTable* destination_type);
 // The same through a call site's cache (a zero-initialized uint64_t per site).
 void* const* csrt_interface_slots_cached(void* obj, const csrt_MethodTable* interface_type, uint64_t* site);
+void* const* csrt_interface_slots_cached_shared(void* obj, const csrt_MethodTable* interface_type, uint64_t* site);
 csrt_String* csrt_object_to_string(void* obj);                      // virtual ToString(); null -> ""
 csrt_String* csrt_object_to_string_default(void* obj);              // System.Object.ToString()
 bool csrt_object_equals_default(void* self, void* other);
@@ -475,8 +479,12 @@ int32_t csrt_object_get_hash_code_default(void* self);
 
 // Strings -----------------------------------------------------------------------------------
 csrt_String* csrt_string_concat(csrt_String* a, csrt_String* b);
+csrt_String* csrt_string_concat_net(csrt_String* a, csrt_String* b);  // string.Concat / `+`: .NET's identities (#492)
+csrt_String* csrt_string_empty_object(void);                        // string.Empty (csrt_string_empty)
 bool csrt_string_equals(csrt_String* a, csrt_String* b);
-int32_t csrt_string_get_hash_code(csrt_String* s);
+int32_t csrt_string_get_hash_code(csrt_String* s); // Marvin, seeded per process
+void csrt_string_hash_init(void);                  // draws the seed (csrt_init)
+void csrt_os_random(void* buffer, size_t count);   // OS entropy; stops the program if it fails
 bool csrt_string_is_null_or_empty(csrt_String* s);
 uint16_t csrt_string_char_at(csrt_String* s, int32_t index);
 csrt_String* csrt_string_from_i32(int32_t v);

@@ -1,0 +1,18 @@
+ArgumentException: Item has already been added. Key in dictionary: 'alpha'  Key being added: 'alpha' | param null
+ArgumentException: Item has already been added. Key in dictionary: '42'  Key being added: '42' | param null
+ArgumentException: Item has already been added. Key in dictionary: '-7'  Key being added: '-7' | param null
+ArgumentException: Item has already been added. Key in dictionary: '1.5'  Key being added: '1.5' | param null
+ArgumentException: Item has already been added. Key in dictionary: '2.5'  Key being added: '2.5' | param null
+ArgumentException: Item has already been added. Key in dictionary: 'x'  Key being added: 'x' | param null
+ArgumentException: Item has already been added. Key in dictionary: 'True'  Key being added: 'True' | param null
+ArgumentException: Item has already been added. Key in dictionary: '02/29/2024 13:45:00'  Key being added: '02/29/2024 13:45:00' | param null
+ArgumentException: Item has already been added. Key in dictionary: '00000000-0000-0000-0000-000000000000'  Key being added: '00000000-0000-0000-0000-000000000000' | param null
+ArgumentException: Item has already been added. Key in dictionary: 'Friday'  Key being added: 'Friday' | param null
+ArgumentException: Item has already been added. Key in dictionary: '(3; 4) in null fmt null'  Key being added: '(3; 4) in null fmt null' | param null
+ArgumentException: Item has already been added. Key in dictionary: 'Span.TryFormat'  Key being added: 'Span.TryFormat' | param null
+ArgumentException: Item has already been added. Key in dictionary: 'Plain p'  Key being added: 'Plain p' | param null
+ArgumentException: Item has already been added. Key in dictionary: ''  Key being added: '' | param null
+ArgumentException: Item has already been added. Key in dictionary: '{0}'  Key being added: '{0}' | param null
+ArgumentException: Item has already been added. Key in dictionary: '{{}}'  Key being added: '{{}}' | param null
+ArgumentNullException: Value cannot be null. (Parameter 'key')
+indexer overwrites: 2, count 1

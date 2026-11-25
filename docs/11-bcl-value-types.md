@@ -16,7 +16,7 @@ Code map:
 | Decimal arithmetic, conversions, parsing | `src/Csharpc/corelib/DecimalOps.cs` (C#, [ADR 0008](adr/0008-runtime-in-csharp.md)) |
 | TimeSpan, DateTime arithmetic, calendar, time zones and formatting | `src/Csharpc/corelib/DateTimeOps.cs` (`DateTimeMembers` shadows the rest of `DateTime`); clocks and Stopwatch in `src/runtime/datetime.c` |
 | `System.Type` objects | `src/runtime/type.c` |
-| BigInteger | `src/Csharpc/corelib/BigIntegerOps.cs` |
+| BigInteger | the framework's IL (System.Runtime.Numerics, [docs/il-first/System.Runtime.Numerics.md](il-first/System.Runtime.Numerics.md)) |
 | Array helpers, introsort, Convert, Environment, collation | `src/runtime/bclmisc.c` |
 | Number formatting and parsing (decimal included) | `src/Csharpc/corelib/Number.Formatting.cs`, `Number.Parsing.cs` |
 | Boxed decimal / BigInteger / TimeSpan / DateTime method tables | `src/runtime/{decimal,bigint,datetime}.c` (their slots call corelib exports) |
@@ -167,9 +167,9 @@ comparisons ordinal, as in .NET. See [19 — Globalization](19-globalization.md)
 (`double.Round`, `int.Max/Min/Clamp/Abs/Sign`, ...), `Math.Round(double, [digits,] MidpointRounding)`
 (on the double's exact decimal value, matching .NET 11), `Convert.ToInt32/ToInt64/ToString`
 with bases 2/8/10/16 and `Convert.ToInt32(double)` (banker's rounding), `bool.Parse`,
-`char.GetNumericValue`, `Environment.ProcessorCount/TickCount/GetCommandLineArgs/Is64BitProcess`,
-`StringBuilder.Insert/Remove/Replace/indexer/AppendJoin`, `string.Split(string|char[])`,
-`string.Concat(string[])`, `string.IsNullOrWhiteSpace`, `object.ReferenceEquals`, `x as T`
+`Environment.ProcessorCount/TickCount/GetCommandLineArgs/Is64BitProcess`,
+`StringBuilder.Insert/Remove/Replace/indexer/AppendJoin`,
+`string.Concat(string[])`, `object.ReferenceEquals`, `x as T`
 returning null, and custom numeric formats with `positive;negative;zero` sections.
 Formatting and parsing use the provider's or the current culture's `NumberFormatInfo` /
 `DateTimeFormatInfo` ([19 — Globalization](19-globalization.md)).

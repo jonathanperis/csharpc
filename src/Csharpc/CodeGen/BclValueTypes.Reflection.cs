@@ -19,7 +19,7 @@ internal static partial class BclValueTypes
             Rt(g, fn, g.Llvm.Ptr, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
 
         foreach (var (property, mask) in ModuleCodeGen.TypeFlagProperties)
-            t[$"{Type}.get_{property}()"] = (g, _, self, _, _) =>
+            t[$"{Type}.get_{property}()"] = (g, _, self, _, _) => g.KnownTypeFlag(self, mask) ??
                 Rt(g, "csrt_type_flag", g.Llvm.I1, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr), (g.Llvm.ConstUInt(g.Llvm.I64, mask), g.Llvm.I64));
         // Kinds of types csharpc never creates Type objects for: by-refs, method generic parameters,
         // function pointers, COM objects, remoting.
@@ -27,6 +27,7 @@ internal static partial class BclValueTypes
                      "IsCOMObject", "IsContextful", "IsMarshalByRef", "IsSignatureType" })
             t[$"{Type}.get_{property}()"] = (g, _, self, _, _) => { g.NullCheck(self); return g.Llvm.False; };
 
+        t[$"{Type}.get_Attributes()"] = (g, _, self, _, _) => Rt(g, "csrt_type_attributes", g.Llvm.I32, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
         t[$"{Type}.get_BaseType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_base", self);
         t[$"{Type}.GetElementType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_element", self);
         t[$"{Type}.GetEnumUnderlyingType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_enum_underlying", self);
@@ -51,6 +52,12 @@ internal static partial class BclValueTypes
             var array = Rt(g, "csrt_type_interfaces", g.Llvm.Ptr, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
             g.TagArray(array, g.Module.Compilation.GetTypeByMetadataName(Type)!);
             return array;
+        };
+        // Type.FindInterfaces: GetInterfaces filtered by the delegate, in its order (RuntimeType's; TraceLogging finds IEnumerable<T> with it).
+        t[$"{Type}.FindInterfaces(System.Reflection.TypeFilter, object)"] = (g, _, self, a, _) =>
+        {
+            g.Module.NoteGetInterfaces();
+            return g.CallCoreLib("ReflectionRuntime", "FindInterfaces", [self, .. a]);
         };
         t[$"{Type}.GetArrayRank()"] = (g, _, self, _, _) =>
             Rt(g, "csrt_type_array_rank", g.Llvm.I32, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
@@ -109,6 +116,12 @@ internal static partial class BclValueTypes
         t[$"{Type}.GetFields(System.Reflection.BindingFlags)"] = fieldLookup("GetFieldsFlags");
         t[$"{Type}.GetField(string)"] = fieldLookup("GetFieldName");
         t[$"{Type}.GetField(string, System.Reflection.BindingFlags)"] = fieldLookup("GetFieldNameFlags");
+        // Nested types are kept for the types whose nested types reach an annotated location (ModuleCodeGen.NestedTypes.cs).
+        BclHandler nestedLookup(string method) => (g, _, self, a, _) => g.CallCoreLib("NestedTypeReflection", method, [self, .. a]);
+        t[$"{Type}.GetNestedType(string)"] = nestedLookup("GetNestedTypeName");
+        t[$"{Type}.GetNestedType(string, System.Reflection.BindingFlags)"] = nestedLookup("GetNestedTypeNameFlags");
+        t[$"{Type}.GetNestedTypes()"] = nestedLookup("GetNestedTypesAll");
+        t[$"{Type}.GetNestedTypes(System.Reflection.BindingFlags)"] = nestedLookup("GetNestedTypesFlags");
         // Events are described once the program reads any (ModuleCodeGen.NoteEventsQueried).
         BclHandler eventLookup(string method) => (g, _, self, a, _) =>
         {
@@ -190,7 +203,9 @@ internal static partial class BclValueTypes
         t["System.Exception.get_Data()"] = (g, _, self, _, _) => g.CallCoreLib("ExceptionData", "Get", self);
         t["System.Exception.get_HelpLink()"] = (g, _, self, _, _) => g.CallCoreLib("ExceptionData", "GetHelpLink", self);
         t["System.Exception.set_HelpLink(string)"] = (g, _, self, a, _) => { g.CallCoreLib("ExceptionData", "SetHelpLink", self, a[0]); return default; };
-        t["System.Exception.get_Source()"] = (g, _, self, _, _) => g.CallCoreLib("ExceptionData", "GetSource", self);
+        // The framework's own IL (System.Text.Json compares it to its rethrow token) gets null for a thrown exception whose Source was never set;
+        // the program's own read keeps the explicit error, since it would see the throwing assembly's name.
+        t["System.Exception.get_Source()"] = (g, _, self, _, _) => g.CallCoreLib("ExceptionData", g.InFrameworkIl ? "GetSourceFramework" : "GetSource", self);
         t["System.Exception.set_Source(string)"] = (g, _, self, a, _) => { g.CallCoreLib("ExceptionData", "SetSource", self, a[0]); return default; };
         // The base implementation: a call that dispatches virtually to a user override is emitted by FunctionCodeGen.Exceptions.cs.
         t["System.Exception.GetObjectData(System.Runtime.Serialization.SerializationInfo, System.Runtime.Serialization.StreamingContext)"] =

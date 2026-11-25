@@ -7,7 +7,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+/// new string(ReadOnlySpan<char>) and Span<char>.ToString(): string.Empty for no characters, as .NET's (#492).
 csrt_String* csrt_string_from_chars(const uint16_t* chars, int32_t length) {
+    if (length == 0) return csrt_string_empty_object();
     csrt_String* s = csrt_string_alloc_zeroed((int64_t)length);
     s->length = length;
     if (length) memcpy(s->chars, chars, 2 * (size_t)length);

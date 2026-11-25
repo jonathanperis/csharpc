@@ -74,6 +74,8 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>Stack-trace recording (docs/adr/0012-stack-traces.md); null when the program never looks at one.</summary>
     public StackTraceInfo? StackTraces { get; init; }
+    /// <summary>--shared-generics (ADR 0026): set, but nothing depends on it until the steps that share code land.</summary>
+    public bool SharedGenerics { get; init; }
 
     /// <summary>Emit write barriers and build a nursery-default runtime (--gc-nursery / ADR 0004).</summary>
     public bool GcNursery { get; init; }
@@ -159,6 +161,7 @@ public sealed partial class ModuleCodeGen
         var entryPoint = ProgramEntryPoint
             ?? throw new CompileError("CSLLVM0003", "program has no entry point (Main method or top-level statements)", null);
 
+        Facts.FieldTagsPerDefinition = SharedGenerics; // (shared code accesses the fields of every instantiation it stands for)
         CollectTypes(Compilation.Assembly.GlobalNamespace);
 
         // 1. Layouts and method tables for every class (base classes first, via GetLayout recursion).
@@ -222,11 +225,13 @@ public sealed partial class ModuleCodeGen
             Guard(entryPoint, FinishObjectArrayThunks);
             Timed("finish type metadata", () => Guard(entryPoint, FinishTypeMetadata));
             FinishEnumParseTable();
-            FinishEventSourceAttributes();
+            FinishResourceStrings();
+            FinishNestedTypes();
             FinishPInvokeResolver();
             ResolveTaskMethodTables();
+            CheckSharedGenericLeaks();
         }
-        finally { Timed("IL failure reachability", ReportIlFailures); ReportWhyLowered(); }
+        finally { Timed("IL failure reachability", ReportIlFailures); ReportWhyLowered(); WriteGenericReport(); }
         // Every call site is known now: the stack-trace tables main registers.
         if (StackTraces is { } traces && !_traceTables.IsNull)
             Native.LLVMSetInitializer(_traceTables, traces.EmitTables(this));
@@ -237,7 +242,8 @@ public sealed partial class ModuleCodeGen
         do DrainFunctionWorklists();
         while (Timed("class inits", EmitPendingClassInits) | Timed("builtin interface tables", EmitPendingBuiltinInterfaceTables)
                | Timed("generic interface dispatchers", () => EmitGenericInterfaceDispatchers(final: false))
-               | Timed("variant delegate tests", () => EmitVariantDelegateTests(final: false)) | Timed("dispatched slots", RequestDispatchedSlots));
+               | Timed("variant delegate tests", () => EmitVariantDelegateTests(final: false)) | Timed("dispatched slots", RequestDispatchedSlots)
+               | Timed("shared dictionaries", FillSharedDictionaries));
     }
 
     /// <summary>
@@ -297,6 +303,7 @@ public sealed partial class ModuleCodeGen
     private void Guard(ISymbol symbol, Action action)
     {
         if (s_trace) Console.Error.WriteLine($"[csharpc] lowering {symbol.ToDisplayString()}");
+        NoteGenericLowered(symbol);
         var outerCaller = _currentCaller;
         // The function being lowered, for the IL front-end's reachability (a type: its class initializer).
         _currentCaller = symbol switch { IMethodSymbol m => m, INamedTypeSymbol t => t.StaticConstructors.FirstOrDefault(), _ => null };
@@ -355,7 +362,16 @@ public sealed partial class ModuleCodeGen
         if (method.PartialDefinitionPart is { } partialDefinition) method = partialDefinition; // one function per partial member
         if (!_slotReference) NoteReference(method, virtualCall: false);
         if (_functions.TryGetValue(method, out var existing)) return existing;
+        // --shared-generics (ADR 0026, step 3a): an instantiation compiled once as its canonical form is that form's function.
+        if (generic && SharedGenerics && SharedGenericsInfo.ShareAs(method) is { } canonical && !SymbolEqualityComparer.Default.Equals(canonical, method))
+        {
+            NoteDynamicallyAccessedInstantiation(method); // (the exact instantiation's [DynamicallyAccessedMembers] arguments, as exact code notes them)
+            return _functions[method] = GetFunction(canonical);
+        }
+        // (a canonical body, reached through an instantiation or called from another canonical body, reads its class's dictionary)
+        if (generic && SharedGenerics && method.ContainingType is { } owner && IsCanonDependent(owner)) _classesWithSharedCode.Add(owner.OriginalDefinition);
         if (method is { MethodKind: MethodKind.PropertyGet, ContainingType.IsAnonymousType: true }) return _functions[method] = AnonymousGetter(method);
+        if (method is { MethodKind: MethodKind.Constructor, ContainingType.IsAnonymousType: true }) return _functions[method] = AnonymousConstructor(method);
         if (generic && TypeSubstitution.IsOpen(method))
             throw CompileError.Unsupported($"open generic instantiation '{method}'", method);
         if (generic) { CheckGenericDepth(method); NoteDynamicallyAccessedInstantiation(method); }
@@ -371,6 +387,11 @@ public sealed partial class ModuleCodeGen
         // otherwise inlines every internal function with a single call site, however big.
         if ((method.MethodImplementationFlags & System.Reflection.MethodImplAttributes.NoInlining) != 0)
             Llvm.AddFunctionAttribute(fn, "noinline");
+        // [MethodImpl(AggressiveInlining)]: inlined wherever it is called, as NativeAOT does (the framework marks its small hot helpers so;
+        // LLVM's cost model alone leaves Random.Next's argument check and the like as calls). LLVM still refuses recursive or
+        // otherwise uninlinable bodies.
+        else if ((method.MethodImplementationFlags & System.Reflection.MethodImplAttributes.AggressiveInlining) != 0)
+            Llvm.AddFunctionAttribute(fn, "alwaysinline");
         if (CoreLib.IsCoreLib(method) && OptimizeForSize(method.ContainingType))
         {
             Llvm.AddFunctionAttribute(fn, "optsize");
@@ -874,6 +895,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>Delegate objects get a per-type method table with System.Object's default vtable.</summary>
     public LLVMValueRef DelegateMethodTable(INamedTypeSymbol type)
     {
+        if (IsCanonDependent(type)) return CanonMethodTable; // shared generic code: the exact table comes from a dictionary
         var name = Mangler.MetadataName(type); // includes generic arguments, e.g. System.Func`2[System.Int32,System.Int32]
         var key = "dmt:" + name;
         if (_globals.TryGetValue(key, out var g)) return g;
@@ -975,6 +997,8 @@ public sealed partial class ModuleCodeGen
     /// <summary>Storage type of an instance field; unsupported field types are reported at the field (or its property).</summary>
     private LLVMTypeRef FieldStorage(IFieldSymbol field)
     {
+        // A ref field (C# 11, only in ref structs) stores the address it refers to.
+        if (field.RefKind != RefKind.None) return Llvm.Ptr;
         try { return Types.Storage(field.Type); }
         catch (CompileError e) when (e.Location is not { IsInSource: true }
                                      && (field.AssociatedSymbol ?? field).Locations.FirstOrDefault() is { IsInSource: true } at)
@@ -997,6 +1021,7 @@ public sealed partial class ModuleCodeGen
         var structType = Llvm.NamedStruct("class." + Mangler.MetadataName(type));
         var layout = new ClassLayout { Type = type, InstanceType = structType, Base = baseLayout };
         _layouts[type] = layout;
+        NoteAnnotatedHierarchy(type);
 
         // Fields: header, then inherited fields (same indices as in the base), then our own.
         // Inherit the base's storage verbatim (including synthesized library bases like System.Exception),
@@ -1036,6 +1061,7 @@ public sealed partial class ModuleCodeGen
             layout.VTable.AddRange(baseLayout.VTable);
             foreach (var (root, slot) in baseLayout.SlotOf) layout.SlotOf[root] = slot;
             foreach (var (slot, fn) in baseLayout.RuntimeSlots) layout.RuntimeSlots[slot] = fn;
+            foreach (var (definition, slot) in baseLayout.DictionarySlots) layout.DictionarySlots[definition] = slot;
         }
         else AddObjectSlots(layout);
         foreach (var m in type.GetMembers().OfType<IMethodSymbol>())
@@ -1058,7 +1084,20 @@ public sealed partial class ModuleCodeGen
                 layout.VTable.Add(m.IsAbstract ? null : m);
             }
         }
+        // --shared-generics (ADR 0026, step 2c): a generic class whose canonical form is shared code gets its dictionary slot after the
+        // virtuals it introduces; it stays null until step 2d emits the dictionaries.
+        var shared = SharedGenerics && SharedGenericsInfo.IsSharedType(type);
+        if (shared) AddDictionarySlot(layout, type);
+        // A canonical form (List<__Canon0>) is a layout only: field offsets and vtable slots, which every instantiation it stands for
+        // shares. It has no method table of its own, so no vtable to fill and no type name; shared code takes the exact tables from
+        // the dictionary (ModuleCodeGen.SharedDictionaries.cs).
+        if (IsCanonDependent(type))
+        {
+            layout.MethodTable = CanonMethodTable;
+            return layout;
+        }
         EmitMethodTable(layout);
+        if (shared) RegisterSharedInstance(layout);
         return layout;
     }
 
@@ -1129,11 +1168,11 @@ public sealed partial class ModuleCodeGen
         var baseLayout = type.BaseType is { SpecialType: not SpecialType.System_Object } b ? GetLibraryExceptionLayout(b) : null;
 
         var structType = Llvm.NamedStruct("class." + name);
-        // { mt, message, inner, paramName, actualValue, trace, inners, token, hresult, ehClause, ehFrame, data } — csrt_Exception
+        // { mt, message, inner, paramName, actualValue, trace, inners, token, hresult, ehClause, ehFrame, data, remoteTrace } — csrt_Exception
         // in src/runtime/csrt.h.
-        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
+        LlvmContext.SetBody(structType, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr);
         var layout = new ClassLayout { Type = type, InstanceType = structType, Base = baseLayout, IsLibrary = true };
-        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr]);
+        layout.Elements.AddRange([Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr]);
         layout.InstanceSize = Types.Target.SizeOf(structType);
         AddObjectSlots(layout);
         layout.VTable.Add(null);
@@ -1214,13 +1253,21 @@ public sealed partial class ModuleCodeGen
         return _globals[name] = Module.AddGlobal(name, Llvm.Ptr, LlvmContext.Null(Llvm.Ptr), linkage: LLVMLinkage.Internal);
     }
 
-    /// <summary>Runtime globals referenced only by main's builtin-interface registrations so far.</summary>
+    /// <summary>Runtime globals referenced only by main's builtin-interface registrations and by type tests (TypeTestGlobal) so far.</summary>
     private readonly HashSet<string> _registrationOnlyGlobals = [];
 
     public LLVMValueRef ExternalGlobal(string name)
     {
         _registrationOnlyGlobals.Remove(name);
         if (_globals.TryGetValue(name, out var g)) return g;
+        return _globals[name] = Module.AddGlobal(name, Llvm.I8, constant: true);
+    }
+
+    /// <summary>A runtime box method table named by a type test only (FunctionCodeGen.TypeTestMethodTable): not a use of the type.</summary>
+    public LLVMValueRef TypeTestGlobal(string name)
+    {
+        if (_globals.TryGetValue(name, out var g)) return g;
+        _registrationOnlyGlobals.Add(name);
         return _globals[name] = Module.AddGlobal(name, Llvm.I8, constant: true);
     }
 
@@ -1242,6 +1289,8 @@ public sealed partial class ModuleCodeGen
     public LLVMValueRef StringLiteral(string value)
     {
         if (_strings.TryGetValue(value, out var g)) return g;
+        // "" is the runtime's one empty string (csrt_string_empty, #492): the object every empty string the runtime makes is, as in .NET.
+        if (value.Length == 0) return _strings[value] = ExternalGlobal("csrt_string_empty");
         // The char after the last one is 0, as in .NET (`fixed (char* p = s)` and native code reading wide strings rely on it);
         // padding often provides it for free, but not on every layout (wasm32's 4-byte header).
         var chars = value.Select(c => Llvm.ConstInt(Llvm.I16, c)).Append(Llvm.ConstInt(Llvm.I16, 0)).ToArray();
@@ -1314,15 +1363,19 @@ public sealed partial class ModuleCodeGen
             var asU64 = valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.ZExt, fn.Param(0), Llvm.I64);
             var asI64 = valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(signed ? LLVMOpcode.SExt : LLVMOpcode.ZExt, fn.Param(0), Llvm.I64);
             var flags = Runtime("csrt_enum_format_flags", Llvm.Ptr, Llvm.I64, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I1, Llvm.I64);
-            b.Ret(b.Call(flags.Type, flags.Fn, [asU64, valuesTable, namesTable, Llvm.ConstInt(Llvm.I32, members.Count),
-                signed ? Llvm.True : Llvm.False, asI64]));
+            var decomposed = b.Call(flags.Type, flags.Fn, [asU64, valuesTable, namesTable, Llvm.ConstInt(Llvm.I32, members.Count),
+                signed ? Llvm.True : Llvm.False, asI64]);
+            b.Ret(signed ? CultureNegative(b, decomposed, asI64) : decomposed);
             return lowered;
         }
-        var (name, argType, arg) = TypeMapper.IsSigned(underlying)
-            ? ("csrt_string_from_i64", Llvm.I64, valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.SExt, fn.Param(0), Llvm.I64))
-            : ("csrt_string_from_u64", Llvm.I64, valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.ZExt, fn.Param(0), Llvm.I64));
-        var format = Runtime(name, Llvm.Ptr, argType);
-        b.Ret(b.Call(format.Type, format.Fn, [arg]));
+        // An undefined value: the number, a negative one with the current culture's negative sign (#182).
+        if (TypeMapper.IsSigned(underlying))
+        {
+            b.Ret(CultureInt64ToString(b, valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.SExt, fn.Param(0), Llvm.I64)));
+            return lowered;
+        }
+        var format = Runtime("csrt_string_from_u64", Llvm.Ptr, Llvm.I64);
+        b.Ret(b.Call(format.Type, format.Fn, [valueType.IntWidth == 64 ? fn.Param(0) : b.Cast(LLVMOpcode.ZExt, fn.Param(0), Llvm.I64)]));
         return lowered;
     }
 
@@ -1484,7 +1537,7 @@ public sealed partial class ModuleCodeGen
         if (StackTraces is not null)
         {
             // csrt_TraceTables (src/runtime/eh.c); filled in once codegen has seen every call site.
-            var tablesType = Llvm.Struct(Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr);
+            var tablesType = Llvm.Struct(Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr);
             _traceTables = Module.AddGlobal("csharpc.trace.tables", tablesType, LlvmContext.Null(tablesType), constant: true, linkage: LLVMLinkage.Internal);
             var register = Runtime("csrt_trace_init", Llvm.Void, Llvm.Ptr);
             b.Call(register.Type, register.Fn, [_traceTables]);
@@ -1506,7 +1559,7 @@ public sealed partial class ModuleCodeGen
         var taskType = Compilation.GetTypeByMetadataName("System.Threading.Tasks.Task");
         if (taskType is not null) builtins.Add((taskType, "csrt_Task_MT"));
         foreach (var sp in primitives) builtins.Add((Compilation.GetSpecialType(sp), $"csrt_Boxed_{Compilation.GetSpecialType(sp).MetadataName}_MT"));
-        // decimal, DateTime and TimeSpan boxes are runtime method tables too (decimal.c, datetime.c), registered
+        // decimal, DateTime, TimeSpan and Int128/UInt128 boxes are runtime method tables too (decimal.c, datetime.c, int128.c), registered
         // only once the program boxes one (EmitDeferredBclBoxRegistrations): most programs never do, and a
         // registration per interface they use is code in main.
         ITypeSymbol?[] bclBoxes = [Compilation.GetSpecialType(SpecialType.System_Decimal), Compilation.GetSpecialType(SpecialType.System_DateTime),

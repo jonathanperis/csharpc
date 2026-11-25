@@ -1,0 +1,216 @@
+TryParse<Color>("Red", False) = True Red
+  Parse = Red
+  Parse(Type) = Red
+TryParse<Color>("red", False) = False 0
+  Parse threw ArgumentException: Requested value 'red' was not found.
+  Parse(Type) threw ArgumentException: Requested value 'red' was not found.
+TryParse<Color>(" Red ", False) = True Red
+  Parse = Red
+  Parse(Type) = Red
+TryParse<Color>("\tRed\n", False) = True Red
+  Parse = Red
+  Parse(Type) = Red
+TryParse<Color>("\u00A0Red\u00A0", False) = True Red
+  Parse = Red
+  Parse(Type) = Red
+TryParse<Color>("Red, Blue", False) = True 5
+  Parse = 5
+  Parse(Type) = 5
+TryParse<Color>("Red,Blue", False) = True 5
+  Parse = 5
+  Parse(Type) = 5
+TryParse<Color>("Red,,Blue", False) = False 0
+  Parse threw ArgumentException: Requested value 'Red,,Blue' was not found.
+  Parse(Type) threw ArgumentException: Requested value 'Red,,Blue' was not found.
+TryParse<Color>("Red, 2", False) = False 0
+  Parse threw ArgumentException: Requested value 'Red, 2' was not found.
+  Parse(Type) threw ArgumentException: Requested value 'Red, 2' was not found.
+TryParse<Color>("", False) = False 0
+  Parse threw ArgumentException: Must specify valid information for parsing in the string. (Parameter 'value')
+  Parse(Type) threw ArgumentException: Must specify valid information for parsing in the string. (Parameter 'value')
+TryParse<Color>("   ", False) = False 0
+  Parse threw ArgumentException: Must specify valid information for parsing in the string. (Parameter 'value')
+  Parse(Type) threw ArgumentException: Must specify valid information for parsing in the string. (Parameter 'value')
+TryParse<Color>("\t", False) = False 0
+  Parse threw ArgumentException: Must specify valid information for parsing in the string. (Parameter 'value')
+  Parse(Type) threw ArgumentException: Must specify valid information for parsing in the string. (Parameter 'value')
+TryParse<Color>("5", False) = True 5
+  Parse = 5
+  Parse(Type) = 5
+TryParse<Color>("+5", False) = True 5
+  Parse = 5
+  Parse(Type) = 5
+TryParse<Color>(" 5 ", False) = True 5
+  Parse = 5
+  Parse(Type) = 5
+TryParse<Color>("\t5", False) = True 5
+  Parse = 5
+  Parse(Type) = 5
+TryParse<Color>("5\t", False) = True 5
+  Parse = 5
+  Parse(Type) = 5
+TryParse<Color>("-1", False) = True -1
+  Parse = -1
+  Parse(Type) = -1
+TryParse<Color>("0x10", False) = False 0
+  Parse threw ArgumentException: Requested value '0x10' was not found.
+  Parse(Type) threw ArgumentException: Requested value '0x10' was not found.
+TryParse<Color>("1e3", False) = False 0
+  Parse threw ArgumentException: Requested value '1e3' was not found.
+  Parse(Type) threw ArgumentException: Requested value '1e3' was not found.
+TryParse<Color>("5.0", False) = False 0
+  Parse threw ArgumentException: Requested value '5.0' was not found.
+  Parse(Type) threw ArgumentException: Requested value '5.0' was not found.
+TryParse<Color>("1,000", False) = False 0
+  Parse threw ArgumentException: Requested value '1,000' was not found.
+  Parse(Type) threw ArgumentException: Requested value '1,000' was not found.
+TryParse<Color>("2147483647", False) = True 2147483647
+  Parse = 2147483647
+  Parse(Type) = 2147483647
+TryParse<Color>("2147483648", False) = False 0
+  Parse threw OverflowException: Value was either too large or too small for an Int32.
+  Parse(Type) threw OverflowException: Value was either too large or too small for an Int32.
+TryParse<Color>("-2147483649", False) = False 0
+  Parse threw OverflowException: Value was either too large or too small for an Int32.
+  Parse(Type) threw OverflowException: Value was either too large or too small for an Int32.
+TryParse<Color>("+-1", False) = False 0
+  Parse threw ArgumentException: Requested value '+-1' was not found.
+  Parse(Type) threw ArgumentException: Requested value '+-1' was not found.
+TryParse<Color>("- 1", False) = False 0
+  Parse threw ArgumentException: Requested value '- 1' was not found.
+  Parse(Type) threw ArgumentException: Requested value '- 1' was not found.
+TryParse<Color>("1 2", False) = False 0
+  Parse threw ArgumentException: Requested value '1 2' was not found.
+  Parse(Type) threw ArgumentException: Requested value '1 2' was not found.
+TryParse<Color>("Purple", False) = False 0
+  Parse threw ArgumentException: Requested value 'Purple' was not found.
+  Parse(Type) threw ArgumentException: Requested value 'Purple' was not found.
+TryParse<Color>("RED", True) = True Red
+  Parse = Red
+  Parse(Type) = Red
+TryParse<Color>("rEd, bLUE", True) = True 5
+  Parse = 5
+  Parse(Type) = 5
+TryParse<Perm>("Read, Write", False) = True Read, Write
+  Parse = Read, Write
+  Parse(Type) = Read, Write
+TryParse<Perm>("Read, Write", True) = True Read, Write
+  Parse = Read, Write
+  Parse(Type) = Read, Write
+TryParse<Perm>("Read|Write", False) = False None
+  Parse threw ArgumentException: Requested value 'Read|Write' was not found.
+  Parse(Type) threw ArgumentException: Requested value 'Read|Write' was not found.
+TryParse<Perm>("Read|Write", True) = False None
+  Parse threw ArgumentException: Requested value 'Read|Write' was not found.
+  Parse(Type) threw ArgumentException: Requested value 'Read|Write' was not found.
+TryParse<Perm>("7", False) = True Read, Write, Exec
+  Parse = Read, Write, Exec
+  Parse(Type) = Read, Write, Exec
+TryParse<Perm>("7", True) = True Read, Write, Exec
+  Parse = Read, Write, Exec
+  Parse(Type) = Read, Write, Exec
+TryParse<Perm>("255", False) = True 255
+  Parse = 255
+  Parse(Type) = 255
+TryParse<Perm>("255", True) = True 255
+  Parse = 255
+  Parse(Type) = 255
+TryParse<Perm>("256", False) = False None
+  Parse threw OverflowException: Value was either too large or too small for an unsigned byte.
+  Parse(Type) threw OverflowException: Value was either too large or too small for an unsigned byte.
+TryParse<Perm>("256", True) = False None
+  Parse threw OverflowException: Value was either too large or too small for an unsigned byte.
+  Parse(Type) threw OverflowException: Value was either too large or too small for an unsigned byte.
+TryParse<Perm>("-1", False) = False None
+  Parse threw OverflowException: Value was either too large or too small for an unsigned byte.
+  Parse(Type) threw OverflowException: Value was either too large or too small for an unsigned byte.
+TryParse<Perm>("-1", True) = False None
+  Parse threw OverflowException: Value was either too large or too small for an unsigned byte.
+  Parse(Type) threw OverflowException: Value was either too large or too small for an unsigned byte.
+TryParse<Perm>("Exec,Read", False) = True Read, Exec
+  Parse = Read, Exec
+  Parse(Type) = Read, Exec
+TryParse<Perm>("Exec,Read", True) = True Read, Exec
+  Parse = Read, Exec
+  Parse(Type) = Read, Exec
+TryParse<Perm>("ärger", False) = False None
+  Parse threw ArgumentException: Requested value 'ärger' was not found.
+  Parse(Type) threw ArgumentException: Requested value 'ärger' was not found.
+TryParse<Perm>("ärger", True) = True Ärger
+  Parse = Ärger
+  Parse(Type) = Ärger
+TryParse<Perm>("ÄRGER", False) = False None
+  Parse threw ArgumentException: Requested value 'ÄRGER' was not found.
+  Parse(Type) threw ArgumentException: Requested value 'ÄRGER' was not found.
+TryParse<Perm>("ÄRGER", True) = True Ärger
+  Parse = Ärger
+  Parse(Type) = Ärger
+TryParse<Perm>("Ärger", False) = True Ärger
+  Parse = Ärger
+  Parse(Type) = Ärger
+TryParse<Perm>("Ärger", True) = True Ärger
+  Parse = Ärger
+  Parse(Type) = Ärger
+TryParse<Small>("Low", False) = True Low
+  Parse = Low
+  Parse(Type) = Low
+TryParse<Small>("-5", False) = True Low
+  Parse = Low
+  Parse(Type) = Low
+TryParse<Small>("-128", False) = True -128
+  Parse = -128
+  Parse(Type) = -128
+TryParse<Small>("-129", False) = False 0
+  Parse threw OverflowException: Value was either too large or too small for a signed byte.
+  Parse(Type) threw OverflowException: Value was either too large or too small for a signed byte.
+TryParse<Small>("127", False) = True 127
+  Parse = 127
+  Parse(Type) = 127
+TryParse<Small>("128", False) = False 0
+  Parse threw OverflowException: Value was either too large or too small for a signed byte.
+  Parse(Type) threw OverflowException: Value was either too large or too small for a signed byte.
+TryParse<Small>("High", False) = True High
+  Parse = High
+  Parse(Type) = High
+TryParse<Wide>("Max", False) = True Max
+  Parse = Max
+  Parse(Type) = Max
+TryParse<Wide>("18446744073709551615", False) = True Max
+  Parse = Max
+  Parse(Type) = Max
+TryParse<Wide>("18446744073709551616", False) = False 0
+  Parse threw OverflowException: Value was either too large or too small for a UInt64.
+  Parse(Type) threw OverflowException: Value was either too large or too small for a UInt64.
+TryParse<Wide>("-1", False) = False 0
+  Parse threw OverflowException: Value was either too large or too small for a UInt64.
+  Parse(Type) threw OverflowException: Value was either too large or too small for a UInt64.
+TryParse<Wide>("0", False) = True 0
+  Parse = 0
+  Parse(Type) = 0
+TryParse<Big>("Min", False) = True Min
+  Parse = Min
+  Parse(Type) = Min
+TryParse<Big>("-9223372036854775808", False) = True Min
+  Parse = Min
+  Parse(Type) = Min
+TryParse<Big>("-9223372036854775809", False) = False 0
+  Parse threw OverflowException: Value was either too large or too small for an Int64.
+  Parse(Type) threw OverflowException: Value was either too large or too small for an Int64.
+TryParse<Big>("9223372036854775807", False) = True 9223372036854775807
+  Parse = 9223372036854775807
+  Parse(Type) = 9223372036854775807
+TryParse<Big>("9223372036854775808", False) = False 0
+  Parse threw OverflowException: Value was either too large or too small for an Int64.
+  Parse(Type) threw OverflowException: Value was either too large or too small for an Int64.
+TryParse<Cased>("BETA", True) = True beta
+  Parse = beta
+  Parse(Type) = beta
+TryParse<Cased>("Beta", True) = True beta
+  Parse = beta
+  Parse(Type) = beta
+TryParse<Cased>("beta", True) = True beta
+  Parse = beta
+  Parse(Type) = beta
+Parse(null) threw ArgumentNullException: Value cannot be null. (Parameter 'value')
+False 0
+True Green

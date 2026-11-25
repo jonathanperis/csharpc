@@ -74,7 +74,7 @@ public sealed partial class FunctionCodeGen
     /// <summary>Range → (start, count), with .NET's ArgumentOutOfRange check.</summary>
     /// <param name="parameterName">Range.GetOffsetAndLength reports "(Parameter 'length')" (arrays, GetSubArray);
     /// Span.Slice reports no parameter.</param>
-    private (LLVMValueRef Start, LLVMValueRef Count) ResolveRange(LLVMValueRef range, LLVMValueRef length, string? parameterName = null)
+    internal (LLVMValueRef Start, LLVMValueRef Count) ResolveRange(LLVMValueRef range, LLVMValueRef length, string? parameterName = null)
     {
         var (start, count) = UncheckedRange(range, length);
         var end = _b.BinOp(LLVMOpcode.Add, start, count);

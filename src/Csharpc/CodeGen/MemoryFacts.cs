@@ -35,6 +35,13 @@ public sealed class MemoryFacts(LlvmContext llvm)
     private uint? _tbaaKind, _rangeKind, _noundefKind, _invariantKind;
     private LLVMMetadataRef _root, _dataType, _fieldType;
     private readonly Dictionary<IFieldSymbol, LLVMValueRef> _fieldTags = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// Shared generic code (ADR 0026): one TBAA type per field definition, not per instantiation. A canonical body reads and writes the
+    /// fields of every instantiation it stands for (List&lt;__Canon0&gt;._items is List&lt;string&gt;._items at run time), so a tag per
+    /// instantiation would tell LLVM that the shared body's accesses never alias the exact code's, and -O2 would reorder them.
+    /// </summary>
+    public bool FieldTagsPerDefinition { get; set; }
     private LLVMValueRef _arrayLengthTag, _methodTableTag, _stringLengthTag, _dataTag, _elementTag, _stringCharTag, _arrayLengthRange, _stringLengthRange, _empty;
 
     private uint Kind(ref uint? cache, string name) => cache ??= LLVMGetMDKindIDInContext(llvm.Ref, name, (uint)name.Length);
@@ -117,6 +124,7 @@ public sealed class MemoryFacts(LlvmContext llvm)
         switch (kind)
         {
             case DataKind.ObjectField when field is not null:
+                if (FieldTagsPerDefinition) field = field.OriginalDefinition;
                 if (!_fieldTags.TryGetValue(field, out var tag))
                 {
                     if (_fieldType.IsNull) _fieldType = Node(String("object field"), DataType, Int(0));

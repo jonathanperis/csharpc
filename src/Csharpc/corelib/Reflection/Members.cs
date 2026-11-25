@@ -819,7 +819,7 @@ namespace CsharpcCoreLib
     }
 
     /// <summary>The reflection entry points (BclValueTypes.Reflection.cs maps Type/Array/Delegate members here).</summary>
-    internal static unsafe class ReflectionRuntime
+    internal static unsafe partial class ReflectionRuntime
     {
 
         private static readonly object s_lock = new object();
@@ -942,6 +942,14 @@ namespace CsharpcCoreLib
             GetConstructor(type, BindingFlags.Public | BindingFlags.Instance, null, types, null);
         public static ConstructorInfo GetConstructorFlagsTypes(Type type, BindingFlags flags, Type[] types) => GetConstructor(type, flags, null, types, null);
 
+        private static bool ConstructorsDescribed(Type type, BindingFlags flags)
+        {
+            byte* info = InfoOf(type, "constructors");
+            if (info == null) return false;
+            int described = ReflectionRecords.InfoDescribed(info);
+            return ((flags & BindingFlags.Public) == 0 || (described & 1) != 0) && ((flags & BindingFlags.NonPublic) == 0 || (described & 2) != 0);
+        }
+
         public static ConstructorInfo GetConstructor(Type type, BindingFlags flags, Binder binder, Type[] types, ParameterModifier[] modifiers)
         {
             ArgumentNullException.ThrowIfNull(types);
@@ -949,6 +957,8 @@ namespace CsharpcCoreLib
             if (binder != null) throw new NotSupportedException("A custom Binder in GetConstructor is not supported by csharpc yet.");
             // Arrays (their constructors take the lengths) and string (no default constructor) have no parameterless constructor.
             if (types.Length == 0 && (type.IsArray || type == typeof(string)) && InfoOf(type, "constructors") == null) return null;
+            // A struct of the framework (JsonElement, KeyValuePair<,>...) declares no parameterless constructor.
+            if (types.Length == 0 && type.IsValueType && !ConstructorsDescribed(type, flags) && !IsProgramAssembly(type)) return null;
             foreach (var c in GetConstructors(type, flags))
                 if (SameParameterTypes(((RuntimeConstructorInfoImpl)(object)c).ParametersNoCopy, types)) return c;
             return null;
@@ -1227,7 +1237,7 @@ namespace CsharpcCoreLib
             uint described = (uint)ReflectionRecords.InfoDescribed(info);
             // 4096: incomplete, but its [Nullable] attributes are exact (what NullabilityInfoContext reads).
             if ((described & 128) != 0 && !(s_nullabilityReads > 0 && (described & 4096) != 0))
-                throw new NotSupportedException("The custom attributes of '" + type + "' are not supported by csharpc yet: it can't reproduce the list .NET reports for this type.");
+                throw new NotSupportedException("The custom attributes of '" + type + "' are not supported by csharpc yet: it can't reproduce the list .NET reports for this type" + "" + ".");
             if ((described & 16) == 0) throw NotKept(type, "custom attributes");
             return info;
         }
@@ -1248,7 +1258,7 @@ namespace CsharpcCoreLib
                 if ((described & 128) != 0)
                     throw new NotSupportedException("Inherited custom attributes of '" + type + "' (from '" + b + "') are not supported by csharpc yet.");
                 if ((described & 16) == 0) continue;
-                if (ReflectionRecords.InfoAttributeCount(info) > 0)
+                if ((ReflectionRecords.InfoAttributeCount(info) & 0xFFFFFF) > 0)
                     throw new NotSupportedException("Inherited custom attributes of '" + type + "' (from '" + b + "') are not supported by csharpc yet.");
             }
         }
@@ -1329,7 +1339,7 @@ namespace CsharpcCoreLib
                 uint described = (uint)ReflectionRecords.InfoDescribed(info);
                 if ((described & 128) != 0 || (described & 16) == 0) return -1;
                 byte* records = ReflectionRecords.InfoAttributes(info);
-                int count = ReflectionRecords.InfoAttributeCount(info);
+                int count = ReflectionRecords.InfoAttributeCount(info) & 0xFFFFFF; // the flag bits of ModuleCodeGen.AttributeCount
                 for (int i = 0; i < count; i++)
                     if (TypeOf(ReflectionRecords.AttributeType(records + i * ReflectionRecords.AttributeSize)).FullName == fullName) return 1;
             }
@@ -1368,13 +1378,18 @@ namespace CsharpcCoreLib
             ArgumentNullException.ThrowIfNull(attributeType);
             if (CannotCarry(type, attributeType)) return CreateAttributes(null, 0, attributeType);
             byte* info = InfoOf(type, "custom attributes");
-            // A type nothing describes (a framework type, a generic parameter without attributes): none. A CoreLib type whose list
-            // csharpc cannot reproduce: the part it describes.
-            if (info == null) return type.IsGenericParameter || IsCoreLibType(type) || !IsProgramAssembly(type) ? CreateAttributes(null, 0, attributeType) : GetTypeCustomAttributes(type, attributeType, inherit);
-            uint described = (uint)ReflectionRecords.InfoDescribed(info);
-            if (PartialAnswer(described, type))
-                return (described & 16) == 0 ? CreateAttributes(null, 0, attributeType)
-                    : CreateAttributes(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
+            // A framework type (or a generic parameter) whose list csharpc cannot give: none when nothing is described, else the part it describes.
+            bool framework = type.IsGenericParameter || IsCoreLibType(type) || !IsProgramAssembly(type);
+            if (framework)
+            {
+                if (info == null) return CreateAttributes(null, 0, attributeType);
+                int described = ReflectionRecords.InfoDescribed(info);
+                bool unknown = (described & 128) != 0;
+                bool notKept = (described & 16) == 0;
+                if (unknown || notKept)
+                    return notKept ? CreateAttributes(null, 0, attributeType)
+                        : CreateAttributes(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
+            }
             return GetTypeCustomAttributes(type, attributeType, inherit);
         }
 
@@ -1430,6 +1445,17 @@ namespace CsharpcCoreLib
                     return (described & 16) == 0 ? AttributeData(null, 0) : AttributeData(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info));
                 return GetTypeCustomAttributesData(type);
             }
+            finally { s_partialReads--; }
+        }
+
+        /// <summary>CustomAttributeData.GetCustomAttributes(MemberInfo) called from the framework's IL (FunctionCodeGen.FrameworkStaticAttributeQuery):
+        /// the attributes csharpc models where it cannot complete the list.</summary>
+        public static IList<CustomAttributeData> MemberAttributeDataFramework(MemberInfo target)
+        {
+            ArgumentNullException.ThrowIfNull(target);
+            if (target is Type type) return GetTypeCustomAttributesDataFramework(type);
+            s_partialReads++;
+            try { return target.GetCustomAttributesData(); }
             finally { s_partialReads--; }
         }
 
@@ -1612,8 +1638,10 @@ namespace CsharpcCoreLib
             if (type == typeof(ulong)) return TypeCode.UInt64;
             if (type == typeof(float)) return TypeCode.Single;
             if (type == typeof(double)) return TypeCode.Double;
-            if (type == typeof(decimal)) return TypeCode.Decimal;
-            if (type == typeof(DateTime)) return TypeCode.DateTime;
+            // decimal and DateTime by name: typeof of their boxes' runtime method tables would count as boxing them and link their
+            // formatters (DateTime's pulls in every calendar, ModuleCodeGen.RuntimeExports.cs) into every program that asks a type code.
+            if (type.IsValueType && type.FullName is "System.Decimal" or "System.DateTime" && IsCoreLibType(type))
+                return type.FullName == "System.Decimal" ? TypeCode.Decimal : TypeCode.DateTime;
             if (type == typeof(string)) return TypeCode.String;
             if (type == typeof(DBNull)) return TypeCode.DBNull;
             return TypeCode.Object;

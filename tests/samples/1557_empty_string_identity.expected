@@ -1,0 +1,14 @@
+literal: True
+new string(char[0]): True
+new string(char[], 0, 0): True
+new string('a', 0): True
+new string(span): True
+Substring: True True
+Concat: True True
+StringBuilder: True
+Join: True
+Trim: True Replace: False
+ToString: True True
+identity: True True True True True False
+empty pieces: True True False True
+null operands: True True

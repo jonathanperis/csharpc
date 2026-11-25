@@ -127,6 +127,13 @@ public sealed class CoreLib
             ? PlainMetadataName(outer) + "+" + type.MetadataName
             : type.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + type.MetadataName : type.MetadataName;
 
+    private static bool IsEffectivelyPublic(INamedTypeSymbol type)
+    {
+        for (INamedTypeSymbol? t = type; t is not null; t = t.ContainingType)
+            if (t.DeclaredAccessibility is not (Accessibility.Public or Accessibility.Protected or Accessibility.ProtectedOrInternal)) return false;
+        return true;
+    }
+
     private bool IsLibrary(ISymbol symbol) =>
         !SymbolEqualityComparer.Default.Equals(symbol.ContainingAssembly, _compilation.Assembly)
         && (_assembly is null || !SymbolEqualityComparer.Default.Equals(symbol.ContainingAssembly, _assembly));
@@ -181,7 +188,11 @@ public sealed class CoreLib
         if (_cache.TryGetValue(type, out var cached)) return (INamedTypeSymbol)cached;
         if (_unmapped.Contains(type)) return null;
         var definition = type.OriginalDefinition;
-        if (!_shadowNameByReal.TryGetValue(Mangler.MetadataName(definition), out var shadowName) || Resolve(shadowName) is not { } shadow)
+        if (!_shadowNameByReal.TryGetValue(Mangler.MetadataName(definition), out var shadowName) || Resolve(shadowName) is not { } shadow
+            // A framework library compiled from its IL keeps internal copies of CoreLib-internal types under the same names (System.Runtime.
+            // Numerics' System.IUtfChar<TSelf>, implemented by its own Utf16Char): those are its own types, not the CoreLib slice's.
+            || (shadowName.StartsWith(Namespace + ".Upstream.", StringComparison.Ordinal) && !IsEffectivelyPublic(definition)
+                && definition.ContainingAssembly?.Name != "System.Private.CoreLib"))
         {
             _unmapped.Add(type);
             return null;
@@ -257,8 +268,15 @@ public sealed class CoreLib
             || (IsCoreLib(r) ? r : TryMap(r)) is not { } shadow)
             return null;
         var mappedOwner = TryMap(owner) ?? owner;
+        // A corelib class may derive from the library class itself rather than from its mapping: ConsoleOutWriter : System.IO.TextWriter, which
+        // is served from the framework's IL (upstream-types). Its `base(...)` and `base.ReadLine()` then bind normally; matching them against the
+        // receiver's own members would make each call itself.
+        // (The call's target has been through the redirection already, so `owner` may be the framework's type while the corelib class names the
+        // reference assembly's: compare each base class mapped too.)
         for (INamedTypeSymbol? t = shadow; t is not null; t = t.BaseType)
-            if (SymbolEqualityComparer.Default.Equals(t.OriginalDefinition, mappedOwner.OriginalDefinition)) return null;
+            if (SymbolEqualityComparer.Default.Equals(t.OriginalDefinition, mappedOwner.OriginalDefinition)
+                || SymbolEqualityComparer.Default.Equals(t.OriginalDefinition, owner.OriginalDefinition)
+                || (TryMap(t) is { } mappedBase && SymbolEqualityComparer.Default.Equals(mappedBase.OriginalDefinition, owner.OriginalDefinition))) return null;
         for (INamedTypeSymbol? t = shadow; t is not null && IsCoreLib(t); t = t.BaseType)
             if (MatchDefinition(method.OriginalDefinition, t.OriginalDefinition) is IMethodSymbol { IsStatic: false } match)
                 return InConstructed(match, t);

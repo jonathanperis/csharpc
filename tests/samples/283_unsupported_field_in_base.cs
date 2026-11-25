@@ -1,8 +1,8 @@
 using System;
 
-// A field of a library struct csharpc doesn't support (LockCookie) in a base class used to
-// leave a half-built class layout behind; the derived class then crashed LLVM (SIGSEGV). The
-// expected outcome is an explicit diagnostic at the field (283_unsupported_field_in_base.diagnostics).
+// A field of a library struct in a base class (LockCookie) used to leave a half-built class layout behind when the struct
+// was not supported; the derived class then crashed LLVM (SIGSEGV). LockCookie comes from System.Threading.dll's IL since
+// #414, so the layouts are built and the program runs as under .NET.
 public class Base
 {
     public System.Threading.LockCookie Date { get; set; }

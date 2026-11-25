@@ -63,6 +63,7 @@ public sealed partial class ModuleCodeGen
 
     public void RequestArrayInterface(INamedTypeSymbol itf)
     {
+        if (IsCanonDependent(itf)) return; // requested for each exact instantiation when its dictionary is filled
         foreach (var i in (IEnumerable<INamedTypeSymbol>)[itf, .. itf.AllInterfaces])
             if ((i.IsGenericType ? !TypeSubstitution.IsOpen(i) : IsNonGenericArrayInterface(i))
                 && _arrayInterfaces.Add(i))
@@ -284,6 +285,7 @@ public sealed partial class ModuleCodeGen
         public required IMethodSymbol?[] Helpers { get; init; }
         public required string Name { get; init; }
         public required string? Instantiation { get; init; }
+        public required INamedTypeSymbol Interface { get; init; }
         public HashSet<int> Requested { get; } = [];
     }
 
@@ -296,7 +298,7 @@ public sealed partial class ModuleCodeGen
         var helpers = InterfaceSlots(itf).Select(helper).ToArray();
         var type = LlvmContext.Array(Llvm.Ptr, (ulong)helpers.Length);
         var table = new PendingBuiltinSlotTable { Global = Module.AddGlobal(name, type, constant: true, linkage: linkage), Helpers = helpers, Name = name,
-            Instantiation = InterfaceDispatchKey(itf) };
+            Instantiation = InterfaceDispatchKey(itf), Interface = itf };
         _builtinSlotTables.Add(table);
         var definition = itf.OriginalDefinition;
         if (!_builtinSlotTablesByInterface.TryGetValue(definition, out var tables)) _builtinSlotTablesByInterface[definition] = tables = [];
@@ -333,10 +335,20 @@ public sealed partial class ModuleCodeGen
         return requested;
     }
 
+    private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _missingBuiltinSlots = new(SymbolEqualityComparer.Default);
+
+    private LLVMValueRef MissingBuiltinSlot(INamedTypeSymbol itf)
+    {
+        if (_missingBuiltinSlots.TryGetValue(itf, out var stub)) return stub;
+        return _missingBuiltinSlots[itf] = UnsupportedStub($"csharpc.missingslot.{_missingBuiltinSlots.Count}", Llvm.FunctionType(Llvm.Void, []),
+            $"not supported by csharpc yet: calling a member of '{itf.ToDisplayString()}' on a string or an array through the interface");
+    }
+
     private void SetBuiltinSlotTableInitializer(PendingBuiltinSlotTable table)
     {
         var pruned = Runtime("csrt_pruned_virtual", Llvm.Void).Fn;
-        var slots = table.Helpers.Select((h, i) => h is null ? LlvmContext.Null(Llvm.Ptr)
+        // A member the corelib has no helper for: a call through it ends the program with an explicit diagnostic, never a jump to null.
+        var slots = table.Helpers.Select((h, i) => h is null ? MissingBuiltinSlot(table.Interface)
             : table.Requested.Contains(i) ? GetFunction(h).Fn : pruned).ToArray();
         Native.LLVMSetInitializer(table.Global, LlvmContext.ConstArray(Llvm.Ptr, slots));
     }

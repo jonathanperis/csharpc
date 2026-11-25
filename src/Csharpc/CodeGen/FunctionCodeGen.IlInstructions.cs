@@ -266,6 +266,8 @@ public sealed partial class FunctionCodeGen
             case ILOpCode.Call or ILOpCode.Callvirt or ILOpCode.Newobj:
                 IlCall(instruction, stack, constrained, isReadonly);
                 return false;
+            case ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld when TryEmitIlBuiltinPrivateField(op, instruction.Token, stack):
+                return false; // before the symbol lookup below: the reference pack has no such field
             case ILOpCode.Ldfld or ILOpCode.Ldflda or ILOpCode.Stfld or ILOpCode.Ldsfld or ILOpCode.Ldsflda or ILOpCode.Stsfld
                 when IlAssembly.ResolveMember(instruction.Token, IlBody.Context) is IEventSymbol backing:
                 IlEventBackingField(op, backing, stack);
@@ -277,6 +279,14 @@ public sealed partial class FunctionCodeGen
                 if (instance.Dynamic is { IsTarget: false } site && op == ILOpCode.Ldfld && field.Name == "Target")
                 {
                     Push(new IlEntry(IlKind.Ref, LlvmContext.Null(L.Ptr), field.Type) { Dynamic = site with { IsTarget = true }, NonNull = true });
+                    return false;
+                }
+                if (field.RefKind != RefKind.None)
+                {
+                    // A ref field (C# 11, `ref int _parentCount` in a ref struct) holds the address it refers to: ldfld yields that
+                    // managed pointer, as a by-ref value (ModuleCodeGen.FieldStorage lays the field out as a pointer).
+                    if (op == ILOpCode.Ldflda) throw new IlException($"address of ref field '{field}'");
+                    Push(new IlEntry(IlKind.ByRef, _b.Load(L.Ptr, IlInstanceFieldAddress(field, instance)), field.Type));
                     return false;
                 }
                 if (op == ILOpCode.Ldflda) { Push(new IlEntry(IlKind.ByRef, IlInstanceFieldAddress(field, instance), field.Type)); return false; }
@@ -293,11 +303,22 @@ public sealed partial class FunctionCodeGen
                 NoteDynamicallyAccessedField(field, value);
                 if (IlLibraryInstanceField(field)) throw new IlException($"assignment to field '{field}' of a library type");
                 var address = IlInstanceFieldAddress(field, instance);
+                if (field.RefKind != RefKind.None)
+                {
+                    // `_parentCount = ref parentCount`: the field takes the address itself.
+                    if (value.Kind is not (IlKind.ByRef or IlKind.Pointer or IlKind.NativeInt)) throw new IlException($"ref field '{field}' assigned a {value.Kind} value");
+                    _b.Store(value.Value, address);
+                    return false;
+                }
                 var typed = IlTyped(value, field.Type);
                 if (isVolatile || field.IsVolatile) VolatileStore(typed, address, S(field.Type));
                 else StoreValue(ToStorage(typed, S(field.Type)), address);
                 return false;
             }
+            case ILOpCode.Ldsfld when IlAssembly.ResolveMember(instruction.Token, IlBody.Context) is IMethodSymbol getter:
+                // A static field the corelib's replacement of the type keeps as a lazily initialized property (IlAssembly.ShadowedStaticProperty).
+                if (IlInvoke(getter, null, [], isVirtual: false, constrained: null) is { } gotten) Push(gotten);
+                return false;
             case ILOpCode.Ldsfld:
             {
                 var field = IlField(instruction.Token);
@@ -367,7 +388,7 @@ public sealed partial class FunctionCodeGen
                 // null, which a non-nullable value never is. Skip the allocation, as the source path folds it.
                 if (st.IsValueType && !TypeMapper.IsNullable(st) && IlBoxOnlyNullTested(block))
                 {
-                    Push(new IlEntry(IlKind.Ref, _m.ExternalGlobal("csrt_Object_MT"), Special(SpecialType.System_Object)) { NonNull = true });
+                    Push(new IlEntry(IlKind.Ref, _m.ExternalGlobal("csrt_Object_MT"), Special(SpecialType.System_Object)) { NonNull = true, Unboxed = value with { Type = st } });
                     return false;
                 }
                 // `box T; unbox.any T` — `(char)(object)value` in generic code once T is char: the JIT
@@ -401,7 +422,7 @@ public sealed partial class FunctionCodeGen
                 var obj = IlRef(Pop());
                 var st = S(type);
                 if (TypeMapper.IsNullable(st)) throw new IlException("unbox to Nullable<T> (by address)");
-                Push(new IlEntry(IlKind.ByRef, CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(st, IlAt())), type));
+                Push(new IlEntry(IlKind.ByRef, CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, TypeTestMethodTable(st) ?? MethodTableFor(st, IlAt())), type));
                 return false;
             }
             case ILOpCode.Castclass:
@@ -421,6 +442,14 @@ public sealed partial class FunctionCodeGen
                     Push(value with { Type = type });
                     return false;
                 }
+                // `box T; castclass I` with T known to implement I: the cast cannot fail, and the entry stays a box of T, so a call through I on it is
+                // T's own (IlCall).
+                if (value is { Kind: IlKind.Ref, Unboxed: { Type: { } castBoxed } } && !value.Value.IsNull && S(castBoxed) is { IsValueType: true } castValue && !TypeMapper.IsNullable(castValue)
+                    && S(type) is INamedTypeSymbol { TypeKind: TypeKind.Interface } castTarget && ImplementsInterface(castValue, castTarget))
+                {
+                    Push(value);
+                    return false;
+                }
                 Push(new IlEntry(IlKind.Ref, IlCastClass(IlRef(value), type, value.Type), type));
                 return false;
             }
@@ -429,6 +458,13 @@ public sealed partial class FunctionCodeGen
                 var type = ResolveIlType(instruction.Token);
                 var value = Pop();
                 var st = S(type);
+                // `box T; isinst I` in generic code (`value is IFormattable` in the framework's AppendFormatted<T>, string.Format ...): once T is known
+                // the answer is a constant, so neither a run-time interface lookup nor a branch on it is left. The boxed value stays as it is.
+                if (value is { Kind: IlKind.Ref, Unboxed: { Type: { } boxedType } } && BoxedIsInstance(S(boxedType), st) is { } isInstance)
+                {
+                    Push(isInstance ? value : new IlEntry(IlKind.Ref, LlvmContext.Null(L.Ptr), Special(SpecialType.System_Object)));
+                    return false;
+                }
                 if (st is INamedTypeSymbol { TypeKind: TypeKind.Interface } itf && MayHoldArray(value.Type is null ? null : S(value.Type)))
                     _m.RequestArrayInterface(itf);
                 Push(new IlEntry(IlKind.Ref, IsInst(IlRef(value), TypeMapper.IsNullable(st) ? TypeMapper.NullableUnderlying(st) : st, IlAt()), Special(SpecialType.System_Object)));
@@ -589,8 +625,7 @@ public sealed partial class FunctionCodeGen
                 var size = IlInt(Pop());
                 var source = IlAddress(Pop());
                 var destination = IlAddress(Pop());
-                var f = _m.Intrinsic("llvm.memmove.p0.p0.i64", L.Void, L.Ptr, L.Ptr, L.I64, L.I1);
-                _m.Facts.NoReferences(_b.Call(f.Type, f.Fn, [destination, source, IlToI64(size, signed: false), L.False]));
+                MemMove(destination, source, IlToI64(size, signed: false), noReferences: true); // cpblk copies bytes: no references
                 return false;
             }
 
@@ -648,12 +683,30 @@ public sealed partial class FunctionCodeGen
         catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { return null; }
     }
 
+    /// <summary>
+    /// Whether a boxed non-nullable value of <paramref name="boxed"/> is an instance of <paramref name="target"/>, when that is known at
+    /// compile time (`box T; isinst X` in generic code once T is a known value type); null when it is not decided here.
+    /// </summary>
+    private bool? BoxedIsInstance(ITypeSymbol boxed, ITypeSymbol target)
+    {
+        if (boxed is not { IsValueType: true } || TypeMapper.IsNullable(boxed) || boxed is ITypeParameterSymbol || TypeMapper.IsNullable(target)) return null;
+        if (target is not INamedTypeSymbol { TypeKind: TypeKind.Interface or TypeKind.Class or TypeKind.Struct or TypeKind.Enum } named) return null;
+        // (`decoder is Base64DecoderByte` in Base64Helper's generic decoder: a struct target is the boxed type itself or nothing)
+        if (named.TypeKind is TypeKind.Struct or TypeKind.Enum) return SymbolEqualityComparer.Default.Equals(boxed, named);
+        return SymbolEqualityComparer.Default.Equals(boxed, named) || ImplementsInterface(boxed, named)
+            || named.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType
+            || (boxed.TypeKind == TypeKind.Enum && named.SpecialType == SpecialType.System_Enum);
+    }
+
     private bool IlBoxOnlyNullTested(IlBlock block)
     {
         var instructions = IlBody.Instructions;
         if (_ilIndex + 1 > block.Last) return false;
         var next = instructions[_ilIndex + 1].OpCode;
         if (next is ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s) return true;
+        // `box T; isinst X; brtrue`: Isinst folds the type test from the boxed type (BoxedIsInstance), so the box is only tested too.
+        if (next == ILOpCode.Isinst && _ilIndex + 2 <= block.Last && instructions[_ilIndex + 2].OpCode is ILOpCode.Brtrue or ILOpCode.Brtrue_s or ILOpCode.Brfalse or ILOpCode.Brfalse_s)
+            return BoxedIsInstance(S(ResolveIlType(instructions[_ilIndex].Token)), S(ResolveIlType(instructions[_ilIndex + 1].Token))) is not null;
         return next == ILOpCode.Ldnull && _ilIndex + 2 <= block.Last
             && instructions[_ilIndex + 2].OpCode is ILOpCode.Ceq or ILOpCode.Cgt_un;
     }
@@ -865,6 +918,7 @@ public sealed partial class FunctionCodeGen
             BoxedFrom = e is { Kind: IlKind.Ref, Unboxed: { Type: { } boxedType } boxed } && !boxed.Value.IsNull ? IlOperand(boxed, boxedType) : null,
             IsNullLiteral = e is { Kind: IlKind.Ref, Type: null } && !e.Value.IsNull && Native.LLVMIsNull(e.Value) != 0,
             EntryType = e.Type,
+            ExactClass = e.Kind == IlKind.Ref ? e.ExactClass : null,
         };
     }
 
@@ -923,6 +977,7 @@ public sealed partial class FunctionCodeGen
         var slot = IlLocalSlot(index);
         if (local.IsByRef) return new IlEntry(IlKind.ByRef, _b.Load(L.Ptr, slot), local.Type);
         var loaded = IlPush(LoadValue(slot, S(local.Type)), local.Type);
+        if (loaded.Kind == IlKind.Ref && IlExactLocal(index) is { } exact) loaded = loaded with { ExactClass = exact };
         return IsSystemType(local.Type) ? loaded with { FromLocal = index } : loaded;
     }
 
@@ -1333,9 +1388,23 @@ public sealed partial class FunctionCodeGen
     {
         var t = Special(type);
         var pointer = IlAddress(address);
-        // ldind on a pointer to bool/char/enum: keep the pointee's type when the storage matches.
-        var pointee = address.Type is { } pt && T.Storage(S(pt)).Handle == T.Storage(t).Handle && !S(pt).IsReferenceType ? pt : t;
+        // ldind on a pointer to bool/char/enum: keep the pointee's type when the storage matches. Not an integer of the other signedness:
+        // the opcode decides the extension (`ldind.i1` through a byte* sign-extends: Ascii.GetIndexOfFirstNonAsciiByte tests `*(sbyte*)p < 0`).
+        var pointee = address.Type is { } pt && T.Storage(S(pt)).Handle == T.Storage(t).Handle && !S(pt).IsReferenceType
+            && !ExtendsDifferently(S(pt), type) ? pt : t;
         return IlPush(isVolatile ? VolatileLoad(pointer, S(pointee)) : LoadValue(pointer, S(pointee)), pointee);
+    }
+
+    /// <summary>Whether a 1- or 2-byte <paramref name="pointee"/> widens to the evaluation stack differently from the ldind opcode's type.</summary>
+    private static bool ExtendsDifferently(ITypeSymbol pointee, SpecialType opcodeType)
+    {
+        static bool? Signed(SpecialType s) => s switch
+        {
+            SpecialType.System_SByte or SpecialType.System_Int16 => true,
+            SpecialType.System_Byte or SpecialType.System_UInt16 or SpecialType.System_Char => false,
+            _ => null,
+        };
+        return Signed(pointee.SpecialType) is { } a && Signed(opcodeType) is { } b && a != b;
     }
 
     private void IlStoreIndirect(Stack<IlEntry> stack, SpecialType type, bool isVolatile)
@@ -1372,7 +1441,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef IlUnboxValue(LLVMValueRef obj, ITypeSymbol st)
     {
         if (!TypeMapper.IsNullable(st))
-            return LoadValue(CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(st, IlAt())), st);
+            return LoadValue(CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, TypeTestMethodTable(st) ?? MethodTableFor(st, IlAt())), st);
         var underlying = TypeMapper.NullableUnderlying(st);
         var result = NewTemp(T.Value(st), "unbox.nullable");
         _b.Store(LlvmContext.Null(T.Value(st)), result);
@@ -1380,7 +1449,7 @@ public sealed partial class FunctionCodeGen
         var done = NewBlock("unbox.done");
         _b.CondBr(_b.ICmp(LLVMIntPredicate.NE, obj, LlvmContext.Null(L.Ptr)), some, done);
         _b.PositionAtEnd(some);
-        var payload = LoadValue(CallRuntime("csrt_unbox_exact", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(underlying, IlAt())), underlying);
+        var payload = LoadValue(CallRuntime("csrt_unbox_exact", L.Ptr, [L.Ptr, L.Ptr], obj, TypeTestMethodTable(underlying) ?? MethodTableFor(underlying, IlAt())), underlying);
         _b.Store(MakeNullable(st, L.True, payload), result);
         _b.Br(done);
         _b.PositionAtEnd(done);

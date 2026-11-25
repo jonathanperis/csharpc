@@ -1,0 +1,3 @@
+# ConcurrentDictionary<TKey,TValue> and ConcurrentQueue<T>, CoreLib types in .NET 11 (ADR 0023, #399; docs/il-first/System.Collections.Concurrent.md).
+System.Collections.Concurrent.ConcurrentDictionary`2
+System.Collections.Concurrent.ConcurrentQueue`1
