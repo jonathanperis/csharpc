@@ -1,0 +1,5 @@
+token: System.Threading.CancellationToken
+concat: System.Threading.CancellationToken
+ToString: System.Threading.CancellationToken
+registration: System.Threading.CancellationTokenRegistration
+handle: System.RuntimeTypeHandle
