@@ -23,6 +23,17 @@ namespace CsharpcCoreLib
         OutOfMemory = 3,
     }
 
+    /// <summary>Interop.Globalization.TimeZoneDisplayNameType (pal_timeZoneInfo.h's values): what TimeZoneInfo asks ICU to name (#98).</summary>
+    public enum UpstreamTimeZoneDisplayNameType
+    {
+        Generic = 0,
+        Standard = 1,
+        DaylightSavings = 2,
+        GenericLocation = 3,
+        ExemplarCity = 4,
+        TimeZoneName = 5,
+    }
+
     /// <summary>The members of CoreLib's Interop.Globalization the slice calls, with CoreLib's signatures.</summary>
     public static unsafe class UpstreamGlobalizationInterop
     {
@@ -109,6 +120,15 @@ namespace CsharpcCoreLib
         public static int GetSortVersion(IntPtr sortHandle) => IcuInterop.GetSortVersion(sortHandle);
 
         // ---- IDNA ----
+
+        // ---- time zones (TimeZoneInfo, #98): the result buffers are the callers' stackalloc'd ones with their own lengths ----
+
+        public static UpstreamGlobalizationResultCode GetTimeZoneDisplayName(string localeName, string timeZoneId, UpstreamTimeZoneDisplayNameType type, char* result, int resultLength) =>
+            (UpstreamGlobalizationResultCode)IcuInterop.GetTimeZoneDisplayName(localeName, timeZoneId, (int)type, result, resultLength);
+
+        public static int IanaIdToWindowsId(string ianaId, char* windowsId, int windowsIdLength) => IcuInterop.IanaIdToWindowsId(ianaId, windowsId, windowsIdLength);
+
+        public static int WindowsIdToIanaId(string windowsId, IntPtr region, char* ianaId, int ianaIdLength) => IcuInterop.WindowsIdToIanaId(windowsId, region, ianaId, ianaIdLength);
 
         public static int ToAscii(uint flags, ReadOnlySpan<char> src, int srcLen, Span<char> dstBuffer, int dstBufferCapacity) =>
             IcuInterop.ToAscii(flags, src, Math.Clamp(srcLen, 0, src.Length), dstBuffer, Math.Clamp(dstBufferCapacity, 0, dstBuffer.Length));
