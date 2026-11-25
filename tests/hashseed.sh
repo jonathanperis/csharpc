@@ -2,6 +2,7 @@
 # string.GetHashCode is Marvin seeded per process from the OS random number generator, as in .NET (issue #285, hash flooding):
 # the same string hashes the same within a process and differently across processes. A recorded sample cannot check this
 # (the value is not part of any output), so this script runs the compiled program three times.
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

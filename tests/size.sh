@@ -15,6 +15,7 @@
 #
 #   tests/size.sh            check the budgets
 #   tests/size.sh --print    print "<platform> <name> <bytes>" lines (to set budgets: size + max(4 KiB, 3 %))
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
