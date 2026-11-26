@@ -284,9 +284,12 @@ internal static partial class BclValueTypes
                 ? throw CompileError.Unsupported("Assembly.GetExecutingAssembly() outside the program's own code", at)
                 : g.CallCoreLib("AssemblyImpl", "ForName", g.Module.StringLiteral(name));
         };
-        t["System.Reflection.Assembly.GetEntryAssembly()"] = (g, _, _, _, at) =>
-            g.Module.ProgramAssemblyName(g.Module.ProgramEntryPoint) is { } name
-                ? g.CallCoreLib("AssemblyImpl", "ForName", g.Module.StringLiteral(name))
-                : throw CompileError.Unsupported("Assembly.GetEntryAssembly() of a signed or wildcard-versioned assembly", at);
+        // NativeAOT walks no stack for GetCallingAssembly(): it is the entry assembly whoever calls it (the JIT returns the real
+        // caller's assembly, and System.Private.CoreLib when Main calls it). csharpc matches NativeAOT (#104).
+        foreach (var api in new[] { "GetEntryAssembly", "GetCallingAssembly" })
+            t[$"System.Reflection.Assembly.{api}()"] = (g, _, _, _, at) =>
+                g.Module.ProgramAssemblyName(g.Module.ProgramEntryPoint) is { } name
+                    ? g.CallCoreLib("AssemblyImpl", "ForName", g.Module.StringLiteral(name))
+                    : throw CompileError.Unsupported($"Assembly.{api}() of a signed or wildcard-versioned assembly", at);
     }
 }
