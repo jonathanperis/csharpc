@@ -1,0 +1,14 @@
+same id: True, not the same object: True
+name is the executable's: True, by id too: True
+has not exited: True
+main module is the executable: True, True
+main module first: True, count > 0: True
+module text: True
+modules enumerate: True
+GetProcesses has this process: True, more than one: True
+child: sleep, by id: sleep
+child exited: True
+child name after exit: Cannot process request because the process (<pid>) has exited.
+Process with an Id of 2147483647 is not running.
+id 0 looked up: 0
+No process is associated with this object.
