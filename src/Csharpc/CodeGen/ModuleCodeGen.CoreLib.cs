@@ -101,11 +101,46 @@ public sealed partial class ModuleCodeGen
         if (SymbolEqualityComparer.Default.Equals(element, u)) return true;
         // Array covariance: string[] is an IList<object>.
         if (element.IsReferenceType && u.IsReferenceType)
+        {
+            // (#93) Roslyn's conversion classification costs more than every other step here, once per (array, interface) pair. For a
+            // target whose only implicit reference conversions are identity and inheritance (a class, a non-generic or invariant
+            // interface), the answer is whether it is the element, one of its base types or interfaces, or object: a set lookup.
+            if (IsInheritanceOnlyTarget(u) && ReferenceSupertypes(element) is { } supertypes)
+                return supertypes.Contains(u);
             return Compilation.ClassifyCommonConversion(element, u) is { IsImplicit: true, IsReference: true };
+        }
         // The CLR's array-element compatibility (ECMA-335 I.8.7.1): enums reduce to their underlying
         // type and signed/unsigned integers of one size are interchangeable, so a Day[] (enum : int)
         // is an IEnumerable<int> and an int[] an IList<uint>.
         return ReducedElementType(element) is { } re && re == ReducedElementType(u);
+    }
+
+    /// <summary>
+    /// A type every implicit reference conversion to which is an identity or inheritance one: a class (classes are never variant), or an
+    /// interface without variant type parameters. Not a variant interface (IEnumerable&lt;object&gt; takes IEnumerable&lt;string&gt;), an
+    /// array (covariance), a delegate (variance) or a type parameter.
+    /// </summary>
+    private static bool IsInheritanceOnlyTarget(ITypeSymbol u) => u is INamedTypeSymbol named && named.TypeKind switch
+    {
+        TypeKind.Class => true,
+        TypeKind.Interface => !named.IsGenericType || named.OriginalDefinition.TypeParameters.All(p => p.Variance == VarianceKind.None),
+        _ => false,
+    };
+
+    private readonly Dictionary<ITypeSymbol, HashSet<ITypeSymbol>?> _referenceSupertypes = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// The element, its base types, all its interfaces and object: the types an inheritance-only target can be for an implicit reference
+    /// conversion from it. Null for an element whose conversions go further (a type parameter), which keeps the general test.
+    /// </summary>
+    private HashSet<ITypeSymbol>? ReferenceSupertypes(ITypeSymbol element)
+    {
+        if (_referenceSupertypes.TryGetValue(element, out var set)) return set;
+        if (element is not (INamedTypeSymbol or IArrayTypeSymbol)) return _referenceSupertypes[element] = null;
+        set = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default) { element, Compilation.GetSpecialType(SpecialType.System_Object) };
+        for (var t = element.BaseType; t is not null; t = t.BaseType) set.Add(t);
+        foreach (var i in element.AllInterfaces) set.Add(i);
+        return _referenceSupertypes[element] = set;
     }
 
     private static string? ReducedElementType(ITypeSymbol type)
