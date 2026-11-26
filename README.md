@@ -358,7 +358,7 @@ run (`CI-Only:` on a `ci/**` branch, or Actions → CI (targeted)) does not coun
 ## Documentation
 
 The documentation is also published as a site, with a map of the codebase by responsibility:
-**[jonathanperis.github.io/csharpc](https://jonathanperis.github.io/csharpc/)**.
+**[jonathanperis.dev/csharpc](https://jonathanperis.dev/csharpc/)**.
 
 | | |
 |---|---|
