@@ -856,13 +856,14 @@ namespace CsharpcCoreLib
 #elif CSHARPC_TARGET_MACOS
         [DllImport("libc")] private static extern int getpwuid_r(uint uid, void* pwd, byte* buf, nuint buflen, void** result);
 
-        // pal_uid.c on macOS: its struct passwd has pw_change and pw_class between pw_gid and pw_gecos, and pw_expire after pw_shell
-        // (72 bytes); the framework's Passwd is Name, Password, UserId, GroupId, UserInfo, HomeDirectory, Shell (48).
+        // pal_uid.c on macOS: its struct passwd has pw_change and pw_class between pw_gid and pw_gecos, and pw_expire and the int
+        // pw_fields after pw_shell (<pwd.h>: 76 bytes of fields, 80 with the tail padding getpwuid_r may write); the framework's Passwd
+        // is Name, Password, UserId, GroupId, UserInfo, HomeDirectory, Shell (48).
         [RuntimeExport("SystemNative_GetPwUidR", Trigger + "SystemNative_GetPwUidR")]
         public static int GetPwUidR(uint uid, void* pwd, byte* buf, int buflen)
         {
             if (buflen < 0) return 22; // EINVAL
-            byte* native = stackalloc byte[72];
+            byte* native = stackalloc byte[80]; // sizeof(struct passwd) on Darwin LP64
             void* result;
             int error;
             while ((error = getpwuid_r(uid, native, buf, (nuint)buflen, &result)) == 4 /* EINTR */) { }
