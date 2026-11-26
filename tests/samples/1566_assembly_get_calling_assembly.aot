@@ -1,0 +1,1 @@
+Assembly.GetCallingAssembly: the JIT returns the caller's assembly (System.Private.CoreLib for Main); NativeAOT returns the entry assembly
