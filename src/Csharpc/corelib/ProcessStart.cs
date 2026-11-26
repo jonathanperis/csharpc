@@ -239,7 +239,8 @@ namespace CsharpcCoreLib
 
             static string NameFromArg(byte[] bytes, int start, int end, string prefix)
             {
-                int slash = Array.LastIndexOf(bytes, (byte)'/', end - 1, end - start);
+                // An empty argument (argv[0] may be "") is the empty name, as .NET's span LastIndexOf gives; it matches only an empty comm.
+                int slash = end > start ? Array.LastIndexOf(bytes, (byte)'/', end - 1, end - start) : -1;
                 int nameStart = slash >= start ? slash + 1 : start;
                 string name = Encoding.UTF8.GetString(bytes, nameStart, end - nameStart);
                 return name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? name : null;
