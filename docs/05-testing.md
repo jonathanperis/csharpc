@@ -178,8 +178,16 @@ against the 100-minute job limit). The queue, not the work, is the usual delay (
 so the counts aim at finishing near the platform's `suites` job rather than at the shortest shard. The `suites` jobs
 (size, conformance, programs, projects, IL; 11-21 minutes) set the wall clock of an unqueued gate.
 
-A push or pull request that only touches `docs/**`, `*.md`, or `LICENSE` / `COPYING` / `NOTICE` /
-`AUTHORS` skips the compiler suite when some ancestor of that commit already has the five `test`
+macOS runners are the scarce ones: the account gets only a few at once, and every full run needs several, so with a handful of
+pull requests open the macOS shards queued for hours (2026-11-25). A **pull request** therefore runs the macOS differential suite
+at `-O2` only, in 2 shards (`REDUCED_PR_PLATFORMS` in `tools/ci-plan.sh`), and `test (macos-arm64)` checks that every sample ran
+at `-O2` exactly once. Every other platform, every push to `main` or `ci/**`, and the **nightly full run** on `main` (`schedule`,
+04:00 UTC) run both opts everywhere. The trade-off: a macOS-only `-O0` difference is caught by the nightly run, not by the PR,
+and a merge that reuses the PR's gate (the identical-tree skip below) can publish the rolling `latest-main` prerelease before
+that night's run.
+
+A push or pull request that only touches `docs/**`, `*.md`, `.github/workflows/pages.yml` (the docs site's deploy), or
+`LICENSE` / `COPYING` / `NOTICE` / `AUTHORS` skips the compiler suite when some ancestor of that commit already has the five `test`
 checks green. The same five job names still run and pass, which is what a required check needs;
 `paths-ignore` would leave them pending. The skip does not apply when that ancestor's gate is
 missing, failed, or cancelled (a docs push that cancels an in-progress full run therefore runs the
