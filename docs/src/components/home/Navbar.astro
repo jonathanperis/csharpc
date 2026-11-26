@@ -1,0 +1,16 @@
+---
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const href = (path: string) => `${base}${path}`;
+---
+
+<nav class="site-nav">
+  <a class="logo" href={href('/')}>
+    <span>csharpc</span>
+  </a>
+  <div class="nav-links">
+    <a href={href('/docs/')}>Docs</a>
+    <a href={href('/codebase/')}>Codebase</a>
+    <a href={href('/docs/06-roadmap/')}>Roadmap</a>
+    <a href="https://github.com/jonathanperis/csharpc" target="_blank" rel="noopener noreferrer">GitHub</a>
+  </div>
+</nav>

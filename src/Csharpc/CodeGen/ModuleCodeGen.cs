@@ -988,7 +988,7 @@ public sealed partial class ModuleCodeGen
         try { return build(type); }
         catch (Exception e)
         {
-            cache.Remove(type);
+            if (cache.Remove(type)) _layoutRemovals++; // (IndexImplementers rescans after one)
             if (e is CompileError error) _failedLayouts[type] = error;
             throw;
         }
