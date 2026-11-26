@@ -49,13 +49,13 @@ export default defineConfig({
   integrations: [sitemap()],
   output: 'static',
   outDir: 'out',
-  site: 'https://jonathanperis.github.io',
+  site: 'https://jonathanperis.dev',
   base: isProd ? '/csharpc' : '/',
   trailingSlash: 'always',
   // One small stylesheet: inline it so each page is a single request.
   build: { inlineStylesheets: 'always' },
   markdown: {
     rehypePlugins: [rehypeRepoLinks],
-    shikiConfig: { themes: { light: 'github-light', dark: 'github-dark' }, wrap: false },
+    shikiConfig: { theme: 'github-dark', wrap: false },
   },
 });
