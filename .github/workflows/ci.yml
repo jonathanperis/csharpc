@@ -21,6 +21,10 @@ on:
     branches: [main, "ci/**"]
   pull_request:
   workflow_dispatch:
+  # The nightly full gate on main: a pull request runs the scarce macOS differential suite at -O2 only
+  # (tools/ci-plan.sh, REDUCED_PR_PLATFORMS), so -O0 there is covered here every night (and by every full push).
+  schedule:
+    - cron: "0 4 * * *"
 
 permissions:
   contents: read
@@ -48,6 +52,7 @@ jobs:
       run_suites: ${{ steps.plan.outputs.run_suites }}
       reason: ${{ steps.plan.outputs.reason }}
       parent_sha: ${{ steps.plan.outputs.parent_sha }}
+      reduced_platforms: ${{ steps.plan.outputs.reduced_platforms }}
       diff_matrix: ${{ steps.plan.outputs.diff_matrix }}
       suites_matrix: ${{ steps.plan.outputs.suites_matrix }}
     steps:
@@ -241,4 +246,7 @@ jobs:
 
       - name: Check shards cover every sample and suites passed
         if: needs.plan.outputs.mode == 'full'
-        run: bash tools/ci-plan.sh coverage --diff shards --suites suites/result.txt --samples tests/samples
+        # A platform the pull request reduced (macOS, -O2 only) is checked for exactly those pairs.
+        env:
+          OPTS: ${{ contains(format(' {0} ', needs.plan.outputs.reduced_platforms), format(' {0} ', matrix.platform)) && '-O2' || '-O0 -O2' }}
+        run: bash tools/ci-plan.sh coverage --opts "$OPTS" --diff shards --suites suites/result.txt --samples tests/samples
