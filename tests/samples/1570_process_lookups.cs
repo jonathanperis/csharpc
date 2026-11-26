@@ -22,7 +22,8 @@ var all = Process.GetProcesses();
 Console.WriteLine($"GetProcesses has this process: {all.Any(p => p.Id == current.Id)}, more than one: {all.Length > 1}");
 foreach (var p in all) p.Dispose();
 
-var start = new ProcessStartInfo("sleep") { ArgumentList = { "30" } };
+// /bin/sleep: by name, PATH may find another sleep (macOS CI puts GNU coreutils' gsleep first), whose own name the lookup reports.
+var start = new ProcessStartInfo("/bin/sleep") { ArgumentList = { "30" } };
 using (var child = Process.Start(start)!)
 {
     using var found = Process.GetProcessById(child.Id);
