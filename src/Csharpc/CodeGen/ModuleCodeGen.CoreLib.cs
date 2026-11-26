@@ -136,7 +136,9 @@ public sealed partial class ModuleCodeGen
     private HashSet<ITypeSymbol>? ReferenceSupertypes(ITypeSymbol element)
     {
         if (_referenceSupertypes.TryGetValue(element, out var set)) return set;
-        if (element is not (INamedTypeSymbol or IArrayTypeSymbol)) return _referenceSupertypes[element] = null;
+        // An array element converts by array covariance too (string[] is an IList<object>, which string[]'s own interface list does not
+        // name): only a named type keeps to inheritance.
+        if (element is not INamedTypeSymbol) return _referenceSupertypes[element] = null;
         set = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default) { element, Compilation.GetSpecialType(SpecialType.System_Object) };
         for (var t = element.BaseType; t is not null; t = t.BaseType) set.Add(t);
         foreach (var i in element.AllInterfaces) set.Add(i);
