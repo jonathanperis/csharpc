@@ -28,6 +28,8 @@ public sealed partial class FunctionCodeGen
         public int BoolSize { get; set; } = 4;
         public List<NativeField> Fields { get; } = [];
         public bool IsClass { get; set; }
+        /// <summary>A fixed-size buffer anywhere in the layout: sizes and offsets are known, element conversion is not modelled.</summary>
+        public bool HasFixedBuffer { get; set; }
     }
 
     /// <summary>What the marshaller would refuse (an ArgumentException at run time) versus what csharpc can't do yet.</summary>
@@ -106,7 +108,11 @@ public sealed partial class FunctionCodeGen
         if (type is not INamedTypeSymbol { TypeKind: TypeKind.Struct or TypeKind.Class } structure)
             throw notMarshalable;
         if (!_m.IsUserType(structure)) throw new NativeLayoutException(false, $"Marshal layout of library type '{name}'");
-        return BuildNativeLayout(structure, notMarshalable);
+        var layout = BuildNativeLayout(structure, notMarshalable);
+        // .NET's marshaller converts only a fixed-size buffer's first element (the generated struct's one field) and
+        // zeroes the rest: SizeOf/OffsetOf are exact, copying such a struct is left unsupported rather than approximated.
+        if (!sizeOf && layout.HasFixedBuffer) throw new NativeLayoutException(false, $"marshalling the contents of a fixed-size buffer in '{name}'");
+        return layout;
     }
 
     /// <summary>A field or element of a primitive, native-int, enum, bool, char or opaque (decimal, Guid) type; null for anything else.</summary>
@@ -159,14 +165,27 @@ public sealed partial class FunctionCodeGen
         var align = 1;
         foreach (var field in type.GetMembers().OfType<IFieldSymbol>().Where(f => !f.IsStatic && !f.IsConst))
         {
-            if (field.IsFixedSizeBuffer) throw new NativeLayoutException(false, $"Marshal layout of fixed-size buffer '{field.Name}'");
             var fieldType = S(field.Type);
-            var leaf = NativeScalarLayout(fieldType, field, charSet, notMarshalable);
+            NativeLayout? leaf;
+            if (field.IsFixedSizeBuffer)
+            {
+                // The compiler's <name>e__FixedBuffer struct: one element field (marshalled with the container's CharSet)
+                // and StructLayout.Size = FixedSize elements of managed size, so it is at least that large and aligned as its element.
+                var element = fieldType is IPointerTypeSymbol { PointedAtType: var pointed } ? S(pointed)
+                    : throw new NativeLayoutException(false, $"Marshal layout of fixed-size buffer '{field.Name}'");
+                var elementLeaf = NativeScalarLayout(element, null, charSet, notMarshalable)
+                    ?? throw new NativeLayoutException(false, $"Marshal layout of fixed-size buffer '{field.Name}' of '{element}'");
+                var managedBytes = field.FixedSize * (int)T.Target.SizeOf(T.Storage(element));
+                leaf = new NativeLayout(fieldType, NativeKind.Opaque) { Size = Math.Max(elementLeaf.Size, managedBytes), Align = elementLeaf.Align };
+                layout.HasFixedBuffer = true;
+            }
+            else leaf = NativeScalarLayout(fieldType, field, charSet, notMarshalable);
             if (leaf is null)
             {
                 if (fieldType is not INamedTypeSymbol { TypeKind: TypeKind.Struct } nestedType || !_m.IsUserType(nestedType) )
                     throw new NativeLayoutException(false, $"Marshal layout of field '{field.Name}' of type '{fieldType}'");
                 leaf = BuildNativeLayout(nestedType, notMarshalable);
+                layout.HasFixedBuffer |= leaf.HasFixedBuffer;
             }
             var fieldAlign = pack == 0 ? leaf.Align : Math.Min(leaf.Align, pack);
             long offset;

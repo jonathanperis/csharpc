@@ -70,7 +70,7 @@ public static class ResourceConverters
             try
             {
                 foreach (var entry in Il.ResourcesFile.Read(File.ReadAllBytes(resource.Path)))
-                    if (entry.Text is null && entry.Format == 3 && !s_primitives.Contains(entry.TypeName)) names.Add(entry.TypeName);
+                    if (entry.Text is null && entry.Format is 2 or 3 or 4 && !s_primitives.Contains(entry.TypeName)) names.Add(entry.TypeName);
             }
             catch (Exception e) when (e is InvalidDataException or EndOfStreamException or IOException or ArgumentException or FormatException) { }
         }
@@ -87,12 +87,40 @@ public static class ResourceConverters
 
     private static CSharpCompilation Add(CSharpCompilation target, CSharpCompilation compilation, IReadOnlyList<string> typeNames, CSharpParseOptions parseOptions)
     {
+        // Format 3 (the converter's string) and 2 (its byte array, #300) go through the type's converter; format 4 (a stream) through
+        // the type's public (Stream) constructor, as DeserializingResourceReader's Activator.CreateInstance(type, stream). A type
+        // without one gets .NET's MissingMethodException.
         var resourceCases = new StringBuilder();
+        var bytesCases = new StringBuilder();
+        var streamCases = new StringBuilder();
         foreach (var name in typeNames)
-            if (!name.Contains('`') && compilation.GetTypeByMetadataName(name) is { } type && Creation(compilation, type) is { } creation)
+        {
+            if (name.Contains('`') || compilation.GetTypeByMetadataName(name) is not { } type) continue;
+            if (Creation(compilation, type) is { } creation)
+            {
                 resourceCases.AppendLine($"                case {Literal(name)}: return new object[] {{ {creation}.ConvertFromInvariantString(text) }};");
+                bytesCases.AppendLine($"                case {Literal(name)}: return new object[] {{ {creation}.ConvertFrom(data) }};");
+            }
+            // Activator.CreateInstance(type, stream): a public (Stream) constructor, whose exception comes wrapped in a
+            // TargetInvocationException; none is a MissingMethodException with .NET's inner one. A type (or constructor) the generated
+            // code can't name gets no case, so GetObject's explicit "not supported" error stays.
+            var streamConstructor = type.InstanceConstructors.FirstOrDefault(c => c.DeclaredAccessibility == Accessibility.Public && !type.IsAbstract
+                && c.Parameters is [{ Type: { Name: "Stream", ContainingNamespace: { Name: "IO", ContainingNamespace.Name: "System" } } }]);
+            if (!compilation.IsSymbolAccessibleWithin(type, compilation.Assembly)) continue;
+            var fullName = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+            if (type.IsAbstract) continue; // (.NET's abstract-class error is not reproduced: GetObject's explicit error stays)
+            if (streamConstructor is null)
+            {
+                // .NET's binder adds "Member not found." only when some public constructor takes one argument but not a Stream.
+                var inner = type.InstanceConstructors.Any(c => c.DeclaredAccessibility == Accessibility.Public && c.Parameters.Length == 1)
+                    ? ", new global::System.MissingMethodException(\"Member not found.\")" : "";
+                streamCases.AppendLine($"                case {Literal(name)}: throw new global::System.MissingMethodException({Literal($"Constructor on type '{name}' not found.")}{inner});");
+            }
+            else if (compilation.IsSymbolAccessibleWithin(streamConstructor, compilation.Assembly))
+                streamCases.AppendLine($"                case {Literal(name)}: try {{ return new object[] {{ new {fullName}(data) }}; }} catch (global::System.Exception e) {{ throw new global::System.Reflection.TargetInvocationException(e); }}");
+        }
 
-        if (resourceCases.Length == 0) return target;
+        if (resourceCases.Length == 0 && streamCases.Length == 0) return target;
         var source = new StringBuilder();
         source.AppendLine("#pragma warning disable CS0612, CS0618, CS0619");
         source.AppendLine("namespace CsharpcCoreLib");
@@ -104,6 +132,22 @@ public static class ResourceConverters
         source.AppendLine("            switch (type)");
         source.AppendLine("            {");
         source.Append(resourceCases);
+        source.AppendLine("            }");
+        source.AppendLine("            return null;");
+        source.AppendLine("        }");
+        source.AppendLine("        internal static object[] ResourceObjectFromBytes(string type, byte[] data)");
+        source.AppendLine("        {");
+        source.AppendLine("            switch (type)");
+        source.AppendLine("            {");
+        source.Append(bytesCases);
+        source.AppendLine("            }");
+        source.AppendLine("            return null;");
+        source.AppendLine("        }");
+        source.AppendLine("        internal static object[] ResourceObjectFromStream(string type, System.IO.Stream data)");
+        source.AppendLine("        {");
+        source.AppendLine("            switch (type)");
+        source.AppendLine("            {");
+        source.Append(streamCases);
         source.AppendLine("            }");
         source.AppendLine("            return null;");
         source.AppendLine("        }");
@@ -132,7 +176,7 @@ public static class ResourceConverters
                     if (!resource.Implementation.IsNil || !reader.GetString(resource.Name).EndsWith(".resources", StringComparison.Ordinal)) continue;
                     var block = directory.GetReader((int)resource.Offset, directory.Length - (int)resource.Offset);
                     foreach (var entry in ResourcesFile.Read(block.ReadBytes(block.ReadInt32())))
-                        if (entry.Text is null && entry.Format == 3 && !s_primitives.Contains(entry.TypeName)) names.Add(entry.TypeName);
+                        if (entry.Text is null && entry.Format is 2 or 3 or 4 && !s_primitives.Contains(entry.TypeName)) names.Add(entry.TypeName);
                 }
             }
             catch (Exception e) when (e is InvalidDataException or EndOfStreamException or IOException or ArgumentException or FormatException or BadImageFormatException) { }

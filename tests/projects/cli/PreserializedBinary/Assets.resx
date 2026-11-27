@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<root>
+  <resheader name="resmimetype"><value>text/microsoft-resx</value></resheader>
+  <resheader name="version"><value>2.0</value></resheader>
+  <resheader name="reader"><value>System.Resources.ResXResourceReader, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <resheader name="writer"><value>System.Resources.ResXResourceWriter, System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089</value></resheader>
+  <assembly alias="System.Windows.Forms" name="System.Windows.Forms, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089" />
+  <data name="Icon" type="Repro.Blob, PreserializedBinary" mimetype="application/x-microsoft.net.object.bytearray.base64"><value>AAABAAEAEBAAAA==</value></data>
+  <data name="Empty" type="Repro.Blob, PreserializedBinary" mimetype="application/x-microsoft.net.object.bytearray.base64"><value></value></data>
+  <data name="Picture" type="System.Resources.ResXFileRef, System.Windows.Forms"><value>picture.bin;Repro.Blob, PreserializedBinary</value></data>
+  <data name="Raw" type="System.Byte[], mscorlib" mimetype="application/x-microsoft.net.object.bytearray.base64"><value>cmF3IGJ5dGVz</value></data>
+  <data name="RawStream" type="System.Resources.ResXFileRef, System.Windows.Forms"><value>picture.bin;System.IO.MemoryStream, mscorlib</value></data>
+  <data name="BrokenFile" type="System.Resources.ResXFileRef, System.Windows.Forms"><value>picture.bin;Repro.Broken, PreserializedBinary</value></data>
+  <data name="NoStreamFile" type="System.Resources.ResXFileRef, System.Windows.Forms"><value>picture.bin;Repro.NoStream, PreserializedBinary</value></data>
+</root>
