@@ -627,6 +627,11 @@ public sealed partial class FunctionCodeGen
                 return ConcatStrings(ConcatStrings(prefix, count), _m.StringLiteral("]"));
             }
         }
+        // A library struct that does not override ToString formats as ValueType.ToString(): its full name, known here for a
+        // non-generic one (System.IO.Pipes interpolates a CancellationToken into a message).
+        if (type is INamedTypeSymbol { TypeKind: TypeKind.Struct, IsGenericType: false } plain
+            && !plain.GetMembers("ToString").OfType<IMethodSymbol>().Any(m => m.IsOverride && m.Parameters.IsEmpty))
+            return _m.StringLiteral(Mangler.MetadataName(plain)); // (Outer+Inner, as Type.FullName)
         throw CompileError.Unsupported($"formatting '{type}'", at);
     }
 }
