@@ -853,7 +853,62 @@ namespace CsharpcCoreLib
             Buffer.MemoryCopy(native, pwd, 48, 48);
             return 0;
         }
+#elif CSHARPC_TARGET_MACOS
+        [DllImport("libc")] private static extern int getpwuid_r(uint uid, void* pwd, byte* buf, nuint buflen, void** result);
+
+        // pal_uid.c on macOS: its struct passwd has pw_change and pw_class between pw_gid and pw_gecos, and pw_expire and the int
+        // pw_fields after pw_shell (<pwd.h>: 76 bytes of fields, 80 with the tail padding getpwuid_r may write); the framework's Passwd
+        // is Name, Password, UserId, GroupId, UserInfo, HomeDirectory, Shell (48).
+        [RuntimeExport("SystemNative_GetPwUidR", Trigger + "SystemNative_GetPwUidR")]
+        public static int GetPwUidR(uint uid, void* pwd, byte* buf, int buflen)
+        {
+            if (buflen < 0) return 22; // EINVAL
+            byte* native = stackalloc byte[80]; // sizeof(struct passwd) on Darwin LP64
+            void* result;
+            int error;
+            while ((error = getpwuid_r(uid, native, buf, (nuint)buflen, &result)) == 4 /* EINTR */) { }
+            byte* to = (byte*)pwd;
+            new Span<byte>(to, 48).Clear();
+            if (error != 0 || result == null) return error != 0 ? error : -1;
+            Buffer.MemoryCopy(native, to, 24, 24);                // pw_name, pw_passwd, pw_uid, pw_gid
+            *(void**)(to + 24) = *(void**)(native + 40);           // pw_gecos
+            *(void**)(to + 32) = *(void**)(native + 48);           // pw_dir
+            *(void**)(to + 40) = *(void**)(native + 56);           // pw_shell
+            return 0;
+        }
 #endif
+
+        [DllImport("libc")] private static extern int seteuid(uint euid);
+
+        /// <summary>SystemNative_SetEUid (pal_uid.c): seteuid(2). NamedPipeServerStream.RunAsClient switches to the client's user with it.</summary>
+        [RuntimeExport("SystemNative_SetEUid", Trigger + "SystemNative_SetEUid")]
+        public static int SetEUid(uint euid) => seteuid(euid);
+
+#if CSHARPC_TARGET_MACOS
+        [DllImport("libc")] private static extern int getpeereid(int fd, uint* euid, uint* egid);
+#else
+        [DllImport("libc", EntryPoint = "getsockopt")] private static extern int getsockopt_peer(int fd, int level, int name, void* value, uint* length);
+#endif
+
+        /// <summary>
+        /// SystemNative_GetPeerID (pal_io.c): the effective user of a Unix domain socket's peer, from SO_PEERCRED's ucred { pid, uid, gid } on
+        /// Linux and getpeereid on macOS; 0 on success, -1 (errno set) otherwise. A named pipe's server checks its client's user with it.
+        /// </summary>
+        [RuntimeExport("SystemNative_GetPeerID", Trigger + "SystemNative_GetPeerID")]
+        public static int GetPeerID(nint socket, uint* euid)
+        {
+#if CSHARPC_TARGET_MACOS
+            uint egid;
+            return getpeereid(Fd(socket), euid, &egid);
+#else
+            const int SOL_SOCKET = 1, SO_PEERCRED = 17;
+            uint* creds = stackalloc uint[3];
+            uint length = 12;
+            if (getsockopt_peer(Fd(socket), SOL_SOCKET, SO_PEERCRED, creds, &length) != 0) return -1;
+            *euid = creds[1];
+            return 0;
+#endif
+        }
 #else
         // WASI has no users: everything is the one user's (pal_io.c's emscripten/WASI build answers 0).
         [RuntimeExport("SystemNative_GetEUid", Trigger + "SystemNative_GetEUid")]
@@ -864,7 +919,94 @@ namespace CsharpcCoreLib
 
         [RuntimeExport("SystemNative_GetGroups", Trigger + "SystemNative_GetGroups")]
         public static int GetGroups(int count, uint* groups) => 0;
+
+        [RuntimeExport("SystemNative_SetEUid", Trigger + "SystemNative_SetEUid")]
+        public static int SetEUid(uint euid) => Fail(ENOTSUP);
+
+        [RuntimeExport("SystemNative_GetPeerID", Trigger + "SystemNative_GetPeerID")]
+        public static int GetPeerID(nint socket, uint* euid) => Fail(ENOTSUP);
 #endif
+
+        // ---- descriptor flags and pipe sizes (pal_io.c) ---------------------------------------------------------
+        /// <summary>
+        /// SystemNative_FcntlSetFD: fcntl(F_SETFD) with the flags converted as pal_io.c does, through ConvertOpenFlags (the framework passes
+        /// FD_CLOEXEC = 1, the value of PAL_O_WRONLY, which converts to O_WRONLY = 1 = FD_CLOEXEC), retried on EINTR.
+        /// </summary>
+        [RuntimeExport("SystemNative_FcntlSetFD", Trigger + "SystemNative_FcntlSetFD")]
+        public static int FcntlSetFD(nint fd, int flags)
+        {
+#if CSHARPC_TARGET_WASI
+            return Fail(ENOTSUP);
+#else
+            const int F_SETFD = 2;
+            int native = ConvertOpenFlags(flags);
+            int r;
+            while ((r = fcntl_int(Fd(fd), F_SETFD, native)) < 0 && Errno == EINTR) { }
+            return r;
+#endif
+        }
+
+        /// <summary>pal_io.c's ConvertOpenFlags: the PAL open flags as the target's, or -1 for an unknown one.</summary>
+        private static int ConvertOpenFlags(int flags)
+        {
+            const int PalKnown = 0xF | 0x10 | 0x20 | 0x40 | 0x80 | 0x100 | 0x200 | 0x1000;
+            int native;
+            switch (flags & 0xF)
+            {
+                case 0: native = O_RDONLY; break;
+                case 1: native = O_WRONLY; break;
+                case 2: native = O_RDWR; break;
+                default: return -1;
+            }
+            if ((flags & ~PalKnown) != 0) return -1;
+            if ((flags & 0x10) != 0) native |= O_CLOEXEC;
+            if ((flags & 0x20) != 0) native |= O_CREAT;
+            if ((flags & 0x40) != 0) native |= O_EXCL;
+            if ((flags & 0x80) != 0) native |= O_TRUNC;
+            if ((flags & 0x100) != 0) native |= O_SYNC;
+            if ((flags & 0x200) != 0) native |= O_NOFOLLOW;
+            if ((flags & 0x1000) != 0) native |= O_DIRECTORY;
+            return native;
+        }
+
+        /// <summary>SystemNative_FcntlCanGetSetPipeSz: whether F_GETPIPE_SZ/F_SETPIPE_SZ exist (Linux only).</summary>
+        [RuntimeExport("SystemNative_FcntlCanGetSetPipeSz", Trigger + "SystemNative_FcntlCanGetSetPipeSz")]
+        public static int FcntlCanGetSetPipeSz()
+        {
+#if CSHARPC_TARGET_LINUX
+            return 1;
+#else
+            return 0;
+#endif
+        }
+
+        /// <summary>SystemNative_FcntlGetPipeSz: fcntl(F_GETPIPE_SZ) on Linux, retried on EINTR; elsewhere -1 with ENOTSUP.</summary>
+        [RuntimeExport("SystemNative_FcntlGetPipeSz", Trigger + "SystemNative_FcntlGetPipeSz")]
+        public static int FcntlGetPipeSz(nint fd)
+        {
+#if CSHARPC_TARGET_LINUX
+            const int F_GETPIPE_SZ = 1032;
+            int r;
+            while ((r = fcntl_int(Fd(fd), F_GETPIPE_SZ, 0)) < 0 && Errno == EINTR) { }
+            return r;
+#else
+            return Fail(ENOTSUP);
+#endif
+        }
+
+        /// <summary>SystemNative_FcntlSetPipeSz: fcntl(F_SETPIPE_SZ, size) on Linux, retried on EINTR; elsewhere -1 with ENOTSUP.</summary>
+        [RuntimeExport("SystemNative_FcntlSetPipeSz", Trigger + "SystemNative_FcntlSetPipeSz")]
+        public static int FcntlSetPipeSz(nint fd, int size)
+        {
+#if CSHARPC_TARGET_LINUX
+            const int F_SETPIPE_SZ = 1031;
+            int r;
+            while ((r = fcntl_int(Fd(fd), F_SETPIPE_SZ, size)) < 0 && Errno == EINTR) { }
+            return r;
+#else
+            return Fail(ENOTSUP);
+#endif
+        }
 
         // ---- hidden flag (macOS UF_HIDDEN) ----------------------------------------------------------------------
         [RuntimeExport("SystemNative_CanGetHiddenFlag", Trigger + "SystemNative_CanGetHiddenFlag")]
