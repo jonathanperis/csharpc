@@ -1,0 +1,65 @@
+name: Deploy GitHub Pages
+
+# The site renders docs/ and counts the whole repository for its codebase map, so every push to main rebuilds it
+# (about a minute; Astro only, no .NET or LLVM).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  # Build and deploy are separate jobs, as GitHub's Pages starter workflow has them: the artifact is finalized when the build
+  # job ends, so the deploy job always finds it. In one job, deploy-pages sometimes ran before the artifact's metadata was
+  # visible ("No artifacts named github-pages were found") and the run had to be retried.
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Setup Node
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24'
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+
+      - name: Setup Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6
+
+      - name: Install dependencies
+        working-directory: docs
+        run: bun install --frozen-lockfile
+
+      - name: Build site
+        working-directory: docs
+        env:
+          NODE_ENV: production
+          PUBLIC_GA_ID: ${{ secrets.PUBLIC_GA_ID }}
+        run: bun run build
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5
+        with:
+          path: docs/out
+
+  deploy:
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5

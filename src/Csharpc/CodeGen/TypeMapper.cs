@@ -49,8 +49,6 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         _ when BclValueTypes.IsTicks(type) => Llvm.I64,
         // Int128 / UInt128: LLVM's native i128 (CodeGen/Int128Support.cs).
         _ when Int128Support.Is128(type) => Llvm.IntTypeOf(128),
-        // BigInteger: pointer to an immutable runtime bignum, null == 0 (src/runtime/bigint.c).
-        _ when BclValueTypes.IsBigInteger(type) => Llvm.Ptr,
         // Value types (docs/03-lowering.md#structs): first-class LLVM aggregates of storage types.
         INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } n =>
             Llvm.Struct(Llvm.I8, Storage(n.TypeArguments[0])),              // { hasValue, value }
@@ -62,8 +60,6 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         INamedTypeSymbol n when IsSystemStruct(n, "Range") => Llvm.Struct(Llvm.I32, Llvm.I32), // { Index start, Index end }
         // StringBuilder.AppendInterpolatedStringHandler: represented by the StringBuilder it appends into.
         INamedTypeSymbol { Name: "AppendInterpolatedStringHandler", ContainingType.Name: "StringBuilder" } when !Frontend.UpstreamSlice.Serves("System.Text.StringBuilder") => Llvm.Ptr,
-        // DefaultInterpolatedStringHandler (compiled `$"..."`, seen by the IL front-end): a StringBuilder.
-        INamedTypeSymbol { Name: "DefaultInterpolatedStringHandler", ContainingType: null, ContainingNamespace.Name: "CompilerServices" } => Llvm.Ptr,
         // System.Threading.Lock.Scope: represented by the Lock itself (Scope.Dispose exits it).
         INamedTypeSymbol { Name: "Scope", ContainingType: { Name: "Lock", ContainingNamespace.Name: "Threading" } } => Llvm.Ptr,
         INamedTypeSymbol n when IsSpan(n) => Llvm.Struct(Llvm.Ptr, Llvm.I32),                  // { ref T, length }
@@ -175,6 +171,15 @@ public sealed class ClassLayout
 
     /// <summary>Root virtual method (the original "virtual" declaration) -> slot.</summary>
     public Dictionary<IMethodSymbol, int> SlotOf { get; } = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// --shared-generics (ADR 0026): the vtable slot that holds each generic class's dictionary, keyed by the class's generic definition,
+    /// for this class and the generic classes it derives from. The slot sits in the generic class's own vtable section, right after the
+    /// virtual methods it introduces, so it has the same index in every instantiation of the class and in every class derived from one:
+    /// shared code reads `this->MT->vtable[k]`. Nothing else reads it (the runtime's fixed slots are the System.Object and Exception ones,
+    /// which come first). Empty with the flag off.
+    /// </summary>
+    public Dictionary<INamedTypeSymbol, int> DictionarySlots { get; } = new(SymbolEqualityComparer.Default);
 
     public LLVMTypeRef MethodTableType { get; set; }
     public LLVMValueRef MethodTable { get; set; }

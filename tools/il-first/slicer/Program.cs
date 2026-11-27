@@ -19,6 +19,12 @@ if (args.Length > 1 && args[0] == "types")
     foreach (var t in ModuleDefinition.ReadModule(args[1]).GetTypes()) Console.WriteLine($"0x{t.MetadataToken.ToInt32():X8} {t.FullName} ({t.Attributes})");
     return;
 }
+if (args.Length > 5 && args[0] == "pointer-size")
+{
+    // pointer-size <slice64.dll> <slice32.dll> <CoreLib64> <CoreLib32> <report.md>: the members of the slice compiled differently for
+    // 32-bit targets (PointerSize.cs, #382), and a failure when the two slices do not serve the same types.
+    Environment.Exit(PointerSize.Run(args[1], args[2], args[3], args[4], args[5]));
+}
 if (args.Length > 1 && args[0] == "synth-create-instance")
 {
     Synth.CreateInstance(args[1]);
@@ -111,9 +117,55 @@ sealed class Cli
     public List<string> Stop = [];
     /// <summary>"Ns.Type::Method" -> "Assembly:Ns.Type::Method": the slice calls the target with the same arguments instead of running the method's IL (the contract).</summary>
     public Dictionary<string, string> Replace = new();
+    /// <summary>
+    /// "Assembly:Ns.Type::Method": SR.Format's replacement, a formatter of `{n}` / `{n:spec}` items only (Emit.SrFormatIsSimple). Used only
+    /// when the slice proves that every SR.Format call it carries formats a CoreLib resource text of that form; otherwise SR.Format keeps
+    /// its IL (string.Format, full composite formatting).
+    /// </summary>
+    public string SrFormat;
     /// <summary>"Ns.Type`1" -> "Assembly:Ns.Type`1": references to this (stop) type point at csharpc's own type of the same shape instead.</summary>
     public Dictionary<string, string> Redirect = new();
-    public string Replacement(Mono.Cecil.MethodDefinition m) => Replace.GetValueOrDefault(m.DeclaringType.FullName + "::" + m.Name);
+    /// <summary>
+    /// "Ns.Type::get_X" -> its value: a static bool getter folded to a constant, as NativeAOT's ILCompiler folds a feature switch. The emitted
+    /// IL loads the constant instead of calling the getter, so csharpc never lowers the branch it rules out (FunctionCodeGen.IlFeatureSwitches),
+    /// and the slicer does not follow that branch, so nothing only it reaches is cut into the slice (<see cref="FoldedValue"/>).
+    /// </summary>
+    public Dictionary<string, bool> Fold = new();
+    public bool? FoldedValue(Mono.Cecil.MethodReference m) =>
+        Fold.Count > 0 && m.Parameters.Count == 0 && !m.HasThis && Fold.TryGetValue(m.DeclaringType.FullName + "::" + m.Name, out var v) ? v : null;
+    /// <summary>
+    /// Runtime event sources whose <c>Log.IsEnabled()</c> is false in a csharpc program: an EventListener there sees only the program's own
+    /// sources (EventPipe is a disabled contract, corelib/UpstreamTracing.cs), so the runtime's (NativeRuntimeEventSource's thread-pool and I/O events) are never enabled.
+    /// </summary>
+    public HashSet<string> DisabledEventSources = new();
+    /// <summary>The constant an instruction folds to: a folded getter's call, or the IsEnabled() call on a disabled source's Log.</summary>
+    public bool? FoldedValueAt(Mono.Cecil.Cil.Instruction i) => i.Operand switch
+    {
+        Mono.Cecil.MethodReference getter when i.OpCode.Code == Mono.Cecil.Cil.Code.Call => FoldedValue(getter),
+        Mono.Cecil.MethodReference { Name: "IsEnabled", Parameters.Count: 0, DeclaringType.FullName: "System.Diagnostics.Tracing.EventSource" }
+            when i.OpCode.Code == Mono.Cecil.Cil.Code.Callvirt && IsDisabledLog(i.Previous) => false,
+        _ => null,
+    };
+    /// <summary>An <c>ldsfld</c> of a disabled runtime event source's <c>Log</c> (folded together with the IsEnabled() call after it).</summary>
+    public bool IsDisabledLog(Mono.Cecil.Cil.Instruction i) =>
+        i is { OpCode.Code: Mono.Cecil.Cil.Code.Ldsfld, Operand: Mono.Cecil.FieldReference { Name: "Log" } f } && DisabledEventSources.Contains(f.DeclaringType.FullName);
+    /// <summary>
+    /// "self:Ns.Type::Method" (a replacement inside CoreLib): the method of CoreLib's own of that name (one overload), carried in the slice, which the
+    /// replaced method calls with its own arguments instead of running its IL.
+    /// </summary>
+    public Mono.Cecil.MethodDefinition SelfTarget(Mono.Cecil.ModuleDefinition core, string forward)
+    {
+        if (!forward.StartsWith("self:", StringComparison.Ordinal)) return null;
+        var sep = forward.IndexOf("::", StringComparison.Ordinal);
+        var owner = core.GetType(forward[5..sep]) ?? throw new ArgumentException($"{forward}: no such type in {CoreLib}");
+        var name = forward[(sep + 2)..];
+        if (name.IndexOf('?') is var option and >= 0) name = name[..option];
+        return owner.Methods.Single(x => x.Name == name);
+    }
+    /// <summary>A "Type::Method(ParamType,...)" key replaces that overload only; "Type::Method" every overload.</summary>
+    public string Replacement(Mono.Cecil.MethodDefinition m) =>
+        Replace.GetValueOrDefault(m.DeclaringType.FullName + "::" + m.Name + "(" + string.Join(",", m.Parameters.Select(p => p.ParameterType.FullName)) + ")")
+        ?? Replace.GetValueOrDefault(m.DeclaringType.FullName + "::" + m.Name);
     public string SliceName = "CsharpcUpstreamCore", Prefix = "CsharpcCoreLib.Upstream";
 
     public static Cli Parse(string[] args)
@@ -132,8 +184,15 @@ sealed class Cli
                 case "--stop": c.Stop.AddRange(args[++i].Replace('!', '`').Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)); break;
                 case "--roots-file":
                     // One CoreLib type per line (metadata name, '!' or '`' for the arity), '#' starts a comment: the build's list of types served from IL.
-                    foreach (var line in File.ReadAllLines(args[++i]))
-                        if (line.Split('#')[0].Trim() is { Length: > 0 } root) c.Roots.Add(root.Replace('!', '`'));
+                    // A directory stands for all its *.txt files in ordinal order (src/Csharpc/upstream-types/: one file per library, so flips of
+                    // different libraries never edit the same file).
+                    var rootsPath = args[++i];
+                    var rootFiles = Directory.Exists(rootsPath)
+                        ? Directory.GetFiles(rootsPath, "*.txt").Order(StringComparer.Ordinal).ToArray()
+                        : [rootsPath];
+                    foreach (var file in rootFiles)
+                        foreach (var line in File.ReadAllLines(file))
+                            if (line.Split('#')[0].Trim() is { Length: > 0 } root) c.Roots.Add(root.Replace('!', '`'));
                     break;
                 case "--profile":
                     // The contract choices of the shipped slice (docs/21-ownership.md Part B), the same for the build and for tools/il-first/slicer/slice.sh.
@@ -147,10 +206,87 @@ sealed class Cli
                     c.Replace["System.ThrowHelper::ThrowKeyNotFoundException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::ThrowKeyNotFoundException";
                     c.Replace["System.ThrowHelper::ThrowAddingDuplicateWithKeyArgumentException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::ThrowAddingDuplicateWithKeyArgumentException";
                     c.Replace["System.ThrowHelper::GetAddingDuplicateWithKeyArgumentException"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetAddingDuplicateWithKeyArgumentException";
+                    // SR.Format(text, args) is string.Format: composite formatting, culture data and every number formatter for any message
+                    // with an argument (Hashtable's duplicate key, #373). The texts CoreLib formats use `{n}` and `{n:spec}` only.
+                    c.SrFormat = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::Format";
+                    // Random's default seed: the OS RNG the runtime seeds string hashing with (csrt_os_random), where CoreLib calls libSystem.Native.
+                    c.Replace["Interop::GetRandomBytes"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetRandomBytes";
+                    // Stream's asynchronous defaults run as Stream.ReadWriteTask over Task's internals and test for BeginRead/BeginWrite overrides in
+                    // the method table's auxiliary data; csharpc's tasks are the runtime's (corelib/IO/StreamContract.cs).
+                    foreach (var member in new[] { "BeginRead", "EndRead", "BeginWrite", "EndWrite", "BeginEndReadAsync", "BeginEndWriteAsync" })
+                        c.Replace["System.IO.Stream::" + member] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamStreamSupport::" + member;
+                    // (Stream.Null's BeginRead hands out Task<int>.s_defaultResultTask, a field of the runtime's Task<int> csharpc does not have)
+                    c.Replace["System.IO.Stream/NullStream::BeginRead"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamStreamSupport::NullStreamBeginRead";
+                    // Guid.NewGuid / CreateVersion7: the same OS CSPRNG (getentropy, BCryptGenRandom-equivalent rand_s, WASI random_get).
+                    c.Replace["Interop::GetCryptographicallySecureRandomBytes"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetCryptographicallySecureRandomBytes";
+                    // The Windows CoreLib's Guid.NewGuid calls ole32's CoCreateGuid instead: the same CSPRNG, with v4's version and variant bits.
+                    c.Replace["Interop/Ole32::CoCreateGuid"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::CoCreateGuid";
                     c.Redirect["System.Collections.Generic.NonRandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer";
                     c.Redirect["System.Collections.Generic.IInternalStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamInternalStringEqualityComparer";
-                    c.Redirect["System.Collections.Generic.RandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer";
-                    c.Stop.AddRange(["Interop", "Interop/Sys", "Interop/Globalization"]);
+                    c.Redirect["System.Collections.Generic.RandomizedStringEqualityComparer"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamRandomizedStringEqualityComparer";
+                    // Interop and Interop.Sys come from the IL (the error mapping and the managed wrappers); their libSystem.Native P/Invokes are
+                    // csharpc's C# contract over its libc layer (corelib/IO/SystemNative*.cs, ModuleCodeGen.PInvoke), not the pack's shim.
+                    c.Stop.AddRange(["Interop/Globalization"]);
+                    // The ICU boundary (#426): CoreLib's globalization IL calls Interop.Globalization; every such call goes to the corelib's
+                    // forwarding class (corelib/UpstreamGlobalization.cs), which calls the corelib's own imports of the runtime's ICU shim, the
+                    // single boundary into native globalization code. The types in those signatures are the corelib's (same values).
+                    foreach (var member in (string[])["GetLocaleName", "GetLocaleInfoString", "GetDefaultLocaleName", "IsPredefinedLocale", "GetLocaleTimeFormat",
+                        "GetLocaleInfoInt", "GetLocaleInfoGroupingSizes", "GetLocales", "GetCalendars", "GetCalendarInfo", "EnumCalendarInfo", "GetLatestJapaneseEra",
+                        "GetJapaneseEraStartDate", "ChangeCase", "ChangeCaseInvariant", "ChangeCaseTurkish", "InitOrdinalCasingPage", "InitOrdinalLowerCasingPage",
+                        "GetSortHandle", "CloseSortHandle", "CompareString", "IndexOf", "LastIndexOf", "StartsWith", "EndsWith", "GetSortKey", "GetSortVersion",
+                        "ToAscii", "ToUnicode", "GetTimeZoneDisplayName", "IanaIdToWindowsId", "WindowsIdToIanaId"])
+                        c.Replace["Interop/Globalization::" + member] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamGlobalizationInterop::" + member;
+                    c.Redirect["Interop/Globalization/ResultCode"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamGlobalizationResultCode";
+                    c.Redirect["Interop/Globalization/TimeZoneDisplayNameType"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamTimeZoneDisplayNameType";
+                    c.Redirect["System.Globalization.CalendarId"] = "CsharpcCoreLib:CsharpcCoreLib.Globalization.CalendarId";
+                    c.Redirect["System.Globalization.CalendarDataType"] = "CsharpcCoreLib:CsharpcCoreLib.Globalization.CalendarDataType";
+                    // Invariant mode and ICU loading stay the corelib's: the project's InvariantGlobalization is compiled into the program, WASI is
+                    // always invariant, and ICU is loaded by the first call that needs it (corelib/Globalization/GlobalizationMode.cs).
+                    // The current cultures flow with the execution context through an AsyncLocal (corelib/UpstreamGlobalization.cs).
+                    c.Replace["System.Globalization.CultureInfo::get_CurrentCulture"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamCultureInfo::GetCurrentCulture";
+                    c.Replace["System.Globalization.CultureInfo::get_CurrentUICulture"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamCultureInfo::GetCurrentUICulture";
+                    // GetFormat's DateTimeFormatInfo case through the runtime, so formatting a number doesn't link DateTimeFormatInfo and the calendars.
+                    c.Replace["System.Globalization.CultureInfo::GetFormat"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamCultureInfo::GetFormat";
+                    c.Redirect["System.Globalization.GlobalizationMode"] = "CsharpcCoreLib:CsharpcCoreLib.Globalization.GlobalizationMode";
+                    // The Windows CoreLib carries both globalization back ends and picks one by GlobalizationMode.UseNls. .NET uses ICU on Windows
+                    // unless the System.Globalization.UseNls switch is set, and csharpc always does (its GlobalizationMode answers false): the NLS
+                    // paths (kernel32's locale and collation APIs, their callback types) are folded out instead of served. The Unix CoreLib has no
+                    // NLS code, so the 64-bit slice of either host and the 32-bit one serve the same types.
+                    c.Fold["System.Globalization.GlobalizationMode::get_UseNls"] = false;
+                    c.Fold["System.Globalization.GlobalizationMode/Settings::get_UseNls"] = false;
+                    // What the Windows CoreLib still asks Windows in ICU mode, as .NET does there: the locale check after ICU's, the user's
+                    // regional overrides and code pages (GetLocaleInfoEx), calendar data (GetCalendarInfoEx), the user's region and UI languages,
+                    // LCID names, ANSI marshalling, and the Hijri calendar's AddHijriDate registry setting. Each goes to the corelib's own import
+                    // of the same Win32 function (corelib/UpstreamWindows.cs). None of these members exists in the Unix CoreLib.
+                    foreach (var member in (string[])["GetLocaleInfoEx", "GetCalendarInfoEx", "GetGeoInfo", "GetUserGeoID", "GetUserPreferredUILanguages",
+                        "LCIDToLocaleName", "MultiByteToWideChar"])
+                        c.Replace["Interop/Kernel32::" + member] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamWindowsInterop::" + member;
+                    c.Redirect["Interop/BOOL"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamWin32Bool";
+                    c.Replace["System.Globalization.HijriCalendar::GetAdvanceHijriDate"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamWindowsInterop::GetAdvanceHijriDate";
+                    // Overlapped file I/O on Windows (SafeFileHandle, RandomAccess, ThreadPoolBoundHandle) takes the Windows thread pool's path, as
+                    // NativeAOT does there: Win32ThreadPoolNativeOverlapped and kernel32's thread-pool I/O objects. The portable path (Overlapped's
+                    // runtime calls, ThreadPool.BindHandle) is folded out. Kernel32's CreateThreadpoolIo family is csharpc's contract
+                    // (corelib/UpstreamThreadPoolIo.cs): its callbacks run on csharpc's own threads.
+                    c.Fold["System.Threading.ThreadPool::get_UseWindowsThreadPool"] = true;
+                    // csharpc's tracing serves the program's own EventSources only; the runtime's are never enabled, so their guarded events fold out.
+                    c.DisabledEventSources.Add("System.Diagnostics.Tracing.NativeRuntimeEventSource");
+                    c.Redirect["System.Threading.ThreadPoolCallbackWrapper"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamThreadPoolCallbackWrapper";
+                    // Tracing (#423): EventPipe's QCalls are csharpc's disabled-EventPipe contract (corelib/UpstreamTracing.cs, bound by name like
+                    // libSystem.Native's). LTTng's persistent listener (FEATURE_EVENTSOURCE_XPLAT, CoreCLR on Linux) does not exist, as in NativeAOT: EventSource's
+                    // static constructor gets none (and XplatEventLogger, whose own static constructor reads CLR configuration through QCalls, never runs).
+                    c.Replace["System.Diagnostics.Tracing.XplatEventLogger::InitializePersistentListener"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamTracing::InitializePersistentListener";
+                    // NativeAOT's CoreLib does not read an event method's IL to check the id it passes to WriteEvent (no IL at run time).
+                    c.Replace["System.Diagnostics.Tracing.EventSource::GetHelperCallFirstArg"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamTracing::GetHelperCallFirstArg";
+                    // The runtime's and libraries' default event sources are the runtime's to create; csharpc's does not (no-op, both overloads).
+                    c.Replace["System.Diagnostics.Tracing.EventSource::InitializeDefaultEventSources"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamTracing::InitializeDefaultEventSources";
+                    // TraceLogging reads a reference type's property through a delegate made with MakeGenericType and CreateDelegate (a fast
+                    // path); it reads the same value through PropertyInfo.GetValue, which its value-type path uses, with no run-time generics, and a
+                    // null container is the delegate's NullReferenceException ("?nullref", Emit.WrapPropertyGetterNullCheck).
+                    // TraceLogging's generic-match test asks every interface of a payload type for its definition; csharpc has no Type for the
+                    // definition of a CoreLib-internal interface a primitive implements (IBinaryFloatParseAndFormatInfo<Half>), and such a definition is
+                    // never one of the public ones TraceLogging compares with (IEnumerable<>, KeyValuePair<,>, Nullable<>).
+                    c.Replace["System.Diagnostics.Tracing.Statics::IsGenericMatch"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamTracing::IsGenericMatch";
+                    c.Replace["System.Diagnostics.Tracing.PropertyValue::GetReferenceTypePropertyGetter"] = "self:System.Diagnostics.Tracing.PropertyValue::GetBoxedValueTypePropertyGetter?nullref";
                     break;
                 case "--out": c.Out = args[++i]; break;
                 case "--corelib": c.CoreLib = args[++i]; break;
@@ -164,6 +300,15 @@ sealed class Cli
                     foreach (var r in args[++i].Replace('!', '`').Split(';', StringSplitOptions.RemoveEmptyEntries)) { var eq = r.IndexOf('='); c.Replace[r[..eq]] = r[(eq + 1)..]; }
                     break;
                 case "--shadows": c.Corelib = args[++i]; break;
+                case "--wasi":
+                    // The slice wasm32 (WASI) uses, cut from the 32-bit CoreLib (#382). WASI has no ICU, so globalization runs in invariant mode,
+                    // but csharpc keeps culture-aware comparisons with no option or IgnoreCase on an approximation of ICU's root collation
+                    // (csrt_root_collation_compare, src/runtime/bclmisc.c) instead of turning them ordinal, so sorting Latin text agrees with
+                    // .NET with ICU ("apple" < "Banana"). CompareInfo.Compare over spans is where every linguistic comparison of two strings
+                    // arrives (string.Compare, CompareTo, the culture-aware StringComparers): corelib/UpstreamWasiCollation.cs.
+                    c.Replace["System.Globalization.CompareInfo::Compare(System.ReadOnlySpan`1<System.Char>,System.ReadOnlySpan`1<System.Char>,System.Globalization.CompareOptions)"] =
+                        "CsharpcCoreLib:CsharpcCoreLib.UpstreamWasiCollation::Compare";
+                    break;
                 default: throw new ArgumentException("unknown argument " + args[i]);
             }
         }
@@ -180,6 +325,9 @@ sealed class Slice
     public readonly Dictionary<string, AssemblyNameReference> RefAssemblyOf = new(StringComparer.Ordinal);
     public readonly HashSet<string> Shadowed = new(StringComparer.Ordinal);                      // real names csharpc shadows (type or members)
     public readonly HashSet<string> ShadowedTypes = new(StringComparer.Ordinal);
+    // The methods the corelib's shadow files of each real type declare, as "Name(Type,Type)" with simple type names (ShadowSignatures):
+    // a hosted type's helper that a shadow provides stays the shadow's, so the slice never trades csharpc's copy for upstream's code.
+    public readonly Dictionary<string, HashSet<string>> ShadowMemberNames = new(StringComparer.Ordinal);
     public readonly HashSet<TypeDefinition> Types = [];
     public readonly HashSet<MethodDefinition> Methods = [];
     public readonly HashSet<TypeDefinition> RootTypes = [];
@@ -216,14 +364,112 @@ sealed class Slice
         if (shadowDir is not null)
         {
             var rx = new Regex(@"^\s*\[(Shadows|ShadowMembers)\(""([^""]+)""\)\]", RegexOptions.Multiline);
+
             foreach (var f in Directory.GetFiles(shadowDir, "*.cs", SearchOption.AllDirectories))
-                foreach (Match m in rx.Matches(File.ReadAllText(f)))
+            {
+                var text = File.ReadAllText(f);
+                HashSet<string> words = null;
+                foreach (Match m in rx.Matches(text))
                 {
                     var name = m.Groups[2].Value.Replace('+', '/');
                     Shadowed.Add(name);
                     if (m.Groups[1].Value == "Shadows") ShadowedTypes.Add(name);
+                    words ??= ShadowSignatures.Declared(text);
+                    if (!ShadowMemberNames.TryGetValue(name, out var set)) ShadowMemberNames[name] = set = new(StringComparer.Ordinal);
+                    set.UnionWith(words);
                 }
+            }
         }
+        FoldOut();
+    }
+
+    /// <summary>Non-public members and nested types that only the branches a folded getter rules out use (<see cref="FoldOut"/>).</summary>
+    public readonly HashSet<MethodDefinition> FoldedOutMethods = [];
+    public readonly HashSet<TypeDefinition> FoldedOutTypes = [];
+
+    /// <summary>
+    /// A root type brings every member and nested type, but one that only dead code uses has no business in the slice: the Windows CoreLib's
+    /// CultureData carries its NLS back end (NlsGetLocaleInfo, the EnumSystemLocalesEx callback and its EnumData state, JapaneseCalendar's
+    /// registry eras...) next to the ICU one, reached only where GlobalizationMode.UseNls is true (Cli.Fold). The members referenced only from
+    /// such branches, or from members that are themselves only so referenced, and the nested types only they use, are not rooted. Public,
+    /// protected, virtual and constructor members always stay (they are API or dispatch targets), and so does a member nothing references.
+    /// </summary>
+    void FoldOut()
+    {
+        if (Cli.Fold.Count == 0 && Cli.DisabledEventSources.Count == 0) return;
+        var sites = new Dictionary<MethodDefinition, List<(MethodDefinition Caller, bool Live)>>();
+        foreach (var type in Core.GetTypes())
+            foreach (var m in type.Methods.Where(m => m.HasBody))
+            {
+                var live = LiveInstructions(m.Body);
+                foreach (var ins in m.Body.Instructions)
+                    if (ins.Operand is MethodReference mr && (mr.GetElementMethod() as MethodDefinition ?? SafeResolve(mr.GetElementMethod())) is { } callee && callee.Module == Core)
+                    {
+                        if (!sites.TryGetValue(callee, out var list)) sites[callee] = list = [];
+                        list.Add((m, live is null || live.Contains(ins)));
+                    }
+            }
+        static bool Candidate(MethodDefinition m) => !(m.IsPublic || m.IsFamily || m.IsFamilyOrAssembly || m.IsVirtual || m.IsConstructor);
+        // Only what the folded branches lead to: the members called from a ruled-out branch, and what those call in turn...
+        var callees = new Dictionary<MethodDefinition, List<MethodDefinition>>();
+        foreach (var (callee, list) in sites)
+            foreach (var (caller, _) in list)
+            {
+                if (!callees.TryGetValue(caller, out var c)) callees[caller] = c = [];
+                c.Add(callee);
+            }
+        var dead = new HashSet<MethodDefinition>();
+        var work = new Stack<MethodDefinition>(sites.Where(e => e.Value.Any(site => !site.Live)).Select(e => e.Key).Where(Candidate));
+        while (work.Count > 0)
+        {
+            var m = work.Pop();
+            if (!dead.Add(m)) continue;
+            foreach (var c in callees.GetValueOrDefault(m) ?? []) if (Candidate(c)) work.Push(c);
+        }
+        // ...less any of them that live code still calls (greatest fixed point: a live call from outside the set keeps a member and what it calls).
+        for (bool changed = true; changed;)
+        {
+            changed = false;
+            foreach (var m in dead.ToList())
+                if (sites[m].Any(site => site.Live && !dead.Contains(site.Caller))) { dead.Remove(m); changed = true; }
+        }
+        FoldedOutMethods.UnionWith(dead);
+        // A nested type is folded out when every method that uses it (in a signature, a local or an instruction) is dead or uses it only in dead code.
+        var users = new Dictionary<TypeDefinition, List<(MethodDefinition User, bool Live)>>();
+        foreach (var type in Core.GetTypes())
+            foreach (var m in type.Methods)
+            {
+                void Use(TypeReference t, bool live)
+                {
+                    while (t is TypeSpecification spec) t = spec.ElementType;
+                    if (t is null || (t as TypeDefinition ?? SafeResolveType(t)) is not { DeclaringType: not null } d || d.Module != Core) return;
+                    if (!users.TryGetValue(d, out var l)) users[d] = l = [];
+                    l.Add((m, live));
+                }
+                Use(m.ReturnType, true);
+                foreach (var p in m.Parameters) Use(p.ParameterType, true);
+                if (!m.HasBody) continue;
+                var live = LiveInstructions(m.Body);
+                foreach (var v in m.Body.Variables) Use(v.VariableType, true);
+                foreach (var ins in m.Body.Instructions)
+                {
+                    bool isLive = live is null || live.Contains(ins);
+                    switch (ins.Operand)
+                    {
+                        case MethodReference mr: Use(mr.DeclaringType, isLive); Use(mr.ReturnType, isLive); foreach (var p in mr.Parameters) Use(p.ParameterType, isLive); break;
+                        case FieldReference fr: Use(fr.DeclaringType, isLive); Use(fr.FieldType, isLive); break;
+                        case TypeReference tr: Use(tr, isLive); break;
+                    }
+                }
+            }
+        foreach (var (type, list) in users)
+            if (type.Methods.All(dead.Contains) && list.All(u => !u.Live || dead.Contains(u.User) || u.User.DeclaringType == type))
+                FoldedOutTypes.Add(type);
+    }
+
+    static TypeDefinition SafeResolveType(TypeReference r)
+    {
+        try { return r.Resolve(); } catch (AssemblyResolutionException) { return null; }
     }
 
     static string FindCorelibSources()
@@ -235,7 +481,7 @@ sealed class Slice
 
     static readonly string[] ContractPrefixes =
     [
-        "System.RuntimeType", "System.Reflection.", "System.Runtime.Loader.", "System.StubHelpers.", "Internal.Runtime.", "System.Diagnostics.Tracing.",
+        "System.RuntimeType", "System.Reflection.", "System.Runtime.Loader.", "System.StubHelpers.", "Internal.Runtime.",
         "System.Runtime.CompilerServices.CastHelpers", "System.Runtime.CompilerServices.StaticsHelpers", "System.Runtime.EH", "System.Runtime.InteropServices.Marshal",
         "System.IRuntime", "System.Signature", "System.MdUtf8String", "System.DefaultBinder", "System.ModuleHandle", "System.Threading.ThreadPool", "System.Resources.",
     ];
@@ -254,16 +500,66 @@ sealed class Slice
 
     public void Run()
     {
-        foreach (var name in Cli.Roots)
+        var methodRoots = new List<MethodDefinition>();
+        foreach (var rootName in Cli.Roots)
         {
+            var name = rootName;
+            // "unix:System.X": a root only the Unix CoreLibs (Linux, macOS) carry, such as the marshallers of libSystem.Native's
+            // signatures; the Windows CoreLib calls kernel32 instead and has no such type, so it is skipped there.
+            if (name.StartsWith("unix:", StringComparison.Ordinal))
+            {
+                name = name["unix:".Length..];
+                if (Core.GetType("Interop")?.NestedTypes.Any(n => n.Name == "Sys") != true) continue;
+            }
+            // "windows:System.X": a root only the Windows CoreLib's code reaches (overlapped file I/O); skipped for the Unix CoreLibs.
+            else if (name.StartsWith("windows:", StringComparison.Ordinal))
+            {
+                name = name["windows:".Length..];
+                if (Core.GetType("Interop")?.NestedTypes.Any(n => n.Name == "Sys") == true) continue;
+            }
+            // "host:System.Int32,System.Int64::Log2,PopCount": static members of built-in types the slice carries in their host classes
+            // (DeclareHosted), every overload, public ones and explicit interface implementations alike ("...INumberBase<System.Int32>.IsNegative").
+            // The compiler calls them where it has no lowering of its own (FunctionCodeGen.BuiltinInterfaceMembers.cs).
+            if (name.StartsWith("host:", StringComparison.Ordinal))
+            {
+                var parts = name["host:".Length..].Split("::");
+                var members = parts[1].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                foreach (var typeName in parts[0].Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                {
+                    var stop = Core.GetType(typeName) ?? throw new ArgumentException($"{typeName} is not a type of {Cli.CoreLib}");
+                    if (!IsStop(stop)) throw new ArgumentException($"host: {typeName} is not a built-in type the slice stops at");
+                    // "this.ToString": an instance member of a built-in value type, hosted as a static whose first parameter is `ref T` (the
+                    // receiver's address, which `this` is in the member's IL); the compiler passes the receiver's address (#426). Of a built-in
+                    // reference type (string.Split), the first parameter is the receiver itself, which the compiler null-checks first (#423).
+                    var found = stop.Methods.Where(m => m.HasBody && !m.IsConstructor && members.Any(n =>
+                        n.StartsWith("this.", StringComparison.Ordinal)
+                            ? !m.IsStatic && (m.Name == n[5..] || m.Name.EndsWith("." + n[5..], StringComparison.Ordinal))
+                            : m.IsStatic && (m.Name == n || m.Name.EndsWith("." + n, StringComparison.Ordinal)))).ToList();
+                    if (found.Count == 0) throw new ArgumentException($"host: {typeName} has none of {parts[1]}");
+                    if (!Hosted.TryGetValue(stop, out var list)) Hosted[stop] = list = [];
+                    foreach (var m in found.Where(m => !list.Contains(m))) { list.Add(m); methodRoots.Add(m); }
+                }
+                continue;
+            }
+            // "System.Number::Dragon4": a method root, every overload of it; its declaring type is not a root (only what it reaches is cut).
+            if (name.IndexOf("::", StringComparison.Ordinal) is var sep and > 0)
+            {
+                var owner = Core.GetType(name[..sep]) ?? throw new ArgumentException($"{name[..sep]} is not a type of {Cli.CoreLib}");
+                var found = owner.Methods.Where(m => m.Name == name[(sep + 2)..]).ToList();
+                if (found.Count == 0) throw new ArgumentException($"{name} is not a method of {Cli.CoreLib}");
+                UseType(owner, force: true);
+                methodRoots.AddRange(found);
+                continue;
+            }
             var t = Core.GetType(name) ?? throw new ArgumentException($"{name} is not a type of {Cli.CoreLib}");
             RootTypes.Add(t);
             UseType(t, force: true);
-            void AddNested(TypeDefinition x) { foreach (var n in x.NestedTypes) { RootTypes.Add(n); UseType(n, force: true); AddNested(n); } }
+            void AddNested(TypeDefinition x) { foreach (var n in x.NestedTypes.Where(n => !FoldedOutTypes.Contains(n))) { RootTypes.Add(n); UseType(n, force: true); AddNested(n); } }
             AddNested(t);
         }
         foreach (var t in RootTypes)
-            foreach (var m in t.Methods) Enqueue(m);
+            foreach (var m in t.Methods.Where(m => !FoldedOutMethods.Contains(m))) Enqueue(m);
+        foreach (var m in methodRoots) Enqueue(m);
         do
         {
             while (_queue.Count > 0) Walk(_queue.Dequeue());
@@ -337,11 +633,48 @@ sealed class Slice
         // A used type: its static constructor runs, and its virtual methods may be reached through the base type or an interface.
         foreach (var m in d.Methods)
             if (m.IsConstructor && m.IsStatic || m.IsVirtual || m.HasOverrides) Enqueue(m);
+        // A SafeHandle a P/Invoke returns (or fills in) is created by the marshaller with Activator.CreateInstance<T>() (SafeHandleMarshaller,
+        // the corelib's: corelib/SafeHandles.cs), which this walk does not see: keep its parameterless constructor.
+        if (DerivesFrom(d, "System.Runtime.InteropServices.SafeHandle") && d.Methods.FirstOrDefault(m => m.IsConstructor && !m.IsStatic && !m.HasParameters) is { } create)
+            Enqueue(create);
+        // An [EventData] type is a TraceLogging payload: EventSource.Write<T> reads its public properties by reflection (the annotation on T keeps
+        // them for NativeAOT), so their accessors are kept although no IL calls them (the event counters' payloads).
+        if (d.CustomAttributes.Any(a => a.AttributeType.FullName == "System.Diagnostics.Tracing.EventDataAttribute"))
+            KeepPublicProperties(d);
+    }
+
+    static bool DerivesFrom(TypeDefinition d, string baseName)
+    {
+        for (var b = d.BaseType; b is not null; b = SafeResolveType(b)?.BaseType)
+            if (b.FullName == baseName) return true;
+        return false;
+    }
+
+    void KeepPublicProperties(TypeDefinition d)
+    {
+        foreach (var p in d.Properties)
+            foreach (var accessor in new[] { p.GetMethod, p.SetMethod })
+                if (accessor is { IsPublic: true }) Enqueue(accessor);
+    }
+
+    /// <summary>
+    /// [DynamicDependency(DynamicallyAccessedMemberTypes, typeof(X))] on a walked method, as ILLink honours it: the public properties it names stay
+    /// (the event counters' CounterPayload, which TraceLogging reads by reflection). Other member kinds are not named by the slices' code.
+    /// </summary>
+    void KeepDynamicDependencies(MethodDefinition m)
+    {
+        foreach (var a in m.CustomAttributes.Where(a => a.AttributeType.FullName == "System.Diagnostics.CodeAnalysis.DynamicDependencyAttribute"))
+            if (a.ConstructorArguments is [{ Value: int kinds }, { Value: TypeReference target }] && (kinds & 0x200) != 0 && SafeResolveType(target) is { } type)
+            {
+                UseType(type);
+                KeepPublicProperties(type);
+            }
     }
 
     void Walk(MethodDefinition m)
     {
         _current = m.DeclaringType.Name + "::" + m.Name;
+        KeepDynamicDependencies(m);
         UseType(m.DeclaringType);
         UseType(m.ReturnType);
         foreach (var p in m.Parameters) UseType(p.ParameterType);
@@ -353,12 +686,20 @@ sealed class Slice
             if (!Externs.TryGetValue(m.DeclaringType.FullName, out var set)) Externs[m.DeclaringType.FullName] = set = [];
             set.Add($"{kind} {m.Name}");
         }
-        if (!m.HasBody || Cli.Replacement(m) is not null) return;
+        if (Cli.Replacement(m) is { } replaced)
+        {
+            if (Cli.SelfTarget(Core, replaced) is { } self) Enqueue(self);
+            return;
+        }
+        if (!m.HasBody) return;
         var body = m.Body;
         foreach (var v in body.Variables) UseType(v.VariableType);
         foreach (var h in body.ExceptionHandlers) UseType(h.CatchType);
+        var live = LiveInstructions(body);
         foreach (var ins in body.Instructions)
         {
+            if (live is not null && !live.Contains(ins)) continue;
+            if (Cli.FoldedValueAt(ins) is not null || ins.Next is { } next && Cli.IsDisabledLog(ins) && Cli.FoldedValueAt(next) is not null) continue;
             switch (ins.OpCode.Code)
             {
                 case Code.Calli or Code.Localloc or Code.Jmp or Code.Arglist or Code.Mkrefany or Code.Refanyval or Code.Refanytype
@@ -375,6 +716,40 @@ sealed class Slice
         }
     }
 
+    /// <summary>
+    /// The instructions a run can reach when the folded getters (Cli.Fold) have their constant values: a `call get_X; brtrue/brfalse` pair
+    /// whose branch no other instruction jumps to goes one way only. Null when the method calls no folded getter (everything is live).
+    /// </summary>
+    HashSet<Instruction> LiveInstructions(MethodBody body)
+    {
+        if (Cli.Fold.Count == 0 && Cli.DisabledEventSources.Count == 0 || !body.Instructions.Any(i => Cli.FoldedValueAt(i) is not null)) return null;
+        var targeted = new HashSet<Instruction>();
+        foreach (var i in body.Instructions)
+            if (i.Operand is Instruction t) targeted.Add(t);
+            else if (i.Operand is Instruction[] ts) targeted.UnionWith(ts);
+        var live = new HashSet<Instruction>();
+        var work = new Stack<Instruction>();
+        void Reach(Instruction i) { if (i is not null && live.Add(i)) work.Push(i); }
+        Reach(body.Instructions[0]);
+        foreach (var h in body.ExceptionHandlers) { Reach(h.HandlerStart); Reach(h.FilterStart); }
+        while (work.Count > 0)
+        {
+            var i = work.Pop();
+            var code = i.OpCode.Code;
+            if (code is Code.Brtrue or Code.Brtrue_S or Code.Brfalse or Code.Brfalse_S && !targeted.Contains(i)
+                && i.Previous is { } previous && Cli.FoldedValueAt(previous) is { } value)
+            {
+                Reach(value == (code is Code.Brtrue or Code.Brtrue_S) ? (Instruction)i.Operand : i.Next);
+                continue;
+            }
+            if (i.Operand is Instruction target) Reach(target);
+            if (i.Operand is Instruction[] targets) foreach (var t in targets) Reach(t);
+            if (i.OpCode.FlowControl is not (FlowControl.Branch or FlowControl.Return or FlowControl.Throw) && code is not (Code.Leave or Code.Leave_S or Code.Endfinally))
+                Reach(i.Next);
+        }
+        return live;
+    }
+
     void ReachMethod(MethodReference mr)
     {
         var element = mr is GenericInstanceMethod gim ? gim.ElementMethod : mr;
@@ -385,7 +760,21 @@ sealed class Slice
         if (element.DeclaringType is ArrayType) return;
         var def = element as MethodDefinition ?? SafeResolve(element);
         if (def is null || def.Module != Core) return;
-        if (IsStop(def.DeclaringType)) { NoteMember(def); NoteUsed(def); return; }
+        if (IsStop(def.DeclaringType))
+        {
+            // A non-public static helper of a type whose members the slice hosts (UInt128.LeadingZeroCountAsInt32, ulong's private
+            // TryConvertFromChecked<TOther>, which the hosted CreateChecked calls): hosted with them, since nothing else provides it.
+            if ((def.IsStatic || !def.IsConstructor && (def.DeclaringType.IsValueType || !def.IsVirtual) && HostsInstanceMembers(def.DeclaringType)) && def.HasBody && Hosted.TryGetValue(def.DeclaringType, out var hosted) && Cli.Replacement(def) is null
+                && !(RefTypes.TryGetValue(def.DeclaringType.FullName, out var r) && InRef(r, def))
+                && !(ShadowMemberNames.TryGetValue(def.DeclaringType.FullName, out var shadowNames) && shadowNames.Contains(ShadowSignatures.Of(def))))
+            {
+                if (!hosted.Contains(def)) hosted.Add(def);
+                Enqueue(def);
+                return;
+            }
+            if (Cli.Replacement(def) is null) { NoteMember(def); NoteUsed(def); }
+            return;
+        }
         Enqueue(def);
     }
 
@@ -393,6 +782,10 @@ sealed class Slice
     {
         try { return r.Resolve(); } catch (AssemblyResolutionException) { return null; }
     }
+
+    /// <summary>Whether the slice hosts instance members of this built-in type ("this." `host:` roots): its non-public instance helpers
+    /// are hosted with them, as the static ones are.</summary>
+    bool HostsInstanceMembers(TypeDefinition type) => Hosted.TryGetValue(type, out var list) && list.Any(m => !m.IsStatic);
 
     void ReachField(FieldReference fr)
     {

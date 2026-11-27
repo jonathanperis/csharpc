@@ -1,7 +1,9 @@
-// A refused asynchronous connect, as a database driver's connection attempt meets it: .NET throws the
-// SocketException in AwaitableSocketAsyncEventArgs.ThrowException, called by the awaited ValueTask's
-// GetResult, or by the Task overloads' completion callback, whose rethrow the await marks with
-// "--- End of stack trace from previous location ---". Those frames precede the program's own.
+// A refused asynchronous connect, as a database driver's connection attempt meets it: the SocketException's
+// trace ends with the program's own frames, through the awaits that rethrew it. Only those are printed: the
+// frames before them depend on whether the refusal arrives before ConnectAsync returns, which varies from run to
+// run under .NET (AwaitableSocketAsyncEventArgs.ThrowException from GetResult, or CreateException with the thread
+// pool's frames and a "--- End of stack trace from previous location ---" marker; for the Task overloads
+// ValueTask.GetTaskForValueTaskSource or ValueTaskSourceAsTask's completion callback, #378).
 using System;
 using System.Net;
 using System.Net.Sockets;
@@ -41,20 +43,27 @@ class Program
 
     static void Report(string name, Exception e)
     {
-        Console.WriteLine("== " + name + ": " + ((SocketException)e).SocketErrorCode);
-        Console.Write(Clean(e.StackTrace));
+        Console.WriteLine("== " + name + ": " + e.GetType().Name + " " + ((SocketException)e).SocketErrorCode + ": " + e.Message);
+        Console.Write(OwnFrames(e.StackTrace));
     }
 
-    /// <summary>"   at M() in /some/dir/file.cs:line 3" -> "   at M() in file.cs:line 3", one line each.</summary>
-    static string Clean(string? text)
+    /// <summary>
+    /// The program's frames with a line in the trace's last part (after its last "--- End of stack trace ..." marker),
+    /// "   at M() in /some/dir/file.cs:line 3" -> "   at M() in file.cs:line 3".
+    /// </summary>
+    static string OwnFrames(string? text)
     {
         if (text == null) return "<null>" + Environment.NewLine;
+        var lines = text.Split(Environment.NewLine);
+        var start = Array.FindLastIndex(lines, l => l.StartsWith("--- ", StringComparison.Ordinal)) + 1;
         var sb = new StringBuilder();
-        foreach (var line in text.Split(Environment.NewLine))
+        for (var i = start; i < lines.Length; i++)
         {
+            var line = lines[i];
             var at = line.IndexOf(" in ", StringComparison.Ordinal);
+            if (!line.StartsWith("   at Program.", StringComparison.Ordinal) || at < 0) continue;
             var cut = Math.Max(line.LastIndexOf('/'), line.LastIndexOf('\\'));
-            sb.AppendLine(at >= 0 && cut > at ? line.Substring(0, at + 4) + line.Substring(cut + 1) : line);
+            sb.AppendLine(cut > at ? line.Substring(0, at + 4) + line.Substring(cut + 1) : line);
         }
         return sb.ToString();
     }

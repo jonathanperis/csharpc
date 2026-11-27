@@ -1,0 +1,4 @@
+finalizing for unload: False
+throwing
+first: sender null InvalidOperationException: nobody catches this terminating=True
+second handler

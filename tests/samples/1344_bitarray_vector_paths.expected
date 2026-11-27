@@ -1,0 +1,72 @@
+1: a=0 and=0 or=1 xor=1 not=1 all=False any=False notAll=True
+  1
+  bool[] round trip True, bytes 0000, ints[0] 00000000
+  << 37 0 >> 5 0
+  regrown 1 of 41
+15: a=6 and=2 or=9 xor=7 not=9 all=False any=True notAll=True
+  110110000001101
+  bool[] round trip True, bytes 00524A, ints[0] 00004A52
+  << 37 0 >> 5 4
+  regrown 15 of 55
+16: a=6 and=2 or=10 xor=8 not=10 all=False any=True notAll=True
+  1101100000011011
+  bool[] round trip True, bytes 00524A, ints[0] 00004A52
+  << 37 0 >> 5 4
+  regrown 16 of 56
+17: a=7 and=2 or=11 xor=9 not=10 all=False any=True notAll=True
+  11011000000110111
+  bool[] round trip True, bytes 00524A01, ints[0] 00014A52
+  << 37 0 >> 5 5
+  regrown 17 of 57
+31: a=12 and=4 or=19 xor=15 not=19 all=False any=True notAll=True
+  1101100000011011101100000011011
+  bool[] round trip True, bytes 00524A2925, ints[0] 25294A52
+  << 37 0 >> 5 10
+  regrown 31 of 71
+32: a=13 and=4 or=20 xor=16 not=19 all=False any=True notAll=True
+  11011000000110111011000000110111
+  bool[] round trip True, bytes 00524A29A5, ints[0] A5294A52
+  << 37 0 >> 5 11
+  regrown 32 of 72
+33: a=13 and=4 or=20 xor=16 not=20 all=False any=True notAll=True
+  110110000001101110110000001101110
+  bool[] round trip True, bytes 00524A29A500, ints[0] A5294A52
+  << 37 0 >> 5 11
+  regrown 33 of 73
+63: a=25 and=8 or=38 xor=30 not=38 all=False any=True notAll=True
+  110110000001101110110000001101110110000001101110110000001101110
+  bool[] round trip True, bytes 00524A29A594524A29, ints[0] A5294A52
+  << 37 10 >> 5 23
+  regrown 63 of 103
+64: a=25 and=8 or=39 xor=31 not=39 all=False any=True notAll=True
+  1101100000011011101100000011011101100000011011101100000011011101
+  bool[] round trip True, bytes 00524A29A594524A29, ints[0] A5294A52
+  << 37 11 >> 5 23
+  regrown 64 of 104
+65: a=26 and=8 or=40 xor=32 not=39 all=False any=True notAll=True
+  11011000000110111011000000110111011000000110111011000000110111011
+  bool[] round trip True, bytes 00524A29A594524A2901, ints[0] A5294A52
+  << 37 11 >> 5 24
+  regrown 65 of 105
+100: a=40 and=14 or=60 xor=46 not=60 all=False any=True notAll=True
+  11011000000110111011000000110111011000000110111011000000110111011000000110111011...
+  bool[] round trip True, bytes 00524A29A594524A29A594524A09, ints[0] A5294A52
+  << 37 25 >> 5 38
+  regrown 100 of 140
+255: a=102 and=34 or=153 xor=119 not=153 all=False any=True notAll=True
+  11011000000110111011000000110111011000000110111011000000110111011000000110111011...
+  bool[] round trip True, bytes 00524A29A594524A29A594524A29A594, ints[0] A5294A52
+  << 37 87 >> 5 100
+  regrown 255 of 295
+257: a=103 and=34 or=155 xor=121 not=154 all=False any=True notAll=True
+  11011000000110111011000000110111011000000110111011000000110111011000000110111011...
+  bool[] round trip True, bytes 00524A29A594524A29A594524A29A594, ints[0] A5294A52
+  << 37 88 >> 5 101
+  regrown 257 of 297
+1000: a=400 and=134 or=600 xor=466 not=600 all=False any=True notAll=True
+  11011000000110111011000000110111011000000110111011000000110111011000000110111011...
+  bool[] round trip True, bytes 00524A29A594524A29A594524A29A594, ints[0] A5294A52
+  << 37 385 >> 5 398
+  regrown 1000 of 1040
+ArgumentException: Array lengths must be the same.
+ArgumentException: Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.

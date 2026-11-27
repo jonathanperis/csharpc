@@ -26,14 +26,62 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.String")]
     internal static class StringExtras
     {
+        // string.Intern / IsInterned as NativeAOT has them (#103; NativeAOT is the drop-in target where it and the JIT differ): a table
+        // only Intern fills. Literals are not in it until interned (the JIT interns every literal up front), and Intern returns the
+        // first string interned with that value, so Intern(new string("ab")) is not the literal "ab" unless the literal came first.
+        // The table starts with string.Empty in it, as NativeAOT's does: IsInterned("") is string.Empty before anything was interned.
+        private static readonly object s_internLock = new object();
+        private static Dictionary<string, string> s_interned;
+
+        private static Dictionary<string, string> InternTable() => s_interned ??= new Dictionary<string, string> { [string.Empty] = string.Empty };
+
+        public static string Intern(string str)
+        {
+            if (str == null) throw new ArgumentNullException("str");
+            lock (s_internLock)
+            {
+                var table = InternTable();
+                if (!table.TryGetValue(str, out string canonical)) table.Add(str, canonical = str);
+                return canonical;
+            }
+        }
+
+        public static string IsInterned(string str)
+        {
+            if (str == null) throw new ArgumentNullException("str");
+            lock (s_internLock) return InternTable().TryGetValue(str, out string canonical) ? canonical : null;
+        }
+
+        /// <summary>string.Clone: the string itself (strings are immutable), as .NET's.</summary>
+        [ShadowInstance]
+        public static object Clone(string s) => s;
+
         // The internal members of System.String that the framework's own CoreLib IL calls (docs/21-ownership.md, issue #191 part B);
         // the IL front-end resolves them here because the reference pack does not declare them (IlAssembly.ShadowedMember). Not through AsSpan:
         // with MemoryExtensions from the framework IL, AsSpan(string) is the framework's and calls GetRawStringData itself.
+        public static void CheckStringComparison(StringComparison comparisonType) => CultureStrings.CheckStringComparison(comparisonType);
+        public static System.Globalization.CompareOptions GetCaseCompareOfComparisonCulture(StringComparison comparisonType) => CultureStrings.OptionsFor(comparisonType);
         [ShadowInstance]
         public static ref char GetRawStringData(string s) => ref System.Runtime.CompilerServices.Unsafe.AsRef(in System.Runtime.InteropServices.MemoryMarshal.GetReference(CoreIntrinsics.StringChars(s)));
 
         [ShadowInstance]
         public static ref byte GetRawStringDataAsUInt8(string s) => ref System.Runtime.CompilerServices.Unsafe.As<char, byte>(ref System.Runtime.CompilerServices.Unsafe.AsRef(in System.Runtime.InteropServices.MemoryMarshal.GetReference(CoreIntrinsics.StringChars(s))));
+
+        /// <summary>string.GetHashCodeOrdinalIgnoreCase (CompareInfo.GetHashCode with OrdinalIgnoreCase, #426): StringComparer.OrdinalIgnoreCase's hash of the same text.</summary>
+        public static int GetHashCodeOrdinalIgnoreCase(ReadOnlySpan<char> value) => StringComparer.OrdinalIgnoreCase.GetHashCode(new string(value));
+
+        /// <summary>string.TryGetSpan: the slice when the range is inside the string (CompareInfo's IL, #426).</summary>
+        [ShadowInstance]
+        public static bool TryGetSpan(string s, int startIndex, int count, out ReadOnlySpan<char> slice)
+        {
+            if ((uint)startIndex > (uint)s.Length || (uint)count > (uint)(s.Length - startIndex))
+            {
+                slice = default;
+                return false;
+            }
+            slice = s.AsSpan(startIndex, count);
+            return true;
+        }
 
         /// <summary>A string of <paramref name="length"/> chars whose contents are not initialized (the caller fills them before the string escapes).</summary>
         public static string FastAllocateString(nint length) => CoreIntrinsics.FastAllocateString((int)length);
@@ -41,187 +89,39 @@ namespace CsharpcCoreLib
         /// <summary>The hash string.GetHashCode() gives the same characters.</summary>
         public static int GetHashCode(ReadOnlySpan<char> value) => new string(value).GetHashCode();
 
+        /// <summary>CoreLib-internal: a one- or two-char string (Rune.ToString of a BMP or supplementary scalar).</summary>
+        public static string CreateFromChar(char c) => new string(c, 1);
+
+        public static string CreateFromChar(char c1, char c2)
+        {
+            string s = CoreIntrinsics.FastAllocateString(2);
+            Span<char> chars = CoreIntrinsics.StringChars(s);
+            chars[0] = c1;
+            chars[1] = c2;
+            return s;
+        }
+
+        /// <summary>CoreLib-internal string.CompareOrdinal over spans (EncodingTable's name lookup): SpanHelpers.SequenceCompareTo, as CoreLib's.</summary>
+        public static int CompareOrdinal(ReadOnlySpan<char> strA, ReadOnlySpan<char> strB) => strA.SequenceCompareTo(strB);
+
+        /// <summary>CoreLib-internal: the string an encoding decodes from native bytes (the framework's Encoding.GetString overloads).</summary>
+        public static unsafe string CreateStringFromEncoding(byte* bytes, int byteLength, System.Text.Encoding encoding)
+        {
+            int stringLength = encoding.GetCharCount(bytes, byteLength);
+            if (stringLength == 0) return string.Empty;
+            string s = CoreIntrinsics.FastAllocateString(stringLength);
+            fixed (char* chars = CoreIntrinsics.StringChars(s))
+                encoding.GetChars(bytes, byteLength, chars, stringLength);
+            return s;
+        }
+
         public static int GetHashCode(ReadOnlySpan<char> value, StringComparison comparisonType) => StringComparer.FromComparison(comparisonType).GetHashCode(new string(value));
 
         [ShadowInstance]
         public static int GetHashCode(string s, StringComparison comparisonType) => StringComparer.FromComparison(comparisonType).GetHashCode(s);
 
-        /// <summary>Every newline sequence .NET recognizes (CR, LF, CRLF, NEL, LS, FF, PS) replaced by Environment.NewLine.</summary>
-        [ShadowInstance]
-        public static string ReplaceLineEndings(string s) => ReplaceLineEndings(s, Environment.NewLine);
-
-        /// <summary>string.ReplaceLineEndings(replacementText): the same sequences, replaced by the given text.</summary>
-        [ShadowInstance]
-        public static string ReplaceLineEndings(string s, string replacementText)
-        {
-            if (replacementText == null) throw new ArgumentNullException("replacementText");
-            int first = s.AsSpan().IndexOfAny("\r\n\f\u0085\u2028\u2029");
-            if (first < 0) return s;
-            var sb = new System.Text.StringBuilder(s.Length);
-            sb.Append(s, 0, first);
-            for (int i = first; i < s.Length; i++)
-            {
-                char c = s[i];
-                if (c is '\r' or '\n' or '\f' or '\u0085' or '\u2028' or '\u2029')
-                {
-                    if (c == '\r' && i + 1 < s.Length && s[i + 1] == '\n') i++;
-                    sb.Append(replacementText);
-                }
-                else sb.Append(c);
-            }
-            return sb.ToString();
-        }
-
-        /// <summary>Formats with a CompositeFormat: its format string, parsed once.</summary>
-        public static string Format(IFormatProvider provider, System.Text.CompositeFormat format, params object[] args)
-        {
-            if (format == null) throw new ArgumentNullException("format");
-            return string.Format(provider, format.Format, args);
-        }
-
-        public static string Format(IFormatProvider provider, System.Text.CompositeFormat format, params ReadOnlySpan<object> args)
-        {
-            if (format == null) throw new ArgumentNullException("format");
-            return string.Format(provider, format.Format, args.ToArray());
-        }
-
-        public static string Format<TArg0>(IFormatProvider provider, System.Text.CompositeFormat format, TArg0 arg0)
-        {
-            if (format == null) throw new ArgumentNullException("format");
-            return string.Format(provider, format.Format, new object[] { arg0 });
-        }
-
-        public static string Format<TArg0, TArg1>(IFormatProvider provider, System.Text.CompositeFormat format, TArg0 arg0, TArg1 arg1)
-        {
-            if (format == null) throw new ArgumentNullException("format");
-            return string.Format(provider, format.Format, new object[] { arg0, arg1 });
-        }
-
-        public static string Format<TArg0, TArg1, TArg2>(IFormatProvider provider, System.Text.CompositeFormat format, TArg0 arg0, TArg1 arg1, TArg2 arg2)
-        {
-            if (format == null) throw new ArgumentNullException("format");
-            return string.Format(provider, format.Format, new object[] { arg0, arg1, arg2 });
-        }
-
-        public static string Join<T>(string separator, IEnumerable<T> values)
-        {
-            if (values == null) ThrowHelper.ArgumentNull("values");
-            var sb = new StringBuilder();
-            bool first = true;
-            foreach (T value in values)
-            {
-                if (!first) sb.Append(separator);
-                first = false;
-                if (value != null) sb.Append(value.ToString());
-            }
-            return sb.ToString();
-        }
-
-        public static string Join(string separator, IEnumerable<string> values)
-        {
-            if (values == null) ThrowHelper.ArgumentNull("values");
-            var sb = new StringBuilder();
-            bool first = true;
-            foreach (string value in values)
-            {
-                if (!first) sb.Append(separator);
-                first = false;
-                sb.Append(value);
-            }
-            return sb.ToString();
-        }
-
-        public static string Join(char separator, string[] value) => string.Join(separator.ToString(), value);
-        public static string Join(char separator, IEnumerable<string> values) => Join(separator.ToString(), values);
-        public static string Join<T>(char separator, IEnumerable<T> values) => Join(separator.ToString(), values);
-        public static string Join(char separator, object[] values) => Join(separator.ToString(), values);
-
-        public static string Join(string separator, object[] values)
-        {
-            if (values == null) ThrowHelper.ArgumentNull("values");
-            var sb = new StringBuilder();
-            for (int i = 0; i < values.Length; i++)
-            {
-                if (i > 0) sb.Append(separator);
-                if (values[i] != null) sb.Append(values[i].ToString());
-            }
-            return sb.ToString();
-        }
-
-        public static string Concat<T>(IEnumerable<T> values)
-        {
-            var sb = new StringBuilder();
-            foreach (T value in values)
-                if (value != null) sb.Append(value.ToString());
-            return sb.ToString();
-        }
-
-        public static string Concat(IEnumerable<string> values)
-        {
-            var sb = new StringBuilder();
-            foreach (string value in values) sb.Append(value);
-            return sb.ToString();
-        }
-
-        public static string Concat(string[] values)
-        {
-            var sb = new StringBuilder();
-            for (int i = 0; i < values.Length; i++) sb.Append(values[i]);
-            return sb.ToString();
-        }
-
-        public static int Compare(string strA, string strB) => CoreIntrinsics.Compare(strA, strB);
-
-        public static string Concat(ReadOnlySpan<char> str0, ReadOnlySpan<char> str1) => ConcatSpans(str0, str1, default, default);
-        public static string Concat(ReadOnlySpan<char> str0, ReadOnlySpan<char> str1, ReadOnlySpan<char> str2) => ConcatSpans(str0, str1, str2, default);
-        public static string Concat(ReadOnlySpan<char> str0, ReadOnlySpan<char> str1, ReadOnlySpan<char> str2, ReadOnlySpan<char> str3) =>
-            ConcatSpans(str0, str1, str2, str3);
-
-        private static string ConcatSpans(ReadOnlySpan<char> a, ReadOnlySpan<char> b, ReadOnlySpan<char> c, ReadOnlySpan<char> d)
-        {
-            long length = (long)a.Length + b.Length + c.Length + d.Length;
-            if (length == 0) return "";
-            if (length > int.MaxValue) throw new OutOfMemoryException();
-            string result = CoreIntrinsics.FastAllocateString((int)length);
-            Span<char> dst = CoreIntrinsics.StringChars(result);
-            a.CopyTo(dst);
-            b.CopyTo(dst.Slice(a.Length));
-            c.CopyTo(dst.Slice(a.Length + b.Length));
-            d.CopyTo(dst.Slice(a.Length + b.Length + c.Length));
-            return result;
-        }
-
-        public static int Compare(string strA, string strB, System.Globalization.CultureInfo culture, System.Globalization.CompareOptions options)
-        {
-            if (culture == null) throw new ArgumentNullException(nameof(culture));
-            return ((CsharpcCoreLib.Globalization.CultureInfo)(object)culture).CompareInfo.Compare(strA, strB, options);
-        }
-
-        public static int Compare(string strA, string strB, bool ignoreCase, System.Globalization.CultureInfo culture)
-        {
-            if (culture == null) throw new ArgumentNullException(nameof(culture));
-            return ((CsharpcCoreLib.Globalization.CultureInfo)(object)culture).CompareInfo.Compare(strA, strB,
-                ignoreCase ? System.Globalization.CompareOptions.IgnoreCase : System.Globalization.CompareOptions.None);
-        }
-
-        public static int Compare(string strA, int indexA, string strB, int indexB, int length, System.Globalization.CultureInfo culture, System.Globalization.CompareOptions options)
-        {
-            if (culture == null) throw new ArgumentNullException(nameof(culture));
-            int lengthA = length, lengthB = length;
-            if (strA != null) lengthA = Math.Min(lengthA, strA.Length - indexA);
-            if (strB != null) lengthB = Math.Min(lengthB, strB.Length - indexB);
-            return ((CsharpcCoreLib.Globalization.CultureInfo)(object)culture).CompareInfo.Compare(strA, indexA, lengthA, strB, indexB, lengthB, options);
-        }
-
-        public static int Compare(string strA, int indexA, string strB, int indexB, int length, bool ignoreCase, System.Globalization.CultureInfo culture) =>
-            Compare(strA, indexA, strB, indexB, length, culture, ignoreCase ? System.Globalization.CompareOptions.IgnoreCase : System.Globalization.CompareOptions.None);
-
-        // string.Create(provider, $"..."): the handler (InterpolatedStringHandler.cs) formatted with the provider.
-        public static string Create(IFormatProvider provider, ref System.Runtime.CompilerServices.DefaultInterpolatedStringHandler handler) =>
-            handler.ToStringAndClear();
-
-        public static string Create(IFormatProvider provider, Span<char> initialBuffer, ref System.Runtime.CompilerServices.DefaultInterpolatedStringHandler handler) =>
-            handler.ToStringAndClear();
+        // ReplaceLineEndings, Join, Concat over sequences and spans, Compare, Create and Format over a CompositeFormat: String's own IL
+        // (src/Csharpc/upstream-types/System.String.txt).
 
         // string.Format with an IFormatProvider (the provider-less forms are codegen intrinsics).
         public static string Format(IFormatProvider provider, string format, object arg0) => Number.FormatCompositeWith(provider, format, new[] { arg0 });
@@ -885,7 +785,7 @@ namespace CsharpcCoreLib
 
         public static int IndexOf(ReadOnlySpan<char> span, ReadOnlySpan<char> value, StringComparison comparisonType)
         {
-            if (comparisonType == StringComparison.Ordinal) return StringOps.IndexOfOrdinal(span, value, 0);
+            if (comparisonType == StringComparison.Ordinal) return MemoryExtensions.IndexOf(span, value);
             if (comparisonType == StringComparison.OrdinalIgnoreCase)
             {
                 if (value.Length == 0) return 0;
@@ -948,55 +848,6 @@ namespace CsharpcCoreLib
         }
     }
 
-    [ShadowMembers("System.Text.Ascii")]
-    internal static class AsciiExtras
-    {
-        public static bool IsValid(ReadOnlySpan<char> value)
-        {
-            for (int i = 0; i < value.Length; i++)
-                if (value[i] > 0x7F) return false;
-            return true;
-        }
-
-        public static bool IsValid(ReadOnlySpan<byte> value)
-        {
-            for (int i = 0; i < value.Length; i++)
-                if (value[i] > 0x7F) return false;
-            return true;
-        }
-
-        public static bool IsValid(char value) => value <= 0x7F;
-
-        public static bool IsValid(byte value) => value <= 0x7F;
-    }
-
-    [ShadowMembers("System.Globalization.CharUnicodeInfo")]
-    internal static class CharUnicodeInfoExtras
-    {
-        public static System.Globalization.UnicodeCategory GetUnicodeCategory(char ch) => CharOps.GetUnicodeCategory(ch);
-        public static System.Globalization.UnicodeCategory GetUnicodeCategory(string s, int index) => CharOps.CategoryAt(s, index);
-
-        // Decimal digits (category Nd) are encoded in contiguous runs from 0 to 9 (a Unicode stability
-        // guarantee), so a digit's value is the number of Nd characters right before it, modulo 10.
-        public static int GetDecimalDigitValue(char ch)
-        {
-            if (ch >= '0' && ch <= '9') return ch - '0';
-            if (CharOps.GetUnicodeCategory(ch) != System.Globalization.UnicodeCategory.DecimalDigitNumber) return -1;
-            int before = 0;
-            while (before < ch && CharOps.GetUnicodeCategory((char)(ch - before - 1)) == System.Globalization.UnicodeCategory.DecimalDigitNumber) before++;
-            return before % 10;
-        }
-
-        public static int GetDecimalDigitValue(string s, int index)
-        {
-            ArgumentNullException.ThrowIfNull(s);
-            if ((uint)index >= (uint)s.Length) throw new ArgumentOutOfRangeException(nameof(index), "Index was out of range. Must be non-negative and less than the size of the collection.");
-            char c = s[index];
-            if (char.IsHighSurrogate(c) && index + 1 < s.Length && char.IsLowSurrogate(s[index + 1]))
-                throw new NotSupportedException("CharUnicodeInfo.GetDecimalDigitValue of a supplementary-plane character is not supported by csharpc yet.");
-            return GetDecimalDigitValue(c);
-        }
-    }
 }
 
 namespace CsharpcCoreLib
@@ -1032,26 +883,26 @@ namespace CsharpcCoreLib
         public static StringComparerImpl Ordinal => s_ordinal ??= new Standard(StringComparison.Ordinal);
         public static StringComparerImpl OrdinalIgnoreCase => s_ordinalIgnoreCase ??= new Standard(StringComparison.OrdinalIgnoreCase);
         public static StringComparerImpl InvariantCulture => s_invariant ??=
-            new CultureAware(CsharpcCoreLib.Globalization.CompareInfo.Invariant, System.Globalization.CompareOptions.None);
+            new CultureAware(System.Globalization.CultureInfo.InvariantCulture.CompareInfo, System.Globalization.CompareOptions.None);
         public static StringComparerImpl InvariantCultureIgnoreCase => s_invariantIgnoreCase ??=
-            new CultureAware(CsharpcCoreLib.Globalization.CompareInfo.Invariant, System.Globalization.CompareOptions.IgnoreCase);
+            new CultureAware(System.Globalization.CultureInfo.InvariantCulture.CompareInfo, System.Globalization.CompareOptions.IgnoreCase);
         // .NET creates these on each access, for the culture current at that moment.
         public static StringComparerImpl CurrentCulture =>
-            new CultureAware(CsharpcCoreLib.Globalization.CultureInfo.CurrentCulture.CompareInfo, System.Globalization.CompareOptions.None);
+            new CultureAware(System.Globalization.CultureInfo.CurrentCulture.CompareInfo, System.Globalization.CompareOptions.None);
         public static StringComparerImpl CurrentCultureIgnoreCase =>
-            new CultureAware(CsharpcCoreLib.Globalization.CultureInfo.CurrentCulture.CompareInfo, System.Globalization.CompareOptions.IgnoreCase);
+            new CultureAware(System.Globalization.CultureInfo.CurrentCulture.CompareInfo, System.Globalization.CompareOptions.IgnoreCase);
 
         public static StringComparerImpl Create(System.Globalization.CultureInfo culture, bool ignoreCase)
         {
             if (culture == null) throw new ArgumentNullException(nameof(culture));
-            return new CultureAware(((CsharpcCoreLib.Globalization.CultureInfo)(object)culture).CompareInfo,
+            return new CultureAware(((System.Globalization.CultureInfo)(object)culture).CompareInfo,
                 ignoreCase ? System.Globalization.CompareOptions.IgnoreCase : System.Globalization.CompareOptions.None);
         }
 
         public static StringComparerImpl Create(System.Globalization.CultureInfo culture, System.Globalization.CompareOptions options)
         {
             if (culture == null) throw new ArgumentNullException(nameof(culture));
-            return new CultureAware(((CsharpcCoreLib.Globalization.CultureInfo)(object)culture).CompareInfo, options);
+            return new CultureAware(((System.Globalization.CultureInfo)(object)culture).CompareInfo, options);
         }
 
         /// <summary>
@@ -1067,7 +918,7 @@ namespace CsharpcCoreLib
                 | System.Globalization.CompareOptions.IgnoreNonSpace | System.Globalization.CompareOptions.IgnoreWidth | System.Globalization.CompareOptions.IgnoreKanaType
                 | System.Globalization.CompareOptions.StringSort | System.Globalization.CompareOptions.NumericOrdering;
             if ((options & ~valid) != 0) throw new ArgumentException("Value of flags is invalid.", nameof(options));
-            return new CultureAware((CsharpcCoreLib.Globalization.CompareInfo)(object)compareInfo, options);
+            return new CultureAware((System.Globalization.CompareInfo)(object)compareInfo, options);
         }
 
         public static StringComparerImpl FromComparison(StringComparison comparisonType) => comparisonType switch
@@ -1085,6 +936,13 @@ namespace CsharpcCoreLib
         public abstract bool Equals(string x, string y);
         public abstract int GetHashCode(string obj);
 
+        /// <summary>
+        /// The wrapper Dictionary and HashSet hold for string keys (.NET's NonRandomizedStringEqualityComparer.GetStringComparer) when this is
+        /// the Ordinal or OrdinalIgnoreCase comparer, else null. Asked of the comparer, so that a program that never creates these comparers does not
+        /// carry the code of their wrappers (UpstreamSupport.cs).
+        /// </summary>
+        internal virtual UpstreamNonRandomizedStringEqualityComparer CreateNonRandomizedWrapper() => null;
+
         public int Compare(object x, object y) => x == y ? 0 : x == null ? -1 : y == null ? 1 : Compare((string)x, (string)y);
         public new bool Equals(object x, object y) => x == y || (x is string a && y is string b && Equals(a, b));
         public int GetHashCode(object obj) => obj is string s ? GetHashCode(s) : obj.GetHashCode();
@@ -1097,6 +955,15 @@ namespace CsharpcCoreLib
             // (through the base type: in Standard itself this overload would win over GetHashCode(string), as string converts to a span)
             public int GetHashCode(ReadOnlySpan<char> alternate) => ((StringComparerImpl)this).GetHashCode(new string(alternate));
             public string Create(ReadOnlySpan<char> alternate) => new string(alternate);
+
+            private UpstreamNonRandomizedStringEqualityComparer _nonRandomizedWrapper;
+            internal override UpstreamNonRandomizedStringEqualityComparer CreateNonRandomizedWrapper() =>
+                comparison switch
+                {
+                    StringComparison.Ordinal => _nonRandomizedWrapper ??= UpstreamNonRandomizedStringEqualityComparer.ForOrdinal(this),
+                    StringComparison.OrdinalIgnoreCase => _nonRandomizedWrapper ??= UpstreamNonRandomizedStringEqualityComparer.ForOrdinalIgnoreCase(this),
+                    _ => null,
+                };
 
             private bool IgnoreCase => comparison is StringComparison.OrdinalIgnoreCase or StringComparison.InvariantCultureIgnoreCase
                 or StringComparison.CurrentCultureIgnoreCase;
@@ -1114,10 +981,10 @@ namespace CsharpcCoreLib
         /// <summary>System.CultureAwareComparer: a CompareInfo and CompareOptions.</summary>
         private sealed class CultureAware : StringComparerImpl
         {
-            private readonly CsharpcCoreLib.Globalization.CompareInfo _compareInfo;
+            private readonly System.Globalization.CompareInfo _compareInfo;
             private readonly System.Globalization.CompareOptions _options;
 
-            internal CultureAware(CsharpcCoreLib.Globalization.CompareInfo compareInfo, System.Globalization.CompareOptions options)
+            internal CultureAware(System.Globalization.CompareInfo compareInfo, System.Globalization.CompareOptions options)
             {
                 _compareInfo = compareInfo;
                 _options = options;

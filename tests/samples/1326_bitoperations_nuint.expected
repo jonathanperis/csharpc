@@ -1,0 +1,13 @@
+1: Log2=0 PopCount=1 TrailingZeros=0 IsPow2=True
+2: Log2=1 PopCount=1 TrailingZeros=1 IsPow2=True
+3: Log2=1 PopCount=2 TrailingZeros=0 IsPow2=False
+7: Log2=2 PopCount=3 TrailingZeros=0 IsPow2=False
+8: Log2=3 PopCount=1 TrailingZeros=3 IsPow2=True
+1000: Log2=9 PopCount=6 TrailingZeros=3 IsPow2=False
+65535: Log2=15 PopCount=16 TrailingZeros=0 IsPow2=False
+65536: Log2=16 PopCount=1 TrailingZeros=16 IsPow2=True
+2147483647: Log2=30 PopCount=31 TrailingZeros=0 IsPow2=False
+2147483648: Log2=31 PopCount=1 TrailingZeros=31 IsPow2=True
+4294967295: Log2=31 PopCount=32 TrailingZeros=0 IsPow2=False
+123456789: Log2=26 PopCount=16 TrailingZeros=0 IsPow2=False
+Log2(0)=0

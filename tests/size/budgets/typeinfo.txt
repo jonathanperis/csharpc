@@ -1,0 +1,5 @@
+linux-x86_64 typeinfo 44032
+linux-aarch64 typeinfo 48128
+macos-arm64 typeinfo 73728
+windows-x86_64 typeinfo 57344
+wasi-wasm32 typeinfo 63488

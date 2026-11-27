@@ -48,6 +48,39 @@ namespace CsharpcCoreLib
 #endif
         }
 
+        /// <summary>
+        /// OperatingSystem.IsMacOSVersionAtLeast (#99): false off macOS, else the running product version (kern.osproductversion,
+        /// what NSProcessInfo reports and .NET compares) field by field.
+        /// </summary>
+        public static bool IsMacOSVersionAtLeast(int major, int minor = 0, int build = 0)
+        {
+#if CSHARPC_TARGET_MACOS
+            var (m, n, p) = MacProductVersion();
+            if (m != major) return m > major;
+            if (n != minor) return n > minor;
+            return p >= build;
+#else
+            return false;
+#endif
+        }
+
+#if CSHARPC_TARGET_MACOS
+        [System.Runtime.InteropServices.DllImport("libc")]
+        private static extern unsafe int sysctlbyname(byte* name, byte* value, nuint* length, byte* newValue, nuint newLength);
+
+        private static unsafe (int, int, int) MacProductVersion()
+        {
+            byte* value = stackalloc byte[64];
+            nuint length = 64;
+            fixed (byte* name = "kern.osproductversion\0"u8)
+                if (sysctlbyname(name, value, &length, null, 0) != 0) return (0, 0, 0);
+            value[63] = 0;
+            string[] parts = Utf8.FromNative(value).Split('.');
+            int Part(int i) => parts.Length > i && int.TryParse(parts[i], out int v) ? v : 0;
+            return (Part(0), Part(1), Part(2));
+        }
+#endif
+
         /// <summary>.NET compares the name case-insensitively; macOS answers to "OSX" too.</summary>
         public static bool IsOSPlatform(string platform)
         {

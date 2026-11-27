@@ -1,0 +1,50 @@
+== oid
+sha256 -> 2.16.840.1.101.3.4.2.1 (sha256)
+RSA -> 1.2.840.113549.1.1.1 (RSA)
+ECC -> 1.2.840.10045.2.1 (ECC)
+nistP256 -> 1.2.840.10045.3.1.7 (nistP256)
+secP384r1 -> 1.3.132.0.34 (secP384r1)
+Server Authentication -> CryptographicException: No OID value matches this name.
+Subject Alternative Name -> CryptographicException: No OID value matches this name.
+1.2.840.113549.1.1.11 -> 'sha256RSA'
+2.5.29.17 -> 'X509v3 Subject Alternative Name'
+1.3.6.1.5.5.7.3.2 -> 'TLS Web Client Authentication'
+1.2.3.4.5 -> CryptographicException: The OID value is invalid.
+unknown -> CryptographicException: No OID value matches this name.
+== names
+None: E=test@example.com, C=BR, O=csharpc, CN="csharpc, ""quoted"""
+Reversed: CN="csharpc, ""quoted""", O=csharpc, C=BR, E=test@example.com
+UseSemicolons: E=test@example.com; C=BR; O=csharpc; CN="csharpc, ""quoted"""
+UseNewLines: E=test@example.com|C=BR|O=csharpc|CN="csharpc, ""quoted"""
+  2.5.4.3 = csharpc, "quoted"
+  2.5.4.10 = csharpc
+  2.5.4.6 = BR
+  1.2.840.113549.1.9.1 = test@example.com
+raw: 305C311F301D06092A864886F70D010901161074657374406578616D706C652E636F6D310B30090603550406130242523110300E060355040A0C0763736861727063311A301806035504030C11637368617270632C202271756F74656422
+== certificate
+subject: CN="csharpc, ""quoted""", O=csharpc, C=BR, E=test@example.com
+simple name: csharpc, "quoted"; email: test@example.com
+valid 2001-02-03 04:05:06Z .. 2002-02-03 04:05:06Z; sig 1.2.840.113549.1.1.10 RSASSA-PSS
+key 1.2.840.113549.1.1.1, 2048 bits, private=True
+chain in 2030: False [NotTimeValid]
+chain in 2001: True []
+pem round trip: -----BEGIN CERTIFICATE----- equal=True thumbprint equal=True
+pfx round trip: private=True same=True content=Pfx
+pss signature 256 bytes, verifies=True
+wrong password: CryptographicException: The certificate data cannot be read with the provided password, the password may be incorrect.
+truncated der: CryptographicException: ASN1 corrupted data.
+== rsa
+Pkcs1: 256 bytes, decrypts to 'csharpc'
+OaepSHA1: 256 bytes, decrypts to 'csharpc'
+OaepSHA256: 256 bytes, decrypts to 'csharpc'
+OaepSHA512: 256 bytes, decrypts to 'csharpc'
+encrypted pkcs8: read all=True, same key=True
+spki import: 2048 bits, public only: CryptographicException: Object contains only the public half of a key pair. A private key must also be provided.
+rsa pem: -----BEGIN RSA PRIVATE KEY-----
+too long: OpenSslCryptographicException: error:0200006E:rsa routines::data too large for key size
+bad pkcs8: CryptographicException: ASN1 corrupted data.
+== ecdsa
+key 384 bits, ieee 96 bytes, der starts 0x30, verify ieee=True der=True
+curve ECDSA_P384 q.x 48 bytes, d null=True
+ecdh agrees: True
+unknown curve: PlatformNotSupportedException: The specified curve '1.2.3.4' or its parameters are not valid for this platform.

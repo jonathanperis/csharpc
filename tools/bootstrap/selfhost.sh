@@ -29,6 +29,8 @@ trap 'rm -rf "$WORK"' EXIT
 
 if [[ -z "${SELFHOST_SKIP_COMPILE:-}" ]]; then
   echo "== csharpc compiling csharpc.dll ($OPT)"
+  # csharpc.runtimeconfig.json carries System.Linq.Enumerable.IsSizeOptimized=true (UseSizeOptimizedLinq in
+  # Csharpc.csproj): the size-optimized LINQ keeps this compile within the CI runner's memory.
   start=$(date +%s)
   if command -v /usr/bin/time > /dev/null; then
     /usr/bin/time -v "$DOTNET" "$BIN/csharpc.dll" "$BIN/csharpc.dll" "$OPT" -v -o "$NATIVE" > "$WORK/selfhost.log" 2>&1; rc=$?

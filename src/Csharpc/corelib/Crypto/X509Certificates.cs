@@ -9,6 +9,9 @@
 // (SslStream) and GetRSAPrivateKey use. Loading takes DER, PEM, PKCS#12 (X509CertificateLoader and the obsolete
 // constructors). Extensions, stores, PKCS#7, exporting a PFX and the non-RSA key getters are explicit
 // NotSupportedExceptions (docs/adr/0022-tls.md).
+// Linux compiles System.Security.Cryptography and System.Net.Security from the framework's IL over the OpenSSL and GSS contracts
+// (Crypto/CryptoNative*.cs, Net/NetSecurityNative.cs; docs/il-first/System.Net.Security.md); the other targets keep this copy (#449).
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_MACOS || CSHARPC_TARGET_WASI
 #nullable disable
 #if CSHARPC_OPENSSL
 using System;
@@ -1164,4 +1167,5 @@ namespace CsharpcCoreLib
         public void Dispose() { }
     }
 }
+#endif
 #endif

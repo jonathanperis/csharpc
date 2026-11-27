@@ -4,6 +4,8 @@
 // Security/Cryptography/RandomNumberGenerator{,Implementation}.cs and CryptographicOperations.cs; see
 // THIRD-PARTY-NOTICES.md. The bytes come from the OS (getentropy; BCryptGenRandom-equivalent on Windows),
 // as .NET's do.
+// On Linux the framework's IL serves these types over the OpenSSL contract (Crypto/CryptoNative*.cs, docs/il-first/System.Security.Cryptography.md).
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_MACOS || CSHARPC_TARGET_WASI
 #nullable disable
 using System;
 using System.Runtime.CompilerServices;
@@ -228,3 +230,4 @@ namespace CsharpcCoreLib
         public static void ZeroMemory(Span<byte> buffer) => buffer.Clear();
     }
 }
+#endif

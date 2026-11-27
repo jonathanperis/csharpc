@@ -140,10 +140,57 @@ public sealed partial class FunctionCodeGen
 
     internal void MemMove(LLVMValueRef destination, LLVMValueRef source, LLVMValueRef bytes, bool noReferences = false)
     {
+        // Up to 32 bytes of data without references, inline: the head and the tail of the range, each read before anything is written, so
+        // overlapping ranges move correctly (what .NET's Buffer.Memmove does for short lengths). A constant size LLVM expands itself, and
+        // copies of references stay one memmove, which the write-barrier passes look for.
+        if (noReferences && Native.LLVMIsConstant(bytes) == 0)
+        {
+            MemMoveShort(destination, source, bytes);
+            return;
+        }
+        MemMoveCall(destination, source, bytes, noReferences);
+    }
+
+    private void MemMoveCall(LLVMValueRef destination, LLVMValueRef source, LLVMValueRef bytes, bool noReferences)
+    {
         var f = _m.Intrinsic("llvm.memmove.p0.p0.i64", L.Void, L.Ptr, L.Ptr, L.I64, L.I1);
         var copy = _b.Call(f.Type, f.Fn, [destination, source, bytes, L.False]);
         if (noReferences) _m.Facts.NoReferences(copy);
     }
+
+    private void MemMoveShort(LLVMValueRef destination, LLVMValueRef source, LLVMValueRef bytes)
+    {
+        var done = NewBlock("memmove.done");
+        var large = NewBlock("memmove.large");
+        var count = bytes.Type.IntWidth == 64 ? bytes : _b.Cast(LLVMOpcode.ZExt, bytes, L.I64);
+        // (width in bytes, LLVM type) from the widest down; each handles counts in [width, 2 * width]
+        (int Width, LLVMTypeRef Type)[] steps = [(16, Native.LLVMVectorType(L.I8, 16)), (8, L.I64), (4, L.I32), (2, L.I16), (1, L.I8)];
+        _b.CondBr(_b.ICmp(LLVMIntPredicate.UGT, count, L.ConstInt(L.I64, 32)), large, NewBlockAfter(out var small));
+        _b.PositionAtEnd(small);
+        foreach (var (width, type) in steps)
+        {
+            var fits = NewBlock($"memmove.{width}");
+            var next = NewBlock($"memmove.below{width}");
+            _b.CondBr(_b.ICmp(LLVMIntPredicate.UGE, count, L.ConstInt(L.I64, width)), fits, next);
+            _b.PositionAtEnd(fits);
+            var tailOffset = _b.BinOp(LLVMOpcode.Sub, count, L.ConstInt(L.I64, width));
+            var head = _b.Load(type, source);
+            var tail = _b.Load(type, _b.Gep(L.I8, source, [tailOffset]));
+            Native.LLVMSetAlignment(head, 1);
+            Native.LLVMSetAlignment(tail, 1);
+            Native.LLVMSetAlignment(_b.Store(head, destination), 1);
+            Native.LLVMSetAlignment(_b.Store(tail, _b.Gep(L.I8, destination, [tailOffset])), 1);
+            _b.Br(done);
+            _b.PositionAtEnd(next);
+        }
+        _b.Br(done); // zero bytes
+        _b.PositionAtEnd(large);
+        MemMoveCall(destination, source, count, noReferences: true);
+        _b.Br(done);
+        _b.PositionAtEnd(done);
+    }
+
+    private LLVMBasicBlockRef NewBlockAfter(out LLVMBasicBlockRef block) => block = NewBlock("memmove.small");
 
     private LLVMValueRef EmitAddressOf(IAddressOfOperation op)
     {

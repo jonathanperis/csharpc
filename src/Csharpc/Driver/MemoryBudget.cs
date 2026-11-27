@@ -13,17 +13,49 @@ namespace Csharpc.Driver;
 internal static class MemoryBudget
 {
     /// <summary>
-    /// What a worker adds to the process, as a multiple of the bitcode image: the module it parses (some 30
-    /// bytes of bitcode per instruction are some 300 in memory) and the code generator's or optimizer's own data.
-    /// A second worker added 2.0 GB at -O2 (330 MB image) and 2.7 GB at -O0 (274 MB image).
+    /// Held while a worker parses the whole bitcode image and prunes it to its partition, then returns what pruning freed
+    /// (<see cref="ReturnFreedMemory"/>): two whole parses at once took csharpc compiling itself to 14.3 GB at -O0 (#463).
+    /// Optimization and code generation, most of the time, run outside it.
     /// </summary>
-    internal const double BytesPerImageByte = 10.0;
+    internal static readonly object ParseGate = new();
+
+    /// <summary>
+    /// Gives the memory the program's freed module still holds back to the system (glibc's malloc_trim), before the partitions
+    /// parse. glibc keeps freed memory in the arena of the thread that freed it: the calling thread's partition reused it, the
+    /// other workers' arenas could not, and csharpc compiling itself peaked at 14.3 GB at -O0 with two workers (#463). With the
+    /// memory returned, the next whole parse gets it from the system. False where there is no glibc.
+    /// </summary>
+    public static bool ReturnFreedMemory()
+    {
+        if (!OperatingSystem.IsLinux()) return false;
+        try { MallocTrim(0); return true; }
+        catch (Exception e) when (e is EntryPointNotFoundException or DllNotFoundException) { return false; }
+    }
+
+    [System.Runtime.InteropServices.DllImport("libc", EntryPoint = "malloc_trim")]
+    private static extern int MallocTrim(nuint pad);
+
+    /// <summary>
+    /// The one whole parse of the bitcode image, as a multiple of its size (some 30 bytes of bitcode per instruction are
+    /// some 250 in memory): csharpc compiling itself at -O0 (475 MB image) went from 3.0 to 10.6 GB with two parses.
+    /// </summary>
+    internal const double BytesPerImageByte = 8.0;
+
+    /// <summary>
+    /// What each worker holds besides the one whole parse, as a multiple of the bitcode image: its pruned partition and the
+    /// optimizer's or code generator's data. Roslyn hosted from IL at -O0 (231 MB image, three workers) held 3.7 per worker
+    /// over the parse. 3.5 keeps csharpc compiling itself at -O2 on two workers on a 16 GB machine, where two whole parses at
+    /// once (before the parse gate) peaked at 12.8 GB; fewer workers only cost compile time.
+    /// </summary>
+    internal const double WorkerBytesPerImageByte = 3.5;
 
     /// <summary>
     /// Workers to run: <paramref name="wanted"/>, or fewer (at least one) when the rest of the memory budget
-    /// does not hold that many parsed copies of the image. The first worker is free: it parses into the memory
-    /// the program's own module has just given back (freed, but still part of the working set). The budget is 90 %
-    /// of the memory the process may use (the machine's, or its container's), or CSHARPC_MEMORY_MB.
+    /// does not hold them. Only one worker at a time holds the whole parsed image (<see cref="ParseGate"/>), charged once
+    /// (<see cref="BytesPerImageByte"/>): `used` is measured after the freed memory went back to the system, so that parse
+    /// is new memory. Every worker, the parsing one included, also holds a pruned partition (its context's types and
+    /// constants survive the pruning) and its optimizer's or code generator's data: <see cref="WorkerBytesPerImageByte"/>.
+    /// The budget is 90 % of the memory the process may use (the machine's, or its container's), or CSHARPC_MEMORY_MB.
     /// </summary>
     public static int Workers(int wanted, long imageBytes, Action<string>? log)
     {
@@ -32,10 +64,11 @@ internal static class MemoryBudget
             ? mb << 20
             : (long)(GC.GetGCMemoryInfo().TotalAvailableMemoryBytes * 0.9);
         var used = Environment.WorkingSet;
-        var each = (long)(imageBytes * BytesPerImageByte);
-        var fit = each <= 0 ? wanted : (int)Math.Clamp(1 + (budget - used) / each, 1, wanted);
+        var parse = (long)(imageBytes * BytesPerImageByte);
+        var each = (long)(imageBytes * WorkerBytesPerImageByte);
+        var fit = each <= 0 ? wanted : (int)Math.Clamp((budget - used - parse) / each, 1, wanted);
         if (fit < wanted)
-            log?.Invoke($"memory: {fit} of {wanted} worker(s) ({budget >> 20} MB budget, {used >> 20} MB in use, ~{each >> 20} MB per extra worker)");
+            log?.Invoke($"memory: {fit} of {wanted} worker(s) ({budget >> 20} MB budget, {used >> 20} MB in use, ~{parse >> 20} MB for the parse, ~{each >> 20} MB per worker)");
         return fit;
     }
 }
