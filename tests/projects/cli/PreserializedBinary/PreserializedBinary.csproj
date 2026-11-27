@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- GetObject of preserialized resources stored as bytes (#300): format 2, a byte array the type's TypeConverter converts (a
+       WinForms .resx's embedded images and icons, mimetype application/x-microsoft.net.object.bytearray.base64), and format 4, a
+       stream passed to the type's (Stream) constructor (a ResXFileRef to a file). A type of the program stands in for Bitmap/Icon. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Repro</RootNamespace>
+    <GenerateResourceUsePreserializedResources>true</GenerateResourceUsePreserializedResources>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="System.Resources.Extensions" Version="10.0.0" />
+  </ItemGroup>
+</Project>

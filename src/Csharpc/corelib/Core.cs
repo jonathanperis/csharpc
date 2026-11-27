@@ -132,6 +132,9 @@ namespace CsharpcCoreLib
         /// type (Frontend/ResourceConverters.cs generates one for the types its .resources files hold).
         /// </summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object[] ResourceObjectHook(string type, string text);
+        /// <summary>The program's preserialized resources stored as bytes (#300): format 2 through the type's converter, format 4 through its (Stream) constructor.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object[] ResourceObjectFromBytesHook(string type, byte[] data);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object[] ResourceObjectFromStreamHook(string type, System.IO.Stream data);
         /// <summary>Whether the program carries a resource value created with a TypeConverter (ModuleCodeGen.HasConverterResources): a compile-time constant.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool HasConverterResources();
         /// <summary>Whether the program carries any stored non-string resource value (ModuleCodeGen.HasNonStringResources): a compile-time constant.</summary>

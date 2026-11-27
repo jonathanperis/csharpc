@@ -1,0 +1,9 @@
+MemoryStream(Stream): MissingMethodException: Constructor on type 'System.IO.MemoryStream' not found.
+  inner: MissingMethodException: Member not found.
+OnlyInt(string): MissingMethodException: Constructor on type 'OnlyInt' not found.
+  inner: MissingMethodException: Member not found.
+OnlyInt(int, int): MissingMethodException: Constructor on type 'OnlyInt' not found.
+  inner: none
+NoPublic(int): MissingMethodException: Constructor on type 'NoPublic' not found.
+  inner: none
+OnlyInt(int): OnlyInt 7
