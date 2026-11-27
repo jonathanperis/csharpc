@@ -17,10 +17,10 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
+  # Build and deploy are separate jobs, as GitHub's Pages starter workflow has them: the artifact is finalized when the build
+  # job ends, so the deploy job always finds it. In one job, deploy-pages sometimes ran before the artifact's metadata was
+  # visible ("No artifacts named github-pages were found") and the run had to be retried.
+  build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -53,6 +53,13 @@ jobs:
         with:
           path: docs/out
 
+  deploy:
+    needs: build
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v5

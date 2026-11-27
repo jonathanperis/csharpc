@@ -84,7 +84,7 @@ public sealed partial class FunctionCodeGen
         bool NoOpDispose(IInvocationOperation inv)
         {
             if (inv is not { TargetMethod.Name: "Dispose", Arguments.IsEmpty: true, Instance: { } instance }) return false;
-            if (TypeMapper.IsSpanEnumerator(TypeOf(instance))) return true;
+            if (TypeMapper.IsSpanEnumerator(TypeOf(instance)) || IsArrayEnumeratorDispose(inv)) return true;
             var method = S(inv.TargetMethod);
             if (method.ContainingType.TypeKind == TypeKind.Interface)
                 method = TypeOf(ConcreteReceiver(instance)) is { TypeKind: TypeKind.Class } type
