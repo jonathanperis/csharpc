@@ -37,7 +37,7 @@ add() { # name dir file expected exitcode stdin
   local name="$1"
   if [[ ${#filters[@]} -gt 0 ]]; then
     local f hit=0
-    for f in ${filters[@]+"${filters[@]}"}; do [[ "$name" == *"$f"* ]] && hit=1; done
+    for f in "${filters[@]}"; do [[ "$name" == *"$f"* ]] && hit=1; done
     [[ $hit == 1 ]] || return 0
   fi
   [[ -f "$4" ]] || return 0
