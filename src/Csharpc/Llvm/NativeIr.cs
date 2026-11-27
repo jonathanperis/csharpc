@@ -89,6 +89,16 @@ internal static unsafe partial class Native
     [LibraryImport(Lib)] public static partial LLVMAtomicOrdering LLVMGetOrdering(LLVMValueRef memoryAccess);
     [LibraryImport(Lib)] public static partial int LLVMGetVolatile(LLVMValueRef memoryAccess);
     [LibraryImport(Lib)] public static partial int LLVMIsConstant(LLVMValueRef value);
+    // Heap-to-stack (CodeGen/HeapToStack.cs)
+    [LibraryImport(Lib)] public static partial LLVMAttributeRef LLVMGetCallSiteEnumAttribute(LLVMValueRef call, uint index, uint kind);
+    [LibraryImport(Lib)] public static partial int LLVMIsTailCall(LLVMValueRef call);
+    [LibraryImport(Lib)] public static partial void LLVMSetTailCall(LLVMValueRef call, int isTail);
+    [LibraryImport(Lib)] public static partial uint LLVMGetTailCallKind(LLVMValueRef call); // 0 none, 1 tail, 2 musttail, 3 notail
+    [LibraryImport(Lib)] public static partial LLVMValueRef LLVMIsAConstantInt(LLVMValueRef value);
+    [LibraryImport(Lib)] public static partial ulong LLVMConstIntGetZExtValue(LLVMValueRef value);
+    [LibraryImport(Lib)] public static partial void LLVMSetOperand(LLVMValueRef user, uint index, LLVMValueRef value);
+    [LibraryImport(Lib)] public static partial LLVMContextRef LLVMGetModuleContext(LLVMModuleRef m);
+    [LibraryImport(Lib)] public static partial LLVMValueRef LLVMBuildMemSet(LLVMBuilderRef b, LLVMValueRef ptr, LLVMValueRef value, LLVMValueRef length, uint align);
     [LibraryImport(Lib)] public static partial LLVMMetadataRef LLVMInstructionGetDebugLoc(LLVMValueRef inst);
     [LibraryImport(Lib)] public static partial void LLVMInstructionSetDebugLoc(LLVMValueRef inst, LLVMMetadataRef loc);
 }

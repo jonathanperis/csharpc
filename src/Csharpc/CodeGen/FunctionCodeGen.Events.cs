@@ -191,7 +191,7 @@ public sealed partial class FunctionCodeGen
         if (!_m.IsUserMethod(accessor)) throw CompileError.Unsupported($"event '{e}' of a library type", assignment);
         var self = e.IsStatic ? default : EmitValue(reference.Instance!);
         var value = EmitValue(assignment.HandlerValue);
-        return EmitUserCall(accessor, self, reference.Instance is IInstanceReferenceOperation, [], isVirtual: true, [value]);
+        return EmitUserCall(accessor, self, reference.Instance is IInstanceReferenceOperation, [], isVirtual: true, [value], receiver: reference.Instance);
     }
 
     /// <summary>

@@ -30,6 +30,24 @@ What .NET prints, measured against .NET 11 RC2 (the oracle):
   type marked so (its own methods only: not its nested, closure or state-machine types), and
   `[MethodImpl(AggressiveInlining)]` methods are not listed — except as the trace's last frame. A marker
   that follows a hidden frame isn't printed either.
+- **Frames .NET's precompiled framework code inlined**: .NET runs the shared framework from its ReadyToRun
+  code, so a framework method that code inlined into another has no frame of its own: the trace goes
+  from the inlinee's callee to the method it was inlined into (the method compiled, however deep the
+  inlining: `File.OpenText` → `StreamReader.ValidateArgsAndOpenPath` → `OSFileStreamStrategy..ctor`,
+  without the `FileStream` constructors, `FileStreamHelpers.ChooseStrategy*` and
+  `UnixFileStreamStrategy..ctor` between them). The compiler reads each framework assembly's inlining
+  table (`CodeGen/ReadyToRunInlines.cs`: the image's cross-module inline section, 119, or InliningInfo2,
+  114, as the runtime reads them for the profiler), matches CoreLib's frames from the slice and the
+  corelib to System.Private.CoreLib's methods by their text, and emits the (inlinee, inliner) pairs of
+  the program's frames; the runtime leaves out a frame when it and the frames above it up to some frame
+  were all inlined into that frame's method (`trace_physical` in `src/runtime/eh.c`, walking from the outermost frame inward). Inlining across
+  assemblies is not read, and a generic method the JIT instantiates over a value type at run time (not
+  precompiled, so not inlined) is treated as precompiled. Likewise for **implicit tail calls**: optimized
+  framework code turns a call in tail position into a jump (`File.ReadAllText(String path)` forwarding to
+  `ReadAllText(path, Encoding.UTF8)` leaves no frame), so a call site of framework IL that is `call`/`callvirt`
+  then `ret`, outside protected regions, in a method without localloc or exposed local addresses, to a callee
+  whose arguments all fit in registers (SysV x64) gets a frame entry flagged `TRACE_TAILCALL`; the runtime
+  leaves that frame out unless the callee was inlined into it.
 - **Each frame** is `Namespace.Type.Method[T](Int32 x, String& s)`: nested types joined with `.`,
   generic types as ``List`1``, generic methods with their parameter names, parameter types as
   `System.Type.Name` (`Int32`, `Decimal`, ``Nullable`1``, `Int32[,]`, `Int32&` for ref/out/in, `Int32*`).
@@ -91,6 +109,12 @@ unwinder does anyway.
   optimizer (tail-call and accumulator-recursion elimination don't apply to invokes, which is also
   what keeps recursive frames). LLVM deletes landing pads that only `resume` — catch clauses and
   all — so record-only pads call an empty `asm sideeffect ""` (no code; never executed anyway).
+  A handler in an inlined method splits its frame's clauses: the first search stops at the handler,
+  having recorded the frames up to the handler's method, and a rethrow from the handler searches the
+  same physical frame again (same CFA). The trace keeps the outermost site recorded in that frame
+  (`TraceData.frame_last`), and the second search records the sites past it — the inlined callers —
+  instead of none (sample 1393; before, `throw;` from an inlined `catch` at -O2 lost every caller
+  inlined into the same function).
 - **No frame twice.** csharpc's own propagation re-raises (finally blocks, handlers whose type or
   filter doesn't match, `throw;`), and a new search would walk frames already recorded. The trace
   keeps the highest frame (CFA) recorded, and the search records only frames above it. An await, an

@@ -1,0 +1,36 @@
+IsSerializable: True False True True True True
+InvokeMember method: hello world
+InvokeMember static: 42
+InvokeMember property: 7
+InvokeMember field: field
+InvokeMember field or property: 7
+InvokeMember missing field: MissingFieldException: Field 'Unmarked.Nope' not found.
+InvokeMember no binding flags: 42 static
+InvokeMember get field with args: ArgumentException: No arguments can be provided to Get a field value. (Parameter 'bindingFlags')
+InvokeMember set field two args: ArgumentException: Only the field value can be specified to set a field value. (Parameter 'bindingFlags')
+InvokeMember set field no args: ArgumentNullException: Value cannot be null. (Parameter 'providedArgs')
+InvokeMember indexer: 30 8
+InvokeMember indexer by type: key k 40
+InvokeMember property extra arg: MissingMethodException: Method 'Unmarked.Count' not found.
+InvokeMember missing: MissingMethodException: Method 'Unmarked.Nope' not found.
+InvokeMember no action: ArgumentException: Must specify binding flags describing the invoke operation required (BindingFlags.InvokeMethod CreateInstance GetField SetField GetProperty SetProperty). (Parameter 'bindingFlags')
+GetType resolver: Unmarked
+GetType resolver null: null
+GetType resolver throws: TypeLoadException: Could not resolve type 'Nothing'.
+Source thrown: <unknown>
+Source set: mine
+Enum.TryParse(Type): True Blue True Green False null
+Enum.TryParse(not enum): ArgumentException: Type provided must be an Enum. (Parameter 'enumType')
+CreateInstanceFromArrayType: 3
+CreateInstanceFromArrayType rank: ArgumentException: Indices length does not match the array rank.
+CreateInstanceFromArrayType negative: ArgumentOutOfRangeException: Non-negative number required. (Parameter 'lengths[0]')
+CreateInstanceFromArrayType not array: ArgumentException: Must be an array type. (Parameter 'arrayType')
+ModuleHandle: PlatformNotSupportedException: Operation is not supported on this platform.
+nullable GetType: Int32
+null nullable GetType: NullReferenceException: Object reference not set to an instance of an object.
+ResourceManager: BEEFCACE 1 1561_reflection_runtime_gaps Some.Resources
+AsReadOnly: 2 b
+AsReadOnly null: ArgumentNullException: Value cannot be null. (Parameter 'list')
+Deconstruct: True tuple
+Deconstruct pattern: 6
+ToValueTuple/ToTuple: (1, x) (2, y)

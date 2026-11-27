@@ -121,7 +121,7 @@ public sealed partial class ModuleCodeGen
         // written through their address with their own type, and struct fields share one TBAA tag
         // (MemoryFacts), so LLVM treats the overlapping accesses as aliasing.
         if (custom is { Explicit: true, Pack: 0 } && InstanceFields(type).ToList() is { Count: >= 2 } unionFields
-            && unionFields.All(f => custom.Offsets.TryGetValue(f, out var o) && o == 0 && Optimizations.HoldsNoReferences(f.Type)))
+            && unionFields.All(f => custom.Offsets.TryGetValue(f, out var o) && o == 0 && UnionMemberHoldsNoReferences(f.Type)))
         {
             var largest = unionFields.Select(FieldStorage).OrderByDescending(t => Types.Target.SizeOf(t)).ThenByDescending(t => Types.Target.AlignOf(t)).First();
             if (custom.Size != 0 && (ulong)custom.Size != Types.Target.SizeOf(largest)) throw custom.Rejection;
@@ -189,6 +189,14 @@ public sealed partial class ModuleCodeGen
         if (custom is not null && !MatchesSequentialLayout(layout, custom)) throw custom.Rejection;
         return layout;
     }
+
+    /// <summary>
+    /// A union member csharpc can overlay: a primitive, or a struct (as csharpc stores it: the corelib's or the slice's type) with no reference
+    /// at any depth (TraceLogging's PropertyValue.Scalar overlays Guid, DateTimeOffset and decimal on the primitives).
+    /// </summary>
+    private bool UnionMemberHoldsNoReferences(ITypeSymbol type) =>
+        Optimizations.HoldsNoReferences(type)
+        || type is INamedTypeSymbol { TypeKind: TypeKind.Struct } && !Optimizations.IsReferenceOrContainsReferences(CoreLib.Map(type));
 
     /// <summary>A struct's declared layout: [StructLayout]/[FieldOffset] in source, the ClassLayout and FieldLayout tables in IL.</summary>
     private sealed record CustomLayout(bool Explicit, int Pack, int Size, Dictionary<IFieldSymbol, int> Offsets, CompileError Rejection);
@@ -369,10 +377,13 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     public LLVMValueRef StructMethodTable(INamedTypeSymbol type)
     {
+        if (IsCanonDependent(type)) return CanonMethodTable; // shared generic code: the exact table comes from a dictionary
         var layout = GetStructLayout(type);
         if (!layout.MethodTable.IsNull) return layout.MethodTable;
 
-        var size = 8 + Types.Target.SizeOf(layout.LlvmType);
+        // ValueTask and CancellationToken are one pointer (their task, their source), not the reference assembly's fields: the size
+        // their boxes are allocated with (FunctionCodeGen.Box), which MemberwiseClone copies.
+        var size = 8 + Types.Target.SizeOf(IsPointerLibraryStruct(layout.Type) ? Types.Storage(layout.Type) : layout.LlvmType);
         // Same header as class method tables (TypeMapper.MethodTableHeader): base, name, size, flags,
         // interface map, interface count, reserved — then the vtable.
         var mtType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32,
@@ -403,6 +414,14 @@ public sealed partial class ModuleCodeGen
         return global;
     }
 
+    /// <summary>
+    /// ValueTask and CancellationToken: library structs csharpc represents as one pointer (the task, the source; null for default), whose
+    /// members are mapped one by one rather than shadowed. Their boxes get a struct table like a user struct's (#96).
+    /// </summary>
+    internal static bool IsPointerLibraryStruct(INamedTypeSymbol type) =>
+        type is { TypeKind: TypeKind.Struct, Arity: 0, ContainingType: null }
+        && (type.Name, type.ContainingNamespace?.ToDisplayString()) is ("ValueTask", "System.Threading.Tasks") or ("CancellationToken", "System.Threading");
+
     /// <summary>Interface map for a boxed struct: slots are unboxing thunks into the struct's methods.</summary>
     private (LLVMValueRef Map, int Count) EmitStructInterfaceMap(INamedTypeSymbol type)
     {
@@ -413,7 +432,8 @@ public sealed partial class ModuleCodeGen
         foreach (var itf in interfaces)
         {
             var slots = InterfaceSlots(itf).Select(member =>
-                type.FindImplementationForInterfaceMember(member) is IMethodSymbol impl && IsUserMethod(impl) && !impl.IsAbstract
+                type.FindImplementationForInterfaceMember(member) is IMethodSymbol impl && !impl.IsAbstract
+                    && (IsUserMethod(impl) || (IsPointerLibraryStruct(type) && !SymbolEqualityComparer.Default.Equals(CoreLib.Map(impl), impl))) // their corelib shadows
                     ? UnboxingThunk(impl, slot: true)
                     : LlvmContext.Null(Llvm.Ptr)).ToArray();
             var slotsInit = LlvmContext.ConstArray(Llvm.Ptr, slots);
@@ -452,6 +472,10 @@ public sealed partial class ModuleCodeGen
         b.PositionAtEnd(b.AppendBlock(fn, "entry"));
         var args = new LLVMValueRef[method.Parameters.Length + 1];
         args[0] = b.InBoundsGep(Llvm.I8, fn.Param(0), [Llvm.ConstInt(Llvm.I64, 8)], "payload");
+        // A corelib [ShadowInstance] static standing for the method takes the receiver by value (a library struct's override with no shadow
+        // of its own, ValueTask/CancellationToken's Equals and GetHashCode, #96): the value in the box, not its address.
+        if (CoreLib.Map(method) is { } mapped && CoreLib.IsInstanceShadow(mapped) && mapped.Parameters[0].RefKind == RefKind.None)
+            args[0] = b.Load(Types.Storage(mapped.Parameters[0].Type), args[0]);
         for (var i = 1; i < args.Length; i++) args[i] = fn.Param((uint)i);
         var result = b.Call(target.Type, target.Fn, args);
         if (method.ReturnsVoid) b.RetVoid(); else b.Ret(result);
@@ -471,11 +495,13 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     public LLVMValueRef MemoryMethodTable(INamedTypeSymbol memory)
     {
+        if (IsCanonDependent(memory)) return CanonMethodTable; // shared generic code: the exact table comes from a dictionary
         if (_memoryMethodTables.TryGetValue(memory, out var existing)) return existing;
         var index = _memoryMethodTables.Count;
         var mtType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32, LlvmContext.Array(Llvm.Ptr, ClassLayout.ObjectSlotCount));
         var global = Module.AddGlobal($"__memory{index}_MT", mtType, constant: true, linkage: LLVMLinkage.Internal);
         _memoryMethodTables[memory] = global;
+        RegisterTypeMethodTable(global, memory); // the Type object of a boxed Memory<T> is typeof(Memory<T>)
         LoweredFunction Make(string name, LLVMTypeRef ret, params LLVMTypeRef[] ps)
         {
             var type = Llvm.FunctionType(ret, ps);
@@ -504,6 +530,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>Method table for boxed tuples: { header, [ToString, Equals, GetHashCode] } with element-wise thunks.</summary>
     public LLVMValueRef TupleMethodTable(INamedTypeSymbol tuple, FunctionCodeGen _)
     {
+        if (IsCanonDependent(tuple)) return CanonMethodTable; // shared generic code: the exact table comes from a dictionary
         if (_tupleMethodTables.TryGetValue(tuple, out var existing)) return existing;
         var index = _tupleMethodTables.Count;
         var mtType = Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32, LlvmContext.Array(Llvm.Ptr, ClassLayout.ObjectSlotCount));

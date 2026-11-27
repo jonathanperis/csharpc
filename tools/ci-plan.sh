@@ -11,11 +11,12 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # the counts were first measured on (run 40310822368, docs/05-testing.md), so a platform needs only
 # as many shards as it takes to finish near its suites job (7-26 min). That keeps the gate's wall
 # clock where the suites job puts it and spends fewer runner minutes, which are what queue.
-# Measured on run 42269384295 (docs/05-testing.md, "Shard counts").
+# Measured on run 42269384295 (docs/05-testing.md, "Shard counts"); raised when the suite grew to
+# 40-75 min shards against the 100 min job limit (#403, main runs at 5b790596 and f98a33e6).
 shard_count() {
   case "$1" in
-    x86-64) echo 3 ;;
-    windows-x64|arm64|macos-arm64|wasm32-wasi) echo 2 ;;
+    x86-64|windows-x64) echo 4 ;;
+    arm64|macos-arm64|wasm32-wasi) echo 3 ;;
     *) echo "unknown platform: $1" >&2; return 1 ;;
   esac
 }
@@ -54,9 +55,26 @@ platform_runner() {
 
 ALL_PLATFORMS="x86-64 arm64 macos-arm64 windows-x64 wasm32-wasi"
 
+# macOS runners are the scarce ones (a few at once for the whole account, while every PR needs several). A pull request runs the
+# macOS differential suite at -O2 only, in fewer shards; the nightly full run on main (schedule) and every push run both opts there,
+# like every other platform. The gate's coverage check expects exactly the opts that ran (reduced_platforms).
+REDUCED_PR_PLATFORMS="macos-arm64"
+
+is_reduced_platform() {
+  [[ "${CI_EVENT:-}" == pull_request ]] || return 1
+  case " $REDUCED_PR_PLATFORMS " in *" $1 "*) return 0 ;; *) return 1 ;; esac
+}
+
+reduced_platforms() {
+  local p out=""
+  for p in $ALL_PLATFORMS; do is_reduced_platform "$p" && out="$out $p"; done
+  echo "${out# }"
+}
+
 is_docs_path() {
   case "$1" in
-    docs|docs/*|*.md|LICENSE|LICENSE.txt|COPYING|NOTICE|AUTHORS) return 0 ;;
+    # pages.yml builds and deploys the docs site (docs/): it never runs the compiler.
+    docs|docs/*|*.md|LICENSE|LICENSE.txt|COPYING|NOTICE|AUTHORS|.github/workflows/pages.yml) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -226,12 +244,15 @@ write_matrix_lines() {
     os="$(platform_os "$p")"
     runner="$(platform_runner "$p")"
     shards="$(shard_count "$p")"
+    local opt=all
+    # A reduced platform runs half the pairs (-O2 only), so it needs fewer shards for the same shard length.
+    if is_reduced_platform "$p"; then opt=-O2; shards=2; fi
     shard=0
     while (( shard < shards )); do
       job="diff ($p $shard/$shards)"
       artifact="diff-$p-$shard"
       printf 'diff\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-        "$job" "$p" "$os" "$runner" "$shard" "$shards" "all" "$artifact"
+        "$job" "$p" "$os" "$runner" "$shard" "$shards" "$opt" "$artifact"
       shard=$((shard + 1))
     done
     printf 'suites\t%s\t%s\t%s\t%s\t%s\n' \
@@ -393,6 +414,7 @@ emit_outputs() {
     printf '%s\n' "$REASON"
     echo "EOF_REASON"
     echo "parent_sha=${DOCS_PARENT:-}"
+    echo "reduced_platforms=$(reduced_platforms)"
     echo "diff_matrix<<EOF_DIFF"
     printf '%s\n' "$diff_json"
     echo "EOF_DIFF"
@@ -556,9 +578,10 @@ cmd_run_shard() {
 }
 
 cmd_coverage() {
-  local diff_dir="" suites_file="" samples_dir=""
+  local diff_dir="" suites_file="" samples_dir="" opts="-O0 -O2"
   while [[ $# -gt 0 ]]; do
     case "$1" in
+      --opts) shift; opts="$1" ;;
       --diff) shift; diff_dir="$1" ;;
       --suites) shift; suites_file="$1" ;;
       --samples) shift; samples_dir="$1" ;;
@@ -573,12 +596,13 @@ cmd_coverage() {
   local fail=0 manifest result name opt
   local tmp expected got
   tmp="$(mktemp -d)"
-  # Every sample at -O0 and at -O2, exactly once across the shard manifests.
+  # Every sample at each expected opt (-O0 and -O2; -O2 alone for a reduced pull-request platform), exactly once across the
+  # shard manifests.
   : >"$tmp/expected"
+  local o
   while IFS= read -r name; do
     [[ -z "$name" ]] && continue
-    printf '%s -O0\n' "$name" >>"$tmp/expected"
-    printf '%s -O2\n' "$name" >>"$tmp/expected"
+    for o in $opts; do printf '%s %s\n' "$name" "$o" >>"$tmp/expected"; done
   done < <(printf '%s\n' "$samples_dir"/*.cs | LC_ALL=C sort | xargs -n1 basename | sed 's/\.cs$//')
   LC_ALL=C sort -o "$tmp/expected" "$tmp/expected"
 
@@ -611,7 +635,7 @@ cmd_coverage() {
     fail=1
   fi
   if ! diff -u "$tmp/expected" "$tmp/got" >"$tmp/pairs.diff"; then
-    echo "FAIL shard manifests do not cover every sample at -O0 and -O2 exactly once"
+    echo "FAIL shard manifests do not cover every sample at $opts exactly once"
     # Show a short summary, not the whole 800-line diff.
     echo "  missing $(( $(grep -c '^-' "$tmp/pairs.diff" || true) - 1 )) lines, extra $(( $(grep -c '^+' "$tmp/pairs.diff" || true) - 1 )) lines (first differences):"
     grep -E '^[+-]' "$tmp/pairs.diff" | grep -vE '^[+-]{3}' | head -30
@@ -682,6 +706,10 @@ cmd_self_check() {
   is_docs_path "LICENSE" || fail=1
   is_docs_path "src/Csharpc/Driver/Program.cs" && fail=1
   is_docs_path ".github/workflows/ci.yml" && fail=1
+  is_docs_path ".github/workflows/pages.yml" || fail=1
+  (CI_EVENT=pull_request; is_reduced_platform macos-arm64 && ! is_reduced_platform x86-64) || { echo "reduced platform check failed"; fail=1; }
+  (CI_EVENT=push; ! is_reduced_platform macos-arm64) || { echo "push must run every platform fully"; fail=1; }
+  (CI_EVENT=schedule; [[ -z "$(reduced_platforms)" ]]) || { echo "the nightly run must be full"; fail=1; }
   is_docs_path "ci/targets" && fail=1
   printf '%s\n' "docs/20-status.md" "README.md" | is_docs_list || fail=1
   printf '%s\n' "docs/20-status.md" "src/runtime/csrt.h" | is_docs_list && fail=1

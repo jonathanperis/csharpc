@@ -65,12 +65,19 @@ public sealed record CompilerOptions
     /// (they then appear in the unhandled-exception report on stderr). Otherwise automatic.
     /// </summary>
     public bool StackTraces { get; set; }
+    /// <summary>
+    /// --shared-generics (or CSHARPC_SHARED_GENERICS=1): compile generic code over reference types once per canonical form (ADR 0026).
+    /// Being built in steps; off by default, and nothing in the output depends on it yet.
+    /// </summary>
+    public bool SharedGenerics { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_SHARED_GENERICS") == "1";
     public bool ShowWarnings { get; set; }
     public bool ImplicitUsings { get; set; } = true;
     public HardeningLevel Hardening { get; set; } = HardeningLevel.Default;
     /// <summary>Sanitizers for the C runtime (e.g. "address,undefined"); test builds only.</summary>
     public string? Sanitize { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_SANITIZE") is { Length: > 0 } s ? s : null;
     public bool RuntimeLto { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_NO_RUNTIME_LTO") != "1";
+    /// <summary>Objects and delegates that do not escape their function live in its stack frame (-O1 and up; #457).</summary>
+    public bool StackAllocation { get; set; } = Environment.GetEnvironmentVariable("CSHARPC_NO_STACK_ALLOCATION") != "1";
     /// <summary>
     /// Emit heap write barriers and build the runtime with the nursery as the default collector
     /// (CSHARPC_GC_NURSERY=1 / --gc-nursery). Off by default: barriers inflate binaries past the
@@ -135,16 +142,19 @@ public sealed record CompilerOptions
                                  'none' turns off the automatic choice (assemblies the program uses that
                                  csharpc's corelib does not implement)
           --il-first <names>     Opt-in: drop the corelib's shadows of these shared-framework assemblies (comma-separated;
-                                 also $CSHARPC_IL_FIRST) so they compile from the framework's IL, e.g. System.Text.Json
+                                 also $CSHARPC_IL_FIRST) so they compile from the framework's IL (to measure a library before its shadow goes)
           --framework <name>     Also reference this shared framework, like <FrameworkReference> in a project
                                  (Microsoft.AspNetCore.App); its assemblies are compiled from IL
           --corelib <il|source>  Lower the corelib from its precompiled IL (cached) or bind its C# sources
                                  (default: il, or $CSHARPC_CORELIB)
           --no-implicit-usings   Don't add the SDK's implicit global usings
           --no-runtime-lto       Link the runtime as objects instead of LTO-ing its bitcode
+          --no-stack-allocation  Heap-allocate every object (no escape analysis; -O1 and up place objects
+                                 that do not escape their method in its stack frame)
           --gc-concurrent        Emit the concurrent marker's write barrier (experimental, docs/adr/0020)
           --gc-nursery           Emit heap write barriers and enable the non-moving nursery by default
                                  (also CSHARPC_GC_NURSERY=1; off by default — see docs/adr/0004)
+          --shared-generics      Shared generic code for reference types (ADR 0026; in development, off by default)
           --stack-traces         Record stack traces in every program (default: only programs that print
                                  an exception or read Exception.StackTrace)
           --hardening <level>    none | default (full RELRO, NX, stack probes, hardened runtime) | max (+ CET IBT/SHSTK or BTI/PAC, SLH)
@@ -243,9 +253,11 @@ public sealed record CompilerOptions
                     break;
                 case "--no-implicit-usings": o.ImplicitUsings = false; break;
                 case "--no-runtime-lto": o.RuntimeLto = false; break;
+                case "--no-stack-allocation": o.StackAllocation = false; break;
                 case "--gc-nursery": o.GcNursery = true; break;
                 case "--gc-concurrent": o.GcConcurrent = true; break;
                 case "--stack-traces": o.StackTraces = true; break;
+                case "--shared-generics": o.SharedGenerics = true; break;
                 case "--hardening": o.Hardening = Driver.Hardening.Parse(Next()); break;
                 case "--sanitize": o.Sanitize = Next(); break;
                 case var _ when a.StartsWith("--sanitize="): o.Sanitize = a["--sanitize=".Length..]; break;

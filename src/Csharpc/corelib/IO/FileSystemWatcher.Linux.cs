@@ -741,13 +741,9 @@ namespace CsharpcCoreLib
                     }
                     try
                     {
-                        // Not following links (EnumerationOptions.AttributesToSkip = ReparsePoint in .NET).
-                        foreach (string childDir in Directory.EnumerateDirectories(path))
-                        {
-                            FileAttributes attributes = FileStatusImpl.GetAttributes(childDir, System.IO.Path.GetFileName(childDir));
-                            if (attributes != (FileAttributes)(-1) && (attributes & FileAttributes.ReparsePoint) != 0) continue;
+                        // Not following links, hidden directories included: .NET's EnumerationOptions { AttributesToSkip = ReparsePoint }.
+                        foreach (string childDir in Directory.EnumerateDirectories(path, "*", new EnumerationOptions { AttributesToSkip = FileAttributes.ReparsePoint }))
                             if (!WatchChildDirectories(parent, childDir)) return false;
-                        }
                     }
                     catch (DirectoryNotFoundException) { }
                     catch (IOException) when (File.Exists(path)) { } // path was replaced by a file

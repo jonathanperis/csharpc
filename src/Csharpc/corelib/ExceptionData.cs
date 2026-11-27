@@ -21,15 +21,18 @@ namespace CsharpcCoreLib
         public static void SetHelpLink(Exception exception, string value) => s_helpLink.GetOrCreateValue(exception).Value = value;
 
         /// <summary>
-        /// Exception.Source: what was set, else null for an exception that was never thrown. .NET names the assembly of the method
-        /// that threw an exception otherwise; csharpc doesn't know it yet, so that asks for an explicit error.
+        /// Exception.Source as NativeAOT has it (#104): what was set, else "&lt;unknown&gt;" for an exception that was thrown and null for one
+        /// never thrown. The JIT names the assembly of the throwing method through the frame's MethodBase; NativeAOT has no MethodBase
+        /// for the frame (no reflection metadata for it), and csharpc matches NativeAOT.
         /// </summary>
         public static string GetSource(Exception exception)
         {
             if (s_source.TryGetValue(exception, out StringBox box)) return box.Value;
-            if (exception.StackTrace == null) return null;
-            throw new NotSupportedException("Exception.Source of an exception that was thrown is not supported by csharpc yet (it names the assembly of the throwing method).");
+            return exception.StackTrace == null ? null : "<unknown>";
         }
+
+        /// <summary>Exception.Source read by the framework's own IL: the same.</summary>
+        public static string GetSourceFramework(Exception exception) => GetSource(exception);
 
         public static void SetSource(Exception exception, string value) => s_source.GetOrCreateValue(exception).Value = value;
 

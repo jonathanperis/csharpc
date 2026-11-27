@@ -1,0 +1,7 @@
+^a False
+ab+ True
+(?<key>\w+)=(?<value>[^;]*) True
+a$ True
+3 4 RegexNode[]
+True
+mismatch

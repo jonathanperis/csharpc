@@ -81,7 +81,8 @@ class Program
         var deepOwner = new Thread(() => { deep.WaitOne(); deep.WaitOne(); deep.WaitOne(); });
         deepOwner.Start();
         deepOwner.Join();
-        try { deep.WaitOne(0); Console.WriteLine("no exception"); }
+        // Not WaitOne(0): on Windows the kernel abandons the mutex when the OS thread ends, which can be just after Join returns.
+        try { deep.WaitOne(); Console.WriteLine("no exception"); }
         catch (AbandonedMutexException) { Console.WriteLine("deep abandoned"); }
         deep.ReleaseMutex();
         Try("deep release again", () => deep.ReleaseMutex());

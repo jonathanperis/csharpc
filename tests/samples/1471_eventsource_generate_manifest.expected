@@ -1,0 +1,113 @@
+<instrumentationManifest xmlns="http://schemas.microsoft.com/win/2004/08/events">
+ <instrumentation xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:win="http://manifests.microsoft.com/win/2004/08/windows/events">
+  <events xmlns="http://schemas.microsoft.com/win/2004/08/events">
+<provider name="Demo-Shop" guid="{c9e45211-e262-5dcd-8495-5483d7acb7a1}" resourceFileName="shop.dll" messageFileName="shop.dll" symbol="DemoShop">
+ <channels>
+  <channel chid="Debug" name="Demo-Shop/Debug" value="19" type="Debug" enabled="false"/>
+ </channels>
+ <tasks>
+  <task name="Checkout" message="$(string.task_Checkout)" value="1"/>
+  <task name="Helper" message="$(string.task_Helper)" value="65529"/>
+  <task name="CheckoutStop" message="$(string.task_CheckoutStop)" value="65530"/>
+  <task name="Checkout" message="$(string.task_Checkout)" value="65531"/>
+  <task name="OrderPlaced" message="$(string.task_OrderPlaced)" value="65533"/>
+  <task name="EventSourceMessage" message="$(string.task_EventSourceMessage)" value="65534"/>
+ </tasks>
+ <maps>
+  <valueMap name="Payment">
+   <map value="0x1" message="$(string.map_Payment.Card)"/>
+   <map value="0x2" message="$(string.map_Payment.Cash)"/>
+   <map value="0x4" message="$(string.map_Payment.Voucher)"/>
+  </valueMap>
+  <bitMap name="Flags">
+   <map value="0x1" message="$(string.map_Flags.Gift)"/>
+   <map value="0x2" message="$(string.map_Flags.Express)"/>
+  </bitMap>
+ </maps>
+ <opcodes>
+  <opcode name="Validate" message="$(string.opcode_Validate)" value="11"/>
+ </opcodes>
+ <keywords>
+  <keyword name="Orders" message="$(string.keyword_Orders)" mask="0x1"/>
+  <keyword name="Payments" message="$(string.keyword_Payments)" mask="0x2"/>
+  <keyword name="Session3" message="$(string.keyword_Session3)" mask="0x100000000000"/>
+  <keyword name="Session2" message="$(string.keyword_Session2)" mask="0x200000000000"/>
+  <keyword name="Session1" message="$(string.keyword_Session1)" mask="0x400000000000"/>
+  <keyword name="Session0" message="$(string.keyword_Session0)" mask="0x800000000000"/>
+ </keywords>
+ <events>
+  <event value="0" version="0" level="win:LogAlways" symbol="EventSourceMessage" task="EventSourceMessage" template="EventSourceMessageArgs"/>
+  <event value="1" version="0" level="win:Informational" symbol="OrderPlaced" message="$(string.event_OrderPlaced)" keywords="Orders" task="OrderPlaced" template="OrderPlacedArgs"/>
+  <event value="2" version="0" level="win:Warning" symbol="PaymentChecked" keywords="Payments" opcode="Validate" task="Checkout" template="PaymentCheckedArgs"/>
+  <event value="3" version="2" level="win:Verbose" symbol="CheckoutStart" opcode="win:Start" task="Checkout" channel="Debug" template="CheckoutStartArgs"/>
+  <event value="4" version="0" level="win:Informational" symbol="CheckoutStop" opcode="win:Stop" task="CheckoutStop" template="CheckoutStopArgs"/>
+  <event value="5" version="0" level="win:Informational" symbol="Helper" task="Helper" template="HelperArgs"/>
+ </events>
+ <templates>
+  <template tid="EventSourceMessageArgs">
+   <data name="message" inType="win:UnicodeString"/>
+  </template>
+  <template tid="OrderPlacedArgs">
+   <data name="id" inType="win:UnicodeString"/>
+   <data name="items" inType="win:Int32"/>
+  </template>
+  <template tid="PaymentCheckedArgs">
+   <data name="kind" inType="win:UInt32" map="Payment"/>
+   <data name="flags" inType="win:UInt32" map="Flags"/>
+   <data name="amount" inType="win:Double"/>
+  </template>
+  <template tid="CheckoutStartArgs">
+   <data name="cart" inType="win:Int64"/>
+   <data name="member" inType="win:Boolean"/>
+   <data name="session" inType="win:GUID"/>
+  </template>
+  <template tid="CheckoutStopArgs">
+   <data name="receiptSize" inType="win:UInt32"/>
+   <data name="receipt" inType="win:Binary" length="receiptSize"/>
+  </template>
+  <template tid="HelperArgs">
+   <data name="x" inType="win:Int32"/>
+  </template>
+ </templates>
+</provider>
+</events>
+</instrumentation>
+<localization>
+ <resources culture="">
+  <stringTable>
+   <string id="event_OrderPlaced" value="Order %1 for %2 items"/>
+   <string id="keyword_Orders" value="Orders"/>
+   <string id="keyword_Payments" value="Payments"/>
+   <string id="keyword_Session0" value="Session0"/>
+   <string id="keyword_Session1" value="Session1"/>
+   <string id="keyword_Session2" value="Session2"/>
+   <string id="keyword_Session3" value="Session3"/>
+   <string id="map_Flags.Express" value="Express"/>
+   <string id="map_Flags.Gift" value="Gift"/>
+   <string id="map_Payment.Card" value="Card"/>
+   <string id="map_Payment.Cash" value="Cash"/>
+   <string id="map_Payment.Voucher" value="Voucher"/>
+   <string id="opcode_Validate" value="Validate"/>
+   <string id="task_Checkout" value="Checkout"/>
+   <string id="task_CheckoutStop" value="CheckoutStop"/>
+   <string id="task_EventSourceMessage" value="EventSourceMessage"/>
+   <string id="task_Helper" value="Helper"/>
+   <string id="task_OrderPlaced" value="OrderPlaced"/>
+  </stringTable>
+ </resources>
+</localization>
+</instrumentationManifest>
+
+True
+None: ArgumentException: Event IDs must be positive integers.
+Strict: ArgumentException: Event Again has ID 1 which is already in use.
+Event Again (with ID 1) has the same task/opcode pair as event First (with ID 1).
+Event IDs must be positive integers.
+Use of undefined opcode value 200 for event BadOpcode.
+Event BadOpcode (with ID 5) has a non-default opcode but not a task.
+Value cannot be null. (Parameter 'eventSourceType')
+OnEventCommand 7 [level=3,mode=fast]
+OnEventCommand SendManifest []
+Invalid command value. (Parameter 'command')
+Demo-Shop c9e45211-e262-5dcd-8495-5483d7acb7a1
+False

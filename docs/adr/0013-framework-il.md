@@ -105,8 +105,17 @@ everything the corelib covers — compile and link exactly as before.
   needed them, and writing them again as shadows would have been ~3 000 lines of ported code. The
   libSystem.Native calls of that assembly (socket-address shims) sit in the shadowed types only. A program that
   names System.Net.Sockets takes System.Net.Primitives too, since the corelib's sockets test for its DnsEndPoint.
+  Since #326 (ADR 0023) IPAddress, IPEndPoint, EndPoint and IPNetwork come from IL as well; what stays shadowed is
+  the socket engine's contract: `SocketException` (its native error and text are the OS layer's) and the two internal
+  classes that P/Invoke libSystem.Native, `SocketAddressPal` (struct sockaddr) and `InterfaceInfoPal` (`if_nametoindex`),
+  in `corelib/Net/SocketAddressPal.cs`. A program that names any System.Net namespace takes System.Net.Primitives,
+  since the corelib's Socket, Dns and TLS shadows take and return its types.
 - System.Collections.NonGeneric was mixed for a while (`CollectionBase` a shadow, [ADR 0022](0022-tls.md)); the shadow is gone (ADR 0023,
   #271) and the whole assembly comes from IL: the corelib's certificate collections derive from the real `CollectionBase`.
+- *Assemblies that define types and forward others to CoreLib* (`TwinReference`, 2026-11-10: System.Collections, System.Collections.Concurrent).
+  The reference-pack twin cannot simply be replaced by the implementation: its forwards (`List<T>`) would resolve through the CoreLib facade back to
+  the implementation. The twin stays as a copy under another assembly identity (the Assembly row's name pointed at its own tail, "Collections"),
+  with the types the implementation defines made non-public in the copy, and the facade forwards the CoreLib types to it.
 - A framework method csharpc deliberately doesn't compile (it would pull in a whole subsystem, such as
   System.Xml's http(s) downloads needing System.Net.Http) is a boundary (`ModuleCodeGen.IlBoundary`):
   a CSLLVM0008 warning at compile time and a stub that prints the reason and aborts if called.

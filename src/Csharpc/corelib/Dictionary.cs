@@ -142,6 +142,12 @@ namespace CsharpcCoreLib
     [Shadows("System.Collections.Generic.CollectionExtensions")]
     public static class CollectionExtensionsImpl
     {
+        // AsReadOnly (#104): read-only wrappers over the list or dictionary, as .NET's (the wrapper's constructor rejects null).
+        public static System.Collections.ObjectModel.ReadOnlyCollection<T> AsReadOnly<T>(IList<T> list) => new System.Collections.ObjectModel.ReadOnlyCollection<T>(list);
+
+        public static System.Collections.ObjectModel.ReadOnlyDictionary<TKey, TValue> AsReadOnly<TKey, TValue>(IDictionary<TKey, TValue> dictionary) where TKey : notnull =>
+            new System.Collections.ObjectModel.ReadOnlyDictionary<TKey, TValue>(dictionary);
+
         public static TValue GetValueOrDefault<TKey, TValue>(IReadOnlyDictionary<TKey, TValue> dictionary, TKey key) =>
             dictionary.TryGetValue(key, out TValue value) ? value : default(TValue);
 

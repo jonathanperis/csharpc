@@ -1,0 +1,30 @@
+GetTypeCode Small: Byte (TypeCode)
+GetTypeCode Signed: Int64 (TypeCode)
+ToInt32 Small: 200 (Int32)
+ToInt64 Signed: 1099511627776 (Int64)
+ToByte Signed: OverflowException: Value was either too large or too small for an unsigned byte.
+ChangeType Small->int: 200 (Int32)
+ChangeType Signed->string: Low (String)
+ChangeType Small->Small: A (Small)
+ChangeType Small->Enum: A (Small)
+ToDateTime Small: InvalidCastException: Invalid cast from 'Enum' to 'DateTime'.
+ToBoolean char: InvalidCastException: Invalid cast from 'Char' to 'Boolean'.
+ToChar double: InvalidCastException: Invalid cast from 'Double' to 'Char'.
+ToDateTime int: InvalidCastException: Invalid cast from 'Int32' to 'DateTime'.
+ToInt32 DateTime: InvalidCastException: Invalid cast from 'DateTime' to 'Int32'.
+IConvertible char->bool: InvalidCastException: Invalid cast from 'Char' to 'Boolean'.
+IConvertible decimal->char: InvalidCastException: Invalid cast from 'Decimal' to 'Char'.
+IConvertible int->Guid: InvalidCastException: Invalid cast from 'System.Int32' to 'System.Guid'.
+IConvertible int->object: 5 (Int32)
+ChangeType double->Uri: InvalidCastException: Invalid cast from 'System.Double' to 'System.Uri'.
+ChangeType null->int: InvalidCastException: Null object cannot be converted to a value type.
+ToString(object, provider): ~1,5 (String)
+ToString(base 2): 11111111111111111111111111111011 (String)
+ToInt16 hex: -32768 (Int16)
+ToByte bad base: ArgumentException: Invalid Base.
+ToInt32 empty: ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'Index was out of range. Must be non-negative and less than the size of the collection.')
+ToUInt64 negative: OverflowException: The string was being parsed as an unsigned number and could not have a negative sign.
+FromHexString odd: FormatException: The input is not a valid hex string as its length is not a multiple of 2.
+FromBase64 bad: FormatException: The input is not a valid Base-64 string as it contains a non-base 64 character, more than two padding characters, or an illegal character among the padding characters.
+ToBase64 lines: 82 (Int32)
+IsDBNull: True (Boolean)

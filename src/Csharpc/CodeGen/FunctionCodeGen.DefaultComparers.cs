@@ -94,6 +94,8 @@ public sealed partial class FunctionCodeGen
         if (!(target is { Name: "Equals", Parameters.Length: 2 } or { Name: "GetHashCode", Parameters.Length: 1 })) return null;
         var element = S(itf.TypeArguments[0]);
         if (element is ITypeParameterSymbol) return null;
+        // Shared generic code: EqualityComparer<__Canon0>.Default names no instantiation's static; the call dispatches (ADR 0026, 3b-2).
+        if (_m.IsCanonDependent(element)) return null;
         var comparerType = _m.Compilation.GetTypeByMetadataName("System.Collections.Generic.EqualityComparer`1")?.Construct(element);
         if (comparerType is null || _m.CoreLib.Map(comparerType) is not INamedTypeSymbol mapped
             || mapped.GetMembers("get_Default").OfType<IMethodSymbol>().FirstOrDefault(m => m.IsStatic && m.Parameters.IsEmpty) is not { } getter) return null;
@@ -108,16 +110,25 @@ public sealed partial class FunctionCodeGen
         var fast = NewBlock("defcmp.fast");
         var slow = NewBlock("defcmp.slow");
         var done = NewBlock("defcmp.done");
-        var isDefault = _b.ICmp(LLVMIntPredicate.EQ, self, CallMethod(getter, []));
-        // The string collections of the framework's IL hold a wrapper around the default comparer (UpstreamWrappedDefaultStringComparer: the
-        // alternate-key side of AlternateLookup); it compares and hashes as the default does.
-        if (element.SpecialType == SpecialType.System_String)
-            isDefault = _b.BinOp(LLVMOpcode.Or, isDefault, _b.ICmp(LLVMIntPredicate.EQ, self, CallCoreLib("UpstreamWrappedDefaultStringComparer", "Wrapped")));
-        _b.CondBr(isDefault, fast, slow);
+        var isString = element.SpecialType == SpecialType.System_String;
+        var wrapped = isString ? NewBlock("defcmp.wrapped") : default;
+        _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, self, CallMethod(getter, [])), fast, isString ? wrapped : slow);
 
         _b.PositionAtEnd(fast);
         _b.Store(target.Name == "Equals" ? EqualsOf(element, args[1], args[2], invocation) : HashOf(element, args[1], invocation), result);
         _b.Br(done);
+
+        if (isString)
+        {
+            // The string collections of the framework's IL hold a wrapper around the default comparer (UpstreamNonRandomizedStringEqualityComparer: the
+            // fast unseeded hash until too many collisions, and the alternate-key side of AlternateLookup); it compares as the default does.
+            var wrappedFast = NewBlock("defcmp.wrapped.fast");
+            _b.PositionAtEnd(wrapped);
+            _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, self, CallCoreLib("UpstreamNonRandomizedStringEqualityComparer", "WrappedDefault")), wrappedFast, slow);
+            _b.PositionAtEnd(wrappedFast);
+            _b.Store(target.Name == "Equals" ? EqualsOf(element, args[1], args[2], invocation) : CallCoreLib("UpstreamNonRandomizedStringEqualityComparer", "HashDefault", args[1]), result);
+            _b.Br(done);
+        }
 
         _b.PositionAtEnd(slow);
         NullCheck(self);

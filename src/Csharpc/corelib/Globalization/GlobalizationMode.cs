@@ -65,7 +65,20 @@ namespace CsharpcCoreLib.Globalization
         /// <summary>Loads ICU before the first call into it (fails like .NET's startup when it is missing).</summary>
         internal static void EnsureIcuLoaded()
         {
-            if (s_mode == 0) Initialize();
+            if (s_mode == 0) InitializeOnce();
+        }
+
+        // .NET loads ICU once, in GlobalizationMode.Settings' static constructor. Without that guard, threads that
+        // reach their first culture-aware call together (PLINQ workers) each ran LoadICU, which reassigns and closes
+        // the library handles another thread is binding symbols from ("Cannot get symbol ... from libicuuc", abort).
+        private static readonly object s_initLock = new object();
+
+        private static void InitializeOnce()
+        {
+            lock (s_initLock)
+            {
+                if (s_mode == 0) Initialize();
+            }
         }
 
         internal static bool PredefinedCulturesOnly

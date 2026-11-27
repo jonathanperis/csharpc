@@ -1,4 +1,4 @@
-#:property PublishAot=false
+#:property JsonSerializerIsReflectionEnabledByDefault=true
 // Custom JsonConverter<T>s (options, [JsonConverter] on types and members, factories), enum
 // converters with naming policies and member names, and serialization callbacks.
 using System.Collections.Generic;

@@ -2420,6 +2420,11 @@ static bool weak_is_marked(uintptr_t word) {
     return false;
 }
 
+/// The marked test for threads.c's monitor table (csrt_monitors_prune), with the world stopped after marking. A direct call, not a
+/// function pointer: on WebAssembly, passing weak_is_marked by pointer from here made every later exception's stack trace empty.
+bool csrt_gc_object_alive(uintptr_t obj) { return weak_is_marked(obj); }
+void csrt_monitors_prune(void);  // threads.c
+
 static void weak_release(size_t i) {
     weak.slots[i] = (WeakSlot){ .kind = 0, .next_free = weak.free_head };
     weak.free_head = (int32_t)i;
@@ -3503,6 +3508,7 @@ CSRT_GC_NO_SANITIZE static void cycle_finish(void) {
     weak_process();
     finalize_process();
     weak_process_long();
+    csrt_monitors_prune();  // monitor entries of objects that died become reusable (threads.c)
     objc_sweep_entries();
     protect_caches();
     sweep_begin();
@@ -3687,6 +3693,7 @@ __attribute__((noinline)) static void collect_now(void) {
     weak_process();
     finalize_process();
     weak_process_long();
+    csrt_monitors_prune();  // monitor entries of objects that died become reusable (threads.c)
     objc_sweep_entries();
     protect_caches();
 #if CSRT_HAS_NURSERY
