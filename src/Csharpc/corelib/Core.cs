@@ -30,7 +30,7 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsValueType<T>();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object Box<T>(T value);
         /// <summary>
-        /// value.ToString(format, provider) for library structs whose box isn't IFormattable (BigInteger, Int128...);
+        /// value.ToString(format, provider) for library structs whose box isn't IFormattable (Int128...);
         /// null for every other T (format the box instead).
         /// </summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string FormatValue<T>(T value, string format, IFormatProvider provider);
@@ -127,66 +127,41 @@ namespace CsharpcCoreLib
         /// informational version without the commit, which .NET compiles into Environment.Version and RuntimeInformation.FrameworkDescription.
         /// </summary>
         /// <summary>
-        /// Calls the program's CsharpcCoreLib.ProgramHooks.JsonConfigure (code the front end generates for
-        /// reflection-style System.Text.Json calls, Frontend/JsonReflectionContexts.cs) if it has one.
-        /// </summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void JsonConfigureHook(ref bool reflectionEnabled, ref System.Text.Json.Serialization.Metadata.IJsonTypeInfoResolver resolver);
-        /// <summary>The program's CsharpcCoreLib.ProgramHooks.JsonBuiltIn(type, options) if it has one, else null.</summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object JsonBuiltInHook(Type type, object options);
-        /// <summary>
         /// The program's CsharpcCoreLib.ProgramHooks.ResourceObject(type, text) if it has one: a one-element array holding the
         /// object a resource of that type and TypeConverter string is, or null when the program has no conversion for the
         /// type (Frontend/ResourceConverters.cs generates one for the types its .resources files hold).
         /// </summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object[] ResourceObjectHook(string type, string text);
-        /// <summary>
-        /// The program's CsharpcCoreLib.ProgramHooks.TypeConverterFor(type) if it has one: the converter TypeDescriptor.GetConverter gives a type
-        /// the corelib doesn't know (a [TypeConverter] attribute, enums, BCL types), or null (Frontend/ResourceConverters.cs generates it for
-        /// the types the sources name in `typeof` where they call GetConverter).
-        /// </summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object TypeConverterHook(Type type);
+        /// <summary>Whether the program carries a resource value created with a TypeConverter (ModuleCodeGen.HasConverterResources): a compile-time constant.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool HasConverterResources();
+        /// <summary>Whether the program carries any stored non-string resource value (ModuleCodeGen.HasNonStringResources): a compile-time constant.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool HasNonStringResources();
         /// <summary>csrt_task_try_fault_async: faults a pending task, or cancels it for an OperationCanceledException.</summary>
+        /// <summary>csrt_os_random (runtime/strings.c): OS entropy, or the program stops.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe void csrt_os_random(void* buffer, nuint count);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool TryFaultAsyncTask(System.Threading.Tasks.Task task, Exception exception);
-        /// <summary>An enum's underlying value as .NET's EnumConverter keys it: sign-extended, then reinterpreted as ulong.</summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern ulong EnumToUInt64<T>(T value);
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern T EnumFromUInt64<T>(ulong value);
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsSignedEnum<T>();
-        /// <summary>T is an interface or an abstract class (compile-time constant).</summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsAbstractType<T>();
-        /// <summary>typeof(T).IsDefined(typeof(ObsoleteAttribute)), resolved at compile time (JsonSchemaExporter's "deprecated").</summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsObsoleteType<T>();
-        /// <summary>Whether a run-time Type is one of the program's enum types (Type.IsEnum for JsonStringEnumConverter).</summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsEnumType(Type type);
         /// <summary>Type.IsInstanceOfType: obj's class, a base class or an implemented interface is `type`.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsInstanceOfType(Type type, object obj);
-        /// <summary>JsonMetadataServicesImpl's converter for a built-in T (selected at compile time), or null.</summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object BuiltInJsonConverter<T>();
-        /// <summary>to.IsAssignableFrom(from) for class and interface types (base chain and interface map).</summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsTypeAssignableTo(Type from, Type to);
-        /// <summary>Type.IsInterface.</summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsInterfaceTypeObject(Type type);
-        /// <summary>CsharpcCoreLib.JsonEnumFactory.Create&lt;E&gt;(...) for the enum E that `type` is, or null.</summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object CreateEnumConverter(Type type, int converterOptions, object namingPolicy, object options);
-        /// <summary>typeof(T).IsDefined(typeof(FlagsAttribute)), resolved at compile time.</summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool IsFlagsEnum<T>();
-        /// <summary>[JsonStringEnumMemberName] of each member, in Enum.GetNames&lt;T&gt;() order (null where absent).</summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string[] EnumMemberJsonNames<T>();
-
         /// <summary>
-        /// [EventSource(Name = ...)] (which 0) or Guid (which 1) of the program's EventSource class that `type`
-        /// is, read at compile time (ModuleCodeGen.EventSource.cs); null when absent.
+        /// The nested types reflection keeps for `type` (ModuleCodeGen.NestedTypes.cs), public (which 0) or not (1): a null-terminated
+        /// array of their method tables, or null when they were not kept.
         /// </summary>
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern string EventSourceAttribute(Type type, int which);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe void** NestedTypeTable(Type type, int which);
         // Cancellation (runtime/async.c, corelib/Cancellation.cs): a CancellationToken is its source.
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object TokenSource(System.Threading.CancellationToken token);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern System.Threading.CancellationToken SourceToken(object source);
+        /// <summary>A ValueTask is its task object (null: default, ValueTask.CompletedTask), read without AsTask's completed-task substitution.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern object ValueTaskObject(System.Threading.Tasks.ValueTask task);
         // Reflection (corelib/Reflection/Members.cs, src/runtime/type.c): the compile-time tables' addresses.
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint TypeInfoTableAddress();
         /// <summary>Type attributes are read at run time (Type.GetCustomAttributesData through a MemberInfo): keeps their metadata.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void TypeAttributesQueried();
+        /// <summary>The address of a pointer to the "assembly:reference,reference;..." C string of the framework assemblies the program has types of.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint AssemblyReferencesAddress();
+        /// <summary>NullabilityInfoContext is used: the open definitions of the generic types whose members are reflected keep theirs too.</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void NullabilityQueried();
         /// <summary>The run-time Enum.Parse table (ModuleCodeGen.Enums.cs, EnumParseTable).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint EnumParseTableAddress();
-        [MethodImpl(MethodImplOptions.InternalCall)] public static extern unsafe long csrt_enum_parse_or_throw(string s, bool ignoreCase, void* values, void* names, int count, int bits, bool isSigned);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint ReflectionTableAddress();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateMethodTableAddress();
         /// <summary>`obj` is non-null and exactly of class T: one method-table compare, inline (no base-type walk).</summary>
@@ -197,6 +172,16 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern string FrameworkVersion();
         /// <summary>System.Runtime.InteropServices.Architecture of the target triple (X64 1, Arm64 3, Wasm 5).</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int TargetArchitecture();
+        /// <summary>
+        /// Whether the target has the conversion instruction double/float.ConvertToIntegerNative means for int and long (x64's cvttsd2si /
+        /// cvttss2si, Arm64's fcvtzs): a constant per target, so the other path folds away.
+        /// </summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool HasNativeIntegerConversion();
+        /// <summary>The target's own truncating conversion (HasNativeIntegerConversion): x64 gives the minimum value for NaN and out-of-range values, Arm64 saturates (NaN: 0).</summary>
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int ConvertToInt32Native(double value);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern long ConvertToInt64Native(double value);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern int ConvertToInt32Native(float value);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern long ConvertToInt64Native(float value);
         /// <summary>The delegate types' Invoke signatures (MethodInfo.CreateDelegate): { count, { mt, return, parameters, count, 0 }[] }.</summary>
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern nint DelegateSignatureTableAddress();
         /// <summary>The object-array thunks of the program's delegate types (ObjectArrayDelegates): { count, { mt, thunk }[] }.</summary>
@@ -242,11 +227,16 @@ namespace CsharpcCoreLib
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_task_try_fault_many(object task, Exception[] exceptions);
         // AppDomain.ProcessExit's first subscription (runtime/csrt.c).
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_process_exit_register();
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_unhandled_exception_register();
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_event_new(int kind, int count, int max);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern int csrt_event_set(object e, int n);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_event_reset(object e);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_event_is_set(object e);
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_event_wait(object e, int milliseconds);
+        // System.Threading.Lock's CoreLib-internal condition (runtime/threads.c; Tasks/LockConditions.cs).
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern bool csrt_lock_wait(object lockObject, int milliseconds);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_lock_pulse(object lockObject);
+        [MethodImpl(MethodImplOptions.InternalCall)] public static extern void csrt_lock_pulse_all(object lockObject);
         // Mutex handles (runtime/threads.c): an unnamed mutex; a handle onto the named one in `scope` (null: no such mutex and
         // `create` is off), after which csrt_mutex_created_new tells whether the call created it.
         [MethodImpl(MethodImplOptions.InternalCall)] public static extern object csrt_mutex_new();
@@ -264,6 +254,15 @@ namespace CsharpcCoreLib
     /// </summary>
     [AttributeUsage(AttributeTargets.Method, Inherited = false)]
     internal sealed class ShadowInstanceAttribute : Attribute { }
+
+    /// <summary>
+    /// On a static method of a [ShadowMembers("T")] class that returns T: implements a constructor of the value type T that the reference
+    /// pack doesn't declare, with this method's parameters (CoreLib's internal DateTime(long ticks, DateTimeKind kind, bool isAmbiguousDst),
+    /// which the framework's own DateTimeParse IL creates values with). The IL front-end's `newobj` calls it and takes its result as the
+    /// new value (Frontend/Il/IlAssemblySet.cs ShadowedMember).
+    /// </summary>
+    [AttributeUsage(AttributeTargets.Method, Inherited = false)]
+    internal sealed class ShadowConstructorAttribute : Attribute { }
 
     /// <summary>
     /// On a class: its methods are compiled for size (LLVM minsize). For code that runs once per culture

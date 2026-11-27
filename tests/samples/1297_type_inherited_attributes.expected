@@ -1,0 +1,20 @@
+Base own      : Once:base Many:base-1 Many:base-2 Local:base
+Base inherited: Once:base Many:base-1 Many:base-2 Local:base
+Base Many     : Many:base-1 Many:base-2 | Many:base-1 Many:base-2
+Base defined  : Once=True/True Local=True/True
+Mid own      : Many:mid
+Mid inherited: Many:mid Once:base Many:base-1 Many:base-2
+Mid Many     : Many:mid Many:base-1 Many:base-2 | Many:mid
+Mid defined  : Once=True/False Local=False/False
+Derived own      : Once:derived Local:derived
+Derived inherited: Once:derived Local:derived Many:mid Many:base-1 Many:base-2
+Derived Many     : Many:mid Many:base-1 Many:base-2 | 
+Derived defined  : Once=True/True Local=True/True
+Plain own      : 
+Plain inherited: 
+Plain Many     :  | 
+Plain defined  : Once=False/False Local=False/False
+Leaf own      : Many:leaf
+Leaf inherited: Many:leaf
+Leaf Many     : Many:leaf | Many:leaf
+Leaf defined  : Once=False/False Local=False/False

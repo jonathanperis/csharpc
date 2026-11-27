@@ -19,7 +19,7 @@ internal static partial class BclValueTypes
             Rt(g, fn, g.Llvm.Ptr, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
 
         foreach (var (property, mask) in ModuleCodeGen.TypeFlagProperties)
-            t[$"{Type}.get_{property}()"] = (g, _, self, _, _) =>
+            t[$"{Type}.get_{property}()"] = (g, _, self, _, _) => g.KnownTypeFlag(self, mask) ??
                 Rt(g, "csrt_type_flag", g.Llvm.I1, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr), (g.Llvm.ConstUInt(g.Llvm.I64, mask), g.Llvm.I64));
         // Kinds of types csharpc never creates Type objects for: by-refs, method generic parameters,
         // function pointers, COM objects, remoting.
@@ -27,6 +27,7 @@ internal static partial class BclValueTypes
                      "IsCOMObject", "IsContextful", "IsMarshalByRef", "IsSignatureType" })
             t[$"{Type}.get_{property}()"] = (g, _, self, _, _) => { g.NullCheck(self); return g.Llvm.False; };
 
+        t[$"{Type}.get_Attributes()"] = (g, _, self, _, _) => Rt(g, "csrt_type_attributes", g.Llvm.I32, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
         t[$"{Type}.get_BaseType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_base", self);
         t[$"{Type}.GetElementType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_element", self);
         t[$"{Type}.GetEnumUnderlyingType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_enum_underlying", self);
@@ -51,6 +52,12 @@ internal static partial class BclValueTypes
             var array = Rt(g, "csrt_type_interfaces", g.Llvm.Ptr, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
             g.TagArray(array, g.Module.Compilation.GetTypeByMetadataName(Type)!);
             return array;
+        };
+        // Type.FindInterfaces: GetInterfaces filtered by the delegate, in its order (RuntimeType's; TraceLogging finds IEnumerable<T> with it).
+        t[$"{Type}.FindInterfaces(System.Reflection.TypeFilter, object)"] = (g, _, self, a, _) =>
+        {
+            g.Module.NoteGetInterfaces();
+            return g.CallCoreLib("ReflectionRuntime", "FindInterfaces", [self, .. a]);
         };
         t[$"{Type}.GetArrayRank()"] = (g, _, self, _, _) =>
             Rt(g, "csrt_type_array_rank", g.Llvm.I32, (self, g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
@@ -109,6 +116,12 @@ internal static partial class BclValueTypes
         t[$"{Type}.GetFields(System.Reflection.BindingFlags)"] = fieldLookup("GetFieldsFlags");
         t[$"{Type}.GetField(string)"] = fieldLookup("GetFieldName");
         t[$"{Type}.GetField(string, System.Reflection.BindingFlags)"] = fieldLookup("GetFieldNameFlags");
+        // Nested types are kept for the types whose nested types reach an annotated location (ModuleCodeGen.NestedTypes.cs).
+        BclHandler nestedLookup(string method) => (g, _, self, a, _) => g.CallCoreLib("NestedTypeReflection", method, [self, .. a]);
+        t[$"{Type}.GetNestedType(string)"] = nestedLookup("GetNestedTypeName");
+        t[$"{Type}.GetNestedType(string, System.Reflection.BindingFlags)"] = nestedLookup("GetNestedTypeNameFlags");
+        t[$"{Type}.GetNestedTypes()"] = nestedLookup("GetNestedTypesAll");
+        t[$"{Type}.GetNestedTypes(System.Reflection.BindingFlags)"] = nestedLookup("GetNestedTypesFlags");
         // Events are described once the program reads any (ModuleCodeGen.NoteEventsQueried).
         BclHandler eventLookup(string method) => (g, _, self, a, _) =>
         {
@@ -134,9 +147,15 @@ internal static partial class BclValueTypes
             g.Module.NoteTypeAttributesQueried();
             return g.CallCoreLib("ReflectionRuntime", g.InFrameworkIl ? "TypeAttributesAllFramework" : "TypeAttributesAll", [self, .. a]);
         };
-        t[$"{Type}.GetCustomAttributes(System.Type, bool)"] = typeAttributes("TypeAttributesOf");
-        t[$"{Type}.IsDefined(System.Type, bool)"] = typeAttributes("IsTypeDefined");
-        t[$"{Type}.GetCustomAttributesData()"] = typeAttributes("GetTypeCustomAttributesData");
+        // The same for the typed queries: the framework's IL asks CoreLib and library types for attribute classes it cannot be sure of.
+        BclHandler frameworkTypeAttributes(string method, string frameworkMethod) => (g, _, self, a, _) =>
+        {
+            g.Module.NoteTypeAttributesQueried();
+            return g.CallCoreLib("ReflectionRuntime", g.InFrameworkIl ? frameworkMethod : method, [self, .. a]);
+        };
+        t[$"{Type}.GetCustomAttributes(System.Type, bool)"] = frameworkTypeAttributes("TypeAttributesOf", "TypeAttributesOfFramework");
+        t[$"{Type}.IsDefined(System.Type, bool)"] = frameworkTypeAttributes("IsTypeDefined", "IsTypeDefinedFramework");
+        t[$"{Type}.GetCustomAttributesData()"] = frameworkTypeAttributes("GetTypeCustomAttributesData", "GetTypeCustomAttributesDataFramework");
         t[$"{Type}.MakeGenericType(System.Type[])"] = (g, _, self, a, _) =>
             Rt(g, "csrt_type_make_generic", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (Table(g), g.Llvm.Ptr));
         t[$"{Type}.MakeArrayType()"] = (g, _, self, _, _) => TypeResult(g, "csrt_type_make_array", self);
@@ -184,7 +203,9 @@ internal static partial class BclValueTypes
         t["System.Exception.get_Data()"] = (g, _, self, _, _) => g.CallCoreLib("ExceptionData", "Get", self);
         t["System.Exception.get_HelpLink()"] = (g, _, self, _, _) => g.CallCoreLib("ExceptionData", "GetHelpLink", self);
         t["System.Exception.set_HelpLink(string)"] = (g, _, self, a, _) => { g.CallCoreLib("ExceptionData", "SetHelpLink", self, a[0]); return default; };
-        t["System.Exception.get_Source()"] = (g, _, self, _, _) => g.CallCoreLib("ExceptionData", "GetSource", self);
+        // The framework's own IL (System.Text.Json compares it to its rethrow token) gets null for a thrown exception whose Source was never set;
+        // the program's own read keeps the explicit error, since it would see the throwing assembly's name.
+        t["System.Exception.get_Source()"] = (g, _, self, _, _) => g.CallCoreLib("ExceptionData", g.InFrameworkIl ? "GetSourceFramework" : "GetSource", self);
         t["System.Exception.set_Source(string)"] = (g, _, self, a, _) => { g.CallCoreLib("ExceptionData", "SetSource", self, a[0]); return default; };
         // The base implementation: a call that dispatches virtually to a user override is emitted by FunctionCodeGen.Exceptions.cs.
         t["System.Exception.GetObjectData(System.Runtime.Serialization.SerializationInfo, System.Runtime.Serialization.StreamingContext)"] =
@@ -202,6 +223,17 @@ internal static partial class BclValueTypes
         t["System.Type.GetType(string)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "GetTypeByName", a[0]);
         t["System.Type.GetType(string, bool)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "GetTypeByName", a[0], a[1]);
         t["System.Type.GetType(string, bool, bool)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "GetTypeByName", a[0], a[1], a[2]);
+        // Type.GetType with assembly and type resolvers (#104), and Type.InvokeMember: ReflectionRuntime.
+        const string AsmResolver = "System.Func<System.Reflection.AssemblyName, System.Reflection.Assembly>";
+        const string TypeResolver = "System.Func<System.Reflection.Assembly, string, bool, System.Type>";
+        t[$"System.Type.GetType(string, {AsmResolver}, {TypeResolver})"] = (g, _, _, a, _) =>
+            g.CallCoreLib("ReflectionRuntime", "GetTypeWithResolvers", a[0], a[1], a[2], g.Llvm.False, g.Llvm.False);
+        t[$"System.Type.GetType(string, {AsmResolver}, {TypeResolver}, bool)"] = (g, _, _, a, _) =>
+            g.CallCoreLib("ReflectionRuntime", "GetTypeWithResolvers", a[0], a[1], a[2], a[3], g.Llvm.False);
+        t[$"System.Type.GetType(string, {AsmResolver}, {TypeResolver}, bool, bool)"] = (g, _, _, a, _) =>
+            g.CallCoreLib("ReflectionRuntime", "GetTypeWithResolvers", a[0], a[1], a[2], a[3], a[4]);
+        t["System.Type.InvokeMember(string, System.Reflection.BindingFlags, System.Reflection.Binder, object, object[])"] = (g, _, self, a, _) =>
+            g.CallCoreLib("ReflectionRuntime", "InvokeMember", self, a[0], a[1], a[2], a[3], a[4]);
         t["System.Type.GetTypeCode(System.Type)"] = (g, _, _, a, _) => g.CallCoreLib("ReflectionRuntime", "GetTypeCode", a[0]);
         t["System.Activator.CreateInstance(System.Type)"] = (g, _, _, a, _) =>
             g.CallCoreLib("ReflectionRuntime", "ActivatorCreateInstance", a[0]);
@@ -252,9 +284,12 @@ internal static partial class BclValueTypes
                 ? throw CompileError.Unsupported("Assembly.GetExecutingAssembly() outside the program's own code", at)
                 : g.CallCoreLib("AssemblyImpl", "ForName", g.Module.StringLiteral(name));
         };
-        t["System.Reflection.Assembly.GetEntryAssembly()"] = (g, _, _, _, at) =>
-            g.Module.ProgramAssemblyName(g.Module.ProgramEntryPoint) is { } name
-                ? g.CallCoreLib("AssemblyImpl", "ForName", g.Module.StringLiteral(name))
-                : throw CompileError.Unsupported("Assembly.GetEntryAssembly() of a signed or wildcard-versioned assembly", at);
+        // NativeAOT walks no stack for GetCallingAssembly(): it is the entry assembly whoever calls it (the JIT returns the real
+        // caller's assembly, and System.Private.CoreLib when Main calls it). csharpc matches NativeAOT (#104).
+        foreach (var api in new[] { "GetEntryAssembly", "GetCallingAssembly" })
+            t[$"System.Reflection.Assembly.{api}()"] = (g, _, _, _, at) =>
+                g.Module.ProgramAssemblyName(g.Module.ProgramEntryPoint) is { } name
+                    ? g.CallCoreLib("AssemblyImpl", "ForName", g.Module.StringLiteral(name))
+                    : throw CompileError.Unsupported($"Assembly.{api}() of a signed or wildcard-versioned assembly", at);
     }
 }

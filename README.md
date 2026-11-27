@@ -34,7 +34,7 @@ and no CoreCLR at run time: the output is an ordinary native executable.
 
 Use it **standalone**, the way rustc is used (`csharpc app.cs -o app`, or on a `.csproj`), or as **.NET's
 AOT layer** in NativeAOT's place, behind `dotnet publish -p:PublishAot=true` (the end state,
-[ADR 0016](docs/adr/0016-nativeaot-parity-and-end-state.md)). Priorities, in order: **speed, security,
+[ADR 0016](docs/adr/0016-nativeaot-parity-and-end-state.md)). Priorities, in order: **security, speed,
 size** — each measured in CI against NativeAOT.
 
 ```console
@@ -356,6 +356,9 @@ See [docs/05-testing.md](docs/05-testing.md). CI shards that differential suite 
 run (`CI-Only:` on a `ci/**` branch, or Actions → CI (targeted)) does not count as the bar.
 
 ## Documentation
+
+The documentation is also published as a site, with a map of the codebase by responsibility:
+**[jonathanperis.dev/csharpc](https://jonathanperis.dev/csharpc/)**.
 
 | | |
 |---|---|

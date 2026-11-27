@@ -1,0 +1,35 @@
+utf8 41: Done U+0041 1 | last Done U+0041 1
+utf8 C3A9: Done U+00E9 2 | last Done U+00E9 2
+utf8 E282: NeedMoreData U+FFFD 2 | last NeedMoreData U+FFFD 2
+utf8 F09F9880: Done U+1F600 4 | last Done U+1F600 4
+utf8 C080: InvalidData U+FFFD 1 | last InvalidData U+FFFD 1
+utf8 EDA080: InvalidData U+FFFD 1 | last InvalidData U+FFFD 1
+utf8 F4908080: InvalidData U+FFFD 1 | last InvalidData U+FFFD 1
+utf8 80: InvalidData U+FFFD 1 | last InvalidData U+FFFD 1
+utf8 : NeedMoreData U+FFFD 0 | last NeedMoreData U+FFFD 0
+utf16 1: Done U+0061 1 valid-at-0 True
+utf16 2: Done U+1F600 2 valid-at-0 True
+utf16 1: NeedMoreData U+FFFD 1 valid-at-0 False
+utf16 2: InvalidData U+FFFD 1 valid-at-0 False
+utf16 0: NeedMoreData U+FFFD 0 valid-at-0 True
+U+0041 UppercaseLetter L1 D0 N-1 W0 U+0041 U+0061 plane 0 u8 1 u16 1 'A'
+U+0061 LowercaseLetter L1 D0 N-1 W0 U+0041 U+0061 plane 0 u8 1 u16 1 'a'
+U+0030 DecimalDigitNumber L0 D1 N0 W0 U+0030 U+0030 plane 0 u8 1 u16 1 '0'
+U+0663 DecimalDigitNumber L0 D1 N3 W0 U+0663 U+0663 plane 0 u8 2 u16 1 '٣'
+U+2163 LetterNumber L0 D0 N4 W0 U+2163 U+2173 plane 0 u8 3 u16 1 'Ⅳ'
+U+1F600 OtherSymbol L0 D0 N-1 W0 U+1F600 U+1F600 plane 1 u8 4 u16 2 '😀'
+U+10400 UppercaseLetter L1 D0 N-1 W0 U+10400 U+10428 plane 1 u8 4 u16 2 '𐐀'
+U+00DF LowercaseLetter L1 D0 N-1 W0 U+00DF U+00DF plane 0 u8 2 u16 1 'ß'
+U+0130 UppercaseLetter L1 D0 N-1 W0 U+0130 U+0130 plane 0 u8 2 u16 1 'İ'
+U+0020 SpaceSeparator L0 D0 N-1 W1 U+0020 U+0020 plane 0 u8 1 u16 1 ' '
+U+3000 SpaceSeparator L0 D0 N-1 W1 U+3000 U+3000 plane 0 u8 3 u16 1 '　'
+U+E000 PrivateUse L0 D0 N-1 W0 U+E000 U+E000 plane 0 u8 3 u16 1 ''
+encode True 4 F09F9880 2 D83D DE00
+too small False 0
+compare -1 True False True FFFD
+ArgumentOutOfRangeException value
+ArgumentOutOfRangeException ch
+format 😀 x
+30 61 1F600 FFFD 62 78 FFFD 79 🚀
+0049 True True True True
+1F600 1 True 1F600

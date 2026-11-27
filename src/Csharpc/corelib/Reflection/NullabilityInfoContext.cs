@@ -58,8 +58,28 @@ namespace CsharpcCoreLib
 
         public NullabilityInfoContextImpl() { }
 
-        private static IList<CustomAttributeData> DataOf(MemberInfo member) => CustomAttributeData.GetCustomAttributes(member);
-        private static IList<CustomAttributeData> DataOf(Type type) => CustomAttributeData.GetCustomAttributes(type);
+        // Attribute lists csharpc knows to be incomplete (a record's, whose synthesized attributes it cannot reproduce) are readable here when their
+        // [Nullable] attributes are exact: each member of such a type lists its own bytes in full.
+        private static IList<CustomAttributeData> DataOf(MemberInfo member)
+        {
+            ReflectionRuntime.EnterNullabilityRead();
+            try { return CustomAttributeData.GetCustomAttributes(member); }
+            finally { ReflectionRuntime.ExitNullabilityRead(); }
+        }
+
+        private static IList<CustomAttributeData> DataOf(Type type)
+        {
+            ReflectionRuntime.EnterNullabilityRead();
+            try { return CustomAttributeData.GetCustomAttributes(type); }
+            finally { ReflectionRuntime.ExitNullabilityRead(); }
+        }
+
+        private static IList<CustomAttributeData> DataOf(ParameterInfo parameter)
+        {
+            ReflectionRuntime.EnterNullabilityRead();
+            try { return CustomAttributeData.GetCustomAttributes(parameter); }
+            finally { ReflectionRuntime.ExitNullabilityRead(); }
+        }
 
         // memberInfo is a MemberInfo, then the declaring Types up to the outermost one; the Types are runtime type handles
         // in csharpc, hence the object-typed walk.
@@ -93,12 +113,13 @@ namespace CsharpcCoreLib
 
         public NullabilityInfo Create(ParameterInfo parameterInfo)
         {
+            CoreIntrinsics.NullabilityQueried();
             ArgumentNullException.ThrowIfNull(parameterInfo);
             // NullabilityInfo.Type of a ref/in/out parameter is its by-ref type, which csharpc has no Type object for.
             if (parameterInfo is RuntimeParameterInfoImpl { IsByRefParameter: true })
                 throw new NotSupportedException("NullabilityInfoContext.Create of the by-ref parameter '" + parameterInfo.Name + "' is not supported by csharpc yet (by-ref types are not described).");
 
-            IList<CustomAttributeData> attributes = CustomAttributeData.GetCustomAttributes(parameterInfo);
+            IList<CustomAttributeData> attributes = DataOf(parameterInfo);
             NullableAttributeStateParser parser = parameterInfo.Member is MethodBase method && IsPrivateOrInternalMethodAndAnnotationDisabled(method)
                 ? NullableAttributeStateParser.Unknown
                 : CreateParser(attributes);
@@ -212,18 +233,19 @@ namespace CsharpcCoreLib
 
         public NullabilityInfo Create(PropertyInfo propertyInfo)
         {
+            CoreIntrinsics.NullabilityQueried();
             ArgumentNullException.ThrowIfNull(propertyInfo);
 
             MethodInfo getter = propertyInfo.GetGetMethod(true);
             MethodInfo setter = propertyInfo.GetSetMethod(true);
             bool annotationsDisabled = (getter == null || IsPrivateOrInternalMethodAndAnnotationDisabled(getter))
                 && (setter == null || IsPrivateOrInternalMethodAndAnnotationDisabled(setter));
-            NullableAttributeStateParser parser = annotationsDisabled ? NullableAttributeStateParser.Unknown : CreateParser(CustomAttributeData.GetCustomAttributes(propertyInfo));
+            NullableAttributeStateParser parser = annotationsDisabled ? NullableAttributeStateParser.Unknown : CreateParser(DataOf(propertyInfo));
             NullabilityInfo nullability = GetNullabilityInfo(propertyInfo, propertyInfo.PropertyType, parser);
 
             if (getter != null)
             {
-                CheckNullabilityAttributes(nullability, CustomAttributeData.GetCustomAttributes(getter.ReturnParameter));
+                CheckNullabilityAttributes(nullability, DataOf(getter.ReturnParameter));
             }
             else
             {
@@ -234,7 +256,7 @@ namespace CsharpcCoreLib
             {
                 ParameterInfo[] parameters = setter.GetParameters();
                 ParameterInfo parameter = parameters[parameters.Length - 1];
-                CheckNullabilityAttributes(nullability, CustomAttributeData.GetCustomAttributes(parameter));
+                CheckNullabilityAttributes(nullability, DataOf(parameter));
             }
             else
             {
@@ -257,16 +279,18 @@ namespace CsharpcCoreLib
 
         public NullabilityInfo Create(EventInfo eventInfo)
         {
+            CoreIntrinsics.NullabilityQueried();
             ArgumentNullException.ThrowIfNull(eventInfo);
 
-            return GetNullabilityInfo(eventInfo, eventInfo.EventHandlerType, CreateParser(CustomAttributeData.GetCustomAttributes(eventInfo)));
+            return GetNullabilityInfo(eventInfo, eventInfo.EventHandlerType, CreateParser(DataOf(eventInfo)));
         }
 
         public NullabilityInfo Create(FieldInfo fieldInfo)
         {
+            CoreIntrinsics.NullabilityQueried();
             ArgumentNullException.ThrowIfNull(fieldInfo);
 
-            IList<CustomAttributeData> attributes = CustomAttributeData.GetCustomAttributes(fieldInfo);
+            IList<CustomAttributeData> attributes = DataOf(fieldInfo);
             NullableAttributeStateParser parser = IsPrivateOrInternalFieldAndAnnotationDisabled(fieldInfo) ? NullableAttributeStateParser.Unknown : CreateParser(attributes);
             NullabilityInfo nullability = GetNullabilityInfo(fieldInfo, fieldInfo.FieldType, parser);
             CheckNullabilityAttributes(nullability, attributes);

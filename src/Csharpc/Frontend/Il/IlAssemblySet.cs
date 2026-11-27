@@ -37,9 +37,7 @@ public sealed class IlAssemblySet : IDisposable
     public bool IsCoreLib(ISymbol? symbol) => OwnerOf(symbol) is { IsCoreLib: true };
 
     /// <summary>Opens and validates the assemblies; throws <see cref="InvalidOperationException"/> with a user-facing message.</summary>
-    /// <param name="nestedTypesVisibleIn">The program whose private nested types the binding compilation must be able to name
-    /// (reflection-based JSON metadata for them is generated in another assembly; JsonReflectionContexts.Il.cs).</param>
-    public static IlAssemblySet Load(IEnumerable<string> paths, string? nestedTypesVisibleIn = null)
+    public static IlAssemblySet Load(IEnumerable<string> paths)
     {
         var set = new IlAssemblySet();
         foreach (var path in paths.Select(Path.GetFullPath).Distinct(StringComparer.Ordinal))
@@ -56,9 +54,7 @@ public sealed class IlAssemblySet : IDisposable
             if (!reader.IsAssembly) throw new InvalidOperationException($"'{path}' is a module, not an assembly");
             if (IsReferenceAssembly(reader))
                 throw new InvalidOperationException($"'{path}' is a reference assembly (no method bodies); reference the implementation assembly instead");
-            var image = nestedTypesVisibleIn is not null && string.Equals(path, Path.GetFullPath(nestedTypesVisibleIn), StringComparison.Ordinal)
-                ? JsonReflectionContexts.WithPrivateNestedTypesInternal(bytes, pe, reader) : bytes;
-            var reference = MetadataReference.CreateFromImage(image, filePath: path);
+            var reference = MetadataReference.CreateFromImage(bytes, filePath: path);
             set._assemblies.Add(new IlAssembly(path, pe, reader, reference));
         }
         return set;
@@ -390,6 +386,13 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         }
     }
 
+    private static readonly Dictionary<string, string> CoreLibInternalTypes = new(StringComparer.Ordinal)
+    {
+        ["System.Collections.Generic.NonRandomizedStringEqualityComparer"] = "CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer",
+        ["System.Collections.Generic.RandomizedStringEqualityComparer"] = "CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer",
+        ["System.Collections.Generic.IInternalStringEqualityComparer"] = "CsharpcCoreLib.UpstreamInternalStringEqualityComparer",
+    };
+
     private INamedTypeSymbol ResolveTypeReference(TypeReferenceHandle handle)
     {
         if (_typeRefs.TryGetValue(handle, out var cached)) return cached;
@@ -407,8 +410,24 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
             case HandleKind.AssemblyReference:
                 var assemblyName = Reader.GetString(Reader.GetAssemblyReference((AssemblyReferenceHandle)reference.ResolutionScope).Name);
                 if (!_referenced.TryGetValue(assemblyName, out var assembly))
+                {
+                    // The corelib bound from its sources (--corelib source, CSHARPC_CHECK_CORELIB): its types are in the binding compilation, not in an
+                    // assembly of their own. The slice of CoreLib types (UpstreamSupport, the string comparers) calls them.
+                    if (assemblyName == "CsharpcCoreLib" && Compilation.GetTypeByMetadataName(full) is { } fromSource)
+                    {
+                        result = fromSource;
+                        break;
+                    }
                     throw new IlException($"'{full}' is defined in assembly '{assemblyName}', which '{Name}' references but csharpc was not given (pass it with -r)");
+                }
                 result = assembly.GetTypeByMetadataName(full) ?? assembly.ResolveForwardedType(full) ?? Compilation.GetTypeByMetadataName(full);
+                // System.RuntimeType, CoreLib's internal implementation of System.Type: csharpc's Type objects are all of one runtime class,
+                // so framework IL that casts to it or names it in a signature (RuntimeTypeHandle's members) means System.Type.
+                if (result is null && full == "System.RuntimeType" && assemblyName == "System.Private.CoreLib") result = Compilation.GetTypeByMetadataName("System.Type");
+                // CoreLib's internal comparer family for string keys (OrderedDictionary, SortedSet... name it): csharpc's own types of the same shape,
+                // as the slicer's profile redirects them (tools/il-first/slicer, "no special comparer").
+                if (result is null && assemblyName == "System.Private.CoreLib" && CoreLibInternalTypes.TryGetValue(full, out var internalType))
+                    result = Compilation.GetTypeByMetadataName(internalType);
                 break;
             case HandleKind.ModuleDefinition:
                 result = Symbol.GetTypeByMetadataName(full);
@@ -417,6 +436,75 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                 throw new IlException($"type reference '{full}' with a {reference.ResolutionScope.Kind} scope (multi-module assembly)");
         }
         return _typeRefs[handle] = result ?? throw new IlException($"type '{full}' referenced by '{Name}' was not found");
+    }
+
+    /// <summary>
+    /// A private field of a built-in type that the reference pack doesn't declare and CoreLib's IL reads or writes: Int128's and UInt128's
+    /// <c>_lower</c> / <c>_upper</c>, decimal's <c>_flags</c> / <c>_hi32</c> / <c>_lo64</c>. csharpc lays these types out as .NET does (an
+    /// LLVM i128, little-endian: the lower half at byte 0; decimal as { int, uint, ulong }), so the field is the value's bytes at
+    /// <paramref name="offset"/> (FunctionCodeGen.BuiltinPrivateFields.cs).
+    /// </summary>
+    public bool IsBuiltinPrivateField(int token, IlGenericContext context, out int offset, out SpecialType type) =>
+        IsBuiltinPrivateField(token, context, out offset, out type, out _);
+
+    /// <summary>
+    /// As above; <paramref name="afterHeader"/> is true for a field of a built-in reference type (string's _stringLength and _firstChar, which
+    /// the String members hosted from CoreLib IL read through `this`): its offset counts from the end of the object header (the method-table
+    /// pointer), whose size follows the target's pointer size (csrt_String in src/runtime/csrt.h: { mt, int32 length, uint16 chars[] }).
+    /// </summary>
+    public bool IsBuiltinPrivateField(int token, IlGenericContext context, out int offset, out SpecialType type, out bool afterHeader)
+    {
+        (offset, type, afterHeader) = (0, SpecialType.None, false);
+        var handle = MetadataTokens.EntityHandle(token);
+        if (handle.Kind != HandleKind.MemberReference) return false;
+        var reference = Reader.GetMemberReference((MemberReferenceHandle)handle);
+        if (reference.GetKind() != MemberReferenceKind.Field || reference.Parent.Kind is not (HandleKind.TypeReference or HandleKind.TypeDefinition)) return false;
+        var name = Reader.GetString(reference.Name);
+        if (name is not ("_lower" or "_upper" or "_flags" or "_hi32" or "_lo64" or "m_value" or "_dateData" or "_ticks" or "_stringLength" or "_firstChar")) return false;
+        var owner = ResolveType(reference.Parent, context).Type;
+        if (owner.SpecialType == SpecialType.System_String)
+        {
+            (offset, type, afterHeader) = name switch
+            {
+                "_stringLength" => (0, SpecialType.System_Int32, true),
+                "_firstChar" => (4, SpecialType.System_Char, true),
+                _ => (0, SpecialType.None, false),
+            };
+            return type != SpecialType.None;
+        }
+        (offset, type) = (owner, name) switch
+        {
+            (_, "_lower") when CodeGen.Int128Support.Is128(owner) => (0, SpecialType.System_UInt64),
+            (_, "_upper") when CodeGen.Int128Support.Is128(owner) => (8, SpecialType.System_UInt64),
+            ({ SpecialType: SpecialType.System_Decimal }, "_flags") => (0, SpecialType.System_Int32),
+            ({ SpecialType: SpecialType.System_Decimal }, "_hi32") => (4, SpecialType.System_UInt32),
+            ({ SpecialType: SpecialType.System_Decimal }, "_lo64") => (8, SpecialType.System_UInt64),
+            // A primitive's own value (int.m_value, which the members hosted from its IL read through `this`), DateTime's _dateData and
+            // TimeSpan's _ticks: csharpc's representation of each is that value itself.
+            ({ SpecialType: >= SpecialType.System_Boolean and <= SpecialType.System_Double or SpecialType.System_IntPtr or SpecialType.System_UIntPtr }, "m_value") => (0, owner.SpecialType),
+            ({ SpecialType: SpecialType.System_DateTime }, "_dateData") => (0, SpecialType.System_UInt64),
+            (_, "_ticks") when CodeGen.BclValueTypes.IsTimeSpan(owner) => (0, SpecialType.System_Int64),
+            _ => (0, SpecialType.None),
+        };
+        return type != SpecialType.None;
+    }
+
+    /// <summary>
+    /// Span&lt;T&gt;'s and ReadOnlySpan&lt;T&gt;'s private fields (_reference, _length), which CoreLib's IL reads (string.CopyTo(Span&lt;char&gt;):
+    /// `ref destination._reference`): csharpc's span is .NET's layout, { ref T, int } (TypeMapper), so they are its two members.
+    /// </summary>
+    public bool IsSpanPrivateField(int token, IlGenericContext context, out INamedTypeSymbol? span, out bool isReference)
+    {
+        (span, isReference) = (null, false);
+        var handle = MetadataTokens.EntityHandle(token);
+        if (handle.Kind != HandleKind.MemberReference) return false;
+        var reference = Reader.GetMemberReference((MemberReferenceHandle)handle);
+        if (reference.GetKind() != MemberReferenceKind.Field || reference.Parent.Kind != HandleKind.TypeSpecification) return false;
+        var name = Reader.GetString(reference.Name);
+        if (name is not ("_reference" or "_length")) return false;
+        if (ResolveType(reference.Parent, context).Type is not INamedTypeSymbol { MetadataName: "Span`1" or "ReadOnlySpan`1", ContainingType: null } owner) return false;
+        (span, isReference) = (owner, name == "_reference");
+        return true;
     }
 
     /// <summary>A field, method or constructor token (FieldDef, MethodDef, MemberRef, MethodSpec).</summary>
@@ -493,6 +581,13 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                 // A field-like event's backing field (hidden from Roslyn's symbols), as a FieldDef token resolves.
                 if (t.GetMembers(name).OfType<IEventSymbol>().FirstOrDefault() is { } backed) return OnConstructed(owner, backed);
             }
+            // A CoreLib-internal field the reference pack lacks: the field of the type's corelib shadow that stands for it
+            // (SpinWait.SpinCountForSpinBeforeWait, which SemaphoreSlim reads; NumberFormatInfo._numberGroupSizes, which the framework's
+            // number formatting reads).
+            if (ShadowedField(definition, name) is { } shadowedField) return shadowedField;
+            // A static readonly field the replacement keeps as a lazily initialized static property (CompareInfo.Invariant): its getter,
+            // which ldsfld calls (FunctionCodeGen.IlInstructions.cs).
+            if (ShadowedStaticProperty(definition, name) is { } getter) return getter;
             throw new IlException($"field '{owner}.{name}' not found");
         }
 
@@ -515,7 +610,40 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
         // A member of System.Private.CoreLib the reference pack doesn't have (Debug.SetProvider, which System.Diagnostics.TraceSource
         // calls; string.GetRawStringData and the other internals the framework's own CoreLib IL calls): the corelib shadow that implements it.
         if (ShadowedMember(owner, definition, reference, name, arity, header) is { } shadowed) return shadowed;
+        if (!header.IsInstance && HostedMember(definition, reference, name, arity) is { } hosted) return hosted;
         throw new IlException($"method '{owner}.{name}' with the referenced signature not found");
+    }
+
+    private IMethodSymbol? ShadowedStaticProperty(INamedTypeSymbol definition, string name)
+    {
+        if (definition.ContainingType is not null || definition.IsGenericType) return null;
+        var full = definition.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + definition.MetadataName : definition.MetadataName;
+        foreach (var declaration in CoreLibAssembly.ShadowsOf(Compilation))
+            if (!declaration.MembersOnly && declaration.Real == full && Compilation.GetTypeByMetadataName(declaration.Shadow) is { } shadow
+                && shadow.GetMembers(name).OfType<IPropertySymbol>().FirstOrDefault(p => p.IsStatic && p.Parameters.IsEmpty) is { GetMethod: { } get })
+                return get;
+        return null;
+    }
+
+    /// <summary>
+    /// A non-public static helper of a built-in type that the reference pack doesn't declare (UInt128.LeadingZeroCountAsInt32, ulong's
+    /// private TryConvertFromChecked&lt;TOther&gt;), which the slice carries in the type's host class next to the members that call it
+    /// (tools/il-first/slicer: `host:` roots and what they reach).
+    /// </summary>
+    private IMethodSymbol? HostedMember(INamedTypeSymbol definition, MemberReference reference, string name, int arity)
+    {
+        if (definition.ContainingType is not null) return null;
+        var full = definition.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + definition.MetadataName : definition.MetadataName;
+        if (!UpstreamSlice.MemberClasses.TryGetValue(full, out var classes)) return null;
+        foreach (var className in classes)
+            foreach (var holder in Compilation.GetTypesByMetadataName(className))
+                foreach (var candidate in holder.GetMembers(name).OfType<IMethodSymbol>())
+                {
+                    if (!candidate.IsStatic || candidate.Arity != arity) continue;
+                    var signature = reference.DecodeMethodSignature(this, new IlGenericContext([], [.. candidate.TypeParameters]));
+                    if (Matches(candidate, signature)) return candidate;
+                }
+        return null;
     }
 
     /// <summary>
@@ -536,11 +664,33 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                     .FirstOrDefault(m => m.Arity == 1 && m.Parameters.Length == 2) is { } create)
                 return create.Construct(owner.TypeArguments[0]);
         }
-        if (CoreLibAssembly.Current is not { } corelib || definition.ContainingType is not null) return null;
+        if (definition.ContainingType is null && definition.MetadataName is "Task" or "Task`1" && definition.ContainingNamespace.ToDisplayString() == "System.Threading.Tasks"
+            && TaskInternalMember(owner, reference, name, arity, header) is { } taskMember)
+            return taskMember;
+        // new Lock(bool useTrivialWaits), CoreLib-internal (the framework's ManualResetEventSlim): the flag only chooses how .NET's lock
+        // parks a waiter, which csharpc's runtime lock decides itself, so it is the public new Lock().
+        if (name == ".ctor" && header.IsInstance && definition.MetadataName == "Lock" && definition.ContainingType is null
+            && definition.ContainingNamespace.ToDisplayString() == "System.Threading"
+            && reference.DecodeMethodSignature(this, new IlGenericContext([], [])).ParameterTypes is [{ Type.SpecialType: SpecialType.System_Boolean }]
+            && definition.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty) is { } plainLock)
+            return plainLock;
+        if (definition.ContainingType is not null) return null;
         var full = definition.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + definition.MetadataName : definition.MetadataName;
-        foreach (var declaration in corelib.Shadows)
+        foreach (var declaration in CoreLibAssembly.ShadowsOf(Compilation))
         {
             if (declaration.Real != full || Compilation.GetTypeByMetadataName(declaration.Shadow) is not { } container) continue;
+            // An internal constructor of a value type whose shadow carries only members: a [ShadowConstructor] static factory with the
+            // constructor's parameters; `newobj` takes the factory's result as the new value (FunctionCodeGen.IlCalls.cs).
+            if (name == ".ctor" && header.IsInstance && declaration.MembersOnly && definition.IsValueType && arity == 0)
+            {
+                var ctorSignature = reference.DecodeMethodSignature(this, new IlGenericContext([], []));
+                foreach (var factory in container.GetMembers().OfType<IMethodSymbol>())
+                    if (factory.IsStatic && SameType(factory.ReturnType, definition) && factory.GetAttributes().Any(a => a.AttributeClass?.Name == "ShadowConstructorAttribute")
+                        && factory.Parameters.Length == ctorSignature.ParameterTypes.Length
+                        && factory.Parameters.Zip(ctorSignature.ParameterTypes).All(p => (p.First.RefKind != RefKind.None) == p.Second.IsByRef && SameType(p.First.Type, p.Second.Type)))
+                        return factory;
+                continue;
+            }
             var typeContext = new IlGenericContext(IlGenericContext.TypeParametersOf(container), []);
             foreach (var candidate in container.GetMembers(name).OfType<IMethodSymbol>())
             {
@@ -557,6 +707,39 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                     return candidate;
             }
         }
+        return null;
+    }
+
+    /// <summary>
+    /// CoreLib-internal members of Task / Task&lt;TResult&gt; that the framework's own CoreLib IL uses for its promise-style tasks (SemaphoreSlim's
+    /// TaskNode : Task&lt;bool&gt;). A csharpc task is the runtime's object and a TaskCompletionSource is its own task, so the task's internal
+    /// (state, options) constructors and its TrySetResult/TrySetCanceled are TaskCompletionSource(&lt;T&gt;)'s members of the same name and
+    /// signature, called on the task (a derived class's base-constructor call lays the object out over the runtime task,
+    /// ModuleCodeGen.TaskSources.cs). The completed-task constructor (bool canceled, TResult, options, token) is the corelib's
+    /// ColdTasks.Completed, whose result the newobj site takes as the new object.
+    /// </summary>
+    private IMethodSymbol? TaskInternalMember(INamedTypeSymbol owner, MemberReference reference, string name, int arity, SignatureHeader header)
+    {
+        if (arity != 0 || !header.IsInstance) return null;
+        var signature = reference.DecodeMethodSignature(this, new IlGenericContext([.. owner.TypeArguments], []));
+        if (name == ".ctor" && owner.TypeArguments is [var result] && signature.ParameterTypes is [{ Type.SpecialType: SpecialType.System_Boolean }, var value, { Type.Name: "TaskCreationOptions" }, { Type.Name: "CancellationToken" }]
+            && SameType(value.Type, result) && Compilation.GetTypeByMetadataName("CsharpcCoreLib.ColdTasks") is { } coldTasks
+            && coldTasks.GetMembers("Completed").OfType<IMethodSymbol>().FirstOrDefault(m => m.Arity == 1) is { } completed)
+            return completed.Construct(result);
+        var source = Compilation.GetTypeByMetadataName(owner.TypeArguments.IsEmpty ? "System.Threading.Tasks.TaskCompletionSource" : "System.Threading.Tasks.TaskCompletionSource`1");
+        if (source is null) return null;
+        var constructed = owner.TypeArguments.IsEmpty ? source : source.Construct([.. owner.TypeArguments]);
+        return constructed.GetMembers(name).OfType<IMethodSymbol>().FirstOrDefault(m => m.Arity == 0 && !m.IsStatic && Matches(m, signature));
+    }
+
+    private IFieldSymbol? ShadowedField(INamedTypeSymbol definition, string name)
+    {
+        if (definition.ContainingType is not null || definition.IsGenericType) return null;
+        var full = definition.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + definition.MetadataName : definition.MetadataName;
+        foreach (var declaration in CoreLibAssembly.ShadowsOf(Compilation))
+            if (declaration.Real == full && Compilation.GetTypeByMetadataName(declaration.Shadow) is { } container
+                && container.GetMembers(name).OfType<IFieldSymbol>().FirstOrDefault() is { } field)
+                return field;
         return null;
     }
 
@@ -602,6 +785,24 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
     }
 
     /// <summary>Type identity as metadata sees it: no tuple names, dynamic is object, nint is IntPtr.</summary>
+    /// <summary>
+    /// A CoreLib type served from the framework's IL and its reference-pack twin (System.Numerics.BFloat16 and the slice's
+    /// CsharpcCoreLib.Upstream.System.Numerics.BFloat16): one type to the program, so a signature naming either matches the other (a corelib
+    /// contract member returning BFloat16, called by the slice's IL).
+    /// </summary>
+    private static bool SliceTwins(INamedTypeSymbol a, INamedTypeSymbol b)
+    {
+        if (a.Name != b.Name || UpstreamSlice.Entries.Count == 0) return false;
+        var (na, nb) = (FullMetadataName(a), FullMetadataName(b));
+        foreach (var (real, slice) in UpstreamSlice.Entries)
+            if ((real == na && slice == nb) || (real == nb && slice == na)) return true;
+        return false;
+    }
+
+    private static string FullMetadataName(INamedTypeSymbol t) =>
+        t.ContainingType is { } outer ? FullMetadataName(outer) + "+" + t.MetadataName
+        : t.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + t.MetadataName : t.MetadataName;
+
     public static bool SameType(ITypeSymbol a, ITypeSymbol b)
     {
         if (ReferenceEquals(a, b)) return true;
@@ -619,7 +820,7 @@ public sealed class IlAssembly : IDisposable, ISignatureTypeProvider<IlType, IlG
                 return SymbolEqualityComparer.Default.Equals(a, b);
             case INamedTypeSymbol an when b is INamedTypeSymbol bn:
                 if (an.SpecialType != SpecialType.None || bn.SpecialType != SpecialType.None) return an.SpecialType == bn.SpecialType;
-                if (!SymbolEqualityComparer.Default.Equals(an.OriginalDefinition, bn.OriginalDefinition)) return false;
+                if (!SymbolEqualityComparer.Default.Equals(an.OriginalDefinition, bn.OriginalDefinition) && !SliceTwins(an.OriginalDefinition, bn.OriginalDefinition)) return false;
                 if (an.ContainingType is { } ac && bn.ContainingType is { } bc && !SameType(ac, bc)) return false;
                 var at = an.TypeArguments;
                 var bt = bn.TypeArguments;

@@ -30,8 +30,10 @@ public sealed partial class FunctionCodeGen
         // `var t = typeof(X); t.GetFields()`: a local assigned typeof(X) stands for it (FunctionCodeGen.TypeofLocals.cs).
         else if (inv.Instance is ILocalReferenceOperation && target.ContainingType is { Name: "Type" or "TypeInfo" })
             foreach (var known in KnownTypeofValues(inv.Instance)) NoteReflectedType(target, S(known), reflectedName);
+        if (TryDefaultComparerCall(inv, target) is { } defaultComparerResult) return defaultComparerResult;
         if (inv.Instance is { } shadowReceiver && _m.CoreLib.MapForReceiver(target, TypeOf(shadowReceiver)) is { } shadowMember) target = shadowMember;
         if (IsCoreIntrinsic(target)) return EmitCoreIntrinsic(target, inv);
+        if (TrySimdCall(inv, target) is { } simd) return simd;
         if (target is { Name: "RunClassConstructor", IsStatic: true, ContainingType: { Name: "RuntimeHelpers", ContainingNamespace.Name: "CompilerServices" } } && inv.Arguments.Length == 1)
         {
             // Static initialization is lazy per type with compile-time triggers (ModuleCodeGen.StaticInit.cs), so only a handle
@@ -43,9 +45,14 @@ public sealed partial class FunctionCodeGen
             }
             throw CompileError.Unsupported("RuntimeHelpers.RunClassConstructor with a handle that is not typeof(X).TypeHandle", inv);
         }
-        if (target.IsStatic) CheckJsonSerializerRoots(target, inv);
+        NoteReflectionRoots(target, inv);
+        if (inv is IlOperation && InFrameworkIl && inv.Instance is { } fieldsReceiver && target is { Name: "GetFields", Parameters: [{ Type.Name: "BindingFlags" }], ContainingType: { Name: "Type", ContainingNamespace.Name: "System" } })
+            return CallCoreLib("FieldReflection", "FrameworkGetFields", [EmitValue(fieldsReceiver), EmitArgumentValue(inv.Arguments[0])]);
         if (TypeObjectMember(inv.TargetMethod, inv.Instance) is { } typeMember) return CallBcl(typeMember, inv.TargetMethod, inv.Instance, inv.Arguments, inv);
-        if (!_memberInfoDispatch && inv is IlOperation && inv.Instance is { } memberInfoReceiver && inv.TargetMethod is { IsStatic: false, IsVirtual: true } or { IsStatic: false, IsAbstract: true }
+        if (inv is IlOperation && InFrameworkIl && inv.Instance is { } attributeReceiver && FrameworkAttributeQuery(inv.TargetMethod) is { } attributeQuery)
+            return CallCoreLib("ReflectionRuntime", attributeQuery, [EmitValue(attributeReceiver), .. inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(EmitArgumentValue)]);
+        if (inv is IlOperation && InFrameworkIl && FrameworkStaticAttributeQuery(inv) is { } staticAttributes) return staticAttributes;
+        if (!_memberInfoDispatch && (inv is IlOperation || IsSimpleAttributeProviderReceiver(inv.Instance)) && inv.Instance is { } memberInfoReceiver && inv.TargetMethod is { IsStatic: false, IsVirtual: true } or { IsStatic: false, IsAbstract: true }
             && IsMemberInfoReference(memberInfoReceiver) && BclValueTypes.TryGetForType(inv.TargetMethod, out var typeOrMemberInfo))
             return EmitTypeOrMemberInfo(inv.TargetMethod, memberInfoReceiver, inv.Arguments, typeOrMemberInfo, inv, () => EmitInvocation(inv));
         if (UnsafeAccessorOf(target) is { } unsafeAccessor) return EmitUnsafeAccessor(target, unsafeAccessor, inv);
@@ -73,6 +80,10 @@ public sealed partial class FunctionCodeGen
         if (TryValueEqualityCall(inv, target) is { } equalityResult) return equalityResult;
         // Span enumerators are ref structs with no state to dispose (the foreach finally calls IDisposable.Dispose).
         if (target.Name == "Dispose" && TypeMapper.IsSpanEnumerator(TypeOf(inv.Instance))) return default;
+        // foreach over an array cast in its header (`(IEnumerable<T>)array`): its enumerator is the stack index of
+        // ArrayGetEnumerator, and the finally's `((IDisposable)e).Dispose()` reaches it through a conversion. An array's enumerator
+        // disposes nothing, as SZGenericArrayEnumerator's Dispose in .NET; an interface call on the stack slot read garbage (#516).
+        if (IsArrayEnumeratorDispose(inv)) return default;
         if (!target.IsStatic && inv.Instance is { } receiver)
         {
             var receiverType = TypeOf(receiver);
@@ -90,7 +101,9 @@ public sealed partial class FunctionCodeGen
                 if (target.Name == "ToString" && target.Parameters.IsEmpty) return FormatValue(EmitValue(receiver), receiverType, inv);
                 // IL's `constrained. T? callvirt object::Equals/GetHashCode`: Nullable<T>'s overrides, which an
                 // empty T? answers without a box (boxing it gives null).
-                if (TypeMapper.IsNullable(receiverType) && target.Name == "GetHashCode" && target.Parameters.IsEmpty)
+                // object.GetHashCode() of a value type is what EqualityComparer<T>.Default.GetHashCode is for it (HashOf), without the box and
+                // the virtual call: the framework's collections hash a `T item` this way (HashSet<T>).
+                if (target.Name == "GetHashCode" && target.Parameters.IsEmpty)
                     return HashOf(receiverType, EmitValue(receiver), inv);
                 if (TypeMapper.IsNullable(receiverType) && target.Name == "Equals" && target.Parameters is [{ Type.SpecialType: SpecialType.System_Object }])
                     return NullableEqualsObject(EmitValue(receiver), TypeMapper.NullableUnderlying(receiverType), EmitArgument(inv.Arguments[0]), inv);
@@ -111,13 +124,16 @@ public sealed partial class FunctionCodeGen
             var self = ModuleCodeGen.HasThis(target) || ModuleCodeGen.HasExtensionReceiver(target) || (CoreLib.IsInstanceShadow(target) && inv.Instance is not null)
                 ? Receiver(inv.Instance!, target) : default;
             var isBaseCall = inv.Instance?.Syntax is BaseExpressionSyntax;
-            return EmitUserCall(target, self, ReceiverIsNonNull(inv.Instance, target), arguments, inv.IsVirtual && !isBaseCall);
+            return EmitUserCall(target, self, ReceiverIsNonNull(inv.Instance, target), arguments, inv.IsVirtual && !isBaseCall, receiver: inv.Instance);
         }
         if (TrySpanMethod(inv, out var spanResult)) return spanResult;
         if (Intrinsics.TryGet(target, out var handler)) return handler(this, inv);
         if (TryEmitLibraryExceptionCall(inv, out var result)) return result;
         if (BclValueTypes.TryGetRaw(target, out var raw)) return raw(this, inv);
         if (BclValueTypes.TryGet(target, out var bcl)) return CallBcl(bcl, target, inv.Instance, inv.Arguments, inv);
+        // Last: a built-in type's member from its own CoreLib IL (every lowering above keeps priority).
+        if (HostedBuiltinMember(target, inv.ConstrainedToType) is { } hosted)
+            return target.IsStatic || inv.Instance is null ? EmitUserCall(hosted, default, true, inv.Arguments, isVirtual: false) : EmitHostedInstanceCall(hosted, target, inv.Instance, inv.Arguments);
         throw CompileError.MissingIntrinsic(target, inv);
     }
 
@@ -134,18 +150,6 @@ public sealed partial class FunctionCodeGen
         bool Matches(IMethodSymbol m) => m.IsStatic && m.Parameters.Length == parameters.Length
             && m.Parameters.Select(p => p.Type).SequenceEqual(parameters, SymbolEqualityComparer.Default);
 
-        // BigInteger predicates: null is zero in the runtime representation (runtime/bigint.c).
-        if (BclValueTypes.IsBigInteger(concrete) && parameters.Length == 1 && target.Name is "IsZero" or "IsNegative" or "IsPositive")
-        {
-            var x = Coerce(EmitValue(inv.Arguments[0].Value), TypeOf(inv.Arguments[0].Value), concrete);
-            var cmp = CallRuntime("csrt_bigint_compare", L.I32, [L.Ptr, L.Ptr], x, LlvmContext.Null(L.Ptr));
-            return target.Name switch
-            {
-                "IsZero" => _b.ICmp(LLVMIntPredicate.EQ, cmp, L.ConstInt(L.I32, 0)),
-                "IsNegative" => _b.ICmp(LLVMIntPredicate.SLT, cmp, L.ConstInt(L.I32, 0)),
-                _ => _b.ICmp(LLVMIntPredicate.SGE, cmp, L.ConstInt(L.I32, 0)),
-            };
-        }
         // decimal predicates: compare with 0m (all-zero bits); the sign bit of `flags` means negative (-0m too).
         if (concrete.SpecialType == SpecialType.System_Decimal && parameters.Length == 1 && target.Name is "IsZero" or "IsNegative" or "IsPositive")
         {
@@ -183,6 +187,11 @@ public sealed partial class FunctionCodeGen
             long one = target.Name is "get_One" or "get_MultiplicativeIdentity" ? 1 : 0;
             return type.IsFloatingPoint ? LlvmContext.ConstReal(type, one) : L.ConstInt(type, one);
         }
+
+        // IMinMaxValue<T>.MinValue / MaxValue on a primitive number: the type's own constant field (int.MinValue ...).
+        if (target.Name is "get_MinValue" or "get_MaxValue" && parameters.Length == 0 && target.ContainingType.Name == "IMinMaxValue"
+            && concrete.GetMembers(target.Name[4..]).OfType<IFieldSymbol>().FirstOrDefault(f => f is { IsStatic: true, IsConst: true, HasConstantValue: true }) is { } minMax)
+            return Constant(minMax.ConstantValue, concrete, inv);
 
         // IBinaryInteger<T>.ReadBigEndian/ReadLittleEndian(source, isUnsigned) on a primitive integer (explicit
         // interface implementations there): the corelib reads the bytes and checks that the value fits.
@@ -272,7 +281,7 @@ public sealed partial class FunctionCodeGen
     }
 
     /// <summary>
-    /// A corelib shadow of a BCL struct (BFloat16, Decimal32, ...) implements the interface members generic code constrains on as
+    /// A corelib shadow of a BCL struct (Half, ...) implements the interface members generic code constrains on as
     /// plain public statics of the BCL type, without naming the interfaces (it can't declare the operators INumberBase asks of
     /// the type it shadows): the static member of the same name and signature. A member the shadow lacks stays unimplemented.
     /// </summary>
@@ -296,25 +305,48 @@ public sealed partial class FunctionCodeGen
         return null;
     }
 
+    /// <summary>
+    /// A member of an interface constructed over a CoreLib type that the program sees as its replacement (the slice's Decimal128 served from
+    /// the framework's IL for System.Numerics.Decimal128): the same member of the interface over the replacement, which is what the
+    /// replacement implements (`INumberBase&lt;System.Numerics.Decimal128&gt;.CreateTruncating` -> `INumberBase&lt;slice Decimal128&gt;.CreateTruncating`).
+    /// Without it, Roslyn finds no implementation, and a default interface member from the reference pack (no body) or a same-named
+    /// overload (CompareTo(object) for IComparable&lt;T&gt;.CompareTo(T)) would be called.
+    /// </summary>
+    internal IMethodSymbol InterfaceMemberOverShadow(ITypeSymbol concrete, IMethodSymbol target)
+    {
+        if (concrete is not INamedTypeSymbol named || _m.CoreLib.RealNameOf(named) is null || target.ContainingType.TypeArguments.IsEmpty) return target;
+        var arguments = target.ContainingType.TypeArguments.Select(a => _m.CoreLib.Map(a)).ToArray();
+        if (target.ContainingType.ContainingType is not null || arguments.Select((a, i) => ReferenceEquals(a, target.ContainingType.TypeArguments[i])).All(same => same)) return target;
+        var mapped = target.ContainingType.OriginalDefinition.Construct(arguments);
+        var definition = (target.IsGenericMethod ? target.ConstructedFrom : target).OriginalDefinition;
+        foreach (var member in mapped.GetMembers(target.Name).OfType<IMethodSymbol>())
+            if (SymbolEqualityComparer.Default.Equals(member.OriginalDefinition, definition))
+                return target.IsGenericMethod ? member.Construct([.. target.TypeArguments]) : member;
+        return target;
+    }
+
     /// <summary>Static abstract/virtual interface member + constrained type → the concrete implementation.</summary>
     internal IMethodSymbol? ResolveStaticInterfaceMember(IMethodSymbol target, ITypeSymbol? constrainedTo)
     {
         if (!target.IsStatic || target.ContainingType.TypeKind != TypeKind.Interface || constrainedTo is null) return null;
         var concrete = S(constrainedTo);
-        if (concrete is ITypeParameterSymbol || !_m.IsUserType(concrete)) return null; // primitives: generic-math paths
-        var implementation = concrete.FindImplementationForInterfaceMember(target) as IMethodSymbol;
-        // A member whose own type arguments are set (`IAdapter.WaitAsync<int>`) is not found by Roslyn from the constructed symbol on every
-        // path (sample 1272): ask for the generic definition within the same containing type (keeping a nested type's arguments).
-        if (implementation is null && target.IsGenericMethod)
-            implementation = concrete.FindImplementationForInterfaceMember(target.ConstructedFrom) as IMethodSymbol;
+        if (concrete is ITypeParameterSymbol) return null;
+        if (!_m.IsUserType(concrete)) return BuiltinStaticInterfaceMember(target, concrete); // primitives: generic-math paths, or an IL interface they implement inside CoreLib
+        target = InterfaceMemberOverShadow(concrete, target);
+        // A member whose own type arguments are set (`IAdapter.WaitAsync<int>`, `IDecoder<byte>.Wrap<ByteDecoder>`) is not found by Roslyn from
+        // the constructed symbol (null on some paths, sample 1272; InvalidOperationException on others, #192): ask for the generic definition
+        // within the same containing type (keeping the interface's and a nested type's arguments); its type arguments are applied below.
+        var implementation = concrete.FindImplementationForInterfaceMember(target.IsGenericMethod ? target.ConstructedFrom : target) as IMethodSymbol;
         implementation ??= ShadowStaticMember(concrete, target);
         // A generic static abstract member (`static abstract bool IsNullableAt<TState>(...)`) is implemented by the type's
         // generic method definition: it takes the call's type arguments, or its body would be lowered open.
         if (implementation is { IsGenericMethod: true } && target.IsGenericMethod && SymbolEqualityComparer.Default.Equals(implementation, implementation.ConstructedFrom)
             && implementation.TypeParameters.Length == target.TypeArguments.Length)
             implementation = implementation.Construct([.. target.TypeArguments.Select(a => S(a))]);
+        // Roslyn answers a default interface member with the member itself; one of the reference pack has no body here (HostedDefaultInterfaceMember).
+        if (implementation is { ContainingType.TypeKind: TypeKind.Interface } && HostedDefaultInterfaceMember(implementation) is { } hostedDefault) return hostedDefault;
         return implementation
-            ?? (target.IsAbstract ? throw CompileError.Unsupported($"no implementation of '{target}' on '{concrete}'", target) : target);
+            ?? (target.IsAbstract ? throw CompileError.Unsupported($"no implementation of '{target}' on '{concrete}'", target) : HostedDefaultInterfaceMember(target) ?? target);
     }
 
     /// <summary>
@@ -325,7 +357,7 @@ public sealed partial class FunctionCodeGen
     private Dictionary<IArgumentOperation, LLVMValueRef>? _argumentCache;
 
     internal LLVMValueRef EmitUserCall(IMethodSymbol target, LLVMValueRef self, bool selfIsNonNull,
-        ImmutableArray<IArgumentOperation> arguments, bool isVirtual, LLVMValueRef[]? extraArgs = null)
+        ImmutableArray<IArgumentOperation> arguments, bool isVirtual, LLVMValueRef[]? extraArgs = null, IOperation? receiver = null)
     {
         var hasThis = ModuleCodeGen.HasThis(target);
         // A corelib [ShadowInstance] static implementing a library instance method: the receiver is its
@@ -353,6 +385,8 @@ public sealed partial class FunctionCodeGen
         var dispatch = isVirtual && hasThis && (target.IsVirtual || target.IsAbstract || target.IsOverride)
             && !target.IsSealed && !target.ContainingType.IsSealed;
         if (dispatch && target.IsGenericMethod) return GenericVirtualCall(target, self, args);
+        // The receiver's exact class is known from its allocation (FunctionCodeGen.ExactTypes.cs, #370).
+        if (dispatch && ExactReceiverImplementation(target, receiver) is { } exact) return DirectCall(exact, args);
         if (dispatch && _m.Devirtualize(target) is { } only) return DirectCall(only, args); // closed-world CHA
         return dispatch ? VirtualCall(target, self, args) : DirectCall(target, args);
     }
@@ -374,7 +408,7 @@ public sealed partial class FunctionCodeGen
         return target.ReturnsVoid ? default : call;
     }
 
-    private LLVMValueRef DirectCall(IMethodSymbol target, LLVMValueRef[] args)
+    internal LLVMValueRef DirectCall(IMethodSymbol target, LLVMValueRef[] args)
     {
         var f = _m.GetFunction(target);
         return _b.Call(f.Type, f.Fn, args);
@@ -403,8 +437,10 @@ public sealed partial class FunctionCodeGen
         var parameter = argument.Parameter!;
         if (parameter.RefKind is RefKind.In or RefKind.RefReadOnlyParameter) return AddressOrSpill(argument.Value);
         if (parameter.RefKind != RefKind.None) return AddressOf(argument.Value);
+        // S() on the target's parameter too: a local function of a generic local function takes the outer method's T (#425), which
+        // S(method) does not substitute (it is neither the local function's own type parameter nor its containing type's).
         var parameterType = target is not null && parameter.Ordinal < target.Parameters.Length
-            ? target.Parameters[parameter.Ordinal].Type
+            ? S(target.Parameters[parameter.Ordinal].Type)
             : S(parameter.Type);
         return Coerce(EmitValue(argument.Value), TypeOf(argument.Value), parameterType);
     }
@@ -455,6 +491,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitObjectCreation(IObjectCreationOperation creation)
     {
+        if (creation.Type is INamedTypeSymbol { IsGenericType: true } createdGeneric && IsProgramMethod(_method)) _m.NoteProgramInstantiation(_subst.Apply(createdGeneric));
         if (creation.Initializer is not null) throw CompileError.Unsupported("object initializer", creation);
         if (creation.Constructor is { } created) NoteDynamicallyAccessedArguments(S(created), creation.Arguments);
         var type = (INamedTypeSymbol)TypeOf(creation)!;
@@ -488,7 +525,10 @@ public sealed partial class FunctionCodeGen
         // the library's (bodiless) constructor.
         if (!_m.IsUserMethod(constructor)) throw CompileError.MissingIntrinsic(creation.Constructor!, creation);
         var layout = _m.GetLayout(type);
-        var obj = Allocate(layout.MethodTable, L.ConstInt(L.I64, (long)layout.InstanceSize));
+        // (shared generic code: the exact class's table from the dictionary; its finalizer, if any, kept the method exact)
+        var obj = SharedHandleOf(SharedHandle.Alloc, type) is { } sharedMt
+            ? CallRuntime("csrt_alloc", L.Ptr, [L.Ptr, L.I64], sharedMt, L.ConstInt(L.I64, (long)layout.InstanceSize))
+            : Allocate(layout.MethodTable, L.ConstInt(L.I64, (long)layout.InstanceSize));
         EmitUserCall(constructor, obj, selfIsNonNull: true, creation.Arguments, isVirtual: false);
         return obj;
     }
@@ -589,7 +629,10 @@ public sealed partial class FunctionCodeGen
                     || SymbolEqualityComparer.Default.Equals(S(type), S(target))
                     // A T value tested against T? (a T? input's payload, the pattern typed by a type parameter = T?).
                     || (TypeMapper.IsNullable(S(target)) && SymbolEqualityComparer.Default.Equals(S(type), S(TypeMapper.NullableUnderlying(S(target)))))
-                    || ((Microsoft.CodeAnalysis.CSharp.CSharpCompilation)_m.Compilation).ClassifyConversion(type, target) is { IsImplicit: true, IsBoxing: true };
+                    || ((Microsoft.CodeAnalysis.CSharp.CSharpCompilation)_m.Compilation).ClassifyConversion(type, target) is { IsImplicit: true, IsBoxing: true }
+                    // A framework slice's struct (Guid) implements its interfaces over its own copy of itself (IComparable<its Guid>) while
+                    // the tested interface names the real one (IComparable<System.Guid> for T = Guid): decide it on the real types.
+                    || ((Microsoft.CodeAnalysis.CSharp.CSharpCompilation)_m.Compilation).ClassifyConversion(_m.CoreLib.Unmap(type), _m.CoreLib.Unmap(target)) is { IsImplicit: true, IsBoxing: true };
                 if (!TypeMapper.IsNullable(from)) return Boxes(from) ? L.True : L.False;
                 var (has, _, underlying) = NullableParts(value, from); // a null T? boxes to null
                 return Boxes(underlying) ? has : L.False;
@@ -604,17 +647,57 @@ public sealed partial class FunctionCodeGen
     /// <summary>isinst: the object if it is a <paramref name="target"/>, else null.</summary>
     internal LLVMValueRef IsInst(LLVMValueRef value, ITypeSymbol target, IOperation at)
     {
+        if (SharedHandleOf(SharedHandle.Cast, target) is { } shared) return CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], value, shared);
         if (IsDelegateBase(target)) return _b.Select(IsDelegateObject(value), value, LlvmContext.Null(L.Ptr));
         if (IsVariantDelegate(target, out var d))
         {
             var test = _m.VariantDelegateTestFor(d);
             return _b.Call(test.Type, test.Fn, [value]);
         }
-        return CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], value, MethodTableFor(target, at));
+        if (WaitHandleBase(target) is { } eventsOnly)
+            return CallRuntime("csrt_isinst_wait_handle", L.Ptr, [L.Ptr, L.I1], value, eventsOnly ? L.True : L.False);
+        return CallRuntime("csrt_isinst_class", L.Ptr, [L.Ptr, L.Ptr], value, TypeTestMethodTable(target) ?? MethodTableFor(target, at));
+    }
+
+    /// <summary>
+    /// WaitHandle / EventWaitHandle (#97): bases of the runtime's event, mutex and semaphore objects, whose tables have no base chain
+    /// (runtime/threads.c, csrt_isinst_wait_handle). True for EventWaitHandle (only the events), false for WaitHandle, null otherwise.
+    /// </summary>
+    private bool? WaitHandleBase(ITypeSymbol target) =>
+        target is INamedTypeSymbol { Name: "WaitHandle" or "EventWaitHandle", ContainingType: null, ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } named
+        && !_m.IsUserType(named) ? named.Name == "EventWaitHandle" : null;
+
+    /// <summary>
+    /// The runtime method table of a primitive's, decimal's, DateTime's or TimeSpan's box for a type test: a test matches only a box,
+    /// and every box is made through a real reference to the table, so the test alone must not count as one: it would compile that
+    /// type's interface slots and the corelib code the runtime calls for it (DateTime's formatter and the calendars behind it,
+    /// ModuleCodeGen.RuntimeExports.cs) into programs that never box the type. Null for other types.
+    /// </summary>
+    private LLVMValueRef? TypeTestMethodTable(ITypeSymbol target)
+    {
+        var name = IsBoxablePrimitive(target) ? $"csrt_Boxed_{target.MetadataName}_MT"
+            : BclValueTypes.IsDecimal(target) ? "csrt_Boxed_Decimal_MT"
+            : BclValueTypes.IsDateTime(target) ? "csrt_Boxed_DateTime_MT"
+            : BclValueTypes.IsTimeSpan(target) ? "csrt_Boxed_TimeSpan_MT" : null;
+        return name is null ? null : _m.TypeTestGlobal(name);
     }
 
     private LLVMValueRef CastClass(LLVMValueRef value, ITypeSymbol target, IOperation at)
     {
+        if (WaitHandleBase(target) is { } eventsOnly)
+        {
+            var matches = _b.ICmp(LLVMIntPredicate.NE, IsInst(value, target, at), LlvmContext.Null(L.Ptr));
+            var passes = _b.BinOp(LLVMOpcode.Or, matches, _b.ICmp(LLVMIntPredicate.EQ, value, LlvmContext.Null(L.Ptr)));
+            var mismatch = NewBlock("cast.fail");
+            var castOk = NewBlock("cast.done");
+            _b.CondBr(passes, castOk, mismatch);
+            _b.PositionAtEnd(mismatch);
+            CallRuntime("csrt_castclass", L.Ptr, [L.Ptr, L.Ptr], value, _m.ExternalGlobal(eventsOnly ? "csrt_EventWaitHandle_MT" : "csrt_WaitHandle_MT"));
+            _b.Br(castOk);
+            _b.PositionAtEnd(castOk);
+            return value;
+        }
+        if (SharedHandleOf(SharedHandle.Cast, target) is { } shared) return CallRuntime("csrt_castclass", L.Ptr, [L.Ptr, L.Ptr], value, shared);
         if (IsDelegateBase(target))
         {
             // null or a delegate passes; anything else fails with .NET's message (csrt_castclass, which
@@ -700,7 +783,10 @@ public sealed partial class FunctionCodeGen
         or SpecialType.System_Byte or SpecialType.System_SByte or SpecialType.System_Double or SpecialType.System_Single
         or SpecialType.System_Boolean or SpecialType.System_Char or SpecialType.System_IntPtr or SpecialType.System_UIntPtr;
 
-    private LLVMValueRef MethodTableFor(ITypeSymbol type, IOperation at) => _m.CoreLib.Map(type) switch
+    private LLVMValueRef MethodTableFor(ITypeSymbol type, IOperation at) => MethodTableFor(_m, type, at);
+
+    /// <summary>The method table a type test, cast, box or unbox of <paramref name="type"/> uses (also what a generic dictionary holds for it).</summary>
+    internal static LLVMValueRef MethodTableFor(ModuleCodeGen _m, ITypeSymbol type, IOperation at) => _m.CoreLib.Map(type) switch
     {
         { SpecialType: SpecialType.System_String } => _m.ExternalGlobal("csrt_String_MT"),
         { SpecialType: SpecialType.System_Object } => _m.ExternalGlobal("csrt_Object_MT"),
@@ -735,8 +821,8 @@ public sealed partial class FunctionCodeGen
         INamedTypeSymbol { Name: "CancellationTokenSource", ContainingNamespace: { Name: "Threading", ContainingNamespace.Name: "System" } } =>
             _m.ExternalGlobal("csrt_CancellationTokenSource_MT"), // a runtime object (runtime/async.c)
         // ManualResetEvent and AutoResetEvent are runtime objects with a table each (runtime/threads.c; `new` makes
-        // them there): System.Transactions casts its lock's handle to ManualResetEvent. A test against their bases
-        // (WaitHandle, EventWaitHandle) stays an explicit diagnostic: the tables have no base chain to them.
+        // them there): System.Transactions casts its lock's handle to ManualResetEvent. Tests against their bases
+        // (WaitHandle, EventWaitHandle) are IsInst's WaitHandleBase.
         INamedTypeSymbol { Name: "ManualResetEvent" or "AutoResetEvent", ContainingType: null, ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } named =>
             _m.ExternalGlobal(named.Name == "ManualResetEvent" ? "csrt_ManualResetEvent_MT" : "csrt_AutoResetEvent_MT"),
         // Threads and locks are runtime objects of sealed types with one method table each (runtime/threads.c):
@@ -747,13 +833,18 @@ public sealed partial class FunctionCodeGen
         INamedTypeSymbol { Name: "Mutex" or "Semaphore", ContainingType: null, ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } named =>
             _m.ExternalGlobal(named.Name == "Mutex" ? "csrt_Mutex_MT" : "csrt_Semaphore_MT"),
         _ when IsBoxablePrimitive(type) => _m.ExternalGlobal($"csrt_Boxed_{type.MetadataName}_MT"),
-        _ when BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) || BclValueTypes.IsBigInteger(type) || Int128Support.Is128(type) => _m.TypeMethodTable(type, at),
+        _ when BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) || Int128Support.Is128(type) => _m.TypeMethodTable(type, at),
+        _ when IsIndexType(type) => _m.IndexRangeMethodTable(isRange: false),
+        _ when IsRangeType(type) => _m.IndexRangeMethodTable(isRange: true),
         INamedTypeSymbol { TypeKind: TypeKind.Enum } e => _m.EnumMethodTable(e),
         INamedTypeSymbol { TypeKind: TypeKind.Class } named when _m.IsUserType(named) || _m.IsLibraryException(named) =>
             _m.GetLayout(named).MethodTable,
         INamedTypeSymbol { TypeKind: TypeKind.Struct } named when _m.IsUserType(named) => _m.StructMethodTable(named),
+        // ValueTask and CancellationToken are library structs with no shadow of their own (their members are mapped one by one): their
+        // boxes get a struct table like any struct's, with their Equals/GetHashCode overrides (#96).
+        INamedTypeSymbol named when ModuleCodeGen.IsPointerLibraryStruct(named) => _m.StructMethodTable(named),
         INamedTypeSymbol { TypeKind: TypeKind.Interface } itf => _m.InterfaceMethodTable(itf),
-        INamedTypeSymbol { IsTupleType: true } tuple => _m.TupleMethodTable(tuple, this),
+        INamedTypeSymbol { IsTupleType: true } tuple => _m.TupleMethodTable(tuple, null!),
         INamedTypeSymbol memory when TypeMapper.IsMemory(memory) => _m.MemoryMethodTable(memory),
         // Every delegate of a type shares that type's method table (DelegateMethodTable), so a type test is an
         // identity test — except where generic variance would also accept other instantiations.
@@ -826,11 +917,18 @@ public sealed partial class FunctionCodeGen
             "GetConstructor" or "GetConstructors" or "MakeGenericType" => ModuleCodeGen.DamConstructors,
             "GetField" or "GetFields" => ModuleCodeGen.DamFields,
             "GetEvent" or "GetEvents" => ModuleCodeGen.DamEvents,
+            "GetNestedType" or "GetNestedTypes" => ModuleCodeGen.DamNestedTypes,
             // GetMember(s) look through every kind; the name filter of a GetMember also matches ".ctor", so it stays unrestricted.
             "GetMember" or "GetMembers" => ModuleCodeGen.DamMethods | ModuleCodeGen.DamConstructors | ModuleCodeGen.DamProperties | ModuleCodeGen.DamFields | ModuleCodeGen.DamEvents,
+            // typeof(X).InvokeMember("M", ...) (#104): .NET's InvokeMember annotates `this` with its InvokeMemberMembers (methods,
+            // constructors, properties and fields); a literal name keeps the members of that name, as for GetMethod.
+            "InvokeMember" => ModuleCodeGen.DamMethods | ModuleCodeGen.DamConstructors | ModuleCodeGen.DamProperties | ModuleCodeGen.DamFields,
             _ => 0,
         };
-        if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds, target.Name is "GetProperty" or "GetMethod" or "GetField" or "GetEvent" ? name : null);
+        if (kinds != 0) _m.MarkDynamicallyAccessed(type, kinds, target.Name is "GetProperty" or "GetMethod" or "GetField" or "GetEvent" or "InvokeMember" ? name : null);
+        // typeof(G<,>).MakeGenericType(...): G is instantiated over the types the program rooted for reflection.
+        if (target.Name == "MakeGenericType" && type is INamedTypeSymbol { IsGenericType: true } open && (open.IsUnboundGenericType || open.IsDefinition))
+            _m.NoteMakeGenericDefinition(open);
     }
 
     /// <summary>Type.GetType(string, ...) or Assembly.GetType(string, ...): a lookup by name.</summary>
@@ -841,9 +939,70 @@ public sealed partial class FunctionCodeGen
 
     private bool _memberInfoDispatch;
 
+    /// <summary>
+    /// Source code calling an ICustomAttributeProvider member on a parameter or local: it may hold a Type (which converts to the
+    /// interface), whose members the Type handlers answer. Other receivers would be evaluated twice by that dispatch, so they are
+    /// left to the interface call.
+    /// </summary>
+    private bool IsSimpleAttributeProviderReceiver(IOperation? instance)
+    {
+        while (instance is IConversionOperation { IsImplicit: true } conversion) instance = conversion.Operand;
+        return instance is IParameterReferenceOperation or ILocalReferenceOperation && IsMemberInfoReference(instance)
+            && TypeOf(instance) is INamedTypeSymbol { Name: "ICustomAttributeProvider" };
+    }
+
+    /// <summary>
+    /// MemberInfo / ParameterInfo / ICustomAttributeProvider attribute queries called from the framework's own IL: the corelib's
+    /// Framework* entry points (which also take a Type, and answer with what csharpc models where it cannot complete a list).
+    /// </summary>
+    private static string? FrameworkAttributeQuery(IMethodSymbol method)
+    {
+        if (method.IsStatic || method.ContainingType is not { ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } } owner
+            || owner.Name is not ("MemberInfo" or "ParameterInfo" or "ICustomAttributeProvider")) return null;
+        var parameters = method.Parameters;
+        return method.Name switch
+        {
+            "GetCustomAttributes" when parameters is [{ Type.SpecialType: SpecialType.System_Boolean }] => "FrameworkAttributes",
+            "GetCustomAttributes" when parameters is [{ Type.Name: "Type" }, { Type.SpecialType: SpecialType.System_Boolean }] => "FrameworkAttributesOf",
+            "IsDefined" when parameters is [{ Type.Name: "Type" }, { Type.SpecialType: SpecialType.System_Boolean }] => "FrameworkIsDefined",
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// Attribute.GetCustomAttributes / GetCustomAttribute / IsDefined(MemberInfo, ...) called from the framework's own IL (System.ComponentModel's
+    /// TypeDescriptor reads every type's attributes this way): the same partial answers as the instance queries above.
+    /// </summary>
+    private LLVMValueRef? FrameworkStaticAttributeQuery(IInvocationOperation inv)
+    {
+        var method = inv.TargetMethod;
+        // CustomAttributeData.GetCustomAttributes(MemberInfo) (Microsoft.Extensions.Logging's ProviderAliasUtilities on a program's logger
+        // provider type): the partial answer too (#199); the program's own call keeps the shadow's exact-or-unknown answer.
+        if (method is { IsStatic: true, Name: "GetCustomAttributes", Parameters: [{ Type.Name: "MemberInfo" }] }
+            && method.ContainingType is { Name: "CustomAttributeData", ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } })
+        {
+            _m.NoteTypeAttributesQueried();
+            return CallCoreLib("ReflectionRuntime", "MemberAttributeDataFramework", EmitArgumentValue(inv.Arguments[0]));
+        }
+        if (!method.IsStatic || method.ContainingType is not { Name: "Attribute", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } }
+            || method.Parameters is not [{ Type.Name: "MemberInfo" }, ..] parameters) return null;
+        var helper = method.Name switch
+        {
+            "GetCustomAttributes" when parameters.Length == 1 || parameters is [_, { Type.SpecialType: SpecialType.System_Boolean }] => "StaticAttributesAll",
+            "GetCustomAttributes" when parameters is [_, { Type.Name: "Type" }] or [_, { Type.Name: "Type" }, { Type.SpecialType: SpecialType.System_Boolean }] => "StaticAttributes",
+            "GetCustomAttribute" when parameters is [_, { Type.Name: "Type" }] or [_, { Type.Name: "Type" }, { Type.SpecialType: SpecialType.System_Boolean }] => "StaticAttribute",
+            "IsDefined" when parameters is [_, { Type.Name: "Type" }] or [_, { Type.Name: "Type" }, { Type.SpecialType: SpecialType.System_Boolean }] => "StaticIsDefined",
+            _ => null,
+        };
+        if (helper is null) return null;
+        var arguments = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(EmitArgumentValue).ToList();
+        if (parameters.Length == 1 || parameters is [_, { Type.Name: "Type" }]) arguments.Add(L.True); // inherit defaults to true
+        return CallCoreLib("ReflectionRuntime", helper, [.. arguments]);
+    }
+
     /// <summary>A receiver typed MemberInfo (not Type): at run time it may be one of csharpc's Type objects, which have no MemberInfo vtable.</summary>
     private bool IsMemberInfoReference(IOperation instance) =>
-        TypeOf(instance) is INamedTypeSymbol named && _m.CoreLib.Unmap(named) is INamedTypeSymbol { Name: "MemberInfo", ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } };
+        TypeOf(instance) is INamedTypeSymbol named && _m.CoreLib.Unmap(named) is INamedTypeSymbol { Name: "MemberInfo" or "ICustomAttributeProvider", ContainingNamespace: { Name: "Reflection", ContainingNamespace.Name: "System" } };
 
     /// <summary>
     /// A MemberInfo member called through a MemberInfo-typed reference (System.Text.Json reads attributes of a Type or a PropertyInfo
@@ -904,6 +1063,7 @@ public sealed partial class FunctionCodeGen
         var property = S(p.Property);
         if (TypeMapper.IsNullable(property.ContainingType)) return EmitNullableMember(p);
         if (property.ContainingType.IsAnonymousType) return AnonymousPropertyGet(p);
+        if (TrySimdProperty(p, property) is { } simdProperty) return simdProperty;
         // `T.Zero` on a static abstract interface property implemented by a user type.
         if (property is { IsStatic: true, GetMethod: { } staticAbstractGetter } && ResolveStaticInterfaceMember(staticAbstractGetter, p.ConstrainedToType) is { } staticGetter)
             return EmitUserCall(staticGetter, default, true, p.Arguments, isVirtual: false);
@@ -993,7 +1153,7 @@ public sealed partial class FunctionCodeGen
             for (var i = 0; i < extra.Length; i++) args[args.Length - extra.Length + i] = extra[i];
             return InterfaceDispatch(accessor, self, args);
         }
-        return EmitUserCall(accessor, self, ReceiverIsNonNull(p.Instance, accessor), p.Arguments, isVirtual: !isBase, extra);
+        return EmitUserCall(accessor, self, ReceiverIsNonNull(p.Instance, accessor), p.Arguments, isVirtual: !isBase, extra, receiver: p.Instance);
     }
 
     // ======================================================================================
@@ -1002,6 +1162,7 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitArrayCreation(IArrayCreationOperation creation)
     {
+        if (creation.Type is IArrayTypeSymbol createdArray && IsProgramMethod(_method)) _m.NoteProgramInstantiation(_subst.Apply(createdArray));
         var arrayType = (IArrayTypeSymbol)TypeOf(creation)!;
         if (arrayType.Rank != 1) return EmitMdArrayCreation(creation, arrayType);
         var length = ToIndex(EmitValue(creation.DimensionSizes[0]), TypeOf(creation.DimensionSizes[0])!);
@@ -1259,8 +1420,9 @@ public sealed partial class FunctionCodeGen
     // Strings
     // ======================================================================================
 
+    // string.Concat / `+` as .NET's: an empty operand gives the other one itself, both empty give string.Empty (#492).
     internal LLVMValueRef ConcatStrings(LLVMValueRef a, LLVMValueRef b) =>
-        CallRuntime("csrt_string_concat", L.Ptr, [L.Ptr, L.Ptr], a, b);
+        CallRuntime("csrt_string_concat_net", L.Ptr, [L.Ptr, L.Ptr], a, b);
 
     /// <summary>Strips conversions to object (boxing) so the value can be formatted by its real type.</summary>
     internal static IOperation Unbox(IOperation op)
@@ -1308,7 +1470,6 @@ public sealed partial class FunctionCodeGen
         SpecialType.System_Decimal => CallCoreLib("Number", "DecimalToString", value),
         SpecialType.System_DateTime => CallRuntime("csrt_datetime_to_string", L.Ptr, [L.I64], value),
         _ when BclValueTypes.IsTimeSpan(type) => CallRuntime("csrt_timespan_to_string", L.Ptr, [L.I64], value),
-        _ when BclValueTypes.IsBigInteger(type) => CallRuntime("csrt_bigint_to_string", L.Ptr, [L.Ptr], value),
         SpecialType.System_Int32 => CallRuntime("csrt_string_from_i32", L.Ptr, [L.I32], value),
         SpecialType.System_Int64 => CallRuntime("csrt_string_from_i64", L.Ptr, [L.I64], value),
         SpecialType.System_IntPtr when value.Type.IntWidth == 64 => CallRuntime("csrt_string_from_i64", L.Ptr, [L.I64], value),
@@ -1329,10 +1490,33 @@ public sealed partial class FunctionCodeGen
         _ => null,
     };
 
+    /// <summary>
+    /// `{value}` in an interpolated string, as the interpolation handlers append it (DefaultInterpolatedStringHandler.AppendFormatted&lt;T&gt;): a
+    /// value that is IFormattable at run time formats through ISpanFormattable.TryFormat, then IFormattable.ToString(null, provider), and only
+    /// anything else through ToString(), which may answer differently. A reference type is tested at run time (a subclass may implement the
+    /// interfaces); a struct by its type. Strings, numbers, enums and the other built-in values give the same text either way.
+    /// </summary>
+    internal LLVMValueRef InterpolationHole(IOperation valueOp)
+    {
+        var type = TypeOf(Unbox(valueOp));
+        if (type is null || type.SpecialType == SpecialType.System_String || type.TypeKind == TypeKind.Enum || TypeMapper.IsNullable(type)
+            || BclValueTypes.IsDecimal(type) || BclValueTypes.IsTicks(type) || Int128Support.Is128(type)
+            || type.SpecialType is >= SpecialType.System_Boolean and <= SpecialType.System_UIntPtr)
+            return ToStringValue(valueOp);
+        if (type.IsReferenceType || (type.IsValueType && type.AllInterfaces.Any(i => i is { Name: "IFormattable", ContainingNamespace.Name: "System" })))
+        {
+            // A lean entry point, not FormatWith's: a program that interpolates objects does not link composite formatting's special cases.
+            var op = Unbox(valueOp);
+            var value = EmitValue(op);
+            return CallCoreLib("Number", "FormatInterpolationHole", type.IsValueType ? Box(value, type, op) : value);
+        }
+        return ToStringValue(valueOp);
+    }
+
     /// <summary>`{value,alignment:format}` in an interpolated string.</summary>
     private LLVMValueRef AlignAndFormat(IInterpolationOperation hole)
     {
-        var piece = hole.FormatString is { } format ? FormatWith(hole.Expression, EmitValue(format)) : ToStringValue(hole.Expression);
+        var piece = hole.FormatString is { } format ? FormatWith(hole.Expression, EmitValue(format)) : InterpolationHole(hole.Expression);
         if (hole.Alignment is { } alignment)
             piece = CallRuntime("csrt_string_align", L.Ptr, [L.Ptr, L.I32], piece, Coerce(EmitValue(alignment), TypeOf(alignment), _m.Compilation.GetSpecialType(SpecialType.System_Int32)));
         return piece;
@@ -1352,7 +1536,6 @@ public sealed partial class FunctionCodeGen
         if (BclValueTypes.IsDecimal(type)) return CallCoreLib("Number", "FormatDecimal", value, format);
         if (BclValueTypes.IsDateTime(type)) return CallRuntime("csrt_datetime_format", L.Ptr, [L.I64, L.Ptr], value, format);
         if (BclValueTypes.IsTimeSpan(type)) return CallRuntime("csrt_timespan_format", L.Ptr, [L.I64, L.Ptr], value, format);
-        if (BclValueTypes.IsBigInteger(type)) return CallRuntime("csrt_bigint_format", L.Ptr, [L.Ptr, L.Ptr], value, format);
         switch (type.SpecialType)
         {
             case SpecialType.System_SByte or SpecialType.System_Int16 or SpecialType.System_Int32 or SpecialType.System_Int64:
@@ -1368,37 +1551,6 @@ public sealed partial class FunctionCodeGen
         }
         var obj = type.IsValueType ? Box(value, type, valueOp) : value;
         return CallRuntime("csrt_format_object", L.Ptr, [L.Ptr, L.Ptr], obj, format);
-    }
-
-    /// <summary>
-    /// value.ToString(format, provider) for numbers, decimal, DateTime and TimeSpan: the corelib's
-    /// *With formatters take the IFormatProvider (a CultureInfo or NumberFormatInfo / DateTimeFormatInfo
-    /// shadow, or null for the current culture). `format` may be a null pointer.
-    /// </summary>
-    internal LLVMValueRef FormatWithProvider(IOperation valueOp, LLVMValueRef format, LLVMValueRef provider)
-    {
-        valueOp = Unbox(valueOp);
-        var type = TypeOf(valueOp)!;
-        var value = EmitValue(valueOp);
-        if (type is INamedTypeSymbol { TypeKind: TypeKind.Enum }) return FormatWith(valueOp, format);
-        if (BclValueTypes.IsDecimal(type)) return CallCoreLib("Number", "FormatDecimalWith", value, format, provider);
-        if (BclValueTypes.IsDateTime(type)) return CallCoreLib("DateTimeOps", "FormatWith", value, format, provider);
-        if (BclValueTypes.IsTimeSpan(type)) return CallCoreLib("DateTimeOps", "TimeSpanFormatWith", value, format, provider);
-        switch (type.SpecialType)
-        {
-            case SpecialType.System_SByte or SpecialType.System_Int16 or SpecialType.System_Int32 or SpecialType.System_Int64:
-                return CallCoreLib("Number", "FormatInt64With", value.Type.IntWidth == 64 ? value : _b.Cast(LLVMOpcode.SExt, value, L.I64),
-                    format, L.ConstInt(L.I32, value.Type.IntWidth), provider);
-            case SpecialType.System_Byte or SpecialType.System_UInt16 or SpecialType.System_UInt32 or SpecialType.System_UInt64:
-                return CallCoreLib("Number", "FormatUInt64With", value.Type.IntWidth == 64 ? value : _b.Cast(LLVMOpcode.ZExt, value, L.I64),
-                    format, L.ConstInt(L.I32, value.Type.IntWidth), provider);
-            case SpecialType.System_Double:
-                return CallCoreLib("Number", "FormatDoubleWith", value, format, L.False, provider);
-            case SpecialType.System_Single:
-                return CallCoreLib("Number", "FormatDoubleWith", _b.Cast(LLVMOpcode.FPExt, value, L.F64), format, L.True, provider);
-        }
-        var obj = type.IsValueType ? Box(value, type, valueOp) : value;
-        return CallCoreLib("Number", "FormatObjectWith", obj, format, provider);
     }
 
     /// <summary>Builds an object[] from argument expressions (each already converted/boxed to object).</summary>
@@ -1544,4 +1696,16 @@ public sealed partial class FunctionCodeGen
     private static string NotCompiledHint(ITypeSymbol type) =>
         type.ContainingAssembly is { } asm && Frontend.FrameworkIl.NotCompiledFromIl.TryGetValue(asm.Name, out var why)
             ? $" ({asm.Name} is not compiled from IL: {why})" : "";
+
+    /// <summary>
+    /// `Dispose()` on the stack enumerator of a foreach over an array, also through implicit conversions (the finally's
+    /// `((IDisposable)e).Dispose()` when the array is cast in the foreach header, #516): it does nothing. Shared with the finally
+    /// elision (IsNoOpFinally), which must agree with what is emitted.
+    /// </summary>
+    internal bool IsArrayEnumeratorDispose(IInvocationOperation inv)
+    {
+        if (inv is not { TargetMethod.Name: "Dispose", Arguments.IsEmpty: true, Instance: { } enumerator }) return false;
+        while (enumerator is IConversionOperation { Conversion.IsImplicit: true } c) enumerator = c.Operand;
+        return TryArrayEnumerator(enumerator, out _);
+    }
 }

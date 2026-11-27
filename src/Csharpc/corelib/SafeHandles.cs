@@ -117,31 +117,7 @@ namespace CsharpcCoreLib
         public override bool IsInvalid => handle == new IntPtr(-1);
     }
 
-#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
-    /// <summary>A file descriptor (FileStream.SafeFileHandle, File.GetUnixFileMode(handle)); closed on release when owned.</summary>
-    [Shadows("Microsoft.Win32.SafeHandles.SafeFileHandle")]
-    public sealed class SafeFileHandleImpl : SafeHandleZeroOrMinusOneIsInvalidImpl
-    {
-        [DllImport("libc")] private static extern int close(int fd);
-
-        public SafeFileHandleImpl() : base(true) { }
-
-        public SafeFileHandleImpl(IntPtr preexistingHandle, bool ownsHandle) : base(ownsHandle) => SetHandle(preexistingHandle);
-
-        public override bool IsInvalid
-        {
-            get
-            {
-                long h = (long)handle;
-                return h < 0 || h > int.MaxValue;
-            }
-        }
-
-        public bool IsAsync => false;
-
-        protected override bool ReleaseHandle() => close((int)handle) == 0;
-    }
-#endif
+    // Microsoft.Win32.SafeHandles.SafeFileHandle comes from the framework's IL (upstream-types/System.IO.txt).
 
     /// <summary>
     /// The [LibraryImport] marshaller for SafeHandle parameters and results (Marshalling/SafeHandleMarshaller.cs):

@@ -1,6 +1,6 @@
 // Environment.GetFolderPath on Unix: port of dotnet/runtime's Environment.GetFolderPathCore.Unix.cs
 // (release/11.0, MIT): the XDG base directories and user-dirs.dirs, $HOME (or the password database).
-// macOS's NSSearchPath folders and Windows' known folders are not ported yet (NotSupportedException).
+// macOS's NSSearchPath folders come from NSFileManager as .NET's SystemNative_SearchPath; Windows' known folders are not ported yet.
 #nullable disable
 using System;
 using System.IO;
@@ -57,16 +57,16 @@ namespace CsharpcCoreLib
                 case Environment.SpecialFolder.UserProfile: return home;
                 case Environment.SpecialFolder.Templates: return ReadXdgDirectory(home, "XDG_TEMPLATES_DIR", "Templates");
 #if CSHARPC_TARGET_MACOS
+                // NSSearchPathDirectory values (Interop.SearchPath.cs): the user domain's folder, whatever $HOME says (#315).
                 case Environment.SpecialFolder.Desktop:
-                case Environment.SpecialFolder.DesktopDirectory:
+                case Environment.SpecialFolder.DesktopDirectory: return SearchPath(12 /* NSDesktopDirectory */);
                 case Environment.SpecialFolder.ApplicationData:
-                case Environment.SpecialFolder.LocalApplicationData:
-                case Environment.SpecialFolder.MyDocuments:
-                case Environment.SpecialFolder.MyMusic:
-                case Environment.SpecialFolder.MyVideos:
-                case Environment.SpecialFolder.MyPictures:
-                case Environment.SpecialFolder.InternetCache:
-                    throw new NotSupportedException("Environment.GetFolderPath(" + folder + ") on macOS is not supported by csharpc yet.");
+                case Environment.SpecialFolder.LocalApplicationData: return SearchPath(14 /* NSApplicationSupportDirectory */);
+                case Environment.SpecialFolder.MyDocuments: return SearchPath(9 /* NSDocumentDirectory */);
+                case Environment.SpecialFolder.MyMusic: return SearchPath(18 /* NSMusicDirectory */);
+                case Environment.SpecialFolder.MyVideos: return SearchPath(17 /* NSMoviesDirectory */);
+                case Environment.SpecialFolder.MyPictures: return SearchPath(19 /* NSPicturesDirectory */);
+                case Environment.SpecialFolder.InternetCache: return SearchPath(13 /* NSCachesDirectory */);
                 case Environment.SpecialFolder.Fonts: return Path.Combine(home, "Library", "Fonts");
                 case Environment.SpecialFolder.Favorites: return Path.Combine(home, "Library", "Favorites");
 #else
@@ -92,6 +92,59 @@ namespace CsharpcCoreLib
 #if CSHARPC_TARGET_WASI
         private static string HomeDirectory() => Environment.GetEnvironmentVariable("HOME");
 #else
+#if CSHARPC_TARGET_MACOS
+        // SystemNative_SearchPath (pal_searchpath.m) through the Objective-C runtime: the last URL NSFileManager gives for the directory in
+        // the user domain, as a path, or null. Foundation is loaded on first use (no link-time framework).
+        private const string ObjC = "/usr/lib/libobjc.A.dylib";
+        [DllImport(ObjC)] private static extern nint objc_getClass(byte* name);
+        [DllImport(ObjC)] private static extern nint sel_registerName(byte* name);
+        [DllImport(ObjC, EntryPoint = "objc_msgSend")] private static extern nint Send(nint receiver, nint selector);
+        [DllImport(ObjC, EntryPoint = "objc_msgSend")] private static extern nint Send(nint receiver, nint selector, nuint directory, nuint domains);
+        [DllImport(ObjC)] private static extern nint objc_autoreleasePoolPush();
+        [DllImport(ObjC)] private static extern void objc_autoreleasePoolPop(nint pool);
+        [DllImport("libc")] private static extern nint dlopen(byte* path, int mode);
+        private static bool s_foundation;
+
+        private static nint Class(string name)
+        {
+            byte* text = Utf8.ToNative(name);
+            nint result = objc_getClass(text);
+            Libc.free(text);
+            return result;
+        }
+
+        private static nint Sel(string name)
+        {
+            byte* text = Utf8.ToNative(name);
+            nint result = sel_registerName(text);
+            Libc.free(text);
+            return result;
+        }
+
+        private static string SearchPath(int directory)
+        {
+            if (!s_foundation)
+            {
+                byte* framework = Utf8.ToNative("/System/Library/Frameworks/Foundation.framework/Foundation");
+                dlopen(framework, 1 /* RTLD_LAZY */);
+                Libc.free(framework);
+                s_foundation = true;
+            }
+            nint pool = objc_autoreleasePoolPush();
+            try
+            {
+                nint fileManager = Send(Class("NSFileManager"), Sel("defaultManager"));
+                if (fileManager == 0) return null;
+                nint urls = Send(fileManager, Sel("URLsForDirectory:inDomains:"), (nuint)directory, 1 /* NSUserDomainMask */);
+                nint url = urls == 0 ? 0 : Send(urls, Sel("lastObject"));
+                nint path = url == 0 ? 0 : Send(url, Sel("path"));
+                nint utf8 = path == 0 ? 0 : Send(path, Sel("UTF8String"));
+                return utf8 == 0 ? null : Utf8.FromNative((byte*)utf8);
+            }
+            finally { objc_autoreleasePoolPop(pool); }
+        }
+#endif
+
         [DllImport("libc")] private static extern uint geteuid();
         [DllImport("libc")] private static extern byte* getpwuid(uint uid);
 

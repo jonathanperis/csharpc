@@ -54,6 +54,11 @@ public sealed class IrBuilder(LlvmContext context) : IDisposable
     public LLVMValueRef Select(LLVMValueRef cond, LLVMValueRef then, LLVMValueRef @else) =>
         LLVMBuildSelect(Ref, cond, then, @else, "");
 
+    // Vectors
+    public LLVMValueRef ExtractElement(LLVMValueRef vector, LLVMValueRef index) => LLVMBuildExtractElement(Ref, vector, index, "");
+    public LLVMValueRef InsertElement(LLVMValueRef vector, LLVMValueRef element, LLVMValueRef index) => LLVMBuildInsertElement(Ref, vector, element, index, "");
+    public LLVMValueRef ShuffleVector(LLVMValueRef v1, LLVMValueRef v2, LLVMValueRef mask) => LLVMBuildShuffleVector(Ref, v1, v2, mask, "");
+
     // Aggregates (structs, Nullable<T>, ValueTuple)
     public LLVMValueRef ExtractValue(LLVMValueRef aggregate, uint index, string name = "") =>
         LLVMBuildExtractValue(Ref, aggregate, index, name);
@@ -64,10 +69,23 @@ public sealed class IrBuilder(LlvmContext context) : IDisposable
     public LLVMValueRef Alloca(LLVMTypeRef type, string? name = "") => LLVMBuildAlloca(Ref, type, name ?? ""); // synthesized locals (e.g. lock's lockTaken) have null names
     // 128-bit integers are accessed 8-aligned: boxes keep their payload at offset 8 (a 16-aligned access there
     // is a movaps on a misaligned address), and csharpc's objects are 8-aligned.
+    // The same holds for a struct that holds one (a boxed enumerator or KeyValuePair<Int128, V>: the field sits at 16 from the payload, 24 from the object).
+    private static bool HoldsInt128(LLVMTypeRef type)
+    {
+        if (type.IsInteger) return type.IntWidth == 128;
+        if (type.Kind == LLVMTypeKind.Array) return HoldsInt128(LLVMGetElementType(type));
+        if (type.Kind != LLVMTypeKind.Struct) return false;
+        for (uint i = 0, n = LLVMCountStructElementTypes(type); i < n; i++)
+            if (HoldsInt128(LLVMStructGetTypeAtIndex(type, i))) return true;
+        return false;
+    }
+
     public LLVMValueRef Load(LLVMTypeRef type, LLVMValueRef ptr, string name = "")
     {
         var load = LLVMBuildLoad2(Ref, type, ptr, name);
-        if (type.IsInteger && type.IntWidth == 128) LLVMSetAlignment(load, 8);
+        if (HoldsInt128(type)) LLVMSetAlignment(load, 8);
+        // Vector128<T> (<16 x i8>): objects are 8-aligned, and the framework's vector loops read at any element address.
+        else if (type.Kind == LLVMTypeKind.Vector) LLVMSetAlignment(load, 1);
         return load;
     }
 
@@ -75,7 +93,8 @@ public sealed class IrBuilder(LlvmContext context) : IDisposable
     public LLVMValueRef Store(LLVMValueRef value, LLVMValueRef ptr)
     {
         var store = LLVMBuildStore(Ref, value, ptr);
-        if (value.Type is { IsInteger: true, IntWidth: 128 }) LLVMSetAlignment(store, 8);
+        if (HoldsInt128(value.Type)) LLVMSetAlignment(store, 8);
+        else if (value.Type.Kind == LLVMTypeKind.Vector) LLVMSetAlignment(store, 1);
         return store;
     }
     public LLVMValueRef StructGep(LLVMTypeRef type, LLVMValueRef ptr, uint index, string name = "") =>

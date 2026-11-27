@@ -34,6 +34,16 @@ public sealed class Compiler(CompilerOptions options)
         var windows = TargetMachine.IsWindowsTriple(triple);
         var wasm = TargetMachine.IsWasmTriple(triple);
         NativeTls.On = NativeTls.Enabled(windows, darwin, linux: !windows && !darwin && !wasm);
+        // The CoreLib slice cut for the target's pointer size (wasm32: the 32-bit one, #382), before anything reads its map.
+        UpstreamSlice.UseTarget(pointer32: wasm);
+        if (UpstreamSlice.MissingSliceError is { } sliceError) return Fail(sliceError);
+        // The 64-bit slice is cut from the build host's framework, whose Environment.NewLine is already a literal in the IL (StringBuilder.AppendLine,
+        // TextWriter.WriteLine through it): a target whose newline differs would print the host's, silently (#430). wasm32's slice is
+        // the 32-bit one, cut from the linux-arm runtime pack on every host, so its "\n" is wasm's.
+        if (!wasm && windows != OperatingSystem.IsWindows())
+            return Fail($"compiling for '{triple}' on a {(OperatingSystem.IsWindows() ? "Windows" : "non-Windows")} host is not supported by csharpc yet: "
+                + "the framework code it compiles comes from this host, whose Environment.NewLine (\\r\\n on Windows, \\n elsewhere) is built into it; "
+                + "build on a host of the target's OS family");
         // Before the corelib index or the framework index is read: they depend on which shadows are mapped. The Windows
         // native-TLS mode is the same mechanism with a hand-picked family of shadows (NativeTls).
         try
@@ -57,9 +67,10 @@ public sealed class Compiler(CompilerOptions options)
         if (darwin && options.Static)
             return Fail("--static is not supported on macOS: Apple does not support statically linked executables (libSystem is always linked dynamically)");
         string[] coreLibDefines = [wasm ? "CSHARPC_TARGET_WASI" : windows ? "CSHARPC_TARGET_WINDOWS" : darwin ? "CSHARPC_TARGET_MACOS" : "CSHARPC_TARGET_LINUX",
-            // The targets whose X.509/TLS/RSA corelib code runs on OpenSSL 3 (docs/adr/0022-tls.md): libssl.so.3 on Linux,
-            // Homebrew's openssl@3 on macOS, libssl-3-x64.dll beside the executable (or on PATH) on Windows.
-            .. (!wasm && !NativeTls.On ? new[] { "CSHARPC_OPENSSL" } : Array.Empty<string>()),
+            // The targets whose X.509/TLS/RSA corelib code runs on OpenSSL 3 (docs/adr/0022-tls.md): Homebrew's openssl@3 on macOS,
+            // libssl-3-x64.dll beside the executable (or on PATH) on Windows. Linux compiles those assemblies from the framework's IL over
+            // the OpenSSL contract instead (corelib/Crypto/CryptoNative*.cs, docs/il-first/System.Net.Security.md).
+            .. ((windows || darwin) && !NativeTls.On ? new[] { "CSHARPC_OPENSSL" } : Array.Empty<string>()),
             // Opt-in spike (docs/adr/0022-tls.md, "Windows without OpenSSL"): the TLS/X.509/RSA shadows are left out of the shadow
             // index and System.Net.Security / System.Security.Cryptography are compiled from the shared framework's IL.
             .. (NativeTls.On ? new[] { "CSHARPC_NATIVE_TLS" } : Array.Empty<string>()),
@@ -112,7 +123,6 @@ public sealed class Compiler(CompilerOptions options)
                 CoreLibDefines = [.. coreLibDefines, .. ProjectLoader.GlobalizationDefines(
                     mainProgram.Switch("System.Globalization.Invariant"), mainProgram.Switch("System.Globalization.PredefinedCulturesOnly"))],
                 RuntimeConfig = mainProgram.RuntimeConfig,
-                JsonReflectionEnabled = mainProgram.Switch("System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault") ?? true,
                 // The Roslyn compilation only binds; its name must not clash with the program assembly's.
                 AssemblyName = mainProgram.Name + ".csharpc",
                 AssemblyVersion = null,
@@ -137,6 +147,7 @@ public sealed class Compiler(CompilerOptions options)
         }
         if (UsesSystemResourceKeys(settings.RuntimeConfig))
             return Fail(UseSystemResourceKeysUnsupported);
+        settings = settings with { RuntimeConfig = WithAotFeatureDefaults(settings.RuntimeConfig) };
         if (options.SharedFrameworks.Count > 0)
             settings = settings with { SharedFrameworks = [.. settings.SharedFrameworks.Concat(options.SharedFrameworks).Distinct(StringComparer.OrdinalIgnoreCase)] };
         // Assemblies without sources: bound against like any reference, compiled from IL (ADR 0010).
@@ -158,6 +169,9 @@ public sealed class Compiler(CompilerOptions options)
             Phase($"choose framework IL ({framework.Count} assembl{(framework.Count == 1 ? "y" : "ies")})");
         }
         catch (InvalidOperationException e) { return Fail(e.Message); }
+        // The types of System.Private.CoreLib served from the framework's IL (CsharpcUpstream.dll, ADR 0023): IL assemblies of every compilation.
+        foreach (var upstream in UpstreamSlice.ShippedAssemblies)
+            if (!ilPaths.Contains(upstream, StringComparer.Ordinal)) ilPaths.Add(upstream);
         // The corelib as a precompiled assembly (ADR 0015): after the framework choice, which must not
         // follow the corelib's own references.
         if (options.CoreLibIl && RoslynFrontend.CoreLibFiles() is { Count: > 0 } coreLibFiles)
@@ -176,20 +190,16 @@ public sealed class Compiler(CompilerOptions options)
             Phase("corelib assembly");
         }
         IlAssemblySet il;
-        try { il = IlAssemblySet.Load(ilPaths, settings.JsonReflectionEnabled == true ? mainProgram?.Path : null); }
+        try { il = IlAssemblySet.Load(ilPaths); }
         catch (Exception e) when (e is InvalidOperationException or IOException or BadImageFormatException) { return Fail(e.Message); }
         using var ilScope = il;
         if (!il.IsEmpty)
         {
             var programIl = mainProgram is null ? null : il.Assemblies.First(a => string.Equals(a.Path, Path.GetFullPath(mainProgram.Path), StringComparison.Ordinal));
-            // Reflection-based JSON metadata is generated in the binding compilation, which must see the
-            // program's internals as the program itself does (JsonReflectionContexts.Il.cs); before any binding.
-            var jsonFromIl = programIl is not null && settings.JsonReflectionEnabled == true && JsonReflectionContexts.ReferencesJsonSerializer(programIl.Reader)
-                && JsonReflectionContexts.GrantInternalsAccess(programIl.Reference, settings.AssemblyName!);
-            // Converter hooks for the program's resources and GetConverter calls are generated like the JSON contexts: before any binding.
-            var convertersFromIl = programIl is not null && (settings.ResourceTypes.Count > 0 || ResourceConverters.CallsGetConverter(programIl.Reader))
-                && JsonReflectionContexts.GrantInternalsAccess(programIl.Reference, settings.AssemblyName!);
-            settings = settings with { IlReferences = il.References, IlSet = il, ProgramIl = programIl, JsonFromIl = jsonFromIl, ConvertersFromIl = convertersFromIl };
+            // Converter hooks for the program's resources are generated in the binding compilation, which must see the program's internals: before any binding.
+            var convertersFromIl = programIl is not null && settings.ResourceTypes.Count > 0
+                && IlInternals.GrantInternalsAccess(programIl.Reference, settings.AssemblyName!);
+            settings = settings with { IlReferences = il.References, IlSet = il, ProgramIl = programIl, ConvertersFromIl = convertersFromIl };
             Phase($"load {il.Assemblies.Count} IL assembl{(il.Assemblies.Count == 1 ? "y" : "ies")}");
         }
         // Nullable analysis only produces warnings, never different code. Lowering uses a compilation
@@ -304,6 +314,7 @@ public sealed class Compiler(CompilerOptions options)
         {
             DirectPInvokes = directPInvokes,
             StackTraces = stackTraces,
+            SharedGenerics = options.SharedGenerics,
             ProgramCompilation = mainIl is null ? compilation : null,
             SourceOptimized = settings.Symbols?.Optimize ?? options.Configuration.Equals("Release", StringComparison.OrdinalIgnoreCase),
             CfgDump = options.DumpCfg ? Console.Out : null,
@@ -399,16 +410,23 @@ public sealed class Compiler(CompilerOptions options)
 
         if (options.OptLevel == 0 && codegen.HasCoroutines)
         {
-            // async methods / iterators are LLVM coroutines: CoroSplit must run even at -O0.
-            module.RunPasses("default<O0>", target);
-            Phase("coroutine lowering (default<O0>)");
+            // async methods / iterators are LLVM coroutines: CoroSplit must run even at -O0. Only the coroutine passes of LLVM's O0
+            // pipeline (buildO0DefaultPipeline), not its always-inliner: -O0 inlines nothing in a program without coroutines either, and
+            // on csharpc compiling itself inlining every [AggressiveInlining] method took 4.8 GB on top of the module and grew it by
+            // a third, which the backend then paid for again (the -O0 self-compile peaked at 14.7 GB on a 16 GB runner).
+            module.RunPasses("coro-early,cgscc(coro-split),coro-cleanup,globaldce", target);
+            Phase("coroutine lowering");
         }
         List<string>? prebuiltObjects = null, prebuiltWeakImports = null;
         string? prebuiltObjectBase = null;
         if (options.OptLevel > 0)
         {
+            // Escape analysis (#457): not under the nursery or concurrent collectors, whose barriers take a store target that is no
+            // alloca for a heap address, and not on WebAssembly (its GC roots are spilled by RootSpilling, after this point).
+            var heapToStack = options.StackAllocation && !wasm && !options.GcNursery && !options.GcConcurrent;
             var pipeline = options.SizeLevel switch { 1 => "default<Os>", 2 => "default<Oz>", _ => $"default<O{options.OptLevel}>" };
             if (options.SizeLevel > 0) Optimizations.MarkOptimizeForSize(module, llvm, minimize: options.SizeLevel == 2);
+            if (codegen.HasCoroutines) Optimizations.KeepStackAddressAggregatesOutOfInliner(module, llvm);
             // The type data's function pointers stay out of the inliner's call graph (TypeDataDetach).
             var detached = TypeDataDetach.Detach(module, llvm);
             // Large executables: optimization and the backend run per partition, on several threads
@@ -418,14 +436,16 @@ public sealed class Compiler(CompilerOptions options)
                 prebuiltWeakImports = WeakImports(module);
                 prebuiltObjectBase = Path.Combine(Path.GetTempPath(), $"csharpc-{Environment.ProcessId}-{Path.GetFileNameWithoutExtension(options.OutputPath)}");
                 prebuiltObjects = ParallelOptimize.TryRun(module, detached, pipeline, target, prebuiltObjectBase,
-                    options.Verbose ? m => Console.Error.WriteLine($"             {m}") : null);
+                    options.Verbose ? m => Console.Error.WriteLine($"             {m}") : null, heapToStack);
             }
             if (prebuiltObjects is null)
             {
+                var stackAllocation = heapToStack && Csharpc.CodeGen.HeapToStack.Prepare(module.Ref);
                 module.RunPasses(pipeline, target);
+                var onStack = stackAllocation ? Csharpc.CodeGen.HeapToStack.Run(module.Ref, target) : 0;
                 Csharpc.CodeGen.ConcurrentBarrierElision.Run(module.Ref, target);
                 TypeDataDetach.Reattach(module, detached, target);
-                Phase($"optimize ({pipeline})");
+                Phase($"optimize ({pipeline}){(stackAllocation ? $", {onStack} allocation(s) on the stack" : "")}");
             }
             else Phase($"optimize ({pipeline}) and codegen, {prebuiltObjects.Count} partitions");
         }
@@ -506,6 +526,19 @@ public sealed class Compiler(CompilerOptions options)
     /// full text, so every message they produce would differ: refused rather than printed differently. The value
     /// is "true" exactly when bool.TryParse reads true (ProjectLoader and IlProgram normalize booleans).
     /// </summary>
+    /// <summary>
+    /// The feature switches a PublishAot build sets when the program leaves them alone: csharpc is the program's AOT compiler, so a project
+    /// or an IL program whose runtimeconfig doesn't say gets what NativeAOT gives it. Reflection-based System.Text.Json is off, and the
+    /// framework's own code throws its own InvalidOperationException. What the program states explicitly gets what .NET evaluates for it:
+    /// `JsonSerializerIsReflectionEnabledByDefault` (a project property, `#:property` or the runtimeconfig option) always wins, and an explicit
+    /// `PublishAot=false` leaves reflection on (ProjectLoader). File-based apps get the full PublishAot set from ProjectLoader already.
+    /// </summary>
+    private static IReadOnlyList<KeyValuePair<string, string>> WithAotFeatureDefaults(IReadOnlyList<KeyValuePair<string, string>> runtimeConfig)
+    {
+        const string JsonReflection = ProjectLoader.JsonReflectionSwitch;
+        return runtimeConfig.Any(kv => kv.Key == JsonReflection) ? runtimeConfig : [.. runtimeConfig, new(JsonReflection, "false")];
+    }
+
     internal static bool UsesSystemResourceKeys(IEnumerable<KeyValuePair<string, string>> runtimeConfig) =>
         runtimeConfig.LastOrDefault(kv => kv.Key == "System.Resources.UseSystemResourceKeys").Value is { } value
         && bool.TryParse(value, out var on) && on;

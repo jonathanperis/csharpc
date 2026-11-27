@@ -67,6 +67,7 @@ public sealed partial class ModuleCodeGen
         public HashSet<ISymbol> ListedBackingFields = new(SymbolEqualityComparer.Default); // field-like events whose backing field is listed
         public List<MethodRecordData> Constructors = [], Methods = [];
         public List<AttributeRecordData> Attributes = [];
+        public List<AttributeRecordData>? InheritedAttributes; // Type.GetCustomAttributes(inherit: true): own plus the base types' inheritable ones; null: not known
         public List<PropertyRecordData> Properties = [];
         public List<FieldRecordData> Fields = [];
         public List<EventRecordData> Events = [];
@@ -183,6 +184,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>Keeps metadata for the members of <paramref name="type"/> that <paramref name="kinds"/> names.</summary>
     internal void MarkDynamicallyAccessed(ITypeSymbol type, int kinds, string? name = null)
     {
+        if ((kinds & DamNestedTypes) != 0 && name is null && type is INamedTypeSymbol owner && !TypeSubstitution.IsOpen(owner)) MarkNestedTypes(owner, kinds);
         kinds &= DamConstructors | DamMethods | DamProperties | DamFields | DamEvents;
         if (s_traceDam) Console.Error.WriteLine($"[csharpc] keep {kinds:x} {(name is null ? "(all)" : name)} of {type}");
         if (kinds == 0 || type is ITypeParameterSymbol || type.TypeKind == TypeKind.Error) return;
@@ -238,6 +240,9 @@ public sealed partial class ModuleCodeGen
     /// <summary>A generic method or type instantiation: its annotated type parameters keep members of their arguments.</summary>
     internal void NoteDynamicallyAccessedInstantiation(ISymbol symbol)
     {
+        // A canonical form stands for instantiations, each noted itself (GetFunction notes the exact method before it redirects to the
+        // shared one, GetLayout every exact class): [DynamicallyAccessedMembers] on a marker would describe nothing real.
+        if (symbol is ITypeSymbol canonicalType ? IsCanonDependent(canonicalType) : symbol.ContainingType is { } owner0 && IsCanonDependent(owner0)) return;
         switch (symbol)
         {
             case IMethodSymbol { IsGenericMethod: true } method when !method.IsDefinition && !TypeSubstitution.IsOpen(method):
@@ -311,6 +316,11 @@ public sealed partial class ModuleCodeGen
             if (_typeMts[_closedServicesScanned].Type is not INamedTypeSymbol { IsGenericType: true } closedType
                 || closedType.IsDefinition || TypeSubstitution.IsOpen(closedType))
                 continue;
+            if (_nullabilityQueried && _damMarks.TryGetValue(closedType, out var describedKinds))
+            {
+                MarkDynamicallyAccessed(closedType.OriginalDefinition, describedKinds);
+                any = true;
+            }
             if (_damMarks.TryGetValue(closedType.OriginalDefinition, out var definitionKinds))
             {
                 MarkDynamicallyAccessed(closedType, definitionKinds);
@@ -374,8 +384,9 @@ public sealed partial class ModuleCodeGen
     /// <summary>Describes newly marked types; true when anything was created (the worklists must drain again).</summary>
     private bool EmitReflectionMetadata()
     {
-        if (_reflectionTable.IsNull && _delegateMethodTable.IsNull) return DescribeDelegateSignatures();
-        var any = CloseOpenGenericRegistrations() | DescribeDelegateMethods() | DescribeDelegateSignatures();
+        var rooted = CloseReflectionInstantiations();
+        if (_reflectionTable.IsNull && _delegateMethodTable.IsNull) return DescribeDelegateSignatures() | rooted;
+        var any = rooted | CloseOpenGenericRegistrations() | DescribeDelegateMethods() | DescribeDelegateSignatures();
         if (_reflectionTable.IsNull) return any;
         any |= DescribeTypeAttributes();
         if (_replayEvents)
@@ -400,6 +411,24 @@ public sealed partial class ModuleCodeGen
             catch (CompileError error) { Errors.Add(error); }
         }
         return any;
+    }
+
+    private bool _nullabilityQueried;
+
+    /// <summary>
+    /// The program uses NullabilityInfoContext, which reads the open generic definition's members (the declared types in terms of its
+    /// type parameters) of every constructed generic type it is asked about: those definitions are described like their instantiations.
+    /// </summary>
+    internal void NoteNullabilityQueried()
+    {
+        if (_nullabilityQueried) return;
+        if (s_traceDam) Console.Error.WriteLine("[csharpc] NullabilityInfoContext is used: open generic definitions are described");
+        _nullabilityQueried = true;
+        _closedServicesScanned = 0;
+        // Open definitions marked before this (typeof(G<>) passed to an annotated Type) were skipped: describe them now.
+        foreach (var marked in _damMarks.Keys)
+            if (marked is INamedTypeSymbol { IsGenericType: true, IsDefinition: true }) _damQueue.Enqueue(marked);
+        ReflectionTable();
     }
 
     private bool _eventsQueried, _replayEvents;
@@ -445,7 +474,7 @@ public sealed partial class ModuleCodeGen
     // can't know the exact list .NET returns, the entry says so (CSRT_RI_ATTRIBUTES_UNKNOWN) and the query
     // throws rather than answering with a different list.
 
-    private const uint RiAttributes = 16, RiAttributesUnknown = 128;
+    private const uint RiAttributes = 16, RiAttributesUnknown = 128, RiNullableExplicit = 4096, RiFieldsHidden = 8192;
     private bool _typeAttributesQueried;
     private int _typeAttributesScanned;
 
@@ -465,15 +494,18 @@ public sealed partial class ModuleCodeGen
             ITypeSymbol key;
             List<AttributeInstance>? attributes;
             var synthesizedUnknown = false;
+            var explicitNullable = false;
             switch (described)
             {
-                case INamedTypeSymbol named when DescribesOwnAttributes(named) && IsProgramType(named):
+                case INamedTypeSymbol named when DescribesOwnAttributes(named) && ((IsProgramType(named) && !CoreLib.IsCoreLib(named)) || IsIlLibraryType(named)):
                     key = named;
                     attributes = Decoded(() => { var list = TypeAttributeInstances(named.OriginalDefinition, out var unknown); synthesizedUnknown = unknown; return list; });
                     break;
                 case GenericParameter parameter:
                     key = parameter.Parameter;
                     attributes = Decoded(() => GenericParameterAttributeInstances(parameter.Parameter));
+                    explicitNullable = attributes is not null && parameter.Parameter.ContainingSymbol is INamedTypeSymbol parameterOwner
+                        && ((ExplicitInfoOfMember(parameter.Parameter) is not null && AnnotationsEnabled(parameterOwner)) || IsFrameworkReferenceType(parameterOwner));
                     break;
                 default:
                     continue;
@@ -486,16 +518,30 @@ public sealed partial class ModuleCodeGen
                 _reflectionOrder.Add(entry);
             }
             SetTypeAttributes(entry, attributes, synthesizedUnknown);
+            if (explicitNullable) entry.Described |= RiAttributesUnknown | RiNullableExplicit; // a list only the nullability reader may use
             any = true;
         }
         // Types kept for [DynamicallyAccessedMembers] (whenever their entry appeared).
         for (var i = 0; i < _reflectionOrder.Count; i++)
         {
             var entry = _reflectionOrder[i];
-            if ((entry.Described & (RiAttributes | RiAttributesUnknown)) != 0 || entry.Type is not INamedTypeSymbol named || !DescribesOwnAttributes(named)) continue;
+            if ((entry.Described & (RiAttributes | RiAttributesUnknown)) != 0 || entry.Type is not INamedTypeSymbol named) continue;
+            if (named.IsAnonymousType)
+            {
+                // csc gives an anonymous type [CompilerGenerated] and [DebuggerDisplay]: csharpc lists only the first, so the program's own query is the
+                // explicit error and the framework's gets [CompilerGenerated] (System.Text.Json looks for its own attributes; TraceLogging's Write<T>
+                // takes a [CompilerGenerated] type as an anonymous payload).
+                SetTypeAttributes(entry, PseudoAttribute("System.Runtime.CompilerServices.CompilerGeneratedAttribute") is { } generated ? [generated] : [], synthesizedUnknown: true);
+                any = true;
+                continue;
+            }
+            // A type of the CoreLib slice (the framework's IL, CsharpcUpstream.dll) carries the attributes the slicer keeps ([EventData] on the event
+            // counters' payloads, which TraceLogging asks for): a partial list, so only the framework's own queries read it.
+            var slice = (named.ContainingNamespace?.ToDisplayString() ?? "").StartsWith(Frontend.UpstreamSlice.Prefix + ".", StringComparison.Ordinal);
+            if (!DescribesOwnAttributes(named) || CoreLib.IsCoreLib(named) && !slice) continue;
             var unknownSynthesized = false;
             var list = Decoded(() => { var l = TypeAttributeInstances(named.OriginalDefinition, out var unknown); unknownSynthesized = unknown; return l; });
-            SetTypeAttributes(entry, list, unknownSynthesized);
+            SetTypeAttributes(entry, list, unknownSynthesized || slice);
             any = true;
         }
         return any;
@@ -505,19 +551,79 @@ public sealed partial class ModuleCodeGen
     private bool IsProgramType(INamedTypeSymbol type) =>
         type.OriginalDefinition.Locations.Any(l => l.IsInSource) || (MainIl is not null && Il.OwnerOf(type.OriginalDefinition) == MainIl);
 
+    /// <summary>A type of an IL assembly that is neither the program's nor System.Private.CoreLib (a package, the shared framework's libraries): its attributes are in its metadata.</summary>
+    private bool IsIlLibraryType(INamedTypeSymbol type) => !IsShadowedIlType(type) && Il.OwnerOf(type.OriginalDefinition) is { IsCoreLib: false };
+
     private static bool DescribesOwnAttributes(INamedTypeSymbol type) =>
         type.TypeKind is TypeKind.Class or TypeKind.Struct or TypeKind.Interface or TypeKind.Enum or TypeKind.Delegate && !type.IsAnonymousType && !type.IsTupleType;
+
+    /// <summary>
+    /// A Type argument of an attribute whose constructor parameter is [DynamicallyAccessedMembers] keeps the members that annotation names, as
+    /// NativeAOT roots them: `[TypeConverter(typeof(PointConverter))]` on a type keeps PointConverter's constructor for the TypeDescriptor
+    /// that creates it from the attribute's type name.
+    /// </summary>
+    private void KeepAttributeArguments(List<AttributeInstance> attributes)
+    {
+        foreach (var attribute in attributes)
+        {
+            // TypeConverterAttribute(string typeName): System.Drawing.Primitives names its converters this way ("System.Drawing.PointConverter,
+            // System.Drawing, ..."), which TypeDescriptor resolves by name and creates. The type is looked up by its name alone (the assembly
+            // part is the one the type was forwarded from) and kept as the Type overload keeps it.
+            if (attribute.Constructor.ContainingType is { Name: "TypeConverterAttribute", ContainingNamespace: { Name: "ComponentModel", ContainingNamespace.Name: "System" } }
+                && attribute.Fixed is [{ Value: string converterName }]
+                && Compilation.GetTypeByMetadataName(converterName.Split(',')[0].Trim()) is { } converter)
+                MarkDynamicallyAccessed(converter, DamConstructors);
+            var parameters = attribute.Constructor.OriginalDefinition.Parameters;
+            for (var i = 0; i < attribute.Fixed.Length && i < parameters.Length; i++)
+                if (attribute.Fixed[i].Value is ITypeSymbol type && DamKindsOf(parameters[i].GetAttributes()) is var kinds and not 0)
+                    MarkDynamicallyAccessed(type, kinds);
+        }
+    }
 
     private void SetTypeAttributes(ReflectionEntry entry, List<AttributeInstance>? attributes, bool synthesizedUnknown = false)
     {
         if (attributes is null) entry.Described |= RiAttributesUnknown;
         else
         {
+            // Only for the types reflection is expected to look into (the program's, those kept for [DynamicallyAccessedMembers]): every IL library
+            // type's attributes are described once the program asks for any, and rooting what their arguments name (each [DebuggerTypeProxy]'s
+            // proxy with all its members) made csharpc's own compile run out of memory.
+            if (entry.Type is INamedTypeSymbol described && (IsProgramType(described) || _damMarks.ContainsKey(described) || _damMarks.ContainsKey(described.OriginalDefinition)))
+                KeepAttributeArguments(attributes);
             // The declared attributes are exact; the list's count word says csc synthesizes more (Nullable, ...), which
             // makes the untyped queries and those for System attributes throw while a program's own attributes stay exact.
-            entry.Attributes = synthesizedUnknown ? Attributes(new AttributeSet(attributes, 0, true)) : Attributes(attributes);
+            // NullabilityInfoContext keeps reading the list as it did before the bit was written (#199 is about the program's own
+            // untyped queries): the nullable part of a type list is csharpc's model of csc's [NullableContext]/[Nullable].
+            entry.Attributes = synthesizedUnknown ? Attributes(new AttributeSet(attributes, 0, true, NullableExplicit: true)) : Attributes(attributes);
             entry.Described |= RiAttributes;
+            if (synthesizedUnknown && entry.Type is INamedTypeSymbol frameworkType && IsFrameworkReferenceType(frameworkType)) entry.Described |= RiAttributesUnknown | RiNullableExplicit;
+            entry.InheritedAttributes = !synthesizedUnknown && entry.Type is INamedTypeSymbol { TypeKind: TypeKind.Class } named ? InheritedTypeAttributes(named, attributes) : null;
         }
+    }
+
+    /// <summary>
+    /// What Type.GetCustomAttributes(inherit: true) lists for a class: its own attributes, then those of its base classes whose
+    /// attribute class is [AttributeUsage(Inherited = true)] (not repeated when it does not AllowMultiple). Null when a base's list is
+    /// not known exactly (the run-time query then reports it).
+    /// </summary>
+    private List<AttributeRecordData>? InheritedTypeAttributes(INamedTypeSymbol type, List<AttributeInstance> own)
+    {
+        var list = new List<AttributeInstance>(own);
+        for (var b = type.BaseType; b is not null && b.SpecialType != SpecialType.System_Object; b = b.BaseType)
+        {
+            if (!IsProgramType(b)) break; // a library base: csharpc keeps no attributes for it (the run-time query treats it as having none)
+            var unknown = false;
+            var baseList = Decoded(() => { var l = TypeAttributeInstances(b.OriginalDefinition, out var u); unknown = u; return l; });
+            if (baseList is null || unknown) return null;
+            foreach (var a in baseList)
+            {
+                var attributeClass = a.Constructor.ContainingType;
+                if (!IsInheritedAttribute(attributeClass)) continue;
+                if (!IsAllowMultipleAttribute(attributeClass) && list.Any(x => SymbolEqualityComparer.Default.Equals(x.Constructor.ContainingType, attributeClass))) continue;
+                list.Add(a);
+            }
+        }
+        return Attributes(list);
     }
 
     /// <summary>An attribute csharpc can't decode yet (a typeof argument it can't represent...) makes the list unknown.</summary>
@@ -534,18 +640,34 @@ public sealed partial class ModuleCodeGen
         var il = definition.MetadataToken != 0 ? Il.OwnerOf(definition) : null;
         if (il is not null)
         {
-            // [Serializable] and [ComImport] are pseudo-attributes CoreCLR adds to the list.
-            if ((il.AttributesOf(definition) & (System.Reflection.TypeAttributes.Serializable | System.Reflection.TypeAttributes.Import)) != 0) return null;
-            return DecodeAttributes(il, il.TypeDefinitionOf(definition).GetCustomAttributes(), IlGenericContext.For(definition)).ToList();
+            // [ComImport] is a pseudo-attribute CoreCLR adds to the list that csharpc does not model. [Serializable] is one too, after the
+            // declared attributes (typeof(Point).GetCustomAttributes(): TypeForwardedFrom, TypeConverter, Serializable).
+            var flags = il.AttributesOf(definition);
+            if ((flags & System.Reflection.TypeAttributes.Import) != 0) return null;
+            var listed = DecodeAttributes(il, il.TypeDefinitionOf(definition).GetCustomAttributes(), IlGenericContext.For(definition)).ToList();
+            if ((flags & System.Reflection.TypeAttributes.Serializable) != 0)
+            {
+                var serializable = Compilation.GetTypeByMetadataName("System.SerializableAttribute")?.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty);
+                if (serializable is null) return null;
+                listed.Add(new AttributeInstance(serializable, [], []));
+            }
+            return listed;
         }
         // Reference-assembly types (the BCL): Roslyn hides the attributes the compiler decodes, and reference
         // assemblies differ from the implementation .NET loads.
-        if (definition.MetadataToken != 0 || !definition.Locations.Any(l => l.IsInSource)) return null;
+        if (definition.MetadataToken != 0 || !definition.Locations.Any(l => l.IsInSource))
+        {
+            // A BCL type: its nullable attributes come from the implementation assembly, the rest of its list is unknown.
+            if (FrameworkTypeNullable(definition) is { } frameworkList) { synthesizedUnknown = true; return frameworkList; }
+            return null;
+        }
         // Source types: Roslyn's symbols omit the attributes the compiler synthesizes into metadata.
         synthesizedUnknown = SynthesizesTypeAttributes(definition);
         // [StructLayout] is the type's layout flag, not a listed attribute. [NullableContext] and [Nullable] come first.
         var declared = definition.GetAttributes().Where(a => !IsUnlistedAttribute(a)).Select(FromAttributeData).OfType<AttributeInstance>().ToList();
         if (NullableTypeAttributes(definition) is { } nullable) declared.InsertRange(0, nullable);
+        // A type that declares `required` members is marked [RequiredMember] (after the nullable ones).
+        if (definition.GetMembers().Any(m => m is IPropertySymbol { IsRequired: true } or IFieldSymbol { IsRequired: true }) && RequiredMemberInstance() is { } required) declared.Add(required);
         return declared;
     }
 
@@ -553,8 +675,7 @@ public sealed partial class ModuleCodeGen
     private bool SynthesizesTypeAttributes(INamedTypeSymbol type)
     {
         if (type.IsRecord || type.IsReadOnly || type.IsRefLikeType || type.IsSerializable || type.IsImplicitlyDeclared) return true;
-        if (type.GetMembers().Any(m => m is IPropertySymbol { IsIndexer: true } or IMethodSymbol { IsExtensionMethod: true }
-                or IPropertySymbol { IsRequired: true } or IFieldSymbol { IsRequired: true }))
+        if (type.GetMembers().Any(m => m is IPropertySymbol { IsIndexer: true } or IMethodSymbol { IsExtensionMethod: true }))
             return true;
         // Nullable annotations in the declaration become [NullableContext]/[Nullable] attributes: on the type when its base
         // class or members mention reference types.
@@ -572,10 +693,17 @@ public sealed partial class ModuleCodeGen
             var row = il.Reader.GetGenericParameter(handles[parameter.Ordinal]);
             return DecodeAttributes(il, row.GetCustomAttributes(), owner is INamedTypeSymbol t ? IlGenericContext.For(t) : IlGenericContext.For((IMethodSymbol)owner)).ToList();
         }
-        if (owner.MetadataToken != 0 || !owner.Locations.Any(l => l.IsInSource)) return null;
+        if (owner.MetadataToken != 0 || !owner.Locations.Any(l => l.IsInSource))
+            return owner is INamedTypeSymbol frameworkOwner && FrameworkGenericParameterNullable(frameworkOwner, parameter.Ordinal) is { } frameworkList ? frameworkList : null;
         // Source: [Nullable] where the parameter's value differs from the context (ModuleCodeGen.NullableAttributes.cs).
         if (NullableGenericParameterAttributes(parameter) is { } nullable)
             return [.. nullable, .. parameter.GetAttributes().Select(FromAttributeData).OfType<AttributeInstance>()];
+        // A parameter of a record or a type with a primary constructor: its byte is known, csc's omission of it (it equals the context) is not.
+        if (owner is INamedTypeSymbol explicitOwner && ExplicitInfoOfMember(parameter) is not null && AnnotationsEnabled(explicitOwner))
+        {
+            try { return [NullableInstance([TypeParameterValue(parameter, true, explicitOwner)])!, .. parameter.GetAttributes().Select(FromAttributeData).OfType<AttributeInstance>()]; }
+            catch (NullableUnsupported) { }
+        }
         // Otherwise [Nullable] on constrained or annotated parameters is synthesized.
         if (parameter.HasNotNullConstraint || parameter.ConstraintTypes.Length > 0
             || (AnnotationsEnabled(owner) && !parameter.HasValueTypeConstraint && !parameter.HasUnmanagedTypeConstraint)
@@ -588,6 +716,7 @@ public sealed partial class ModuleCodeGen
     private void Describe(ITypeSymbol type, int kinds, string? name)
     {
         if (type is not INamedTypeSymbol named || named.TypeKind is TypeKind.Error) return;
+        CheckNotCanonical(type, "reflection metadata");
         var real = RealType(named) as INamedTypeSymbol ?? named;
         if (!_reflectionEntries.TryGetValue(type, out var entry))
         {
@@ -596,7 +725,7 @@ public sealed partial class ModuleCodeGen
             _reflectionOrder.Add(entry);
         }
         // Open definitions (typeof(Impl<>)) list no members: their instantiations do.
-        if (named.IsDefinition && named.IsGenericType) return;
+        if (named.IsDefinition && named.IsGenericType && !_nullabilityQueried) return;
         uint wanted = ((kinds & DamPublicConstructors) != 0 ? RiPublicConstructors : 0) | ((kinds & DamNonPublicConstructors) != 0 ? RiNonPublicConstructors : 0)
             | ((kinds & DamPublicMethods) != 0 ? RiPublicMethods : 0) | ((kinds & DamNonPublicMethods) != 0 ? RiNonPublicMethods : 0)
             | ((kinds & DamPublicProperties) != 0 ? RiPublicProperties : 0) | ((kinds & DamNonPublicProperties) != 0 ? RiNonPublicProperties : 0)
@@ -712,7 +841,13 @@ public sealed partial class ModuleCodeGen
         for (INamedTypeSymbol? t = real; t is not null; t = t.BaseType)
         {
             if (t.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType or SpecialType.System_Enum) break;
-            if (t.OriginalDefinition.MetadataToken != 0 && Il.OwnerOf(t.OriginalDefinition) is null) Unknown(RiNonPublicFields);
+            if (t.OriginalDefinition.MetadataToken != 0 && Il.OwnerOf(t.OriginalDefinition) is null)
+            {
+                Unknown(RiNonPublicFields);
+                // Only the framework's own IL may list what is there without the hidden fields (FrameworkGetFields).
+                entry.Described |= RiFieldsHidden;
+                entry.Complete |= RiFieldsHidden;
+            }
             var own = SymbolEqualityComparer.Default.Equals(t, real);
             if (own && t.TypeKind == TypeKind.Enum && (added & RiPublicFields) != 0 && (name is null || name == "value__"))
             {
@@ -1017,6 +1152,12 @@ public sealed partial class ModuleCodeGen
     {
         var name = Mangler.TypeSymbol(field.ContainingType, field.Name + (set ? "$reflectset" : "$reflectget"));
         var type = set ? Llvm.FunctionType(Llvm.Void, Llvm.Ptr, Llvm.Ptr) : Llvm.FunctionType(Llvm.Ptr, Llvm.Ptr);
+        // A field of an open generic type (described for NullabilityInfoContext): there is no code for it to read or write.
+        if (TypeSubstitution.IsOpen(field.ContainingType))
+        {
+            var openMessage = $"{(set ? "Setting" : "Reading")} the field '{field.ToDisplayString()}' of an open generic type through reflection is not possible.";
+            return SyntheticFunction(name, type, (g, _) => g.EmitThrowingFactory(openMessage));
+        }
         try { return SyntheticFunction(name, type, (g, syntax) => g.EmitFieldAccessor(field, set, syntax)); }
         catch (CompileError)
         {
@@ -1127,6 +1268,15 @@ public sealed partial class ModuleCodeGen
             if (t.GetAttributes().FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == "System.AttributeUsageAttribute") is { } usage)
                 return usage.NamedArguments.FirstOrDefault(n => n.Key == "Inherited").Value.Value as bool? ?? true;
         return true;
+    }
+
+    /// <summary>[AttributeUsage(AllowMultiple = ...)] of an attribute class (false when not stated, as in .NET).</summary>
+    private static bool IsAllowMultipleAttribute(INamedTypeSymbol attribute)
+    {
+        for (var t = attribute; t is not null; t = t.BaseType)
+            if (t.GetAttributes().FirstOrDefault(a => a.AttributeClass?.ToDisplayString() == "System.AttributeUsageAttribute") is { } usage)
+                return usage.NamedArguments.FirstOrDefault(n => n.Key == "AllowMultiple").Value.Value as bool? ?? false;
+        return false;
     }
 
     /// <summary>The method's MethodAttributes: from metadata for IL methods, as Roslyn emits them for source.</summary>
@@ -1262,7 +1412,7 @@ public sealed partial class ModuleCodeGen
         if (il is null || ilParameters is null)
         {
             // Reference-assembly methods (the BCL): Roslyn hides the attributes the compiler decodes, so the list is not known.
-            if (!method.OriginalDefinition.Locations.Any(l => l.IsInSource)) return new AttributeSet([], 0, true);
+            if (!method.OriginalDefinition.Locations.Any(l => l.IsInSource)) return FrameworkParameterNullable(method.OriginalDefinition, 0) is { } returnNullable ? FrameworkNullableSet(returnNullable) : new AttributeSet([], 0, true);
             return SourceReturnAttributes(method.OriginalDefinition);
         }
         if (!ilParameters.TryGetValue(0, out var row)) return new AttributeSet([], 0, false);
@@ -1301,6 +1451,27 @@ public sealed partial class ModuleCodeGen
         }
         var list = Attributes(new AttributeSet(instances, 0, unknown));
         return (AttributeArray(list), AttributeCount(list));
+    }
+
+    /// <summary>The type has `required` members, declared or inherited: csc marks every constructor of it that does not say [SetsRequiredMembers].</summary>
+    private static bool HasRequiredMembers(INamedTypeSymbol type)
+    {
+        for (var t = type; t is not null; t = t.BaseType)
+            if (t.GetMembers().Any(m => m is IPropertySymbol { IsRequired: true } or IFieldSymbol { IsRequired: true })) return true;
+        return false;
+    }
+
+    private AttributeInstance? RequiredMemberInstance() => PseudoAttribute("System.Runtime.CompilerServices.RequiredMemberAttribute");
+
+    /// <summary>[Obsolete("Constructors of types with required members are not supported in this version of your compiler.", true)] and [CompilerFeatureRequired("RequiredMembers")].</summary>
+    private IEnumerable<AttributeInstance?> RequiredConstructorAttributes()
+    {
+        var stringType = Compilation.GetSpecialType(SpecialType.System_String);
+        var obsolete = Compilation.GetTypeByMetadataName("System.ObsoleteAttribute")?.InstanceConstructors.FirstOrDefault(c => c.Parameters.Length == 2 && c.Parameters[0].Type.SpecialType == SpecialType.System_String);
+        yield return obsolete is null ? null : new AttributeInstance(obsolete,
+            [new AttributeValue(stringType, "Constructors of types with required members are not supported in this version of your compiler."), new AttributeValue(Compilation.GetSpecialType(SpecialType.System_Boolean), true)], []);
+        var feature = Compilation.GetTypeByMetadataName("System.Runtime.CompilerServices.CompilerFeatureRequiredAttribute")?.InstanceConstructors.FirstOrDefault(c => c.Parameters.Length == 1);
+        yield return feature is null ? null : new AttributeInstance(feature, [new AttributeValue(stringType, "RequiredMembers")], []);
     }
 
     private AttributeInstance? PseudoAttribute(string name) =>
@@ -1378,7 +1549,7 @@ public sealed partial class ModuleCodeGen
             return ParseSerialized(name, ref position, nested: false);
         }
 
-        private ITypeSymbol? ParseSerialized(string s, ref int pos, bool nested)
+        private ITypeSymbol? ParseSerialized(string s, ref int pos, bool nested, bool bare = false)
         {
             var start = pos;
             while (pos < s.Length && s[pos] != '[' && s[pos] != ',' && s[pos] != ']') pos++;
@@ -1404,16 +1575,30 @@ public sealed partial class ModuleCodeGen
                     if (pos >= s.Length || s[pos] != ']') return null;
                     pos++;
                 }
-                else
+                else if (pos + 1 < s.Length && (s[pos + 1] == ',' || s[pos + 1] == ']' || s[pos + 1] == '*'))
                 {
                     var close = s.IndexOf(']', pos);
                     if (close < 0) return null;
                     ranks.Add(s[pos..close].Count(c => c == ',') + 1);
                     pos = close + 1;
                 }
+                else
+                {
+                    // Type arguments of the attribute's own assembly or the core library, written without assembly names: "Gen`1[A,B`1[C]]".
+                    pos++;
+                    while (true)
+                    {
+                        if (ParseSerialized(s, ref pos, nested: true, bare: true) is not { } argument) return null;
+                        arguments.Add(argument);
+                        if (pos < s.Length && s[pos] == ',') { pos++; continue; }
+                        break;
+                    }
+                    if (pos >= s.Length || s[pos] != ']') return null;
+                    pos++;
+                }
             }
             // ", Assembly, Version=..., Culture=..., PublicKeyToken=...": not needed to find the type
-            if (pos < s.Length && s[pos] == ',')
+            if (!bare && pos < s.Length && s[pos] == ',')
                 while (pos < s.Length && (!nested || s[pos] != ']')) pos++;
             if ((m.Compilation.GetTypeByMetadataName(typeName) ?? il.Compilation.GetTypeByMetadataName(typeName)) is not { } definition) return null;
             ITypeSymbol type = definition;
@@ -1535,7 +1720,7 @@ public sealed partial class ModuleCodeGen
     private LLVMTypeRef ParameterRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef MethodRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef DelegateSignatureType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
-    private LLVMTypeRef ReflectionInfoType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.I32);
+    private LLVMTypeRef ReflectionInfoType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef EventRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32, Llvm.I32, Llvm.I32);
     private LLVMTypeRef FieldRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
     private LLVMTypeRef PropertyRecordType => Llvm.Struct(Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.Ptr, Llvm.I32, Llvm.I32);
@@ -1597,10 +1782,52 @@ public sealed partial class ModuleCodeGen
         return _memberIdentities[member] = identity;
     }
 
+    private LLVMValueRef _assemblyReferencesTable;
+
+    /// <summary>A pointer to the C string "assembly:reference,reference;..." of the framework assemblies the program has types of (what an attribute class's assembly must be among for a type to carry it).</summary>
+    internal LLVMValueRef AssemblyReferencesTable()
+    {
+        if (_assemblyReferencesTable.IsNull)
+            _assemblyReferencesTable = Module.AddGlobal("csharpc.assemblyrefs", Llvm.Ptr, constant: true, linkage: LLVMLinkage.Private);
+        return _assemblyReferencesTable;
+    }
+
+    private void FinishAssemblyReferences()
+    {
+        if (_assemblyReferencesTable.IsNull) return;
+        var names = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var (_, described) in _typeMts)
+            if (described is ITypeSymbol { ContainingAssembly: { } assembly } type && !SymbolEqualityComparer.Default.Equals(assembly, Compilation.Assembly))
+            {
+                // The name Type.Assembly reports (the implementation assembly: System.Private.Uri, not the reference assembly System.Runtime).
+                var full = AssemblyOf(type);
+                names.Add(full is null ? assembly.Name : full.Split(',')[0]);
+            }
+        var text = new System.Text.StringBuilder();
+        var directory = Frontend.SharedFramework.Directory;
+        foreach (var name in names)
+        {
+            if (directory is null || name.Contains('/') || name.Contains((char)92)) continue;
+            var path = Path.Combine(directory, name + ".dll");
+            if (!File.Exists(path)) continue;
+            try
+            {
+                using var stream = File.OpenRead(path);
+                using var pe = new System.Reflection.PortableExecutable.PEReader(stream);
+                var reader = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+                var references = reader.AssemblyReferences.Select(h => reader.GetString(reader.GetAssemblyReference(h).Name));
+                text.Append(name).Append(':').Append(string.Join(',', references)).Append(';');
+            }
+            catch (Exception e) when (e is IOException or BadImageFormatException or InvalidOperationException) { }
+        }
+        Native.LLVMSetInitializer(_assemblyReferencesTable, CString(text.ToString()));
+    }
+
     private void FinishReflectionMetadata()
     {
         FinishLazyInvokers();
         FinishMemberRecords();
+        FinishAssemblyReferences();
         LLVMValueRef Header(LLVMValueRef array, int count) => Llvm.ConstStruct(Llvm.ConstInt(Llvm.I64, count), array);
         if (!_reflectionTable.IsNull)
         {
@@ -1614,9 +1841,10 @@ public sealed partial class ModuleCodeGen
                     Checked(f.Type, "field type"), f.Get, f.Set, AttributeArray(f.Attributes), AttributeCount(f.Attributes), Llvm.ConstUInt(Llvm.I32, f.FieldAttributes))).ToList());
                 var events = ConstTable("csharpc.reflection.events", EventRecordType, e.Events.Select(EventRecordConstant).ToList());
                 entries.Add(Llvm.ConstStruct(Checked(e.Mt, "method table of " + e.Type), ctors, methods, AttributeArray(e.Attributes), properties,
-                    Llvm.ConstInt(Llvm.I32, e.Constructors.Count), Llvm.ConstInt(Llvm.I32, e.Methods.Count), Llvm.ConstInt(Llvm.I32, e.Attributes.Count),
+                    Llvm.ConstInt(Llvm.I32, e.Constructors.Count), Llvm.ConstInt(Llvm.I32, e.Methods.Count), AttributeCount(e.Attributes),
                     Llvm.ConstUInt(Llvm.I32, e.Described), Llvm.ConstInt(Llvm.I32, e.Properties.Count), Llvm.ConstInt(Llvm.I32, e.Fields.Count), fields,
-                    events, Llvm.ConstInt(Llvm.I32, e.Events.Count)));
+                    events, Llvm.ConstInt(Llvm.I32, e.Events.Count),
+                    AttributeArray(e.InheritedAttributes ?? []), Llvm.ConstInt(Llvm.I32, e.InheritedAttributes?.Count ?? 0), Llvm.ConstInt(Llvm.I32, e.InheritedAttributes is null ? 0 : 1)));
             }
             Native.LLVMSetInitializer(_reflectionTable, Header(ConstTable("csharpc.reflection.entries", ReflectionInfoType, entries), entries.Count));
         }

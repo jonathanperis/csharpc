@@ -1,0 +1,12 @@
+Req: [NullableContextAttribute(1),NullableAttribute(0),RequiredMemberAttribute]
+  ctor(0): [ObsoleteAttribute(Constructors of types with required members are not supported in this version of your compiler.;True),CompilerFeatureRequiredAttribute(RequiredMembers)]
+  Name: [RequiredMemberAttribute] required=True
+  Plain: [] required=False
+  field Count: [RequiredMemberAttribute]
+Req2: [NullableContextAttribute(1),NullableAttribute(0),RequiredMemberAttribute]
+  ctor(0): [SetsRequiredMembersAttribute]
+  ctor(1): [ObsoleteAttribute(Constructors of types with required members are not supported in this version of your compiler.;True),CompilerFeatureRequiredAttribute(RequiredMembers)]
+  Name: [RequiredMemberAttribute] required=True
+NoRequired: [NullableContextAttribute(1),NullableAttribute(0)]
+  ctor(0): []
+  Name: [] required=False

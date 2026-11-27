@@ -580,8 +580,9 @@ What it took, besides library members (`Socket.Poll`, `DnsEndPoint` connects, `S
 
 - **Classes deriving from `TaskCompletionSource(<T>)`**: the connection waiters and write-queue entries of the
   pool. A derived class is laid out over csrt's task struct ([10-async.md](10-async.md#tasks-and-the-scheduler)).
-- **System.Net.Primitives from IL** next to the corelib's `IPAddress`/`IPEndPoint` shadows (a *mixed* assembly,
-  ADR 0013): `CookieContainer`, `CredentialCache`, `NetworkCredential`, `DnsEndPoint`, `HttpVersion` are .NET's own code.
+- **System.Net.Primitives from IL** (a *mixed* assembly, ADR 0013): `CookieContainer`, `CredentialCache`, `NetworkCredential`,
+  `DnsEndPoint`, `HttpVersion` are .NET's own code, and since #326 `IPAddress`, `IPEndPoint` and `IPNetwork` too; only
+  `SocketException` and the sockaddr shims stay with the socket engine.
 - **Awaits on socket operations continue on the thread pool.** The epoll thread used to complete Task-based
   operations inline, so an `await` continuation (and the rest of `Main`) ran on it; one synchronous socket call there
   (`HttpClient.Send` after an `await`) blocked the only thread that delivers readiness, a deadlock (sample 1008).

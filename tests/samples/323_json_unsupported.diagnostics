@@ -1,4 +1,0 @@
-323_json_unsupported.cs(13,46): error CSLLVM0001: not supported by csharpc yet: System.Text.Json serialization of anonymous types
-323_json_unsupported.cs(14,51): error CSLLVM0001: not supported by csharpc yet: System.Text.Json serialization of anonymous types
-323_json_unsupported.cs(15,46): error CSLLVM0001: not supported by csharpc yet: System.Text.Json serialization of file-local type 'Local'
-csharpc: error : 3 construct(s) not supported by csharpc yet

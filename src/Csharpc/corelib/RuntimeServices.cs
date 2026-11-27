@@ -361,86 +361,6 @@ namespace CsharpcCoreLib
         }
     }
 
-    /// <summary>
-    /// SpinWait, as dotnet/runtime's: the count and the yield threshold are observable (Count,
-    /// NextSpinWillYield); how a spin waits (busy spin, yield, sleep) only affects timing.
-    /// </summary>
-    [Shadows("System.Threading.SpinWait")]
-    public struct SpinWaitImpl
-    {
-        internal const int YieldThreshold = 10;
-        private const int Sleep0EveryHowManyYields = 5;
-        internal const int DefaultSleep1Threshold = 20;
-
-        private int _count;
-
-        public int Count
-        {
-            get => _count;
-            internal set => _count = value;
-        }
-
-        public bool NextSpinWillYield => _count >= YieldThreshold || Environment.ProcessorCount == 1;
-
-        public void SpinOnce() => SpinOnceCore(DefaultSleep1Threshold);
-
-        public void SpinOnce(int sleep1Threshold)
-        {
-            if (sleep1Threshold < -1) throw new ArgumentOutOfRangeException("sleep1Threshold", sleep1Threshold, "Number must be either non-negative and less than or equal to Int32.MaxValue or -1.");
-            if (sleep1Threshold >= 0 && sleep1Threshold < YieldThreshold) sleep1Threshold = YieldThreshold;
-            SpinOnceCore(sleep1Threshold);
-        }
-
-        private void SpinOnceCore(int sleep1Threshold)
-        {
-            if ((_count >= YieldThreshold && ((_count >= sleep1Threshold && sleep1Threshold >= 0) || (_count - YieldThreshold) % 2 == 0))
-                || Environment.ProcessorCount == 1)
-            {
-                if (_count >= sleep1Threshold && sleep1Threshold >= 0) Thread.Sleep(1);
-                else
-                {
-                    int yieldsSoFar = _count >= YieldThreshold ? (_count - YieldThreshold) / 2 : _count;
-                    if ((yieldsSoFar % Sleep0EveryHowManyYields) == (Sleep0EveryHowManyYields - 1)) Thread.Sleep(0);
-                    else Thread.Yield();
-                }
-            }
-            else
-            {
-                Thread.SpinWait(8 << Math.Min(_count, 10));
-            }
-            _count = _count == int.MaxValue ? YieldThreshold : _count + 1;
-        }
-
-        public void Reset() => _count = 0;
-
-        public static void SpinUntil(Func<bool> condition) => SpinUntil(condition, Timeout.Infinite);
-
-        public static bool SpinUntil(Func<bool> condition, TimeSpan timeout)
-        {
-            long totalMilliseconds = (long)timeout.TotalMilliseconds;
-            if (totalMilliseconds < -1 || totalMilliseconds > int.MaxValue)
-                throw new ArgumentOutOfRangeException("timeout", timeout, "The timeout must represent a value between -1 and Int32.MaxValue, inclusive.");
-            return SpinUntil(condition, (int)totalMilliseconds);
-        }
-
-        public static bool SpinUntil(Func<bool> condition, int millisecondsTimeout)
-        {
-            if (millisecondsTimeout < Timeout.Infinite)
-                throw new ArgumentOutOfRangeException("millisecondsTimeout", millisecondsTimeout, "The timeout must represent a value between -1 and Int32.MaxValue, inclusive.");
-            if (condition == null) throw new ArgumentNullException("condition");
-            long start = millisecondsTimeout == 0 || millisecondsTimeout == Timeout.Infinite ? 0 : Environment.TickCount64;
-            SpinWaitImpl spinner = default;
-            while (!condition())
-            {
-                if (millisecondsTimeout == 0) return false;
-                spinner.SpinOnce();
-                if (millisecondsTimeout != Timeout.Infinite && spinner.NextSpinWillYield && millisecondsTimeout <= Environment.TickCount64 - start)
-                    return false;
-            }
-            return true;
-        }
-    }
-
     // What NativeAOT answers: no code is generated at run time, so Microsoft.Extensions.DependencyInjection,
     // System.Linq.Expressions and ASP.NET Core take their reflection-free paths.
     [ShadowMembers("System.Runtime.CompilerServices.RuntimeFeature")]
@@ -455,6 +375,18 @@ namespace CsharpcCoreLib
 #endif
     }
 
+    /// <summary>
+    /// CoreLib-internal members of Unsafe that the reference pack leaves out but the framework's own IL calls.
+    /// OpportunisticMisalignment (SpanHelpers.Memmove, which Buffer.Memmove and every span copy in the sliced IL reach) is CoreLib's
+    /// own body: the low bits of the address below the given power-of-two alignment.
+    /// </summary>
+    [ShadowMembers("System.Runtime.CompilerServices.Unsafe")]
+    internal static unsafe class UnsafeMembers
+    {
+        public static nuint OpportunisticMisalignment<T>(ref T address, nuint alignment) =>
+            (nuint)System.Runtime.CompilerServices.Unsafe.AsPointer(ref address) & (alignment - 1);
+    }
+
     [ShadowMembers("System.Runtime.CompilerServices.RuntimeHelpers")]
     internal static unsafe class RuntimeHelpersMembers
     {
@@ -464,6 +396,9 @@ namespace CsharpcCoreLib
         private static nuint MinimumStack => (nuint)(IntPtr.Size == 8 ? 128 * 1024 : 64 * 1024);
 
         public static bool TryEnsureSufficientExecutionStack() => csrt_stack_remaining() >= MinimumStack;
+
+        /// <summary>CoreLib-internal: whether T's equality is its bits (the framework's span helpers pick their vector path on it).</summary>
+        public static bool IsBitwiseEquatable<T>() => CoreIntrinsics.IsBitwiseEquatable<T>();
 
         /// <summary>array[range] (the compiler's RuntimeHelpers.GetSubArray): a copy of the slice.</summary>
         public static T[] GetSubArray<T>(T[] array, Range range)

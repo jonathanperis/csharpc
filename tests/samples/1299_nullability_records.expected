@@ -1,0 +1,41 @@
+Person ctor(3).Name: String read=NotNull write=NotNull
+Person ctor(3).Nickname: String read=Nullable write=Nullable
+Person ctor(3).Age: Int32 read=NotNull write=NotNull
+Person.Age: Int32 read=NotNull write=NotNull
+Person.Name: String read=NotNull write=NotNull
+Person.Nickname: String read=Nullable write=Nullable
+Library ctor(4).Title: String read=NotNull write=NotNull
+Library ctor(4).Shelves: List`1 read=NotNull write=NotNull args=[String read=Nullable write=Nullable]
+Library ctor(4).Tags: String[] read=Nullable write=Nullable element=[String read=NotNull write=NotNull]
+Library ctor(4).Index: Dictionary`2 read=NotNull write=NotNull args=[String read=NotNull write=NotNull; List`1 read=Nullable write=Nullable args=[String read=NotNull write=NotNull]]
+Library.Index: Dictionary`2 read=NotNull write=NotNull args=[String read=NotNull write=NotNull; List`1 read=Nullable write=Nullable args=[String read=NotNull write=NotNull]]
+Library.Shelves: List`1 read=NotNull write=NotNull args=[String read=Nullable write=Nullable]
+Library.Tags: String[] read=Nullable write=Nullable element=[String read=NotNull write=NotNull]
+Library.Title: String read=NotNull write=NotNull
+WithBody ctor(1).Id: String read=NotNull write=NotNull
+WithBody ctor(2).id: String read=NotNull write=NotNull
+WithBody ctor(2).extra: String read=Nullable write=Nullable
+WithBody.Id: String read=NotNull write=NotNull
+WithBody.Items: List`1 read=NotNull write=NotNull args=[String read=NotNull write=NotNull]
+WithBody.Note: String read=Nullable write=Nullable
+WithBody.Label: String read=NotNull write=NotNull
+Point ctor(3).Label: String read=NotNull write=NotNull
+Point ctor(3).X: Double read=NotNull write=NotNull
+Point ctor(3).Tag: String read=Nullable write=Nullable
+Point.Label: String read=NotNull write=NotNull
+Point.Tag: String read=Nullable write=Nullable
+Point.X: Double read=NotNull write=NotNull
+Service ctor(3).name: String read=NotNull write=NotNull
+Service ctor(3).description: String read=Nullable write=Nullable
+Service ctor(3).parts: List`1 read=NotNull write=NotNull args=[String read=Nullable write=Nullable]
+Service.Count: Int32 read=NotNull write=Unknown
+Service.Description: String read=Nullable write=Unknown
+Service.Name: String read=NotNull write=Unknown
+Annotated ctor(2).Value: String read=NotNull write=NotNull
+Annotated ctor(2).Other: String read=NotNull write=NotNull
+Annotated.Other: String read=Nullable write=NotNull
+Annotated.Value: String read=NotNull write=Nullable
+Oblivious ctor(2).Name: String read=Unknown write=Unknown
+Oblivious ctor(2).Items: List`1 read=Unknown write=Unknown args=[String read=Unknown write=Unknown]
+Oblivious.Items: List`1 read=Unknown write=Unknown args=[String read=Unknown write=Unknown]
+Oblivious.Name: String read=Unknown write=Unknown

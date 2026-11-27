@@ -47,6 +47,13 @@ class Sample
     public Sample(string required, string? optional) { }
 }
 
+class Box<T>
+{
+    public T Value = default!;
+    public T? MaybeValue;
+    public T Item { get; set; } = default!;
+}
+
 #nullable disable
 class Oblivious
 {
@@ -120,6 +127,11 @@ static class Program
         foreach (var parameter in typeof(Sample).GetConstructors()[0].GetParameters())
             Console.WriteLine($"ctor({parameter.Name}): {Describe(context.Create(parameter))}");
 
+        Fields(typeof(Box<>));
+        Fields(typeof(Box<string>));
+        Fields(typeof(Box<string?>));
+        Fields(typeof(Box<int>));
+        Properties(typeof(Box<string>));
         Fields(typeof(Oblivious));
         Properties(typeof(Oblivious));
 

@@ -34,6 +34,15 @@ Find(value): String read=Nullable write=NotNull
 Find return: String read=Nullable write=Nullable
 ctor(required): String read=NotNull write=NotNull
 ctor(optional): String read=Nullable write=Nullable
+Box`1.MaybeValue: T read=Nullable write=Nullable
+Box`1.Value: T read=Nullable write=Nullable
+Box`1.MaybeValue: String read=Nullable write=Nullable
+Box`1.Value: String read=Nullable write=Nullable
+Box`1.MaybeValue: String read=Nullable write=Nullable
+Box`1.Value: String read=Nullable write=Nullable
+Box`1.MaybeValue: Int32 read=NotNull write=NotNull
+Box`1.Value: Int32 read=NotNull write=NotNull
+Box`1.Item: String read=Nullable write=Nullable
 Oblivious.Items: List`1 read=Unknown write=Unknown args=[String read=Unknown write=Unknown]
 Oblivious.Name: String read=Unknown write=Unknown
 Oblivious.Number: Int32 read=NotNull write=NotNull

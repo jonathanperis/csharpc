@@ -1,0 +1,55 @@
+ int: equals=True sameHash=True viaVariable=True
+ int differ: equals=False sameHash=False viaVariable=False
+ long: equals=True sameHash=True viaVariable=True
+ double: equals=True sameHash=True viaVariable=True
+ NaN: equals=True sameHash=True viaVariable=True
+ 0.0 vs -0.0: equals=True sameHash=True viaVariable=True
+ float NaN: equals=True sameHash=True viaVariable=True
+ char: equals=True sameHash=True viaVariable=True
+ bool: equals=False sameHash=False viaVariable=False
+ decimal 1.0 vs 1.00: equals=True sameHash=True viaVariable=True
+ string: equals=True sameHash=True viaVariable=True
+ string null: equals=True sameHash=True viaVariable=True
+ string vs null: equals=False sameHash=False viaVariable=False
+ enum: equals=True sameHash=True viaVariable=True
+ enum differ: equals=False sameHash=False viaVariable=False
+ int?: equals=True sameHash=True viaVariable=True
+ int? null: equals=True sameHash=True viaVariable=True
+ int? vs null: equals=False sameHash=False viaVariable=False
+ tuple: equals=True sameHash=True viaVariable=True
+ tuple differ: equals=False sameHash=False viaVariable=False
+[Eq.Equals][Eq.Hash][Eq.Hash][Eq.Equals] IEquatable struct: equals=True sameHash=True viaVariable=True
+[Eq.Equals][Eq.Hash][Eq.Hash][Eq.Equals] IEquatable struct differ: equals=False sameHash=False viaVariable=False
+ plain struct: equals=True sameHash=True viaVariable=True
+ plain struct differ: equals=False sameHash=False viaVariable=False
+ DateTime: equals=True sameHash=True viaVariable=True
+ TimeSpan: equals=False sameHash=False viaVariable=False
+[Ref.Equals][Ref.Hash][Ref.Hash][Ref.Equals] ref: equals=True sameHash=True viaVariable=True
+ ref null: equals=True sameHash=True viaVariable=True
+[Ref.Hash] ref vs null: equals=False sameHash=False viaVariable=False
+ object: equals=True sameHash=True viaVariable=True
+ object int boxes: equals=True sameHash=True viaVariable=True
+ IComparable: equals=True sameHash=True viaVariable=True
+ int: compare=-1 viaVariable=-1
+ int rev: compare=1 viaVariable=1
+ double NaN: compare=-1 viaVariable=-1
+ double NaN both: compare=0 viaVariable=0
+ char: compare=1 viaVariable=1
+ string: compare=-1 viaVariable=-1
+ string null: compare=-1 viaVariable=-1
+ string both null: compare=0 viaVariable=0
+ enum: compare=-1 viaVariable=-1
+ int?: compare=-1 viaVariable=-1
+ decimal: compare=1 viaVariable=1
+ DateTime: compare=-1 viaVariable=-1
+[Eq.CompareTo][Eq.CompareTo] IComparable struct: compare=0 viaVariable=0
+ tuple: compare=-1 viaVariable=-1
+ object string: compare=-1 viaVariable=-1
+
+hash int 42 char 6357089 long 256 bool 1 byte 200 sbyte -3
+hash double 1073217536 zero True nan True float 1075838976
+[Eq.Hash]hash enum 3 decimal True int? 7 null 0 Eq 3
+hash DateTime True TimeSpan 705032705
+[Eq.Hash][Eq.Hash][Eq.Equals][Eq.Hash]
+set 2
+3

@@ -59,6 +59,8 @@ internal sealed class IlValueOperation(SyntaxNode syntax, ITypeSymbol type, Func
     public ITypeSymbol? EntryType { get; init; }
     /// <summary>The operand is IL's `ldnull` (C#'s null literal, or a defaulted optional argument).</summary>
     public bool IsNullLiteral { get; init; }
+    /// <summary>The class the object is exactly, when the IL proves it (a `newobj` result or an exact local): virtual calls on it bind directly.</summary>
+    public ITypeSymbol? ExactClass { get; init; }
     public LLVMValueRef Emit() => value();
 }
 

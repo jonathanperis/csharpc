@@ -50,6 +50,13 @@ public sealed partial class FunctionCodeGen
             var parameterTypes = method.Parameters.Select(p => S(p.Type)).ToArray();
             method = concrete.GetMembers(method.Name).OfType<IMethodSymbol>().FirstOrDefault(m => m.IsStatic
                 && m.Parameters.Select(p => p.Type).SequenceEqual(parameterTypes, SymbolEqualityComparer.Default)) ?? method;
+            // The concrete type's operator is compiled code (a type served from the framework's IL, BFloat16's unary minus): call it.
+            if (_m.IsUserMethod(method)) return EmitDirectCall(method, operands);
+        }
+        if (IsVector128Struct(method.ContainingType))
+        {
+            var vectorArguments = operands.Select((o, i) => Coerce(EmitValue(o), TypeOf(o), S(method.Parameters[i].Type))).ToArray();
+            return EmitSimd(method, method.ContainingType.TypeArguments[0], default, vectorArguments, at);
         }
         if (!BclValueTypes.TryGet(method, out var handler))
             throw CompileError.Unsupported($"operator '{method}'", at);
@@ -129,7 +136,6 @@ public sealed partial class FunctionCodeGen
             "csrt_decimal_from_u64" => "FromUInt64",
             "csrt_decimal_from_f64" => "FromDouble",
             "csrt_decimal_from_f32" => "FromSingle",
-            "csrt_decimal_parse" => "Parse",
             _ => throw new InvalidOperationException($"unknown decimal operation {fn}"),
         };
         return CallCoreLib("DecimalOps", method, operands);
@@ -191,6 +197,9 @@ public sealed partial class FunctionCodeGen
         var dst = T.Value(to);
         if (dst.Kind == LLVMTypeKind.Double) return CallRuntime("csrt_decimal_to_f64", L.F64, [L.Ptr], p);
         if (dst.Kind == LLVMTypeKind.Float) return CallRuntime("csrt_decimal_to_f32", L.F32, [L.Ptr], p);
+        // decimal -> Int128 / UInt128 (#182): 128 bits wide, past csrt_decimal_to_integer's 64.
+        if (dst.IntWidth == 128 && to.TypeKind != TypeKind.Enum)
+            return CallCoreLib("DecimalOps", TypeMapper.IsSigned(to) ? "ToInt128At" : "ToUInt128At", p);
         var kind = to.SpecialType switch
         {
             SpecialType.System_SByte => 1, SpecialType.System_Byte => 2, SpecialType.System_Int16 => 3,
@@ -215,7 +224,9 @@ public sealed partial class FunctionCodeGen
         // typeof(SomeAttribute) may reach GetCustomAttributes(typeof(A)), which returns an A[]: keep that array type.
         if (type is INamedTypeSymbol { TypeKind: TypeKind.Class, IsAbstract: false } named && DerivesFromAttribute(named)) _m.ArrayMethodTable(named);
         if (type is INamedTypeSymbol { TypeKind: TypeKind.Delegate } delegateType) _m.NoteDelegateType(delegateType);
-        return CallRuntime("csrt_type_from_mt", L.Ptr, [L.Ptr], _m.TypeMethodTable(type, at));
+        var typeObject = CallRuntime("csrt_type_from_mt", L.Ptr, [L.Ptr], SharedHandleOf(SharedHandle.TypeOf, type) ?? _m.TypeMethodTable(type, at));
+        _eraseIfUnused.Add(typeObject);
+        return typeObject;
     }
 
     /// <summary>
@@ -231,10 +242,32 @@ public sealed partial class FunctionCodeGen
         {
             var result = _b.ICmp(predicate, ma, mb);
             foreach (var lookup in new[] { a, b })
-                if (Native.LLVMGetFirstUse(lookup) == 0) Native.LLVMInstructionEraseFromParent(lookup);
+                if (Native.LLVMGetFirstUse(lookup) == 0) { _eraseIfUnused.Remove(lookup); Native.LLVMInstructionEraseFromParent(lookup); }
             return result;
         }
+        // One side made from a method table (`formatType == typeof(NumberFormatInfo)`, CultureInfo.GetFormat and
+        // NumberFormatInfo.GetInstance on every number parse): test the other side against that method table instead of looking
+        // the Type object up (3.2 M lookups in componentmodel_throughput, #349).
+        foreach (var (known, other) in new[] { (a, b), (b, a) })
+        {
+            if (TypeObjectSource(known) is not { IsNull: false } mt) continue;
+            var same = CallRuntime("csrt_type_is_mt", L.I1, [L.Ptr, L.Ptr], other, mt);
+            if (Native.LLVMGetFirstUse(known) == 0) { _eraseIfUnused.Remove(known); Native.LLVMInstructionEraseFromParent(known); }
+            return equal ? same : _b.Not(same);
+        }
         return _b.ICmp(predicate, a, b);
+    }
+
+    /// <summary>
+    /// A Type flag property (IsEnum, IsValueType, ...) of a Type made from a known method table — `typeof(T).IsEnum` in
+    /// generic code after monomorphization (DefaultInterpolatedStringHandler.AppendFormatted&lt;T&gt;): a constant, and neither the
+    /// lookup nor the type-info table is emitted. Null when the type is only known at run time.
+    /// </summary>
+    internal LLVMValueRef? KnownTypeFlag(LLVMValueRef type, ulong mask)
+    {
+        if (TypeObjectSource(type) is not { IsNull: false } mt || _m.KnownTypeFlags(mt) is not { } flags) return null;
+        if (Native.LLVMGetFirstUse(type) == 0) { _eraseIfUnused.Remove(type); Native.LLVMInstructionEraseFromParent(type); }
+        return (flags & mask) != 0 ? L.True : L.False;
     }
 
     /// <summary>The method table a Type value was looked up from (a direct csrt_type_from_mt call), or null.</summary>
@@ -260,8 +293,12 @@ public sealed partial class FunctionCodeGen
             instance = boxing.Operand;
         if (TypeOf(instance) is { IsValueType: true } valueType)
         {
+            // Nullable<T>.GetType() boxes first (#104): a null value is a NullReferenceException, any other is a T.
             if (TypeMapper.IsNullable(valueType))
-                throw CompileError.Unsupported("GetType() on a nullable value type", inv);
+            {
+                NullCheck(Box(EmitValue(instance), valueType, inv));
+                return TypeObject(((INamedTypeSymbol)valueType).TypeArguments[0], inv);
+            }
             EmitValue(instance); // keep side effects
             return TypeObject(valueType, inv);
         }
@@ -276,7 +313,7 @@ public sealed partial class FunctionCodeGen
 
     /// <summary>Gives a freshly allocated array its element-specific method table ("System.Int32[]").</summary>
     internal void TagArray(LLVMValueRef array, ITypeSymbol elementType) =>
-        _b.Store(_m.ArrayMethodTable(elementType), array);
+        _b.Store(SharedHandleOf(SharedHandle.Array, elementType) ?? _m.ArrayMethodTable(elementType), array);
 
     // ======================================================================================
     // Small IR building blocks for library helpers

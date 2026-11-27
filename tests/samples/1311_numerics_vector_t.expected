@@ -1,0 +1,9 @@
+3823 3823 3823
+(-500, 508)
+206 206
+0 1 1 3
+True
+5 5 0
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'values')
+ArgumentException: Destination is too short. (Parameter 'destination')
+ArgumentOutOfRangeException: Specified argument was out of the range of valid values. (Parameter 'values')

@@ -28,14 +28,31 @@ internal static partial class BclValueTypes
     public static bool IsTimeSpan(ITypeSymbol? t) =>
         t is INamedTypeSymbol { Name: "TimeSpan", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } };
     public static bool IsTicks(ITypeSymbol? t) => IsTimeSpan(t) || IsDateTime(t);
-    public static bool IsBigInteger(ITypeSymbol? t) =>
-        t is INamedTypeSymbol { Name: "BigInteger", ContainingNamespace: { Name: "Numerics", ContainingNamespace: { Name: "System" } } };
+
+    /// <summary>The size of a built-in integer type in bytes; -1 for the pointer-sized ones, 0 for any other type.</summary>
+    private static int IntegerByteCount(ITypeSymbol type) => type.SpecialType switch
+    {
+        SpecialType.System_Byte or SpecialType.System_SByte => 1,
+        SpecialType.System_Int16 or SpecialType.System_UInt16 or SpecialType.System_Char => 2,
+        SpecialType.System_Int32 or SpecialType.System_UInt32 => 4,
+        SpecialType.System_Int64 or SpecialType.System_UInt64 => 8,
+        SpecialType.System_IntPtr or SpecialType.System_UIntPtr => -1,
+        _ => Int128Support.Is128(type) ? 16 : 0,
+    };
 
     public static bool TryGet(IMethodSymbol method, out BclHandler handler)
     {
         var key = Intrinsics.Key(method.OriginalDefinition);
         if (s_methods.TryGetValue(key, out handler!)) return true;
         if (Int128Support.TryGet(method, out handler)) return true;
+        // IBinaryInteger<T>.GetByteCount() on a built-in integer (an explicit implementation; the framework's generic number code over
+        // TSignificand = UInt128, Decimal128's, calls it through `constrained.`): the type's size, a constant.
+        if (!method.IsStatic && method.Parameters.IsEmpty && method.ExplicitInterfaceImplementations is [{ Name: "GetByteCount" } explicitMember]
+            && explicitMember.ContainingType is { Name: "IBinaryInteger", ContainingNamespace.Name: "Numerics" } && IntegerByteCount(method.ContainingType) is var bytes and not 0)
+        {
+            handler = (g, _, _, _, _) => g.Llvm.ConstInt(g.Llvm.I32, bytes < 0 ? (long)g.Types.PointerSize : bytes);
+            return true;
+        }
         // TimeSpan.FromDays/Hours/.../Microseconds integer overloads (.NET 9): sum of named units.
         if (IsTimeSpan(method.ContainingType) && method.IsStatic && method.Name.StartsWith("From", StringComparison.Ordinal)
             && method.Parameters.All(p => p.Type.SpecialType is SpecialType.System_Int32 or SpecialType.System_Int64))
@@ -55,6 +72,9 @@ internal static partial class BclValueTypes
         const string prefix = "System.Reflection.MemberInfo.";
         var key = Intrinsics.Key(memberInfoMethod.OriginalDefinition);
         if (key.StartsWith(prefix, StringComparison.Ordinal) && s_methods.TryGetValue("System.Type." + key[prefix.Length..], out handler!)) return true;
+        // The same through ICustomAttributeProvider, which a Type is converted to when passed as one.
+        const string providerPrefix = "System.Reflection.ICustomAttributeProvider.";
+        if (key.StartsWith(providerPrefix, StringComparison.Ordinal) && s_methods.TryGetValue("System.Type." + key[providerPrefix.Length..], out handler!)) return true;
         return TryGet(memberInfoMethod, out handler);
     }
 
@@ -251,7 +271,7 @@ internal static partial class BclValueTypes
         if (de is null) throw CompileError.Unsupported($"'{m}' on a non-array argument", at);
         var references = e.IsReferenceType && de.IsReferenceType;
         if (!SymbolEqualityComparer.Default.Equals(e, de) && !references)
-            throw CompileError.Unsupported($"Array.Copy from {e}[] to {de}[] (element conversion)", at);
+            return ConvertingArrayCopy(g, at, e, de, src, srcIndex, dst, dstIndex, length, longLength);
         g.CallCoreLib("ArrayChecks", "Copy", src, srcIndex, dst, dstIndex, length, longLength ? g.Llvm.True : g.Llvm.False);
         // Between reference arrays the runtime element types decide (Array.CopyImpl): either array may be
         // covariant, and object[] -> string[] casts each element. Arrays of sealed types need no check.
@@ -259,12 +279,80 @@ internal static partial class BclValueTypes
             || g.Module.Compilation.ClassifyCommonConversion(e, de) is not ({ IsImplicit: true, IsReference: true } or { IsIdentity: true })))
         {
             Rt(g, "csrt_array_copy_checked", g.Llvm.Void, (src, g.Llvm.Ptr), (srcIndex, g.Llvm.I64), (dst, g.Llvm.Ptr), (dstIndex, g.Llvm.I64),
-                (length, g.Llvm.I64), (g.Module.ArrayMethodTable(de), g.Llvm.Ptr));
+                (length, g.Llvm.I64), (g.SharedHandleOf(SharedHandle.Array, de) ?? g.Module.ArrayMethodTable(de), g.Llvm.Ptr));
             return default;
         }
         Rt(g, "csrt_array_copy", g.Llvm.Void, (src, g.Llvm.Ptr), (srcIndex, g.Llvm.I64), (dst, g.Llvm.Ptr), (dstIndex, g.Llvm.I64),
             (length, g.Llvm.I64), (I64(g, (long)g.Types.Target.SizeOf(g.Types.Storage(e))), g.Llvm.I64));
         return default;
+    }
+
+    /// <summary>
+    /// Array.Copy between arrays of different element types, one of them a value type (#365), as Array.CopyImpl classifies them
+    /// (CanAssignArrayType): boxing into a type the element boxes to, unboxing from a reference type (the exact type; Nullable&lt;T&gt;
+    /// takes null; the elements before a failing one stay copied), the CLR's primitive copies (PrimitiveArrayCopy); anything else throws ArrayTypeMismatchException.
+    /// Enum element types (which .NET copies to and from their underlying type) stay a diagnostic.
+    /// </summary>
+    private static LLVMValueRef ConvertingArrayCopy(FunctionCodeGen g, IOperation at, ITypeSymbol e, ITypeSymbol de, LLVMValueRef src,
+        LLVMValueRef srcIndex, LLVMValueRef dst, LLVMValueRef dstIndex, LLVMValueRef length, bool longLength)
+    {
+        if (e.TypeKind == TypeKind.Enum || de.TypeKind == TypeKind.Enum)
+            throw CompileError.Unsupported($"Array.Copy from {e}[] to {de}[] (element conversion of an enum)", at);
+        g.CallCoreLib("ArrayChecks", "Copy", src, srcIndex, dst, dstIndex, length, longLength ? g.Llvm.True : g.Llvm.False);
+        var conversion = Microsoft.CodeAnalysis.CSharp.CSharpExtensions.ClassifyConversion(g.Module.Compilation, e, de);
+        if (e.IsValueType && de.IsReferenceType && conversion.IsBoxing && NullableAssignable(e, de))
+            g.CallCoreLibGenericMethod("ArrayChecks", "CopyBoxing", [e, de], src, srcIndex, dst, dstIndex, length);
+        else if (e.IsReferenceType && de.IsValueType && conversion.IsUnboxing && NullableAssignable(de, e))
+            g.CallCoreLibGenericMethod("ArrayChecks", "CopyUnboxing", [e, de], src, srcIndex, dst, dstIndex, length);
+        else if (PrimitiveArrayCopy(e, de) == PrimitiveCopy.Reinterpret)
+            Rt(g, "csrt_array_copy", g.Llvm.Void, (src, g.Llvm.Ptr), (srcIndex, g.Llvm.I64), (dst, g.Llvm.Ptr), (dstIndex, g.Llvm.I64),
+                (length, g.Llvm.I64), (I64(g, (long)g.Types.Target.SizeOf(g.Types.Storage(e))), g.Llvm.I64));
+        else if (PrimitiveArrayCopy(e, de) == PrimitiveCopy.Widen)
+            g.EmitCountedLoop(length, i =>
+            {
+                var value = g.LoadValue(g.ArrayElementAddress(src, e, g.Builder.BinOp(LLVMOpcode.Add, srcIndex, i)), e);
+                var widened = g.ConvertNumeric(value, e, de, at);
+                g.StoreValue(g.ToStorage(widened, de), g.ArrayElementAddress(dst, de, g.Builder.BinOp(LLVMOpcode.Add, dstIndex, i)));
+            });
+        else
+            g.CallCoreLib("ArrayChecks", "ThrowArrayTypeMismatch");
+        return default;
+    }
+
+    // C#'s boxing conversion takes Nullable<T> to T's interfaces; the CLR assigns Nullable<T> only to its base classes, object and
+    // ValueType, so Array.Copy between an int?[] and an IComparable[] throws ArrayTypeMismatchException.
+    private static bool NullableAssignable(ITypeSymbol valueType, ITypeSymbol reference) =>
+        !TypeMapper.IsNullable(valueType) || reference.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType;
+
+    private enum PrimitiveCopy { None, Reinterpret, Widen }
+
+    /// <summary>
+    /// How Array.Copy moves primitives of one type into an array of another: the CLR's rules (CanAssignArrayType), not C#'s implicit
+    /// conversions. Integers of one size and opposite sign, and char/ushort, are copied bit for bit (GetNormalizedIntegralArrayElementType;
+    /// ushort to char through the widening table); the widening table (RuntimeHelpers.CanPrimitiveWiden) converts by value, and allows
+    /// byte to char but no signed to unsigned widening; bool and every other pair throw. Checked against NativeAOT and the JIT on all pairs.
+    /// </summary>
+    private static PrimitiveCopy PrimitiveArrayCopy(ITypeSymbol e, ITypeSymbol de)
+    {
+        const SpecialType Char = SpecialType.System_Char, I1 = SpecialType.System_SByte, U1 = SpecialType.System_Byte,
+            I2 = SpecialType.System_Int16, U2 = SpecialType.System_UInt16, I4 = SpecialType.System_Int32, U4 = SpecialType.System_UInt32,
+            I8 = SpecialType.System_Int64, U8 = SpecialType.System_UInt64, I = SpecialType.System_IntPtr, U = SpecialType.System_UIntPtr,
+            R4 = SpecialType.System_Single, R8 = SpecialType.System_Double;
+        return (e.SpecialType, de.SpecialType) switch
+        {
+            (I1, U1) or (U1, I1) or (I2, U2) or (U2, I2) or (I4, U4) or (U4, I4) or (I8, U8) or (U8, I8) or (I, U) or (U, I)
+                or (Char, U2) or (U2, Char) => PrimitiveCopy.Reinterpret,
+            (Char, I4 or U4 or I8 or U8 or R4 or R8) => PrimitiveCopy.Widen,
+            (I1, I2 or I4 or I8 or R4 or R8) => PrimitiveCopy.Widen,
+            (U1, Char or I2 or U2 or I4 or U4 or I8 or U8 or R4 or R8) => PrimitiveCopy.Widen,
+            (I2, I4 or I8 or R4 or R8) => PrimitiveCopy.Widen,
+            (U2, I4 or U4 or I8 or U8 or R4 or R8) => PrimitiveCopy.Widen,
+            (I4, I8 or R4 or R8) => PrimitiveCopy.Widen,
+            (U4, I8 or U8 or R4 or R8) => PrimitiveCopy.Widen,
+            (I8 or U8, R4 or R8) => PrimitiveCopy.Widen,
+            (R4, R8) => PrimitiveCopy.Widen,
+            _ => PrimitiveCopy.None,
+        };
     }
 
     // ---- TimeSpan ----------------------------------------------------------------------------
@@ -370,11 +458,6 @@ internal static partial class BclValueTypes
         t[$"{D}.get_Scale()"] = (g, _, self, _, _) => g.Builder.Cast(LLVMOpcode.Trunc,
             g.Builder.BinOp(LLVMOpcode.LShr, g.Builder.ExtractValue(self, 0), I32(g, 16)), g.Llvm.I8);
         t[$"{D}.GetHashCode()"] =(g, _, self, _, _) => Rt(g, "csrt_decimal_get_hash_code", g.Llvm.I32, (g.Spill(self), g.Llvm.Ptr));
-        t[$"{D}.ToString()"] = (g, _, self, _, _) => g.CallCoreLib("Number", "DecimalToString", self);
-        t[$"{D}.ToString(string)"] = (g, _, self, a, _) =>
-            g.CallCoreLib("Number", "FormatDecimal", self, a[0]);
-        t[$"{D}.ToString(System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("Number", "FormatDecimalWith", self, LlvmContext.Null(g.Llvm.Ptr), a[0]);
-        t[$"{D}.ToString(string, System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("Number", "FormatDecimalWith", self, a[0], a[1]);
         BclHandler round(int? digits, int? mode) => (g, m, _, a, _) =>
         {
             var l = g.Llvm;
@@ -396,12 +479,12 @@ internal static partial class BclValueTypes
         // Round(decimal, MidpointRounding): digits fixed at 0, mode from args[1]
         t[$"{D}.Round({D}, System.MidpointRounding)"] = t[$"System.Math.Round({D}, System.MidpointRounding)"] = (g, _, _, a, _) =>
             g.DecimalCall("csrt_decimal_round", [g.Llvm.I32, g.Llvm.I32], a[0], I32(g, 0), ToI32(g, a[1]));
-        t[$"System.Math.Abs({D})"] = t[$"{D}.Abs({D})"] = (g, _, _, a, at) =>
+        t[$"System.Math.Abs({D})"] = t[$"{D}.Abs({D})"] = (g, _, _, a, _) =>
         {
+            // Clears the sign bit, so a negative zero (-0.00m) becomes +0.00 as in .NET; a compare against 0 would miss it.
             var b = g.Builder;
-            var negative = g.DecimalArithmetic(BinaryOperatorKind.LessThan, a[0], g.DecimalConstant(0m), at);
-            var negated = g.DecimalNegate(a[0]);
-            return b.Select(negative, negated, a[0]);
+            var flags = b.BinOp(LLVMOpcode.And, b.ExtractValue(a[0], 0), I32(g, int.MaxValue));
+            return b.InsertValue(a[0], flags, 0);
         };
         t[$"System.Math.Max({D}, {D})"] = t[$"{D}.Max({D}, {D})"] = (g, _, _, a, at) =>
             g.Builder.Select(g.DecimalArithmetic(BinaryOperatorKind.GreaterThanOrEqual, a[0], a[1], at), a[0], a[1]);
@@ -418,8 +501,8 @@ internal static partial class BclValueTypes
                 : g.DecimalCall("csrt_decimal_from_u64", [g.Llvm.I64], ToI64(g, a[0], false));
         t[$"{D}..ctor(double)"] = (g, _, _, a, _) => g.DecimalCall("csrt_decimal_from_f64", [g.Llvm.F64], a[0]);
         t[$"{D}..ctor(float)"] = (g, _, _, a, _) => g.DecimalCall("csrt_decimal_from_f32", [g.Llvm.F32], a[0]);
-        t[$"{D}..ctor(int[])"] = (g, _, _, a, _) => g.CallCoreLib("DecimalParsing", "FromBits", a[0]);
-        t[$"{D}..ctor(System.ReadOnlySpan<int>)"] = (g, _, _, a, _) => g.CallCoreLib("DecimalParsing", "FromBitsSpan", a[0]);
+        t[$"{D}..ctor(int[])"] = (g, _, _, a, _) => g.CallCoreLib("DecimalBits", "FromBits", a[0]);
+        t[$"{D}..ctor(System.ReadOnlySpan<int>)"] = (g, _, _, a, _) => g.CallCoreLib("DecimalBits", "FromBitsSpan", a[0]);
         t[$"{D}..ctor(int, int, int, bool, byte)"] = (g, _, _, a, _) =>
         {
             // new decimal(lo, mid, hi, isNegative, scale)
@@ -576,8 +659,6 @@ internal static partial class BclValueTypes
         t[$"{DT}.ToString(string, System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("DateTimeOps", "FormatWith", self, a[0], a[1]);
         // ToShortDateString & co. format with the current culture: corelib DateTimeMembers (DateTimeOps.cs).
 
-        AddBigInteger(t);
-
         // ===== System.Diagnostics.Stopwatch =====
         const string SW = "System.Diagnostics.Stopwatch";
         t[$"{SW}..ctor()"] = (g, _, _, _, _) => Rt(g, "csrt_stopwatch_new", g.Llvm.Ptr, (g.Llvm.False, g.Llvm.I1));
@@ -648,7 +729,7 @@ internal static partial class BclValueTypes
         // culture model) into every program that compares strings ordinally.
         t["string.Compare(string, string, System.StringComparison)"] = (g, _, _, a, at) => ConstantComparison(at, 2) switch
         {
-            StringComparison.Ordinal => g.CallCoreLib("StringOps", "CompareOrdinal", a[0], a[1]),
+            StringComparison.Ordinal => g.CallCoreLib("StringRuntime", "CompareOrdinal", a[0], a[1]),
             StringComparison.OrdinalIgnoreCase => g.CallCoreLib("OrdinalCasing", "Compare", a[0], a[1]),
             _ => g.CallCoreLib("OrdinalCasing", "CompareWith", a[0], a[1], a[2]),
         };
@@ -674,10 +755,15 @@ internal static partial class BclValueTypes
         };
         t["string.Equals(string, string, System.StringComparison)"] = equalsWith(2);
         t["string.Equals(string, System.StringComparison)"] = equalsWith(1);
-        t["System.Math.Round(double, System.MidpointRounding)"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (I32(g, 0), g.Llvm.I32), (a[1], g.Llvm.I32));
-        t["System.Math.Round(double, int, System.MidpointRounding)"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (a[1], g.Llvm.I32), (a[2], g.Llvm.I32));
+        // string.Equals(object), String's override of object.Equals, called directly (a virtual call on an object receiver dispatches through
+        // the method table instead): the receiver's null check, then ordinal equality when the argument is a string.
+        t["string.Equals(object)"] = (g, _, self, a, _) =>
+        {
+            g.NullCheck(self);
+            return g.CallCoreLib("StringRuntime", "EqualsObject", self, a[0]);
+        };
+        // Math.Round / double.Round with digits or a MidpointRounding come from CoreLib's IL (upstream-types/System.Math.txt): its
+        // integer-based rounding ran 3x faster than csharpc's exact-decimal copy, which these entries used to route to (#453).
         // Generic-math statics (INumber<T> & co.) that code calls as double.Round(x), int.Max(a, b), ...
         foreach (var (type, bits) in new[] { ("double", 64), ("float", 32) })
         {
@@ -704,32 +790,33 @@ internal static partial class BclValueTypes
                 return g.Builder.Call(f.Type, f.Fn, [a[0], a[1]]);
             };
         }
-        t["double.Round(double, int)"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (a[1], g.Llvm.I32), (I32(g, 0), g.Llvm.I32));
-        t["double.Round(double, System.MidpointRounding)"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (I32(g, 0), g.Llvm.I32), (a[1], g.Llvm.I32));
-        t["double.Round(double, int, System.MidpointRounding)"] = (g, _, _, a, _) =>
-            Rt(g, "csrt_math_round_mode", g.Llvm.F64, (a[0], g.Llvm.F64), (a[1], g.Llvm.I32), (a[2], g.Llvm.I32));
         foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("uint", false), ("ulong", false), ("short", true), ("byte", false) })
         {
             t[$"{type}.Max({type}, {type})"] = (g, _, _, a, _) =>
                 g.Builder.Select(g.Builder.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, a[0], a[1]), a[0], a[1]);
             t[$"{type}.Min({type}, {type})"] = (g, _, _, a, _) =>
                 g.Builder.Select(g.Builder.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, a[0], a[1]), a[0], a[1]);
-            t[$"{type}.Clamp({type}, {type}, {type})"] = (g, _, _, a, _) =>
+            t[$"{type}.Clamp({type}, {type}, {type})"] = (g, m, _, a, _) =>
             {
                 var b = g.Builder;
+                g.ClampBoundsCheck(a[1], a[2], m.Parameters[1].Type); // ArgumentException when min > max (#392)
                 var lo = b.Select(b.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, a[0], a[1]), a[1], a[0]);
                 return b.Select(b.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, lo, a[2]), a[2], lo);
             };
             if (signed)
                 t[$"{type}.Abs({type})"] = (g, _, _, a, _) =>
                 {
-                    var b = g.Builder; // .NET throws OverflowException for MinValue
-                    g.FailIf(b.ICmp(LLVMIntPredicate.EQ, a[0], g.Llvm.ConstUInt(a[0].Type, 1UL << (int)(a[0].Type.IntWidth - 1))), "csrt_throw_overflow");
+                    var b = g.Builder; // .NET throws OverflowException for MinValue, with Math.Abs's message
+                    g.FailIf(b.ICmp(LLVMIntPredicate.EQ, a[0], g.Llvm.ConstUInt(a[0].Type, 1UL << (int)(a[0].Type.IntWidth - 1))), "csrt_throw_negate_overflow");
                     return b.Select(b.ICmp(LLVMIntPredicate.SLT, a[0], g.Llvm.ConstInt(a[0].Type, 0)), b.Neg(a[0]), a[0]);
                 };
-            t[$"{type}.Sign({type})"] = (g, _, _, a, _) => ICompare(g, a[0], g.Llvm.ConstInt(a[0].Type, 0), signed);
+            // -1, 0 or 1 for every width: not CompareTo's rule, which for byte and short returns the difference (byte.Sign(5) is 1, not 5).
+            t[$"{type}.Sign({type})"] = (g, _, _, a, _) =>
+            {
+                var zero = g.Llvm.ConstInt(a[0].Type, 0);
+                return ThreeWay(g, g.Builder.ICmp(signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT, a[0], zero),
+                    g.Builder.ICmp(signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT, a[0], zero));
+            };
             t[$"{type}.IsPow2({type})"] = (g, _, _, a, _) =>
             {
                 var b = g.Builder;
@@ -739,22 +826,11 @@ internal static partial class BclValueTypes
                     b.ICmp(LLVMIntPredicate.EQ, b.BinOp(LLVMOpcode.And, a[0], b.BinOp(LLVMOpcode.Sub, a[0], g.Llvm.ConstInt(a[0].Type, 1))), zero));
             };
         }
-        t["string.IsNullOrWhiteSpace(string)"] = (g, _, _, a, _) => Rt(g, "csrt_string_is_null_or_white_space", g.Llvm.I1, (a[0], g.Llvm.Ptr));
         t["object.ReferenceEquals(object, object)"] = (g, _, _, a, _) => g.Builder.ICmp(LLVMIntPredicate.EQ, a[0], a[1]);
         t["object.Equals(object, object)"] = (g, _, _, a, _) => Rt(g, "csrt_object_equals_static", g.Llvm.I1, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr));
         t["nint.get_Size()"] = t["System.IntPtr.get_Size()"] = t["nuint.get_Size()"] = (g, _, _, _, _) => I32(g, (int)g.Types.PointerSize);
         t["bool.CompareTo(bool)"] = (g, _, self, a, _) => ICompare(g, self, a[0], false);
         t["bool.Parse(string)"] = (g, _, _, a, _) => Rt(g, "csrt_bool_parse", g.Llvm.I1, (a[0], g.Llvm.Ptr));
-        t["double.ToString(System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("Number", "FormatDoubleWith", self, LlvmContext.Null(g.Llvm.Ptr), g.Llvm.False, a[0]);
-        t["double.ToString(string, System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("Number", "FormatDoubleWith", self, a[0], g.Llvm.False, a[1]);
-        t["char.GetNumericValue(char)"] = (g, _, _, a, _) =>
-        {
-            var b = g.Builder;
-            var l = g.Llvm;
-            var isDigit = b.BinOp(LLVMOpcode.And, b.ICmp(LLVMIntPredicate.UGE, a[0], l.ConstInt(l.I16, '0')), b.ICmp(LLVMIntPredicate.ULE, a[0], l.ConstInt(l.I16, '9')));
-            var value = b.Cast(LLVMOpcode.UIToFP, b.BinOp(LLVMOpcode.Sub, a[0], l.ConstInt(l.I16, '0')), l.F64);
-            return b.Select(isDigit, value, LlvmContext.ConstReal(l.F64, -1));
-        };
 
         // System.Convert: corelib Convert.cs (a port of .NET's).
 
@@ -780,9 +856,9 @@ internal static partial class BclValueTypes
             t[$"{BO}.TrailingZeroCount({type})"] = (g, _, _, a, _) => BitIntrinsic(g, "cttz", a[0], w, g.Llvm.False);
             t[$"{BO}.Log2({type})"] = (g, _, _, a, _) =>
             {
-                var b = g.Builder; // 31 - lzcnt(x | 1)
+                var b = g.Builder; // (width - 1) - lzcnt(x | 1); the operand's own width: nuint is 32 bits on wasm32
                 var x = b.BinOp(LLVMOpcode.Or, a[0], g.Llvm.ConstInt(a[0].Type, 1));
-                return b.BinOp(LLVMOpcode.Sub, I32(g, w - 1), BitIntrinsic(g, "ctlz", x, w, g.Llvm.False));
+                return b.BinOp(LLVMOpcode.Sub, I32(g, (int)a[0].Type.IntWidth - 1), BitIntrinsic(g, "ctlz", x, w, g.Llvm.False));
             };
             t[$"{BO}.IsPow2({type})"] = (g, _, _, a, _) =>
             {
@@ -795,6 +871,15 @@ internal static partial class BclValueTypes
             t[$"{BO}.RotateLeft({type}, int)"] = (g, _, _, a, _) => Rotate(g, "fshl", a[0], a[1]);
             t[$"{BO}.RotateRight({type}, int)"] = (g, _, _, a, _) => Rotate(g, "fshr", a[0], a[1]);
         }
+        // BitOperations' two nint overloads (nint.TrailingZeroCount and nint.IsPow2's CoreLib IL calls them), at the operand's own width.
+        t[$"{BO}.TrailingZeroCount(nint)"] = (g, _, _, a, _) => BitIntrinsic(g, "cttz", a[0], 0, g.Llvm.False);
+        t[$"{BO}.IsPow2(nint)"] = (g, _, _, a, _) =>
+        {
+            var b = g.Builder;
+            var zero = g.Llvm.ConstInt(a[0].Type, 0);
+            var single = b.ICmp(LLVMIntPredicate.EQ, b.BinOp(LLVMOpcode.And, a[0], b.BinOp(LLVMOpcode.Sub, a[0], g.Llvm.ConstInt(a[0].Type, 1))), zero);
+            return b.BinOp(LLVMOpcode.And, b.ICmp(LLVMIntPredicate.SGT, a[0], zero), single);
+        };
         foreach (var (type, bits) in new[] { ("uint", 32), ("ulong", 64), ("int", 32), ("long", 64) })
         {
             var w = bits;
@@ -815,24 +900,6 @@ internal static partial class BclValueTypes
         t["string.Join(char, string[])"] = (g, m, _, a, at) => JoinArray(g, m, a, at, charSeparator: true);
         t["string.Join(char, object[])"] = (g, m, _, a, at) => JoinArray(g, m, a, at, charSeparator: true);
         t["string.Concat(string[])"] = (g, _, _, a, _) => Rt(g, "csrt_string_join", g.Llvm.Ptr, (g.Module.StringLiteral(""), g.Llvm.Ptr), (a[0], g.Llvm.Ptr));
-        t["string.Split(string, System.StringSplitOptions)"] = (g, _, self, a, _) =>
-        {
-            var array = Rt(g, "csrt_string_split_string", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (a[1], g.Llvm.I32));
-            g.TagArray(array, g.Module.Compilation.GetSpecialType(SpecialType.System_String));
-            return array;
-        };
-        t["string.Split(char[])"] = (g, _, self, a, _) =>
-        {
-            var array = Rt(g, "csrt_string_split_chars", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (I32(g, 0), g.Llvm.I32));
-            g.TagArray(array, g.Module.Compilation.GetSpecialType(SpecialType.System_String));
-            return array;
-        };
-        t["string.Split(char[], System.StringSplitOptions)"] = (g, _, self, a, _) =>
-        {
-            var array = Rt(g, "csrt_string_split_chars", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr), (a[1], g.Llvm.I32));
-            g.TagArray(array, g.Module.Compilation.GetSpecialType(SpecialType.System_String));
-            return array;
-        };
 
         // ===== Math extras =====
         t["System.Math.BigMul(int, int)"] = (g, _, _, a, _) => g.Builder.BinOp(LLVMOpcode.Mul, ToI64(g, a[0]), ToI64(g, a[1]));
@@ -845,132 +912,6 @@ internal static partial class BclValueTypes
             return q;
         };
         return t.ToFrozenDictionary();
-    }
-
-    // ---- System.Numerics.BigInteger (src/runtime/bigint.c; value = immutable bignum pointer) -----------
-
-    private static LLVMValueRef ToBig(FunctionCodeGen g, LLVMValueRef v, ITypeSymbol type)
-    {
-        var l = g.Llvm;
-        if (IsBigInteger(type)) return v;
-        if (TypeMapper.IsSigned(type)) return Rt(g, "csrt_bigint_from_i64", l.Ptr, (ToI64(g, v), l.I64));
-        return Rt(g, "csrt_bigint_from_u64", l.Ptr, (ToI64(g, v, false), l.I64));
-    }
-
-    private static void AddBigInteger(Dictionary<string, BclHandler> t)
-    {
-        const string B = "System.Numerics.BigInteger";
-        BclHandler binary(string fn) => (g, m, self, a, _) =>
-        {
-            var l = g.Llvm;
-            var (x, xt, y, yt) = self.Handle != 0
-                ? (self, (ITypeSymbol)m.ContainingType, a[0], m.Parameters[0].Type)
-                : (a[0], m.Parameters[0].Type, a[1], m.Parameters[1].Type);
-            return Rt(g, fn, l.Ptr, (ToBig(g, x, xt), l.Ptr), (ToBig(g, y, yt), l.Ptr));
-        };
-        foreach (var (op, method, fn) in new[] { ("op_Addition", "Add", "csrt_bigint_add"), ("op_Subtraction", "Subtract", "csrt_bigint_sub"),
-                     ("op_Multiply", "Multiply", "csrt_bigint_mul"), ("op_Division", "Divide", "csrt_bigint_div"), ("op_Modulus", "Remainder", "csrt_bigint_rem") })
-        {
-            t[$"{B}.{op}({B}, {B})"] = binary(fn);
-            t[$"{B}.{method}({B}, {B})"] = binary(fn);
-        }
-        t[$"{B}.GreatestCommonDivisor({B}, {B})"] = binary("csrt_bigint_gcd");
-        t[$"{B}.op_UnaryNegation({B})"] = t[$"{B}.Negate({B})"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_negate", g.Llvm.Ptr, (a[0], g.Llvm.Ptr));
-        t[$"{B}.op_UnaryPlus({B})"] = (_, _, _, a, _) => a[0];
-        t[$"{B}.Abs({B})"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_abs", g.Llvm.Ptr, (a[0], g.Llvm.Ptr));
-        t[$"{B}.op_Increment({B})"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_add", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (Rt(g, "csrt_bigint_from_i64", g.Llvm.Ptr, (I64(g, 1), g.Llvm.I64)), g.Llvm.Ptr));
-        t[$"{B}.op_Decrement({B})"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_sub", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (Rt(g, "csrt_bigint_from_i64", g.Llvm.Ptr, (I64(g, 1), g.Llvm.I64)), g.Llvm.Ptr));
-        t[$"{B}.Pow({B}, int)"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_pow", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.I32));
-        t[$"{B}.ModPow({B}, {B}, {B})"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_mod_pow", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (a[2], g.Llvm.Ptr));
-        t[$"{B}.DivRem({B}, {B}, {B})"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_divrem", g.Llvm.Ptr, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr), (a[2], g.Llvm.Ptr));
-        BclHandler compare(Func<FunctionCodeGen, LLVMValueRef, LLVMValueRef> fromSign) => (g, m, self, a, _) =>
-        {
-            var l = g.Llvm;
-            var (x, xt, y, yt) = self.Handle != 0
-                ? (self, (ITypeSymbol)m.ContainingType, a[0], m.Parameters[0].Type)
-                : (a[0], m.Parameters[0].Type, a[1], m.Parameters[1].Type);
-            var c = Rt(g, "csrt_bigint_compare", l.I32, (ToBig(g, x, xt), l.Ptr), (ToBig(g, y, yt), l.Ptr));
-            return fromSign(g, c);
-        };
-        LLVMValueRef sign(FunctionCodeGen g, LLVMValueRef c, LLVMIntPredicate p) => g.Builder.ICmp(p, c, I32(g, 0));
-        string[] operands = [B, "long", "ulong"];
-        foreach (var left in operands)
-            foreach (var right in operands)
-            {
-                if (left != B && right != B) continue;
-                foreach (var (op, p) in new[] { ("op_Equality", LLVMIntPredicate.EQ), ("op_Inequality", LLVMIntPredicate.NE), ("op_LessThan", LLVMIntPredicate.SLT),
-                             ("op_LessThanOrEqual", LLVMIntPredicate.SLE), ("op_GreaterThan", LLVMIntPredicate.SGT), ("op_GreaterThanOrEqual", LLVMIntPredicate.SGE) })
-                    t[$"{B}.{op}({left}, {right})"] = compare((g, c) => sign(g, c, p));
-            }
-        t[$"{B}.Compare({B}, {B})"] = compare((_, c) => c);
-        t[$"{B}.CompareTo({B})"] = t[$"{B}.CompareTo(long)"] = t[$"{B}.CompareTo(ulong)"] = compare((_, c) => c);
-        t[$"{B}.Equals({B})"] = t[$"{B}.Equals(long)"] = compare((g, c) => sign(g, c, LLVMIntPredicate.EQ));
-        t[$"{B}.Max({B}, {B})"] = (g, _, _, a, _) =>
-            g.Builder.Select(sign(g, Rt(g, "csrt_bigint_compare", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr)), LLVMIntPredicate.SGE), a[0], a[1]);
-        t[$"{B}.Min({B}, {B})"] = (g, _, _, a, _) =>
-            g.Builder.Select(sign(g, Rt(g, "csrt_bigint_compare", g.Llvm.I32, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr)), LLVMIntPredicate.SLE), a[0], a[1]);
-        foreach (var source in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "char" })
-        {
-            t[$"{B}.op_Implicit({source})"] = (g, m, _, a, _) => ToBig(g, a[0], m.Parameters[0].Type);
-            if (source is "int" or "long" or "uint" or "ulong") t[$"{B}..ctor({source})"] = (g, m, _, a, _) => ToBig(g, a[0], m.Parameters[0].Type);
-        }
-        BclHandler fromDouble = (g, _, _, a, _) => Rt(g, "csrt_bigint_from_f64", g.Llvm.Ptr, (ToF64(g, a[0]), g.Llvm.F64));
-        t[$"{B}.op_Explicit(double)"] = t[$"{B}.op_Explicit(float)"] = t[$"{B}..ctor(double)"] = t[$"{B}..ctor(float)"] = fromDouble;
-        t[$"{B}.op_Explicit(decimal)"] = t[$"{B}..ctor(decimal)"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerOps", "FromDecimal", a[0]);
-        t[$"{B}.op_Explicit({B})"] = (g, m, _, a, at) =>
-        {
-            var l = g.Llvm;
-            var to = m.ReturnType;
-            if (to.SpecialType == SpecialType.System_Double) return Rt(g, "csrt_bigint_to_f64", l.F64, (a[0], l.Ptr));
-            if (to.SpecialType == SpecialType.System_Single)
-                return g.Builder.Cast(LLVMOpcode.FPTrunc, Rt(g, "csrt_bigint_to_f64", l.F64, (a[0], l.Ptr)), l.F32);
-            if (to.SpecialType == SpecialType.System_Decimal) return g.CallCoreLib("BigIntegerOps", "ToDecimal", a[0]);
-            var small = to.SpecialType switch
-            {
-                SpecialType.System_SByte => 1, SpecialType.System_Byte => 2, SpecialType.System_Int16 => 3,
-                SpecialType.System_UInt16 => 4, SpecialType.System_Char => 9, _ => 0,
-            };
-            if (small != 0)
-                return g.Builder.Cast(LLVMOpcode.Trunc, Rt(g, "csrt_bigint_to_small_integer", l.I64, (a[0], l.Ptr), (I32(g, small), l.I32)),
-                    small is 1 or 2 ? l.I8 : l.I16);
-            var kind = to.SpecialType switch
-            {
-                SpecialType.System_Int32 => 5, SpecialType.System_UInt32 => 6, SpecialType.System_Int64 => 7, SpecialType.System_UInt64 => 8,
-                _ => throw CompileError.Unsupported($"(explicit) BigInteger to '{to}'", at),
-            };
-            var raw = Rt(g, "csrt_bigint_to_integer", l.I64, (a[0], l.Ptr), (I32(g, kind), l.I32));
-            return kind is 5 or 6 ? g.Builder.Cast(LLVMOpcode.Trunc, raw, l.I32) : raw;
-        };
-        t[$"{B}.Parse(string)"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_parse", g.Llvm.Ptr, (a[0], g.Llvm.Ptr));
-        t[$"{B}.TryParse(string, {B})"] = (g, _, _, a, _) => Rt(g, "csrt_bigint_try_parse", g.Llvm.I1, (a[0], g.Llvm.Ptr), (a[1], g.Llvm.Ptr));
-        t[$"{B}.ToString()"] = (g, _, self, _, _) => Rt(g, "csrt_bigint_to_string", g.Llvm.Ptr, (self, g.Llvm.Ptr));
-        t[$"{B}.Parse(string, System.IFormatProvider)"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerCulture", "Parse", a[0], a[1]);
-        t[$"{B}.ToString(string, System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("BigIntegerOps", "FormatWithProvider", self, a[0], a[1]);
-        t[$"{B}.ToString(System.IFormatProvider)"] = (g, _, self, a, _) => g.CallCoreLib("BigIntegerOps", "FormatWithProvider", self, LlvmContext.Null(g.Llvm.Ptr), a[0]);
-        t[$"{B}.TryParse(string, System.Globalization.NumberStyles, System.IFormatProvider, {B})"] = (g, _, _, a, _) =>
-            g.CallCoreLib("BigIntegerCulture", "TryParse", a[0], a[1], a[2], a[3]);
-        t[$"{B}.ToByteArray()"] = (g, _, self, _, _) => g.CallCoreLib("BigIntegerOps", "ToByteArray", self);
-        t[$"{B}.ToByteArray(bool, bool)"] = (g, _, self, a, _) => g.CallCoreLib("BigIntegerOps", "ToByteArray", self, a[0], a[1]);
-        t[$"{B}..ctor(byte[])"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerOps", "FromByteArray", a[0]);
-        t[$"{B}..ctor(System.ReadOnlySpan<byte>, bool, bool)"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerOps", "FromBytes", a[0], a[1], a[2]);
-        t[$"{B}.GetBitLength()"] = (g, _, self, _, _) => g.CallCoreLib("BigIntegerOps", "GetBitLength", self);
-        t[$"{B}.GetByteCount(bool)"] = (g, _, self, a, _) => g.CallCoreLib("BigIntegerOps", "GetByteCount", self, a[0]);
-        t[$"{B}.TryWriteBytes(System.Span<byte>, int, bool, bool)"] = (g, _, self, a, _) => g.CallCoreLib("BigIntegerOps", "TryWriteBytes", self, a[0], a[1], a[2], a[3]);
-        t[$"{B}.op_BitwiseAnd({B}, {B})"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerOps", "And", a[0], a[1]);
-        t[$"{B}.op_BitwiseOr({B}, {B})"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerOps", "Or", a[0], a[1]);
-        t[$"{B}.op_ExclusiveOr({B}, {B})"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerOps", "Xor", a[0], a[1]);
-        t[$"{B}.op_LeftShift({B}, int)"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerOps", "ShiftLeft", a[0], a[1]);
-        t[$"{B}.op_RightShift({B}, int)"] = (g, _, _, a, _) => g.CallCoreLib("BigIntegerOps", "ShiftRight", a[0], a[1]);
-        t[$"{B}.ToString(string)"] = (g, _, self, a, _) => Rt(g, "csrt_bigint_format", g.Llvm.Ptr, (self, g.Llvm.Ptr), (a[0], g.Llvm.Ptr));
-        t[$"{B}.GetHashCode()"] = (g, _, self, _, _) => Rt(g, "csrt_bigint_get_hash_code", g.Llvm.I32, (self, g.Llvm.Ptr));
-        t[$"{B}.get_IsZero()"] = (g, _, self, _, _) => g.Builder.ICmp(LLVMIntPredicate.EQ, self, LlvmContext.Null(g.Llvm.Ptr));
-        t[$"{B}.get_IsOne()"] = (g, _, self, _, _) =>
-            sign(g, Rt(g, "csrt_bigint_compare", g.Llvm.I32, (self, g.Llvm.Ptr), (Rt(g, "csrt_bigint_from_i64", g.Llvm.Ptr, (I64(g, 1), g.Llvm.I64)), g.Llvm.Ptr)), LLVMIntPredicate.EQ);
-        t[$"{B}.get_IsEven()"] = (g, _, self, _, _) => Rt(g, "csrt_bigint_is_even", g.Llvm.I1, (self, g.Llvm.Ptr));
-        t[$"{B}.get_Sign()"] = (g, _, self, _, _) => Rt(g, "csrt_bigint_sign", g.Llvm.I32, (self, g.Llvm.Ptr));
-        t[$"{B}.get_Zero()"] = (g, _, _, _, _) => LlvmContext.Null(g.Llvm.Ptr);
-        t[$"{B}.get_One()"] = (g, _, _, _, _) => Rt(g, "csrt_bigint_from_i64", g.Llvm.Ptr, (I64(g, 1), g.Llvm.I64));
-        t[$"{B}.get_MinusOne()"] = (g, _, _, _, _) => Rt(g, "csrt_bigint_from_i64", g.Llvm.Ptr, (I64(g, -1), g.Llvm.I64));
     }
 
     private static LLVMValueRef Widen(FunctionCodeGen g, LLVMValueRef i32, LLVMTypeRef to) =>
@@ -1017,6 +958,11 @@ internal static partial class BclValueTypes
 
         BclHandler reverse = (g, m, _, a, at) =>
         {
+            if (m.TypeArguments.Length == 0 && ArrayElementOf(g, at, 0) is null && IsSystemArray(g, at, 0))
+            {
+                Rt(g, "csrt_array_reverse_untyped", g.Llvm.Void, (a[0], g.Llvm.Ptr), (I64(g, 0), g.Llvm.I64), (I64(g, long.MinValue), g.Llvm.I64));
+                return default;
+            }
             var e = ElementOrThrow(g, m, at, 0);
             Rt(g, "csrt_array_reverse", g.Llvm.Void, (a[0], g.Llvm.Ptr), (I64(g, 0), g.Llvm.I64), (I64(g, long.MinValue), g.Llvm.I64), (size(g, e), g.Llvm.I64));
             return default;
@@ -1024,6 +970,11 @@ internal static partial class BclValueTypes
         t[$"{A}.Reverse(T[])"] = t[$"{A}.Reverse({A})"] = reverse;
         t[$"{A}.Reverse({A}, int, int)"] = t[$"{A}.Reverse(T[], int, int)"] = (g, m, _, a, at) =>
         {
+            if (m.TypeArguments.Length == 0 && ArrayElementOf(g, at, 0) is null && IsSystemArray(g, at, 0))
+            {
+                Rt(g, "csrt_array_reverse_untyped", g.Llvm.Void, (a[0], g.Llvm.Ptr), (ToI64(g, a[1]), g.Llvm.I64), (ToI64(g, a[2]), g.Llvm.I64));
+                return default;
+            }
             var e = ElementOrThrow(g, m, at, 0);
             Rt(g, "csrt_array_reverse", g.Llvm.Void, (a[0], g.Llvm.Ptr), (ToI64(g, a[1]), g.Llvm.I64), (ToI64(g, a[2]), g.Llvm.I64), (size(g, e), g.Llvm.I64));
             return default;
@@ -1192,7 +1143,10 @@ internal static partial class BclValueTypes
         // array.CopyTo(destination, index) is Array.Copy(array, 0, destination, index, array.Length) in .NET.
         BclHandler copyTo = (g, m, self, a, at) =>
         {
-            if (at is not IInvocationOperation { Instance: { } instance } || g.TypeOf(instance) is not IArrayTypeSymbol { Rank: 1 } arrayType)
+            // ((ICollection)array).CopyTo(...): the array under the conversion (#365).
+            var receiver = (at as IInvocationOperation)?.Instance;
+            while (receiver is IConversionOperation { Operand: var operand }) receiver = operand;
+            if (receiver is null || g.TypeOf(receiver) is not IArrayTypeSymbol { Rank: 1 } arrayType)
                 throw CompileError.Unsupported($"'{m}' on a value not statically known to be a one-dimensional array", at);
             g.NullCheck(self);
             return ArrayCopy(g, m, at, self, I64(g, 0), a[0], ToI64(g, a[1]), g.ArrayLength(self), longLength: false, arrayType.ElementType, destinationOrdinal: 0);
@@ -1225,8 +1179,11 @@ internal static partial class BclValueTypes
     private static LLVMValueRef JoinArray(FunctionCodeGen g, IMethodSymbol m, LLVMValueRef[] a, IOperation at, bool charSeparator)
     {
         var l = g.Llvm;
-        var element = (ArrayElementOf(g, at, 1) is { } syntactic ? (m.TypeArguments.Length == 1 ? m.TypeArguments[0] : syntactic) : null)
-            ?? throw CompileError.Unsupported($"'{Intrinsics.Key(m.OriginalDefinition)}' over a non-array sequence", at);
+        var element = ArrayElementOf(g, at, 1) is { } syntactic ? (m.TypeArguments.Length == 1 ? m.TypeArguments[0] : syntactic) : null;
+        // Any other sequence: String's own IL (src/Csharpc/upstream-types/System.String.txt).
+        if (element is null)
+            return g.HostedBuiltinMember(m, null) is { } hosted ? g.DirectCall(hosted, a)
+                : throw CompileError.Unsupported($"'{Intrinsics.Key(m.OriginalDefinition)}' over a non-array sequence", at);
         var separator = charSeparator ? Rt(g, "csrt_string_from_char", l.Ptr, (a[0], l.I16)) : a[0];
         var array = a[1];
         if (element.SpecialType != SpecialType.System_String)

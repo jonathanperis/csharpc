@@ -37,7 +37,9 @@ namespace CsharpcCoreLib
             ulong lo = m.Len > 0 ? m.W[0] : 0U;
             if (m.Len > 1) lo |= (ulong)m.W[1] << 32;
             uint hi = m.Len > 2 ? m.W[2] : 0U;
-            int flags = (scale << 16) | (negative && m.Len != 0 ? int.MinValue : 0);
+            // The sign survives a zero magnitude: .NET has negative zeros (-0.00m, -z, 0m * -1m), which print alike
+            // but differ in GetBits, in the constants a front-end folds and in what a sign-aware algorithm sees.
+            int flags = (scale << 16) | (negative ? int.MinValue : 0);
             return CoreIntrinsics.MakeDecimal(flags, hi, lo);
         }
 
@@ -157,7 +159,18 @@ namespace CsharpcCoreLib
                 AddMagnitudes(ref ma, ref mb);
                 return Fit(ref ma, scale, na);
             }
-            if (BigNum.Compare(in ma, in mb) >= 0)
+            int cmp = BigNum.Compare(in ma, in mb);
+            if (cmp == 0)
+            {
+                // Exact cancellation: the sign DecCalc.DecAddSub leaves a zero. The first operand's when the scales are
+                // equal, otherwise the smaller-scale operand's (1.0m - 1.00m is 0.00, 1.00m - 1.0m is -0.00), except
+                // that a zero sum of two zeros takes the larger scale's sign (0m - 0.00m is -0.00, 0.00m - 0m is 0.00).
+                int sca = Scale(a), scb = Scale(b);
+                bool zero = ma.IsZero;
+                ma.Subtract(in mb);
+                return Fit(ref ma, scale, sca == scb ? na : (sca < scb) != zero ? na : nb);
+            }
+            if (cmp > 0)
             {
                 ma.Subtract(in mb);
                 return Fit(ref ma, scale, na);
@@ -201,7 +214,7 @@ namespace CsharpcCoreLib
             bool negative = IsNegative(a) != IsNegative(b);
             int scale = Scale(a) - Scale(b);
             if (scale < 0) { ma.MulPow10(-scale); scale = 0; }
-            if (ma.IsZero) return Pack(ref ma, scale, false);
+            if (ma.IsZero) return Pack(ref ma, scale, negative);
 
             var q = new BigNum(sq);
             var rem = new BigNum(sr);
@@ -279,8 +292,9 @@ namespace CsharpcCoreLib
         private static decimal Abs(decimal a) =>
             CoreIntrinsics.MakeDecimal(CoreIntrinsics.DecimalFlags(a) & int.MaxValue, CoreIntrinsics.DecimalHi(a), CoreIntrinsics.DecimalLo(a));
 
+        // Always flips the sign bit, zero included: -0.00m is a negative zero in .NET (and in Roslyn's constant folding).
         internal static decimal Negate(decimal a) =>
-            IsZero(a) ? a : CoreIntrinsics.MakeDecimal(CoreIntrinsics.DecimalFlags(a) ^ int.MinValue, CoreIntrinsics.DecimalHi(a), CoreIntrinsics.DecimalLo(a));
+            CoreIntrinsics.MakeDecimal(CoreIntrinsics.DecimalFlags(a) ^ int.MinValue, CoreIntrinsics.DecimalHi(a), CoreIntrinsics.DecimalLo(a));
 
         internal static int Hash(decimal d)
         {
@@ -463,85 +477,38 @@ namespace CsharpcCoreLib
             return negative ? (long)(0UL - magnitude) : (long)magnitude;
         }
 
+        /// <summary>(Int128)decimal / (UInt128)decimal (#182): truncated toward zero; every decimal fits in 96 bits, so only a negative
+        /// value to UInt128 overflows (.NET's message is the default one).</summary>
+        internal static Int128 ToInt128At(ref decimal d)
+        {
+            UInt128 magnitude = TruncatedMagnitude(d, out bool negative);
+            return negative ? -(Int128)magnitude : (Int128)magnitude;
+        }
+
+        internal static UInt128 ToUInt128At(ref decimal d)
+        {
+            UInt128 magnitude = TruncatedMagnitude(d, out bool negative);
+            if (negative) throw new OverflowException("Arithmetic operation resulted in an overflow.");
+            return magnitude;
+        }
+
+        private static UInt128 TruncatedMagnitude(decimal d, out bool negative)
+        {
+            Span<uint> sm = stackalloc uint[4];
+            var m = new BigNum(sm);
+            Load(d, ref m);
+            for (int s = Scale(d); s > 0; s--) m.DivRemSmall(10);
+            negative = IsNegative(d) && !m.IsZero;
+            UInt128 magnitude = 0;
+            for (int i = m.Len - 1; i >= 0; i--) magnitude = (magnitude << 32) | m.W[i];
+            return magnitude;
+        }
+
         // ==========================================================================================
         // Parsing: NumberStyles.Number (invariant): whitespace, sign, thousands separators, decimal point
         // ==========================================================================================
 
-        private static int TryParseCore(string s, out decimal result)
-        {
-            result = CoreIntrinsics.MakeDecimal(0, 0, 0);
-            if (s == null) return 0;
-            int i = 0, n = s.Length;
-            while (i < n && (s[i] == ' ' || (s[i] >= '\t' && s[i] <= '\r'))) i++;
-            bool negative = false, signed = false;
-            if (i < n && (s[i] == '-' || s[i] == '+')) { negative = s[i] == '-'; signed = true; i++; }
-            Span<uint> sm = stackalloc uint[Limbs];
-            Span<uint> st = stackalloc uint[Limbs];
-            var m = new BigNum(sm);
-            var t = new BigNum(st);
-            m.Len = 0;
-            int scale = 0;
-            bool point = false, any = false, dropped = false, overflow = false;
-            int firstDropped = -1;
-            for (; i < n; i++)
-            {
-                char c = s[i];
-                if (c == ',' && !point && any) continue;
-                if (c == '.' && !point) { point = true; continue; }
-                if (c < '0' || c > '9') break;
-                any = true;
-                uint digit = (uint)(c - '0');
-                t.CopyFrom(in m);
-                t.MulAdd10(digit);
-                if (t.Len <= 3 && (!point || scale < 28))
-                {
-                    m.CopyFrom(in t);
-                    if (point) scale++;
-                }
-                else if (point)
-                {
-                    if (firstDropped < 0) firstDropped = (int)digit;
-                    else if (digit != 0) dropped = true;
-                }
-                else overflow = true;  // reported only if the rest of the input is well-formed
-            }
-            // NumberStyles.Number allows a trailing sign (when there is no leading one) among the
-            // trailing white space: "12- " is -12.
-            if (any)
-            {
-                for (; i < n; i++)
-                {
-                    char c = s[i];
-                    if (c == ' ' || (c >= '\t' && c <= '\r')) continue;
-                    if (!signed && (c == '-' || c == '+')) { negative = c == '-'; signed = true; continue; }
-                    break;
-                }
-            }
-            if (!any || i != n) return 0;
-            if (overflow) return 2;
-            if (firstDropped >= 0 && (firstDropped > 5 || (firstDropped == 5 && (dropped || IsOdd(ref m)))))
-            {
-                m.AddSmall(1);
-                if (m.Len > 3) return 2;
-            }
-            result = Pack(ref m, scale, negative);
-            return 1;
-        }
 
-        internal static decimal Parse(string s)
-        {
-            if (s == null) throw new ArgumentNullException("s");
-            int status = TryParseCore(s, out decimal result);
-            if (status == 1) return result;
-            if (status == 2) Overflow();
-            throw new FormatException("The input string '" + s + "' was not in a correct format.");
-        }
 
-        internal static bool TryParse(string s, ref decimal result)
-        {
-            bool ok = TryParseCore(s, out decimal value) == 1;
-            result = value;
-            return ok;
-        }
     }
 }

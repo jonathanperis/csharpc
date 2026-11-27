@@ -10,8 +10,9 @@
 #
 # Contract choices the spike made for List, Dictionary, HashSet and StringBuilder (all explicit below):
 #   --replace  SR.InternalGetResourceString goes to csharpc's own lookup; every reached SR getter carries its text as a literal
-#   --redirect ArraySortHelper<T> (reflection-based creation of its default helper) and the internal string-comparer family
-#              (Marvin, OrdinalIgnoreCase casing over ICU) are csharpc's own types of the same shape (corelib/UpstreamSupport.cs)
+#   --redirect the internal string-comparer family (Marvin, OrdinalIgnoreCase casing over ICU) is csharpc's own type of the same shape
+#              (corelib/UpstreamSupport.cs); ArraySortHelper<T> comes from the framework's IL (issue #224: its
+#              RuntimeTypeHandle.CreateInstanceForAnotherGenericParameter is expanded at compile time)
 #   --stop     the Interop.Sys / Interop.Globalization imports stay outside (libSystem.Native shims, other agents' work)
 # Needs Mono.Cecil from the ILLink tasks package the SDK restores (~/.nuget/packages/microsoft.net.illink.tasks/<sdk version>).
 set -euo pipefail
@@ -22,10 +23,5 @@ bin="${SLICER_BIN:-/tmp/csharpc-slicer}"
 out="$1"; roots="$2"; shift 2
 mode=emit
 if [ "${1:-}" = analyze ]; then mode=analyze; shift; fi
-replace='System.SR::InternalGetResourceString=CsharpcCoreLib:CsharpcCoreLib.UpstreamSupport::GetResourceString'
-redirect='System.Collections.Generic.ArraySortHelper!1=CsharpcCoreLib:CsharpcCoreLib.UpstreamArraySortHelper`1;'
-redirect+='System.Collections.Generic.NonRandomizedStringEqualityComparer=CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer;'
-redirect+='System.Collections.Generic.IInternalStringEqualityComparer=CsharpcCoreLib:CsharpcCoreLib.UpstreamInternalStringEqualityComparer;'
-redirect+='System.Collections.Generic.RandomizedStringEqualityComparer=CsharpcCoreLib:CsharpcCoreLib.UpstreamNonRandomizedStringEqualityComparer'
-stop='Interop,Interop/Sys,Interop/Globalization'
-exec dotnet "$bin/Slicer.dll" "$mode" --roots "$roots" --replace "$replace" --redirect "$redirect" --stop "$stop" --out "$out" "$@"
+# The contract choices live in the slicer's "csharpc" profile (shared with the build, src/Csharpc/Csharpc.csproj).
+exec dotnet "$bin/Slicer.dll" "$mode" --roots "$roots" --profile csharpc --out "$out" "$@"

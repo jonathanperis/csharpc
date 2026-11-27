@@ -16,6 +16,9 @@
 #endif
 #include <errno.h>
 #include <fcntl.h>
+#if !defined(_WIN32) && !defined(__wasi__)
+#include <sys/ioctl.h>
+#endif
 #include "csrt_pthread.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -29,6 +32,17 @@ static _Thread_local int s_last_pinvoke_error;
 /// open(2) for the corelib: variadic, so it can't be bound as a plain three-argument P/Invoke
 /// (Apple arm64 passes variadic arguments on the stack, not in registers).
 int32_t csrt_open(const char* path, int32_t flags, int32_t mode) { return open(path, flags, (mode_t)mode); }
+
+#ifndef _WIN32
+/// fcntl(2) with an int or a pointer argument, for the corelib's libSystem.Native contract (corelib/IO/SystemNative.cs):
+/// variadic too, for the same reason.
+int32_t csrt_fcntl_int(int32_t fd, int32_t command, int32_t argument) { return fcntl(fd, command, argument); }
+int32_t csrt_fcntl_ptr(int32_t fd, int32_t command, void* argument) { return fcntl(fd, command, argument); }
+#endif
+#if !defined(_WIN32) && !defined(__wasi__)
+/// ioctl(2) with a pointer argument (FIONREAD, SIOCATMARK) for the socket contract (corelib/Net/SystemNative.Net.cs): variadic as well.
+int32_t csrt_ioctl_ptr(int32_t fd, unsigned long request, void* argument) { return ioctl(fd, request, argument); }
+#endif
 
 #ifdef _WIN32
 // SetLastError=true on Windows captures the Win32 last error (GetLastError), not errno.
@@ -199,11 +213,18 @@ static void* load_library(const char* name, bool throw_on_error, bool app_first)
 }
 
 void* csrt_pinvoke_load_library(const char* name, bool throw_on_error) { return load_library(name, throw_on_error, false); }
+// NativeLibrary.Load(name, assembly, searchPath): next to the application first when the search includes
+// DllImportSearchPath.AssemblyDirectory (the default), as a P/Invoke of that assembly would.
+void* csrt_pinvoke_load_library_from(const char* name, bool throw_on_error, bool app_first) { return load_library(name, throw_on_error, app_first); }
 static void* load_library_for_pinvoke(const char* name) { return load_library(name, true, true); }
 #endif
 #ifdef _WIN32
 // LoadLibrary searches the application's directory itself.
 static void* load_library_for_pinvoke(const char* name) { return csrt_pinvoke_load_library(name, true); }
+void* csrt_pinvoke_load_library_from(const char* name, bool throw_on_error, bool app_first) {
+    (void)app_first; // LoadLibrary's own search starts in the application's directory
+    return csrt_pinvoke_load_library(name, throw_on_error);
+}
 #endif
 
 /// Resolves `entry` in `library` (DllImport lazy binding); throws like .NET on failure.
@@ -323,7 +344,7 @@ csrt_String* csrt_pinvoke_string_from_native(void* p, int32_t encoding, bool rel
 
 /// string from a char*/length (new string(char*, int, int) and Marshal.PtrToStringUni).
 csrt_String* csrt_string_new_from_utf16(const uint16_t* chars, int32_t length) {
-    if (length < 0) length = 0;
+    if (length <= 0) return csrt_string_empty_object(); // string.Empty, as .NET's constructor returns (#492)
     csrt_String* s = csrt_string_alloc_checked(length);
     if (length) memcpy(s->chars, chars, 2 * (size_t)length);
     return s;

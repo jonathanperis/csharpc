@@ -1,0 +1,14 @@
+gregorian: 2024-02-29
+julian: 2024-03-13
+thai: 2024-01-15
+hebrew: 2024-03-11
+julian day number: ArgumentOutOfRangeException: Year, Month, and Day parameters describe an un-representable DateTime.
+invalid: ArgumentOutOfRangeException: Year, Month, and Day parameters describe an un-representable DateTime.
+null calendar: ArgumentNullException: Value cannot be null. (Parameter 'calendar')
+micro: 13:45:30.250999
+micro ticks: 70
+micro equals: True
+micro out of range: ArgumentOutOfRangeException: Valid values are between 0 and 999, inclusive. (Parameter 'microsecond')
+negative micro: ArgumentOutOfRangeException: Valid values are between 0 and 999, inclusive. (Parameter 'microsecond')
+bad millisecond first: ArgumentOutOfRangeException: Valid values are between 0 and 999, inclusive. (Parameter 'millisecond')
+bad hour first: ArgumentOutOfRangeException: Hour, Minute, and Second parameters describe an un-representable DateTime.

@@ -1,0 +1,2 @@
+# StringBuilder (ADR 0023, #304; docs/il-first/System.Text.StringBuilder.md).
+System.Text.StringBuilder
