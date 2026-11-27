@@ -4,6 +4,9 @@
 // (a property bag) are real, after dotnet/runtime's sources (release/11.0, MIT).
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
+// Linux compiles System.Security.Cryptography and System.Net.Security from the framework's IL over the OpenSSL and GSS contracts
+// (Crypto/CryptoNative*.cs, Net/NetSecurityNative.cs; docs/il-first/System.Net.Security.md); the other targets keep this copy (#449).
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_MACOS || CSHARPC_TARGET_WASI
 #nullable disable
 #pragma warning disable SYSLIB5006 // CompositeMLDsa is [Experimental]: named here only to refuse it
 using System;
@@ -789,3 +792,4 @@ namespace CsharpcCoreLib
         public void Dispose() { }
     }
 }
+#endif

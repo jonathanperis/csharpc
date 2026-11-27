@@ -31,7 +31,7 @@ public sealed partial class ModuleCodeGen
         IMethodSymbol? unique = null;
         foreach (var type in HierarchyTypes)
         {
-            if (type.TypeKind != TypeKind.Class || type.IsAbstract || type.IsStatic || !DerivesFromOrEquals(type, receiver)) continue;
+            if (type.TypeKind != TypeKind.Class || type.IsAbstract || type.IsStatic || !DerivesFromOrEqualsServed(type, receiver)) continue;
             if (type.IsGenericType || TypeSubstitution.IsGenericContext(type)) return null;
             var implementation = ResolveSlot(type, root);
             if (implementation is null) return null;
@@ -47,7 +47,7 @@ public sealed partial class ModuleCodeGen
     /// generic base class is that base's instantiation (Roslyn's CSharp.Emit.PEModuleBuilder derives from
     /// PEModuleBuilder&lt;CSharpCompilation, ...&gt;), not the open definition.
     /// </summary>
-    private static IMethodSymbol? ResolveSlot(INamedTypeSymbol type, IMethodSymbol root)
+    internal static IMethodSymbol? ResolveSlot(INamedTypeSymbol type, IMethodSymbol root)
     {
         for (var t = type; t is not null; t = t.BaseType)
         {
@@ -61,7 +61,54 @@ public sealed partial class ModuleCodeGen
         return null;
     }
 
-    private static bool DerivesFromOrEquals(INamedTypeSymbol type, INamedTypeSymbol baseType)
+    private readonly Dictionary<(INamedTypeSymbol Type, INamedTypeSymbol Interface), bool> _reimplemented = [];
+
+    /// <summary>
+    /// Whether a class deriving from <paramref name="type"/> names <paramref name="interfaceType"/> again in its own interface list (an
+    /// interface re-implementation, ECMA-335 II.12.2): its implementation of the interface's members then replaces the one
+    /// <paramref name="type"/> provides, so a call through the interface on a receiver statically typed <paramref name="type"/> (even
+    /// `((I)this).M()` inside it) must be dispatched on the object's run-time type. System.Net.Sockets' ReadOperation and WriteOperation
+    /// re-implement IThreadPoolWorkItem over AsyncOperation's (sample 1460).
+    /// </summary>
+    internal bool InterfaceReimplementedBelow(INamedTypeSymbol type, INamedTypeSymbol interfaceType)
+    {
+        if (type.IsSealed || type.TypeKind != TypeKind.Class) return false;
+        var key = ((INamedTypeSymbol)type.OriginalDefinition, (INamedTypeSymbol)interfaceType.OriginalDefinition);
+        if (_reimplemented.TryGetValue(key, out var known)) return known;
+        var found = false;
+        foreach (var candidate in HierarchyTypes)
+        {
+            if (candidate.TypeKind != TypeKind.Class || SymbolEqualityComparer.Default.Equals(candidate.OriginalDefinition, key.Item1)
+                || !DerivesFromOrEqualsServed(candidate, key.Item1)) continue;
+            foreach (var declared in candidate.Interfaces)
+                if (SymbolEqualityComparer.Default.Equals(declared.OriginalDefinition, key.Item2)
+                    || declared.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i.OriginalDefinition, key.Item2)))
+                {
+                    found = true;
+                    break;
+                }
+            if (found) break;
+        }
+        return _reimplemented[key] = found;
+    }
+
+    /// <summary>
+    /// <see cref="DerivesFromOrEquals"/> through the types csharpc serves a library type with: a program class names the reference assembly's
+    /// base (`class L : EventListener`), while the framework's IL that makes the virtual call names the type that serves it (the slice's
+    /// EventListener). Without the mapping, the program's classes would be missing from the subtree, and a call whose only other override is
+    /// the framework's own (XplatEventLogger.OnEventSourceCreated) would be devirtualized to it.
+    /// </summary>
+    private bool DerivesFromOrEqualsServed(INamedTypeSymbol type, INamedTypeSymbol baseType)
+    {
+        var wanted = baseType.OriginalDefinition;
+        for (var t = type; t is not null; t = t.BaseType)
+            if (SymbolEqualityComparer.Default.Equals(t.OriginalDefinition, wanted)
+                || CoreLib.TryMap(t) is { } served && SymbolEqualityComparer.Default.Equals(served.OriginalDefinition, wanted))
+                return true;
+        return false;
+    }
+
+    internal static bool DerivesFromOrEquals(INamedTypeSymbol type, INamedTypeSymbol baseType)
     {
         for (var t = type; t is not null; t = t.BaseType)
             if (SymbolEqualityComparer.Default.Equals(t.OriginalDefinition, baseType.OriginalDefinition)) return true;

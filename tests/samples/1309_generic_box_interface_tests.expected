@@ -1,0 +1,22 @@
+int: True True True True True True True False True False | 2A | 42
+uint: True True True True True True True False True False | 00042 | 42
+long: True True True True True True True False True False | -7 | -7
+byte: True True True True True True True False True False | C8 | 200
+sbyte: True True True True True True True False True False | -5 | -5
+short: True True True True True True True False True False | -3 | -3
+char: True True True True True True True False True False | c | c
+bool: False False True True True True True False False False | True | not span formattable
+double: True True True True True True True False True False | 1.500 | 1.5
+float: True True True True True True True False True False | 2.5 | 2.5
+decimal: True True True True True True True False True False | 3.3 | 3.25
+Int128: True True True True True False True False True False | 170141183460469231731687303715884105727 | 170141183460469231731687303715884105727
+DateTime: True True True True True True True False True False | 2026-11-10 | 11/10/2026 08:30:00
+TimeSpan: True True True True True False True False True False | 01:30:00 | 01:30:00
+Guid: True True True True True False True False True False | 11111111222233334444555555555555 | 11111111-2222-3333-4444-555555555555
+plain struct: False False False False False False True False False False | Plain | not span formattable
+formattable struct: True False False True False False True False False False | F9q | not span formattable
+string: False False True True True True False False False False | text | not span formattable
+object: False False False False False False False False False False | System.Object | not span formattable
+tuple: False False True True True False True False False False | (1, a) | not span formattable
+42 -7 c True 1.5 Red F3- s 8 2.5 [    12] [12    ] [00FF] [3.14]
+10 FF 2.5 Green

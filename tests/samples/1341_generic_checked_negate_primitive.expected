@@ -1,0 +1,12 @@
+Int32 -(41) = -41
+Int32 -(-41) = 41
+Int32 -(0) = 0
+Int32 -(2147483647) = -2147483647
+Int32 -(-2147483648): OverflowException
+Int64 -(7) = -7
+Int64 -(-9223372036854775808): OverflowException
+Int16 -(-3) = 3
+Int16 -(-32768): OverflowException
+SByte -(100) = -100
+SByte -(-128): OverflowException
+IntPtr -(12) = -12

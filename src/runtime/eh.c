@@ -178,6 +178,17 @@ void* csrt_exception_get_token(void* exception) {
 }
 
 void csrt_exception_set_data(void* exception, void* data) { CSRT_STORE_REF(((csrt_Exception*)exception)->data, data); }
+
+static int32_t trace_count(const csrt_Array* trace);
+
+/// ExceptionDispatchInfo.SetRemoteStackTrace: the text Exception.StackTrace starts with, as .NET's _remoteStackTraceString. Only before
+/// the exception has been thrown and only once (0 otherwise: the caller throws .NET's InvalidOperationException).
+int32_t csrt_exception_set_remote_trace(void* exception, csrt_String* text) {
+    csrt_Exception* e = exception;
+    if (e->remote_trace || trace_count(e->trace) > 0) return 0;
+    CSRT_STORE_REF(e->remote_trace, text);
+    return 1;
+}
 void* csrt_task_cancellation_token(void* task);
 /// new TaskCanceledException(task): the Task, and its cancellation token as CancellationToken.
 void csrt_exception_set_task(void* exception, void* task) {
@@ -243,7 +254,7 @@ csrt_String* csrt_exception_to_string(void* exception) {
         s = csrt_string_concat(concat_utf8(s, CSRT_NEWLINE " ---> "), csrt_object_to_string(e->inner));
         s = concat_utf8(s, CSRT_NEWLINE "   --- End of inner exception stack trace ---");
     }
-    csrt_String* trace = s_trace_text ? s_trace_text(exception) : NULL;
+    csrt_String* trace = s_trace_text ? s_trace_text(exception) : e->remote_trace;
     if (trace) s = csrt_string_concat(concat_utf8(s, CSRT_NEWLINE), trace);
     if (e->inners && s_aggregate_text) s = s_aggregate_text(e, s);
     return s;
@@ -274,11 +285,11 @@ csrt_String* csrt_exception_to_string(void* exception) {
 // ---------------------------------------------------------------------------------------------
 // A site's word: the tag in bits 63-48 (not a canonical address: no method table starts with it; the
 // filters' csrt_EhClause magic has another), the flags in bits 47-44, the method in bits 27-0.
-// flags: TRACE_ASYNC, TRACE_HIDDEN (CodeGen/StackTraces.cs, FrameFlags); TRACE_LOCATED: { file, line } follow.
+// flags: TRACE_ASYNC, TRACE_HIDDEN, TRACE_TAILCALL (CodeGen/StackTraces.cs, FrameFlags); TRACE_LOCATED: { file, line } follow.
 #define CSRT_TRACE_SITE_TAG 0xC5A8u
 typedef struct { uint64_t word; } csrt_TraceSite;
 typedef struct { csrt_TraceSite site; int32_t file, line; } csrt_TraceSiteLocated;
-enum { TRACE_ASYNC = 1, TRACE_HIDDEN = 2, TRACE_LOCATED = 4 };
+enum { TRACE_ASYNC = 1, TRACE_HIDDEN = 2, TRACE_LOCATED = 4, TRACE_TAILCALL = 8 };
 static bool trace_is_site(const void* type) { return (*(const uint64_t*)type >> 48) == CSRT_TRACE_SITE_TAG; }
 static uint32_t trace_flags(const csrt_TraceSite* site) { return (uint32_t)(site->word >> 44) & 0xF; }
 static uint32_t trace_method(const csrt_TraceSite* site) { return (uint32_t)site->word & 0xFFFFFFF; }
@@ -288,12 +299,16 @@ typedef struct {
     uint32_t names_size;         // compressed bytes
     uint32_t names_length;       // inflated bytes
     uint32_t method_count;
-    uint32_t unused;
+    uint32_t inlined_count;
     const char* const* files;    // document paths, as the PDB records them
+    const uint64_t* inlined;     // inlinee << 32 | inliner, sorted: framework methods .NET's ReadyToRun code inlined into
+                                 // another (CodeGen/ReadyToRunInlines.cs), whose frames .NET therefore doesn't print
 } csrt_TraceTables;
 
 // preset: the frames are library frames set before the throw (csrt_trace_preset), kept by it.
-typedef struct { int32_t count; int32_t preset; uint64_t frame; const csrt_TraceSite* sites[]; } TraceData;
+// frame_last: the outermost site recorded in `frame` (see the personality: a rethrow from a handler of code inlined into that frame
+// goes on with the frames inlined further out).
+typedef struct { int32_t count; int32_t preset; uint64_t frame; const csrt_TraceSite* frame_last; const csrt_TraceSite* sites[]; } TraceData;
 enum { TRACE_HEADER = (int32_t)(sizeof(TraceData) / sizeof(void*)) };
 
 static const csrt_TraceTables* s_trace;
@@ -596,12 +611,53 @@ static void trace_check_first_pass(csrt_Exception* e) {
 static void trace_check_first_pass(csrt_Exception* e) { (void)e; }
 #endif
 
+/// Whether `inlinee`'s code was inlined into `inliner` in .NET's precompiled framework (csrt_TraceTables.inlined).
+static bool trace_inlined_into(uint32_t inlinee, uint32_t inliner) {
+    uint64_t key = (uint64_t)inlinee << 32 | inliner;
+    if (s_trace->inlined_count == 0) return false;
+    uint32_t lo = 0, hi = s_trace->inlined_count;
+    while (lo < hi) {
+        uint32_t mid = lo + (hi - lo) / 2;
+        if (s_trace->inlined[mid] < key) lo = mid + 1;
+        else hi = mid;
+    }
+    return lo < s_trace->inlined_count && s_trace->inlined[lo] == key;
+}
+
+/// Which frames .NET's stack doesn't have (hidden[i]): walking from the outermost frame inward, the nearest frame that is on .NET's
+/// stack is the root; a frame whose method the ReadyToRun code inlined into the root's method is part of the root's code (the
+/// compiler records each inlinee against the method it compiled, however deep), and otherwise it is on the stack and the new root.
+/// A frame on the stack whose call in tail position was made a jump (TRACE_TAILCALL) is gone too, unless the frame it called was
+/// inlined into it (then there was no call). An async boundary ("--- End of stack trace ---") starts over.
+static void trace_physical(const csrt_TraceSite* const* entries, int32_t last, bool* hidden) {
+    int64_t root = -1;
+    for (int32_t i = last; i >= 0; i--) {
+        hidden[i] = false;
+        if (entries[i] == TRACE_PREVIOUS_LOCATION) { root = -1; continue; }
+        uint32_t method = trace_method(entries[i]);
+        if (root >= 0 && trace_inlined_into(method, (uint32_t)root)) { hidden[i] = true; continue; }
+        root = method;
+        if ((trace_flags(entries[i]) & TRACE_TAILCALL) && i > 0 && i != last && entries[i - 1] != TRACE_PREVIOUS_LOCATION
+            && !trace_inlined_into(trace_method(entries[i - 1]), method))
+            hidden[i] = true;
+    }
+}
+
 /// Exception.StackTrace: null until the exception is thrown (or when no frame was recorded).
 /// System.Diagnostics.StackTrace.ToString's rules: hidden frames ([StackTraceHidden], AggressiveInlining)
 /// aren't listed, except the last one; the "--- End of stack trace from previous location ---" line
 /// follows the last frame of a captured trace only when that frame is listed and not an async method's.
+static csrt_String* trace_text(csrt_Exception* e);
+
 csrt_String* csrt_exception_get_stack_trace(void* exception) {
+    // .NET: the remote text (ExceptionDispatchInfo.SetRemoteStackTrace) first, then the frames recorded since.
     csrt_Exception* e = exception;
+    csrt_String* own = trace_text(e);
+    if (!e->remote_trace) return own;
+    return own ? csrt_string_concat(e->remote_trace, own) : e->remote_trace;
+}
+
+static csrt_String* trace_text(csrt_Exception* e) {
     trace_check_first_pass(e);
     int32_t count = trace_count(e->trace);
     if (count == 0 || !s_trace) return NULL;
@@ -611,6 +667,9 @@ csrt_String* csrt_exception_get_stack_trace(void* exception) {
     if (last < 0) return NULL;
     TraceText text = { 0 };
     bool first = true;
+    // Frames .NET's precompiled framework code doesn't have (inlined, or tail-called away).
+    bool* physical_hidden = malloc((size_t)(last + 1) * sizeof(bool));
+    if (physical_hidden) trace_physical(entries, last, physical_hidden);
     for (int32_t i = 0; i <= last; i++) {
         const csrt_TraceSite* site = entries[i];
         if (site == TRACE_PREVIOUS_LOCATION) {
@@ -620,6 +679,7 @@ csrt_String* csrt_exception_get_stack_trace(void* exception) {
             continue;
         }
         if ((trace_flags(site) & TRACE_HIDDEN) && i != last) continue;
+        if (physical_hidden && physical_hidden[i]) continue;
         if (!first) text_append_str(&text, CSRT_NEWLINE);
         first = false;
         text_append_str(&text, "   at ");
@@ -634,6 +694,7 @@ csrt_String* csrt_exception_get_stack_trace(void* exception) {
             text_append(&text, digits, (size_t)(number + sizeof number - digits));
         }
     }
+    free(physical_hidden);
     csrt_String* result = csrt_string_from_utf8_n(text.data, text.length);
     free(text.data);
     return result;
@@ -836,7 +897,16 @@ _Noreturn void csrt_fail_unhandled(void) {
     abort();
 }
 
+// AppDomain.UnhandledException (#97): the corelib's AppDomain registers its first handler here and exports
+// csrt_unhandled_exception_raise (RuntimeExport, triggered by the register call); programs that never subscribe link the
+// empty fallback. Raised once, before the report, as .NET raises it before printing the exception and terminating.
+__attribute__((weak)) void csrt_unhandled_exception_raise(void* exception) { (void)exception; }
+static int s_unhandled_registered, s_unhandled_raised;
+void csrt_unhandled_exception_register(void) { __atomic_store_n(&s_unhandled_registered, 1, __ATOMIC_RELEASE); }
+
 _Noreturn static void unhandled(void* exception) {
+    if (__atomic_load_n(&s_unhandled_registered, __ATOMIC_ACQUIRE) && !__atomic_exchange_n(&s_unhandled_raised, 1, __ATOMIC_ACQ_REL))
+        csrt_unhandled_exception_raise(exception);
     fflush(stdout);
     fputs("Unhandled exception. ", stderr);
     csrt_stderr_write_string(csrt_object_to_string(exception));
@@ -1485,6 +1555,32 @@ _Unwind_Reason_Code csrt_personality(int version, _Unwind_Action actions, uint64
         csrt_Exception* e = exception;
         uint64_t frame = (uint64_t)_Unwind_GetCFA(context);
         bool record_sites = s_trace && frame > (e->trace ? trace_data(e->trace)->frame : 0);
+        // The frame recorded last again: an exception rethrown from a handler in it. Where LLVM inlined the method with the handler
+        // (and its callers) into one function, the first search stopped at the handler, in the middle of the frame's site
+        // clauses: the sites past it, the inlined callers' frames, are recorded now (the rethrow's pad lists them, after the
+        // frames recorded already where it lists those too).
+        const csrt_TraceSite* resume_after = !record_sites && s_trace && e->trace && frame == trace_data(e->trace)->frame
+            ? trace_data(e->trace)->frame_last : NULL;
+        const csrt_TraceSite* last_recorded = NULL;
+        if (resume_after) {
+            // Recorded already up to the handler's frame if the pad lists it (then the sites after it are new), else the pad starts
+            // with the frames past it.
+            bool listed = false;
+            const uint8_t* scan = action_table + action - 1;
+            for (;;) {
+                intptr_t type_index = read_sleb128(&scan);
+                const uint8_t* displacement_at = scan;
+                intptr_t displacement = read_sleb128(&scan);
+                if (type_index > 0 && class_info) {
+                    const uint8_t* entry = class_info - (uintptr_t)type_index * encoded_size(ttype_encoding);
+                    const void* type = (const void*)read_encoded(&entry, ttype_encoding);
+                    if (type && trace_is_site(type) && trace_method(type) == trace_method(resume_after)) { listed = true; break; }
+                }
+                if (displacement == 0) break;
+                scan = displacement_at + displacement;
+            }
+            if (!listed) last_recorded = resume_after, resume_after = NULL;
+        }
         const uint8_t* record = action_table + action - 1;
         _Unwind_Reason_Code result = _URC_CONTINUE_UNWIND;
         for (;;) {
@@ -1495,7 +1591,10 @@ _Unwind_Reason_Code csrt_personality(int version, _Unwind_Action actions, uint64
                 const uint8_t* entry = class_info - (uintptr_t)type_index * encoded_size(ttype_encoding);
                 const void* type = (const void*)read_encoded(&entry, ttype_encoding);
                 if (type && trace_is_site(type)) {
-                    if (record_sites) trace_append(e, type);
+                    if (record_sites) { trace_append(e, type); last_recorded = type; }
+                    else if (resume_after) {
+                        if (trace_method(type) == trace_method(resume_after)) resume_after = NULL, last_recorded = type;
+                    } else if (last_recorded) { trace_append(e, type); last_recorded = type; }
                 } else if (type && *(const uint64_t*)type == CSRT_EH_CLAUSE_MAGIC) {
                     const csrt_EhClause* c = type;
                     if (c->filter && (!c->type || is_instance_of(exception, c->type))
@@ -1508,7 +1607,10 @@ _Unwind_Reason_Code csrt_personality(int version, _Unwind_Action actions, uint64
             if (displacement == 0) break;
             record = displacement_at + displacement;
         }
-        if (record_sites && e->trace) trace_data(e->trace)->frame = frame;
+        if ((record_sites || last_recorded) && e->trace) {
+            trace_data(e->trace)->frame = frame;
+            if (last_recorded) trace_data(e->trace)->frame_last = last_recorded;
+        }
         return result;
     }
 

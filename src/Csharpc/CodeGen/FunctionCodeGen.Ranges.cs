@@ -74,7 +74,7 @@ public sealed partial class FunctionCodeGen
     /// <summary>Range → (start, count), with .NET's ArgumentOutOfRange check.</summary>
     /// <param name="parameterName">Range.GetOffsetAndLength reports "(Parameter 'length')" (arrays, GetSubArray);
     /// Span.Slice reports no parameter.</param>
-    private (LLVMValueRef Start, LLVMValueRef Count) ResolveRange(LLVMValueRef range, LLVMValueRef length, string? parameterName = null)
+    internal (LLVMValueRef Start, LLVMValueRef Count) ResolveRange(LLVMValueRef range, LLVMValueRef length, string? parameterName = null)
     {
         var (start, count) = UncheckedRange(range, length);
         var end = _b.BinOp(LLVMOpcode.Add, start, count);
@@ -232,6 +232,10 @@ public sealed partial class FunctionCodeGen
             }
             case IInvocationOperation { TargetMethod.ContainingType: var owner, TargetMethod.Name: "GetOffset", Instance: { } instance } inv when IsIndexType(owner):
                 result = ResolveIndex(EmitValue(instance), ArgValue(inv, 0));
+                return true;
+            case IInvocationOperation { TargetMethod: { Name: "GetHashCode" or "ToString", ContainingType: var owner, Parameters: [] } method, Instance: { } instance } inv
+                when IsIndexType(owner) || IsRangeType(owner):
+                result = method.Name == "ToString" ? FormatValue(EmitValue(instance), owner, inv) : HashOf(owner, EmitValue(instance), inv);
                 return true;
             // Index.Equals(Index) / Range.Equals(Range): the encoded values are equal.
             case IInvocationOperation { TargetMethod: { Name: "Equals", ContainingType: var owner, Parameters: [var other] }, Instance: { } instance } inv

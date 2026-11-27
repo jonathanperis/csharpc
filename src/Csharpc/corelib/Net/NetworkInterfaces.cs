@@ -3,6 +3,9 @@
 // HttpWindowsProxy lists them for a "<local>" proxy bypass). The interfaces come from the operating system's
 // adapter list where csharpc reads it (Windows: GetAdaptersAddresses); elsewhere enumerating them is an explicit
 // NotSupportedException, and every other member of these types has no implementation (CSLLVM0002).
+// Windows and macOS only: on Linux these types are the framework's IL over the libSystem.Native contract
+// (corelib/Net/SystemNative.NetworkInformation.cs, docs/il-first/System.Net.Sockets.md).
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_MACOS
 #nullable disable
 using System;
 using System.Collections;
@@ -230,3 +233,4 @@ namespace CsharpcCoreLib
 #endif
     }
 }
+#endif

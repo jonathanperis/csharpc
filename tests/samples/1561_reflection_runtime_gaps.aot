@@ -1,0 +1,1 @@
+Exception.Source and ModuleHandle: NativeAOT has no MethodBase for a stack frame (Source is null) and no metadata stream (ModuleHandle throws)

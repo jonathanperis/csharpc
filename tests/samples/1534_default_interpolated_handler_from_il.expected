@@ -1,0 +1,9 @@
+n=   42 d=3.14 none=[] obj=[] when=2026-11-22 13:05 hex=002a|42    |-042
+d=3,14159 big=1.234.567,89 n=42
+name=ALICE n=<42> d=<3.1> null=(null) plain=plain
+money=$12.50 $3 plain=   plain| guid=00000001-0002-0003-0405-060708090a0b
+longer than the initial buffer: 42 3.14159 2026-11-22T13:05:00.0000000 tail
+603
+10.1.2.3:8080 2001:db8::1 [::1]:443
+1.2.3.4 10.0
+fs 00042 3.14E+000 | inv 3.14159

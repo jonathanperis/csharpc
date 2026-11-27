@@ -108,6 +108,7 @@ void csrt_init(int argc, char** argv) {
     if (pwd && pwd[0] == '/') (void)chdir(pwd);
 #endif
     csrt_gc_init();
+    csrt_string_hash_init();
     setvbuf(stdout, s_stdout_buffer, _IOFBF, sizeof s_stdout_buffer);
 #if !defined(_WIN32) && !defined(__wasi__)
     // .NET ignores SIGPIPE (CoreCLR's PAL and NativeAOT both do): writing to a closed pipe or socket fails
@@ -216,6 +217,13 @@ csrt_Array* csrt_new_array_primitive(int64_t element_size, int64_t length) {
 csrt_Array* csrt_new_array_primitive_noclear(int64_t element_size, int64_t length) {
     return new_array(&csrt_PrimitiveArray_MT.header, element_size, length, false);
 }
+
+/// string.Empty: the one empty string (#492). .NET's string constructors, Concat and span ToString return it for no characters
+/// (other operations, Replace for one, make a new empty string), and compiled code's "" literal and string.Empty are this object
+/// (ModuleCodeGen.StringLiteral). Outside the GC heap, like the literals.
+const struct __attribute__((aligned(8))) { const csrt_MethodTable* mt; int32_t length; uint16_t chars[1]; } csrt_string_empty = { &csrt_String_MT.header, 0, { 0 } };
+#define EMPTY_STRING ((csrt_String*)&csrt_string_empty)
+csrt_String* csrt_string_empty_object(void) { return EMPTY_STRING; }
 
 /// Every runtime string allocation goes through here. Lengths are 64-bit so callers can pass sums
 /// (a + b, count * n) without wrapping; anything above the CLR limit is an OutOfMemoryException.
@@ -364,10 +372,27 @@ static void* const s_noop_dispose_slots[] = { (void*)noop_dispose };
 static struct { const csrt_MethodTable* type; const csrt_MethodTable* itf; void* const* slots; }* s_builtin_impls;
 static int s_builtin_count, s_builtin_cap;
 
+// Lookup by (type, interface): open addressing over registration index + 1 (0 = empty) in a .bss table that holds the
+// first 4096 registrations at most half full (later ones are searched). A failed `is IFoo` test on any object asks here
+// every time; the linear search was 900 instructions per test and 19 % of componentmodel_throughput (#349).
+#define BUILTIN_INDEX_BITS 13
+#define BUILTIN_INDEXED (1 << (BUILTIN_INDEX_BITS - 1))
+static uint32_t s_builtin_index[1 << BUILTIN_INDEX_BITS];
+
+static inline size_t builtin_hash(const csrt_MethodTable* type, const csrt_MethodTable* itf) {
+    return (size_t)((((uintptr_t)type >> 3) ^ ((uintptr_t)itf * 0x9E3779B97F4A7C15ull)) * 0xC2B2AE3D27D4EB4Full >> (64 - BUILTIN_INDEX_BITS));
+}
+
+// Registration runs in main's prologue, before other threads exist.
 void csrt_register_builtin_interface(const csrt_MethodTable* type, const csrt_MethodTable* itf, void* const* slots) {
     if (s_builtin_count == s_builtin_cap) {
         s_builtin_cap = s_builtin_cap ? s_builtin_cap * 2 : 64;
         s_builtin_impls = realloc(s_builtin_impls, sizeof *s_builtin_impls * (size_t)s_builtin_cap);
+    }
+    if (s_builtin_count < BUILTIN_INDEXED) {
+        size_t h = builtin_hash(type, itf);
+        while (s_builtin_index[h]) h = (h + 1) & ((1 << BUILTIN_INDEX_BITS) - 1);
+        s_builtin_index[h] = (uint32_t)s_builtin_count + 1;
     }
     s_builtin_impls[s_builtin_count].type = type;
     s_builtin_impls[s_builtin_count].itf = itf;
@@ -375,8 +400,13 @@ void csrt_register_builtin_interface(const csrt_MethodTable* type, const csrt_Me
     s_builtin_count++;
 }
 
+/// The first registration of (type, itf), as the linear search found it: probing visits entries in registration order.
 static bool builtin_registered(const csrt_MethodTable* type, const csrt_MethodTable* itf, void* const** slots) {
-    for (int i = 0; i < s_builtin_count; i++)
+    for (size_t h = builtin_hash(type, itf); s_builtin_index[h]; h = (h + 1) & ((1 << BUILTIN_INDEX_BITS) - 1)) {
+        int i = (int)s_builtin_index[h] - 1;
+        if (s_builtin_impls[i].type == type && s_builtin_impls[i].itf == itf) { *slots = s_builtin_impls[i].slots; return true; }
+    }
+    for (int i = BUILTIN_INDEXED; i < s_builtin_count; i++)
         if (s_builtin_impls[i].type == type && s_builtin_impls[i].itf == itf) { *slots = s_builtin_impls[i].slots; return true; }
     return false;
 }
@@ -704,6 +734,22 @@ __attribute__((noinline)) void* const* csrt_interface_slots_cached(void* obj, co
     return interface_lookup(obj, itf, site);
 }
 
+/// An interface call in shared generic code (ADR 0026): the interface comes from the generic dictionary, so one
+/// site asks for IComparer<string> on one call and IComparer<Animal> on the next, possibly on the same receiver
+/// class (a class implementing both). A hit is therefore valid only if the cached map entry is that interface.
+__attribute__((noinline)) void* const* csrt_interface_slots_cached_shared(void* obj, const csrt_MethodTable* itf, uint64_t* site) {
+    const csrt_MethodTable* mt = ((csrt_Object*)obj)->mt;
+#ifdef CSRT_ALLOC_PROFILE
+    note_dispatch(itf, mt);
+#endif
+    uint64_t w = __atomic_load_n(site, __ATOMIC_RELAXED);
+    if (__builtin_expect((w & ICACHE_MT_MASK) == (uint64_t)(uintptr_t)mt, 1)) {
+        const csrt_InterfaceMapEntry* entry = &mt->interfaces[w >> 48];
+        if (__builtin_expect(entry->interface_type == itf, 1)) return entry->slots;
+    }
+    return interface_lookup(obj, itf, site);
+}
+
 /// The uncommon outcomes of a type test (variance, arrays, ValueType/Enum/Array targets, failures), out
 /// of line so that the common ones need no callee-saved registers: csrt_isinst_class used to spill six
 /// of them before its first test (3 % of the TechEmpower plaintext profile, most of it the prologue).
@@ -819,6 +865,14 @@ int32_t csrt_object_get_hash_code_default(void* self) { return (int32_t)(((uintp
 bool csrt_string_is_null_or_empty(csrt_String* s) { return !s || s->length == 0; }
 
 
+
+/// string.Concat(a, b) and `a + b` as .NET's: an empty (or null) operand gives the other one itself, both empty give string.Empty
+/// (#492). csrt_string_concat, below, always makes a new string (the runtime's own callers).
+csrt_String* csrt_string_concat_net(csrt_String* a, csrt_String* b) {
+    if (!a || a->length == 0) return b && b->length ? b : EMPTY_STRING;
+    if (!b || b->length == 0) return a;
+    return csrt_string_concat(a, b);
+}
 
 csrt_String* csrt_string_concat(csrt_String* a, csrt_String* b) {
     int32_t la = a ? a->length : 0, lb = b ? b->length : 0;
@@ -1088,19 +1142,12 @@ __attribute__((weak)) int32_t csrt_decimal_compare(const void* a, const void* b)
 __attribute__((weak)) int32_t csrt_decimal_get_hash_code(const void* d) { (void)d; missing_export("csrt_decimal_get_hash_code"); }
 __attribute__((weak)) csrt_String* csrt_int128_to_string(uint64_t lo, uint64_t hi) { (void)lo; (void)hi; missing_export("csrt_int128_to_string"); }
 __attribute__((weak)) csrt_String* csrt_uint128_to_string(uint64_t lo, uint64_t hi) { (void)lo; (void)hi; missing_export("csrt_uint128_to_string"); }
-__attribute__((weak)) csrt_String* csrt_bigint_to_string(void* a) { (void)a; missing_export("csrt_bigint_to_string"); }
-__attribute__((weak)) int32_t csrt_bigint_compare(void* a, void* b) { (void)a; (void)b; missing_export("csrt_bigint_compare"); }
-__attribute__((weak)) int32_t csrt_bigint_get_hash_code(void* a) { (void)a; missing_export("csrt_bigint_get_hash_code"); }
 __attribute__((weak)) csrt_String* csrt_timespan_to_string(int64_t ticks) { (void)ticks; missing_export("csrt_timespan_to_string"); }
 __attribute__((weak)) csrt_String* csrt_datetime_to_string(int64_t ticks) { (void)ticks; missing_export("csrt_datetime_to_string"); }
 // CultureInfo.GetFormat(typeof(DateTimeFormatInfo)): only programs that use DateTimeFormatInfo export the
-// real one (corelib CultureInfo.cs); elsewhere no Type object can be DateTimeFormatInfo's.
+// real one (corelib UpstreamGlobalization.cs); elsewhere no Type object can be DateTimeFormatInfo's.
 __attribute__((weak)) void* csrt_culture_get_format_dtfi(void* culture, void* format_type) { (void)culture; (void)format_type; return NULL; }
 // The corelib calls this one (a P/Invoke can't share the export's symbol).
 void* csrt_culture_format_dtfi(void* culture, void* format_type) { return csrt_culture_get_format_dtfi(culture, format_type); }
 __attribute__((weak)) csrt_String* csrt_timespan_format_with(int64_t ticks, csrt_String* f, void* p) { (void)ticks; (void)f; (void)p; missing_export("csrt_timespan_format_with"); }
 __attribute__((weak)) csrt_String* csrt_datetime_format_with(int64_t d, csrt_String* f, void* p) { (void)d; (void)f; (void)p; missing_export("csrt_datetime_format_with"); }
-__attribute__((weak)) int32_t csrt_parse_i64_styled(csrt_String* s, int32_t styles, int32_t bits, bool is_signed, int64_t* result) {
-    (void)s; (void)styles; (void)bits; (void)is_signed; (void)result;
-    missing_export("csrt_parse_i64_styled");
-}

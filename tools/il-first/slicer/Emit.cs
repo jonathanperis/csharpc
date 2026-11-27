@@ -19,7 +19,66 @@ sealed class Emitter
 
     static readonly HashSet<string> CopiedAttributes = ["System.Runtime.CompilerServices.IsByRefLikeAttribute", "System.Runtime.CompilerServices.ExtensionAttribute",
         "System.Reflection.DefaultMemberAttribute", "System.Runtime.CompilerServices.IsReadOnlyAttribute", "System.Runtime.CompilerServices.InlineArrayAttribute",
-        "System.FlagsAttribute", "System.Diagnostics.StackTraceHiddenAttribute"];
+        "System.FlagsAttribute", "System.Diagnostics.StackTraceHiddenAttribute",
+        // A callback native code calls through a function pointer (CalendarData.EnumCalendarInfoCallback, which the ICU shim calls per item):
+        // the attribute makes the method natively callable.
+        "System.Runtime.InteropServices.UnmanagedCallersOnlyAttribute",
+        // [ThreadStatic] is the field's semantics: one copy per thread (ThreadLocal<T>'s slot arrays, Random.Shared's t_random); without it the
+        // field is shared across threads.
+        "System.ThreadStaticAttribute",
+        // A state machine's MoveNext frame is named after the method that carries one of these (Ns.Type.Method(), as .NET's StackTrace
+        // prints it; CodeGen/StackTraces.cs reads them from the slice's metadata). The typeof argument is serialized as the nested
+        // state-machine type's name, which the slice keeps (ConcurrentQueue<T>.Enumerate, #399).
+        "System.Runtime.CompilerServices.AsyncStateMachineAttribute", "System.Runtime.CompilerServices.IteratorStateMachineAttribute",
+        "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute",
+        // A method the native side calls through a function pointer (Interop.Sys.AddMountPoint, GetAllMountPoints' callback): csharpc
+        // gives it the C calling convention and an exception barrier only when it carries the attribute.
+        "System.Runtime.InteropServices.UnmanagedCallersOnlyAttribute",
+        // A switch's name on its getter (LocalAppContextSwitches.EnableUnsafeUTF7Encoding, which Encoding.GetEncoding(65000) tests): csharpc folds
+        // the getter to the runtimeconfig's value when the program sets one (ModuleCodeGen.FeatureSwitchDefinitionValue), as ILCompiler does.
+        "System.Diagnostics.CodeAnalysis.FeatureSwitchDefinitionAttribute",
+        // Reflection dataflow, which csharpc keeps metadata by as NativeAOT does (ADR 0018): EventSource's annotation on the class keeps every event
+        // source's methods and nested Keywords/Tasks/Opcodes for its manifest, Write<T>'s on T the payload's properties, a counter's
+        // [DynamicDependency] its payload type's properties (#423). The trimming attributes that only document travel with them.
+        "System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute", "System.Diagnostics.CodeAnalysis.DynamicDependencyAttribute",
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute", "System.Diagnostics.CodeAnalysis.FeatureGuardAttribute",
+        // What TraceLogging reads by reflection from the payload types it writes (the counters' [EventData] payloads).
+        "System.Diagnostics.Tracing.EventDataAttribute", "System.Diagnostics.Tracing.EventFieldAttribute", "System.Diagnostics.Tracing.EventIgnoreAttribute"];
+
+    /// <summary>
+    /// Attributes that change what a member means at run time or how csharpc lowers it (thread-local storage, fixed buffers, decoded constants,
+    /// native entry points, reflection dataflow, feature switches, state machines). The slicer must copy each one it meets; one it does not copy
+    /// fails the build instead of silently changing behaviour (#342: a dropped [ThreadStatic] shared Random.Shared's state across threads).
+    /// </summary>
+    static readonly HashSet<string> SemanticAttributes = ["System.ThreadStaticAttribute", "System.ContextStaticAttribute",
+        "System.Runtime.CompilerServices.FixedBufferAttribute", "System.Runtime.CompilerServices.DecimalConstantAttribute",
+        "System.Runtime.CompilerServices.DateTimeConstantAttribute", "System.Runtime.InteropServices.UnmanagedCallersOnlyAttribute",
+        "System.Runtime.CompilerServices.ModuleInitializerAttribute", "System.Runtime.CompilerServices.UnsafeAccessorAttribute",
+        "System.Runtime.CompilerServices.UnsafeAccessorTypeAttribute", "System.Runtime.CompilerServices.InlineArrayAttribute",
+        "System.Runtime.CompilerServices.IsByRefLikeAttribute", "System.Runtime.CompilerServices.AsyncMethodBuilderAttribute",
+        "System.Runtime.CompilerServices.AsyncStateMachineAttribute", "System.Runtime.CompilerServices.IteratorStateMachineAttribute",
+        "System.Runtime.CompilerServices.AsyncIteratorStateMachineAttribute",
+        "System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute", "System.Diagnostics.CodeAnalysis.DynamicDependencyAttribute",
+        "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute", "System.Diagnostics.CodeAnalysis.FeatureSwitchDefinitionAttribute",
+        "System.Diagnostics.CodeAnalysis.FeatureGuardAttribute"];
+
+    readonly List<string> _droppedSemantics = [];
+
+    /// <summary>Copies the attributes the slice keeps; a semantic attribute it does not keep is recorded and fails the build (Emit).</summary>
+    void CopyAttributes(ICustomAttributeProvider from, ICustomAttributeProvider to, string where)
+    {
+        foreach (var a in from.CustomAttributes)
+        {
+            var name = a.AttributeType.FullName;
+            if (CopiedAttributes.Contains(name)) to.CustomAttributes.Add(new CustomAttribute(MethodRef(a.Constructor), a.GetBlob()));
+            // [AsyncMethodBuilder] on a method tells a C# compiler which builder to generate the state machine with. On a compiled async
+            // method (it carries [AsyncStateMachine]) that choice is already in the IL: the stub and MoveNext call the builder by name, and
+            // csharpc reads the attribute only on methods it lowers from source (Coroutines.UsesPoolingBuilder). Stream.ReadAtLeastAsyncCore.
+            else if (name == "System.Runtime.CompilerServices.AsyncMethodBuilderAttribute" && from is MethodDefinition { HasBody: true } compiled
+                && compiled.CustomAttributes.Any(c => c.AttributeType.FullName == "System.Runtime.CompilerServices.AsyncStateMachineAttribute")) { }
+            else if (SemanticAttributes.Contains(name)) _droppedSemantics.Add($"{where}: [{name}]");
+        }
+    }
 
     public Emitter(Slice s, Cli cli)
     {
@@ -43,14 +102,25 @@ sealed class Emitter
     {
         var order = _s.Types.OrderBy(t => t.FullName, StringComparer.Ordinal).ToList();
         // 1. type shells, outer before nested, then members, then bodies
-        foreach (var t in order.Where(t => t.DeclaringType is null)) Shell(t);
-        foreach (var t in order.Where(t => t.DeclaringType is not null).OrderBy(t => Depth(t))) Shell(t);
+        foreach (var t in order.Where(t => t.DeclaringType is null || Hoisted(t))) Shell(t);
+        foreach (var t in order.Where(t => t.DeclaringType is not null && !Hoisted(t)).OrderBy(t => Depth(t))) Shell(t);
         foreach (var t in order) Declare(t);
         var hosted = DeclareHosted();
+        if (_cli.SrFormat is { } srFormat)
+        {
+            if (SrFormatIsSimple(out var why)) _cli.Replace["System.SR::Format"] = srFormat;
+            else Console.WriteLine("slicer: SR.Format keeps string.Format: " + why);
+        }
         foreach (var t in order) Bodies(t);
         foreach (var t in hosted) Bodies(t);
+        if (_selfCalling.Count > 0)
+            throw new InvalidOperationException("[Intrinsic] members whose IL only calls itself (RyuJIT expands them), which csharpc must lower itself "
+                + "(CodeGen/Intrinsics.cs) instead of copying: " + string.Join(", ", _selfCalling.Order(StringComparer.Ordinal)));
 
         EmbedStrings();
+        if (_droppedSemantics.Count > 0)
+            throw new InvalidOperationException("the slice would drop attributes that change what these members mean (copy them: CopiedAttributes):"
+                + Environment.NewLine + string.Join(Environment.NewLine, _droppedSemantics.Select(d => "  " + d)));
         _m.Assembly.Write(_cli.Out);
         var roots = _s.RootTypes.Concat(_s.RootTypes.SelectMany(Nested)).Distinct().Where(_types.ContainsKey);
         File.WriteAllLines(Path.ChangeExtension(_cli.Out, ".map"), roots.OrderBy(t => t.FullName, StringComparer.Ordinal).Select(t => MetadataName(t, false) + "=" + MetadataName(t, true))
@@ -109,10 +179,22 @@ sealed class Emitter
 
     static int Depth(TypeDefinition t) { int d = 0; for (var x = t.DeclaringType; x is not null; x = x.DeclaringType) d++; return d; }
 
+    /// <summary>
+    /// A nested type whose declaring type stays outside the slice (MemoryExtensions.TryWriteInterpolatedStringHandler: MemoryExtensions is
+    /// csharpc's own): it becomes a top-level type of the slice named Outer_Name, and the .map names its real nested name.
+    /// </summary>
+    bool Hoisted(TypeDefinition t) => t.DeclaringType is { } outer && !_s.Types.Contains(outer);
+
+    static string HoistedName(TypeDefinition t) => t.DeclaringType is { } outer ? HoistedName(outer) + "_" + t.Name : t.Name;
+
+    static TypeDefinition Outermost(TypeDefinition t) { while (t.DeclaringType is not null) t = t.DeclaringType; return t; }
+
     void Shell(TypeDefinition t)
     {
-        var n = new TypeDefinition(Prefixed(t), t.Name, t.Attributes);
-        if (t.DeclaringType is null) _m.Types.Add(n); else _types[t.DeclaringType].NestedTypes.Add(n);
+        var hoisted = Hoisted(t);
+        var attributes = hoisted ? (t.Attributes & ~TypeAttributes.VisibilityMask) | (t.IsNestedPublic ? TypeAttributes.Public : TypeAttributes.NotPublic) : t.Attributes;
+        var n = new TypeDefinition(Prefixed(t), hoisted ? HoistedName(t) : t.Name, attributes);
+        if (t.DeclaringType is null || hoisted) _m.Types.Add(n); else _types[t.DeclaringType].NestedTypes.Add(n);
         foreach (var gp in t.GenericParameters) n.GenericParameters.Add(new GenericParameter(gp.Name, n) { Attributes = gp.Attributes });
         if (t.HasLayoutInfo || t.IsExplicitLayout || t.IsSequentialLayout) { n.PackingSize = t.PackingSize; n.ClassSize = t.ClassSize; }
         _types[t] = n;
@@ -122,12 +204,14 @@ sealed class Emitter
     /// name, and are "corelib" code to the compiler (policies; names in reflection and stack traces through the .map written below).</summary>
     string Prefixed(TypeDefinition t)
     {
+        if (Hoisted(t)) return Outermost(t).Namespace.Length == 0 ? _cli.Prefix : _cli.Prefix + "." + Outermost(t).Namespace;
         if (t.DeclaringType is not null || t.Name.StartsWith('<') || t.FullName == "System.Private.CoreLib.Strings") return t.Namespace;
         return t.Namespace.Length == 0 ? _cli.Prefix : _cli.Prefix + "." + t.Namespace;
     }
 
     string MetadataName(TypeDefinition t, bool prefixed)
     {
+        if (prefixed && Hoisted(t)) return Prefixed(t) + "." + HoistedName(t);
         string Plain(TypeDefinition x, bool withPrefix) =>
             x.DeclaringType is null
                 ? (withPrefix ? Prefixed(x) : x.Namespace) is { Length: > 0 } ns ? ns + "." + x.Name : x.Name
@@ -139,11 +223,13 @@ sealed class Emitter
     {
         var n = _types[t];
         foreach (var (g, i) in t.GenericParameters.Select((g, i) => (g, i)))
+        {
             foreach (var c in g.Constraints) n.GenericParameters[i].Constraints.Add(new GenericParameterConstraint(Type(c.ConstraintType)));
+            CopyAttributes(g, n.GenericParameters[i], $"{t.FullName}<{g.Name}>");
+        }
         if (t.BaseType is not null) n.BaseType = Type(t.BaseType);
         if (Environment.GetEnvironmentVariable("SLICER_NOIFACE") is null) foreach (var i in t.Interfaces) n.Interfaces.Add(new InterfaceImplementation(Type(i.InterfaceType)));
-        foreach (var a in t.CustomAttributes.Where(a => CopiedAttributes.Contains(a.AttributeType.FullName)))
-            n.CustomAttributes.Add(new CustomAttribute(MethodRef(a.Constructor), a.GetBlob()));
+        CopyAttributes(t, n, t.FullName);
 
         bool pid = t.Name == "<PrivateImplementationDetails>";
         foreach (var f in t.Fields)
@@ -154,6 +240,7 @@ sealed class Emitter
             if (f.HasLayoutInfo) nf.Offset = f.Offset;
             if (f.HasMarshalInfo) nf.MarshalInfo = f.MarshalInfo;
             if (f.InitialValue is { Length: > 0 } init) nf.InitialValue = init;
+            CopyAttributes(f, nf, $"{t.FullName}::{f.Name}");
             n.Fields.Add(nf);
             _fields[f] = nf;
         }
@@ -163,7 +250,12 @@ sealed class Emitter
             if (!_s.Methods.Contains(m)) { _skippedMembers++; continue; }
             var nm = new MethodDefinition(m.Name, m.Attributes, _m.TypeSystem.Void) { ImplAttributes = m.ImplAttributes, SemanticsAttributes = m.SemanticsAttributes,
                 CallingConvention = m.CallingConvention, HasThis = m.HasThis, ExplicitThis = m.ExplicitThis };
-            foreach (var gp in m.GenericParameters) nm.GenericParameters.Add(new GenericParameter(gp.Name, nm) { Attributes = gp.Attributes });
+            foreach (var gp in m.GenericParameters)
+            {
+                var ngp = new GenericParameter(gp.Name, nm) { Attributes = gp.Attributes };
+                nm.GenericParameters.Add(ngp);
+                CopyAttributes(gp, ngp, $"{t.FullName}::{m.Name}<{gp.Name}>");
+            }
             n.Methods.Add(nm);
             _methods[m] = nm;
         }
@@ -185,8 +277,8 @@ sealed class Emitter
                 var module = _m.ModuleReferences.FirstOrDefault(r => r.Name == pi.Module.Name) ?? AddModuleRef(pi.Module.Name);
                 nm.PInvokeInfo = new PInvokeInfo(pi.Attributes, pi.EntryPoint, module);
             }
-            foreach (var a in m.CustomAttributes.Where(a => CopiedAttributes.Contains(a.AttributeType.FullName)))
-                nm.CustomAttributes.Add(new CustomAttribute(MethodRef(a.Constructor), a.GetBlob()));
+            CopyAttributes(m, nm, $"{t.FullName}::{m.Name}");
+            foreach (var (p, i) in m.Parameters.Select((p, i) => (p, i))) CopyAttributes(p, nm.Parameters[i], $"{t.FullName}::{m.Name}({p.Name})");
         }
         foreach (var m in t.Methods.Where(_methods.ContainsKey))
             if (Environment.GetEnvironmentVariable("SLICER_NOOVR") is null) foreach (var o in m.Overrides) _methods[m].Overrides.Add(MethodRef(o));
@@ -197,6 +289,7 @@ sealed class Emitter
             var np = new PropertyDefinition(p.Name, p.Attributes, Type(p.PropertyType));
             if (p.GetMethod is not null && _methods.TryGetValue(p.GetMethod, out var g)) np.GetMethod = g;
             if (p.SetMethod is not null && _methods.TryGetValue(p.SetMethod, out var s)) np.SetMethod = s;
+            CopyAttributes(p, np, $"{t.FullName}::{p.Name}");
             n.Properties.Add(np);
         }
         foreach (var e in t.Events)
@@ -222,27 +315,147 @@ sealed class Emitter
         var result = new List<TypeDefinition>();
         foreach (var (stop, methods) in _s.Hosted.OrderBy(kv => kv.Key.FullName, StringComparer.Ordinal))
         {
-            var host = new TypeDefinition(_cli.Prefix + "." + stop.Namespace, stop.Name + "InterfaceMembers",
+            // A generic interface's default members (INumberBase<TSelf>.TryParse over UTF-8) are hosted as generic methods of a non-generic
+            // class: the interface's type parameters come first, then the member's own (HostedTypeArity).
+            var shift = stop.GenericParameters.Count;
+            var host = new TypeDefinition(stop.Namespace.Length == 0 ? _cli.Prefix : _cli.Prefix + "." + stop.Namespace, stop.Name.Split('`')[0] + "InterfaceMembers",
                 TypeAttributes.Public | TypeAttributes.Abstract | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit, _m.TypeSystem.Object);
             _m.Types.Add(host);
             _hostClass[stop] = host;
             foreach (var m in methods)
             {
-                var declared = m.Overrides.Select(o => o.Resolve()).First(d => d is not null && _types.ContainsKey(d.DeclaringType));
-                var nm = new MethodDefinition(declared.DeclaringType.FullName.Replace('/', '+') + "." + declared.Name, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, _m.TypeSystem.Void)
-                    { ImplAttributes = m.ImplAttributes, CallingConvention = m.CallingConvention };
+                // A member of an interface the slice carries (IUtfChar<TChar>.CastFrom): named after that interface's member. Anything else (a
+                // `host:` root: `Log2`, or `System.Numerics.INumberBase<System.Int32>.IsNegative` implementing a reference-pack interface) keeps its
+                // own metadata name, which is what the compiler looks up.
+                var declared = m.Overrides.Select(o => o.Resolve()).FirstOrDefault(d => d is not null && _types.ContainsKey(d.DeclaringType));
+                var hostName = declared is not null ? declared.DeclaringType.FullName.Replace('/', '+') + "." + declared.Name : m.Name;
+                var nm = new MethodDefinition(hostName, MethodAttributes.Public | MethodAttributes.Static | MethodAttributes.HideBySig, _m.TypeSystem.Void)
+                    { ImplAttributes = m.ImplAttributes, CallingConvention = shift > 0 ? MethodCallingConvention.Generic : m.CallingConvention };
+                foreach (var gp in stop.GenericParameters) nm.GenericParameters.Add(new GenericParameter(gp.Name, nm) { Attributes = gp.Attributes });
+                // Generic members (CreateTruncating<TOther>) keep their type parameters and constraints.
+                foreach (var gp in m.GenericParameters)
+                {
+                    var copy = new GenericParameter(gp.Name, nm) { Attributes = gp.Attributes };
+                    nm.GenericParameters.Add(copy);
+                }
                 host.Methods.Add(nm);
                 _methods[m] = nm;
             }
             foreach (var m in methods)
             {
                 var nm = _methods[m];
+                _hostedTypeArity = shift;
                 nm.ReturnType = Type(m.ReturnType);
+                // An instance member: `this` (a value type's receiver address, a string itself) becomes the first parameter, so the body's
+                // ldarg.0 still reads it and the other arguments keep their numbers (BodiesOf maps the named ones).
+                if (m.HasThis) nm.Parameters.Add(new ParameterDefinition("this", ParameterAttributes.None, stop.IsValueType ? new ByReferenceType(Type(stop)) : Type(stop)));
                 foreach (var p in m.Parameters) nm.Parameters.Add(new ParameterDefinition(p.Name, p.Attributes, Type(p.ParameterType)));
+                foreach (var (g, i) in stop.GenericParameters.Concat(m.GenericParameters).Select((g, i) => (g, i)))
+                    if (i < nm.GenericParameters.Count && nm.GenericParameters[i].Constraints.Count == 0)
+                        foreach (var c in g.Constraints) nm.GenericParameters[i].Constraints.Add(new GenericParameterConstraint(Type(c.ConstraintType)));
+                _hostedTypeArity = 0;
             }
             result.Add(stop);
         }
         return result;
+    }
+
+    /// <summary>
+    /// Can every SR.Format call of the slice go to csharpc's `{n}` / `{n:spec}` formatter (UpstreamSupport.Format) and print what
+    /// string.Format prints? Yes when each call's format argument is a CoreLib resource text (an SR getter, or a literal) whose items are all
+    /// of those two forms, with `{{` / `}}` escapes and no braces inside a spec: the formatter implements exactly that grammar. The proof
+    /// is over the IL the slice copies: the instruction that pushes the format argument is found by walking back over the arguments pushed
+    /// after it, within straight-line code; anything else (a computed format, a branch in between) keeps string.Format.
+    /// </summary>
+    bool SrFormatIsSimple(out string why)
+    {
+        why = "";
+        foreach (var m in _methods.Keys.Where(m => m.HasBody && m.DeclaringType.FullName != "System.SR"))
+        {
+            var targets = new HashSet<Instruction>();
+            foreach (var i in m.Body.Instructions)
+            {
+                if (i.Operand is Instruction t) targets.Add(t);
+                if (i.Operand is Instruction[] ts) foreach (var x in ts) targets.Add(x);
+            }
+            foreach (var h in m.Body.ExceptionHandlers) { targets.Add(h.TryStart); targets.Add(h.HandlerStart); if (h.FilterStart is not null) targets.Add(h.FilterStart); }
+            foreach (var call in m.Body.Instructions)
+            {
+                if (call.OpCode.Code is not (Code.Call or Code.Callvirt) || call.Operand is not MethodReference { Name: "Format" } mr || mr.DeclaringType.FullName != "System.SR") continue;
+                var formatIndex = mr.Parameters[0].ParameterType.FullName == "System.String" ? 0 : 1;
+                var producer = Producer(call, mr.Parameters.Count - formatIndex - 1, targets);
+                string text = producer switch
+                {
+                    { OpCode.Code: Code.Ldstr, Operand: string literal } => literal,
+                    { OpCode.Code: Code.Call, Operand: MethodReference { Name: var getter } g } when g.DeclaringType.FullName == "System.SR" && getter.StartsWith("get_", StringComparison.Ordinal)
+                        && Strings.TryGetValue(getter[4..], out var resource) => resource,
+                    _ => null,
+                };
+                if (text is null) { why = $"{m.FullName}: the format argument at {call} is not a resource text"; return false; }
+                if (!SimpleCompositeFormat(text)) { why = $"{m.FullName}: \"{text}\" has a format item other than {{n}} / {{n:spec}}"; return false; }
+            }
+        }
+        return true;
+    }
+
+    /// <summary>The instruction that pushed the stack slot <paramref name="below"/> slots under the top before <paramref name="at"/>; null when not straight-line.</summary>
+    static Instruction Producer(Instruction at, int below, HashSet<Instruction> branchTargets)
+    {
+        var need = below;
+        for (var i = at.Previous; i is not null; i = i.Previous)
+        {
+            if (i.OpCode.FlowControl is not (FlowControl.Next or FlowControl.Call)) return null;
+            var (pop, push) = StackEffect(i);
+            if (pop < 0) return null;
+            need -= push;
+            if (need < 0) return push == 1 && need == -1 ? i : null;
+            need += pop;
+            if (branchTargets.Contains(i)) return null;
+        }
+        return null;
+    }
+
+    static (int Pop, int Push) StackEffect(Instruction i)
+    {
+        if (i.OpCode.Code is Code.Call or Code.Callvirt or Code.Newobj)
+        {
+            var mr = (MethodReference)i.Operand;
+            var newobj = i.OpCode.Code == Code.Newobj;
+            return (mr.Parameters.Count + (mr.HasThis && !newobj ? 1 : 0), newobj || mr.ReturnType.MetadataType != MetadataType.Void ? 1 : 0);
+        }
+        int Count(StackBehaviour b) => b switch
+        {
+            StackBehaviour.Pop0 or StackBehaviour.Push0 => 0,
+            StackBehaviour.Pop1 or StackBehaviour.Popi or StackBehaviour.Popref or StackBehaviour.Push1 or StackBehaviour.Pushi or StackBehaviour.Pushi8
+                or StackBehaviour.Pushr4 or StackBehaviour.Pushr8 or StackBehaviour.Pushref => 1,
+            StackBehaviour.Pop1_pop1 or StackBehaviour.Popi_pop1 or StackBehaviour.Popi_popi or StackBehaviour.Popi_popi8 or StackBehaviour.Popi_popr4
+                or StackBehaviour.Popi_popr8 or StackBehaviour.Popref_pop1 or StackBehaviour.Popref_popi or StackBehaviour.Push1_push1 => 2,
+            StackBehaviour.Popi_popi_popi or StackBehaviour.Popref_popi_popi or StackBehaviour.Popref_popi_popi8 or StackBehaviour.Popref_popi_popr4
+                or StackBehaviour.Popref_popi_popr8 or StackBehaviour.Popref_popi_popref => 3,
+            _ => -1,
+        };
+        var pop = Count(i.OpCode.StackBehaviourPop);
+        var push = Count(i.OpCode.StackBehaviourPush);
+        return pop < 0 || push < 0 ? (-1, -1) : (pop, push);
+    }
+
+    /// <summary>Literal text with `{{` / `}}` escapes and items `{n}` or `{n:spec}` (n decimal digits, spec without braces): UpstreamSupport.Format's grammar.</summary>
+    internal static bool SimpleCompositeFormat(string s)
+    {
+        for (var i = 0; i < s.Length; i++)
+        {
+            var c = s[i];
+            if (c == '}') { if (i + 1 < s.Length && s[i + 1] == '}') { i++; continue; } return false; }
+            if (c != '{') continue;
+            if (i + 1 < s.Length && s[i + 1] == '{') { i++; continue; }
+            var j = i + 1;
+            while (j < s.Length && char.IsAsciiDigit(s[j])) j++;
+            if (j == i + 1 || j - i - 1 > 6 || j >= s.Length) return false;
+            if (s[j] == ':') { j++; while (j < s.Length && s[j] is not ('{' or '}')) j++; }
+            if (j >= s.Length || s[j] != '}') return false;
+            i = j;
+        }
+        return true;
     }
 
     ModuleReference AddModuleRef(string name) { var r = new ModuleReference(name); _m.ModuleReferences.Add(r); return r; }
@@ -251,7 +464,56 @@ sealed class Emitter
     // Bodies
     // ---------------------------------------------------------------------------------------------------------------
 
+    /// <summary>The copied members whose IL only calls itself (BodiesOf): all of them are reported at once.</summary>
+    readonly List<string> _selfCalling = [];
+
+    /// <summary>
+    /// Whether the path every call of <paramref name="m"/> takes from its entry reaches a call of <paramref name="m"/> itself: the
+    /// straight-line path, following unconditional branches and the branches on RuntimeHelpers.IsKnownConstant (false in a copied body,
+    /// see below) and stopping at any other conditional branch, a return or a throw. Such a body can only recurse forever.
+    /// </summary>
+    static bool CallsItselfUnconditionally(MethodDefinition m, MethodBody body)
+    {
+        var seen = new HashSet<Instruction>();
+        var knownConstantPushed = false;
+        for (var i = body.Instructions.FirstOrDefault(); i is not null && seen.Add(i);)
+        {
+            var folded = knownConstantPushed;
+            knownConstantPushed = false;
+            switch (i.OpCode.Code)
+            {
+                case Code.Call or Code.Callvirt when i.Operand is MethodReference callee:
+                    if (callee.Resolve() == m) return true;
+                    knownConstantPushed = callee.Name == "IsKnownConstant" && callee.DeclaringType.FullName == "System.Runtime.CompilerServices.RuntimeHelpers";
+                    i = i.Next;
+                    break;
+                case Code.Br or Code.Br_S:
+                    i = (Instruction)i.Operand;
+                    break;
+                case Code.Brfalse or Code.Brfalse_S when folded:
+                    i = (Instruction)i.Operand;
+                    break;
+                case Code.Brtrue or Code.Brtrue_S when folded:
+                    i = i.Next;
+                    break;
+                case Code.Nop or Code.Ldarg or Code.Ldarg_S or Code.Ldarg_0 or Code.Ldarg_1 or Code.Ldarg_2 or Code.Ldarg_3 or Code.Ldarga or Code.Ldarga_S:
+                    i = i.Next;
+                    break;
+                default:
+                    return false;
+            }
+        }
+        return false;
+    }
+
     void Bodies(TypeDefinition t)
+    {
+        // A built-in generic type's hosted members (DeclareHosted) read its type parameters as their own leading method ones.
+        _hostedTypeArity = _hostClass.ContainsKey(t) ? t.GenericParameters.Count : 0;
+        try { BodiesOf(t); } finally { _hostedTypeArity = 0; }
+    }
+
+    void BodiesOf(TypeDefinition t)
     {
         foreach (var m in t.Methods.Where(_methods.ContainsKey))
         {
@@ -266,6 +528,17 @@ sealed class Emitter
                 literal.Emit(OpCodes.Ret);
                 continue;
             }
+            if (_cli.Replacement(m) is { } selfForward && _cli.SelfTarget(_s.Core, selfForward) is { } self)
+            {
+                // "self:": a call of the slice's own copy of another CoreLib method, with the same arguments.
+                var selfIl = nm.Body.GetILProcessor();
+                if (nm.HasThis) selfIl.Emit(OpCodes.Ldarg_0);
+                foreach (var p in nm.Parameters) selfIl.Emit(OpCodes.Ldarg, p);
+                selfIl.Emit(OpCodes.Call, _methods[self]);
+                if (selfForward.EndsWith("?nullref", StringComparison.Ordinal)) WrapPropertyGetterNullCheck(selfIl, nm.ReturnType, m.DeclaringType);
+                selfIl.Emit(OpCodes.Ret);
+                continue;
+            }
             if (_cli.Replacement(m) is { } forward)
             {
                 // "Assembly:Ns.Type::Method": forward every argument to csharpc's own implementation of the contract member.
@@ -273,15 +546,35 @@ sealed class Emitter
                 var typeName = forward[(colon + 1)..sep]; var dot = typeName.LastIndexOf('.');
                 var scope = AsmRef(new AssemblyNameReference(forward[..colon], new Version(1, 0, 0, 0)));
                 var call = new MethodReference(forward[(sep + 2)..], nm.ReturnType, new TypeReference(typeName[..dot], typeName[(dot + 1)..], _m, scope, false));
+                // An instance member forwards `this` as a leading object parameter (the slice's own type has no name csharpc's corelib can use
+                // in a signature; Stream.BeginRead -> UpstreamStreamSupport.BeginRead(object, ...)).
+                if (nm.HasThis) call.Parameters.Add(new ParameterDefinition(_m.TypeSystem.Object));
                 foreach (var p in nm.Parameters) call.Parameters.Add(new ParameterDefinition(p.ParameterType));
+                MethodReference target = call;
+                if (nm.HasGenericParameters)
+                {
+                    // A generic method forwards with its own type parameters (ThrowHelper.ThrowKeyNotFoundException<T>(T key)).
+                    foreach (var _ in nm.GenericParameters) call.GenericParameters.Add(new GenericParameter(call));
+                    var instance = new GenericInstanceMethod(call);
+                    foreach (var gp in nm.GenericParameters) instance.GenericArguments.Add(gp);
+                    target = instance;
+                }
                 var il = nm.Body.GetILProcessor();
                 if (nm.HasThis) il.Emit(OpCodes.Ldarg_0);
                 foreach (var p in nm.Parameters) il.Emit(OpCodes.Ldarg, p);
-                il.Emit(OpCodes.Call, call);
+                il.Emit(OpCodes.Call, target);
                 il.Emit(OpCodes.Ret);
                 continue;
             }
             var ob = m.Body;
+            // A JIT intrinsic whose IL calls itself unconditionally (Math.ReciprocalEstimate, double.MultiplyAddEstimate; Math.SinCos once
+            // IsKnownConstant is folded to false: RyuJIT expands them) has no portable body: copied, it recurses forever (a loop once LLVM
+            // turns the tail call around). Its implementation is csharpc's.
+            if (CallsItselfUnconditionally(m, ob))
+            {
+                _selfCalling.Add(m.FullName);
+                continue;
+            }
             var nb = nm.Body;
             nb.InitLocals = ob.InitLocals; nb.MaxStackSize = ob.MaxStackSize;
             var vars = new List<VariableDefinition>();
@@ -296,7 +589,7 @@ sealed class Emitter
                     Instruction target => map[target],
                     Instruction[] targets => targets.Select(x => map[x]).ToArray(),
                     VariableDefinition v => vars[v.Index],
-                    ParameterDefinition p => p == ob.ThisParameter ? nb.ThisParameter : nm.Parameters[p.Index],
+                    ParameterDefinition p => p == ob.ThisParameter ? (nm.HasThis ? nb.ThisParameter : nm.Parameters[0]) : nm.Parameters[p.Index + (m.HasThis && !nm.HasThis ? 1 : 0)],
                     MethodReference mr => MethodRef(mr),
                     FieldReference fr => FieldRef(fr),
                     TypeReference tr => Type(tr),
@@ -304,6 +597,29 @@ sealed class Emitter
                     var other => other,
                 };
             }
+            // A folded getter (Cli.Fold) loads its constant: csharpc then never lowers the branch it rules out, which the slice does not carry.
+            foreach (var i in ob.Instructions)
+                if (_cli.FoldedValueAt(i) is { } value)
+                {
+                    map[i].OpCode = value ? OpCodes.Ldc_I4_1 : OpCodes.Ldc_I4_0;
+                    map[i].Operand = null;
+                    // A disabled event source's IsEnabled() call: the Log load before it goes too.
+                    if (_cli.IsDisabledLog(i.Previous)) { map[i.Previous].OpCode = OpCodes.Nop; map[i.Previous].Operand = null; }
+                }
+            // RuntimeHelpers.IsKnownConstant(x): a JIT hint ("is x a constant at this call site?") whose IL body is never meant to run and which
+            // the reference pack does not declare. False is always a correct answer (the general path follows): the argument is popped.
+            foreach (var i in ob.Instructions)
+                if (i.OpCode == OpCodes.Call && i.Operand is MethodReference known && known.Name == "IsKnownConstant" && known.Parameters.Count == 1
+                    && known.DeclaringType.FullName == "System.Runtime.CompilerServices.RuntimeHelpers")
+                {
+                    var popped = map[i];
+                    popped.OpCode = OpCodes.Pop;
+                    popped.Operand = null;
+                    nb.GetILProcessor().InsertAfter(popped, Instruction.Create(OpCodes.Ldc_I4_0));
+                }
+            // A callvirt of an instance member the slice hosts as a static (`this.` host roots) is a call of that static.
+            foreach (var ni in nb.Instructions)
+                if (ni.OpCode == OpCodes.Callvirt && ni.Operand is MethodDefinition target && !target.HasThis && target.IsStatic) ni.OpCode = OpCodes.Call;
             foreach (var h in ob.ExceptionHandlers)
             {
                 var nh = new ExceptionHandler(h.HandlerType)
@@ -314,6 +630,18 @@ sealed class Emitter
                     CatchType = h.CatchType is null ? null : Type(h.CatchType),
                 };
                 nb.ExceptionHandlers.Add(nh);
+            }
+            // An instance member of a built-in reference type hosted as a static (string.Split): a call of it, from csharpc's code or the slice's
+            // own (a callvirt rewritten above), must throw NullReferenceException on a null receiver as the callvirt did, before the body runs.
+            if (m.HasThis && !nm.HasThis && !m.DeclaringType.IsValueType)
+            {
+                var il = nb.GetILProcessor();
+                var first = nb.Instructions[0];
+                var nre = _s.Core.GetType("System.NullReferenceException").Methods.Single(c => c.IsConstructor && !c.IsStatic && c.Parameters.Count == 0);
+                il.InsertBefore(first, Instruction.Create(OpCodes.Ldarg_0));
+                il.InsertBefore(first, Instruction.Create(OpCodes.Brtrue, first));
+                il.InsertBefore(first, Instruction.Create(OpCodes.Newobj, MethodRef(nre)));
+                il.InsertBefore(first, Instruction.Create(OpCodes.Throw));
             }
         }
     }
@@ -334,6 +662,8 @@ sealed class Emitter
         switch (t)
         {
             case null: return null;
+            case GenericParameter gp when _hostedTypeArity > 0:
+                return Positional(gp.Type == GenericParameterType.Type ? gp.Position : gp.Position + _hostedTypeArity, GenericParameterType.Method);
             case GenericParameter gp: return Positional(gp.Position, gp.Type);
             case GenericInstanceType g:
             {
@@ -403,8 +733,13 @@ sealed class Emitter
         }
         if (d.DeclaringType is not null)
         {
-            if (_types.ContainsKey(d.DeclaringType)) Console.Error.WriteLine($"warning: {d.FullName} is nested in the copied {d.DeclaringType.FullName} but stays outside the slice");
-            r = new TypeReference(string.Empty, d.Name, _m, null, d.IsValueType) { DeclaringType = Type(d.DeclaringType) };
+            // A nested type only dead (folded) code names, whose declaring type is copied (EventSource's delegate cache <>O, used by the folded-out
+            // metrics branch): a type reference may not nest in a type definition of its own module (the writer then gives a later type's
+            // property map the wrong parent), so it names CoreLib's own declaring type instead; the reference is never resolved.
+            r = new TypeReference(string.Empty, d.Name, _m, null, d.IsValueType)
+            {
+                DeclaringType = _types.ContainsKey(d.DeclaringType) ? CoreLibReference(d.DeclaringType) : Type(d.DeclaringType),
+            };
         }
         else
         {
@@ -415,6 +750,81 @@ sealed class Emitter
         }
         // (generic parameter stand-ins on type references are not needed by signatures)
         return r;
+    }
+
+    /// <summary>
+    /// "self:...?nullref" (TraceLogging's PropertyValue.GetReferenceTypePropertyGetter, csharpc profile): the getter the replacement returns
+    /// (Func&lt;PropertyValue, PropertyValue&gt;, reading through PropertyInfo.GetValue) is wrapped so that a null container is a
+    /// NullReferenceException, as the delegate over the property's getter that .NET builds for a reference type throws (GetValue(null) would
+    /// be a TargetException). The wrapper is a small class of the slice:
+    ///   sealed class NullCheckedPropertyGetter { Func&lt;PV, PV&gt; inner; PV Get(PV c) => c.ReferenceValue == null ? throw new NullReferenceException() : inner(c); }
+    /// </summary>
+    void WrapPropertyGetterNullCheck(ILProcessor il, TypeReference funcType, TypeDefinition propertyValue)
+    {
+        var pv = _types[propertyValue];
+        var ts = _m.TypeSystem;
+        var func = (GenericInstanceType)funcType;
+        var wrapper = new TypeDefinition(pv.Namespace, "NullCheckedPropertyGetter", TypeAttributes.NotPublic | TypeAttributes.Sealed | TypeAttributes.BeforeFieldInit, ts.Object);
+        _m.Types.Add(wrapper);
+        var inner = new FieldDefinition("inner", FieldAttributes.Private | FieldAttributes.InitOnly, funcType);
+        wrapper.Fields.Add(inner);
+        var ctor = new MethodDefinition(".ctor", MethodAttributes.Public | MethodAttributes.HideBySig | MethodAttributes.SpecialName | MethodAttributes.RTSpecialName, ts.Void);
+        ctor.Parameters.Add(new ParameterDefinition("inner", ParameterAttributes.None, funcType));
+        var c = ctor.Body.GetILProcessor();
+        c.Emit(OpCodes.Ldarg_0);
+        c.Emit(OpCodes.Call, new MethodReference(".ctor", ts.Void, ts.Object) { HasThis = true });
+        c.Emit(OpCodes.Ldarg_0);
+        c.Emit(OpCodes.Ldarg_1);
+        c.Emit(OpCodes.Stfld, inner);
+        c.Emit(OpCodes.Ret);
+        wrapper.Methods.Add(ctor);
+        var get = new MethodDefinition("Get", MethodAttributes.Public | MethodAttributes.HideBySig, pv);
+        get.Parameters.Add(new ParameterDefinition("container", ParameterAttributes.None, pv));
+        var g = get.Body.GetILProcessor();
+        var referenceValue = _methods[propertyValue.Methods.Single(x => x.Name == "get_ReferenceValue")];
+        var ok = g.Create(OpCodes.Ldarg_0);
+        g.Emit(OpCodes.Ldarga_S, get.Parameters[0]);
+        g.Emit(OpCodes.Call, referenceValue);
+        g.Emit(OpCodes.Brtrue_S, ok);
+        var nre = new TypeReference("System", "NullReferenceException", _m, AsmRef(_s.RefAssemblyOf["System.NullReferenceException"]));
+        g.Emit(OpCodes.Newobj, new MethodReference(".ctor", ts.Void, nre) { HasThis = true });
+        g.Emit(OpCodes.Throw);
+        g.Append(ok);
+        g.Emit(OpCodes.Ldfld, inner);
+        g.Emit(OpCodes.Ldarg_1);
+        var open = func.ElementType;
+        while (open.GenericParameters.Count < 2) open.GenericParameters.Add(new GenericParameter(open.GenericParameters.Count == 0 ? "T" : "TResult", open));
+        var invoke = new MethodReference("Invoke", open.GenericParameters[1], func) { HasThis = true };
+        invoke.Parameters.Add(new ParameterDefinition(open.GenericParameters[0]));
+        g.Emit(OpCodes.Callvirt, invoke);
+        g.Emit(OpCodes.Ret);
+        wrapper.Methods.Add(get);
+        // (the replaced method: the getter on the stack becomes new NullCheckedPropertyGetter(getter).Get as a Func<PV, PV>)
+        il.Emit(OpCodes.Newobj, ctor);
+        il.Emit(OpCodes.Ldftn, get);
+        var funcCtor = new MethodReference(".ctor", ts.Void, func) { HasThis = true };
+        funcCtor.Parameters.Add(new ParameterDefinition(ts.Object));
+        funcCtor.Parameters.Add(new ParameterDefinition(ts.IntPtr));
+        il.Emit(OpCodes.Newobj, funcCtor);
+    }
+
+    /// <summary>A reference to CoreLib's own (uncopied) definition of a type, nested ones through their declaring types.</summary>
+    TypeReference CoreLibReference(TypeDefinition t) => t.DeclaringType is { } outer
+        ? new TypeReference(string.Empty, t.Name, _m, null, t.IsValueType) { DeclaringType = CoreLibReference(outer) }
+        : new TypeReference(t.Namespace, t.Name, _m, CoreRef(), t.IsValueType);
+
+    /// <summary>
+    /// Non-zero while copying a member hosted from a generic built-in type (DeclareHosted): its <c>!n</c> becomes <c>!!n</c> and its own
+    /// <c>!!n</c> becomes <c>!!(n + arity)</c>. Only in its own context (body types, declaring types, generic arguments): the signature of a
+    /// member it references names that member's parameters (<see cref="Signature"/>).
+    /// </summary>
+    int _hostedTypeArity;
+
+    TypeReference Signature(TypeReference t)
+    {
+        var saved = _hostedTypeArity;
+        _hostedTypeArity = 0;
+        try { return Type(t); } finally { _hostedTypeArity = saved; }
     }
 
     // Signatures name generic parameters by kind and position only; the owners here are stand-ins that carry enough parameters.
@@ -440,15 +850,30 @@ sealed class Emitter
             return n;
         }
         if (mr is MethodDefinition md && _methods.TryGetValue(md, out var copied)) return copied;
-        var r = new MethodReference(mr.Name, Type(mr.ReturnType), Type(mr.DeclaringType)) { HasThis = mr.HasThis, ExplicitThis = mr.ExplicitThis, CallingConvention = mr.CallingConvention };
-        foreach (var p in mr.Parameters) r.Parameters.Add(new ParameterDefinition(Type(p.ParameterType)));
+        // A static member of a type that stays outside the slice with a replacement (Interop.GetRandomBytes): the call goes to csharpc's own.
+        if (!mr.HasThis && !mr.HasGenericParameters && (mr as MethodDefinition ?? SafeResolve(mr)) is { } stopped && _cli.Replacement(stopped) is { } forward)
+        {
+            var colon = forward.IndexOf(':'); var sep = forward.IndexOf("::", StringComparison.Ordinal);
+            var typeName = forward[(colon + 1)..sep]; var dot = typeName.LastIndexOf('.');
+            var scope = AsmRef(new AssemblyNameReference(forward[..colon], new Version(1, 0, 0, 0)));
+            var call = new MethodReference(forward[(sep + 2)..], Signature(mr.ReturnType), new TypeReference(typeName[..dot], typeName[(dot + 1)..], _m, scope, false));
+            foreach (var p in mr.Parameters) call.Parameters.Add(new ParameterDefinition(Signature(p.ParameterType)));
+            return call;
+        }
+        var r = new MethodReference(mr.Name, Signature(mr.ReturnType), Type(mr.DeclaringType)) { HasThis = mr.HasThis, ExplicitThis = mr.ExplicitThis, CallingConvention = mr.CallingConvention };
+        foreach (var p in mr.Parameters) r.Parameters.Add(new ParameterDefinition(Signature(p.ParameterType)));
         for (int i = 0; i < mr.GenericParameters.Count; i++) r.GenericParameters.Add(new GenericParameter("M" + i, r));
         return r;
+    }
+
+    static MethodDefinition SafeResolve(MethodReference r)
+    {
+        try { return r.Resolve(); } catch (AssemblyResolutionException) { return null; }
     }
 
     FieldReference FieldRef(FieldReference fr)
     {
         if (fr is FieldDefinition fd && _fields.TryGetValue(fd, out var copied)) return copied;
-        return new FieldReference(fr.Name, Type(fr.FieldType), Type(fr.DeclaringType));
+        return new FieldReference(fr.Name, Signature(fr.FieldType), Type(fr.DeclaringType));
     }
 }

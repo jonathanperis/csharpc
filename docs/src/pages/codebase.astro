@@ -1,0 +1,115 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Navbar from '../components/home/Navbar.astro';
+import Footer from '../components/home/Footer.astro';
+import { measure, squarify } from '../lib/codebase';
+
+const areas = measure();
+const total = areas.reduce((s, a) => s + a.lines, 0);
+const fmt = (n: number) => n.toLocaleString('en-US');
+const pct = (n: number, of = total) => `${((100 * n) / of).toFixed(1)} %`;
+
+// One hue per area, in the site's palette (C# green, amber, red, violet, cyan, olive); its leaves step from deep to
+// lighter so neighbours stay apart, all dark enough for the light text on them.
+const hues: Record<string, number> = { codegen: 140, frontend: 200, runtime: 25, corelib: 280, tests: 75, support: 345 };
+const color = (key: string, i: number, n: number) => `hsl(${hues[key]} 55% ${24 + (n > 1 ? (i / (n - 1)) * 16 : 0)}%)`;
+
+const W = 1200, H = 680, pad = 3;
+const blocks = squarify(areas, (a) => a.lines, { x: 0, y: 0, w: W, h: H });
+const tiles = blocks.flatMap((b) => {
+  const inner = { x: b.x + pad, y: b.y + pad + 22, w: Math.max(0, b.w - 2 * pad), h: Math.max(0, b.h - 2 * pad - 22) };
+  return squarify(b.leaves, (l) => l.lines, inner).map((l, i) => ({ ...l, area: b, fill: color(b.key, i, b.leaves.length) }));
+});
+// Labels only where they fit; every tile keeps a hover title.
+const fits = (w: number, h: number, text: string, size: number) => w > text.length * size * 0.6 + 10 && h > size * 2.6;
+---
+
+<BaseLayout title="Codebase map | csharpc" description="How csharpc's source is split across its responsibilities, counted from the repository when the site is built.">
+  <Navbar />
+  <main>
+    <section class="section-header">
+      <p class="section-kicker">codebase map</p>
+      <h2>WHERE THE LINES LIVE.</h2>
+      <p>
+        {fmt(total)} lines of source, tests and tooling, counted from the repository when this site was built. Each rectangle's
+        area is proportional to its line count; hover a tile for its numbers.
+      </p>
+    </section>
+
+    <svg class="treemap" viewBox={`0 0 ${W} ${H}`} role="img" aria-label="Treemap of csharpc's lines of code by area and responsibility">
+      {tiles.map((t) => (
+        <g>
+          <title>{`${t.area.name} › ${t.name}: ${fmt(t.lines)} lines in ${fmt(t.files)} files (${pct(t.lines)} of all, ${pct(t.lines, t.area.lines)} of ${t.area.name})`}</title>
+          <rect class="leaf" x={t.x} y={t.y} width={t.w} height={t.h} fill={t.fill} />
+          {fits(t.w, t.h, t.name, 13) && (
+            <>
+              <text x={t.x + 7} y={t.y + 18} font-size="13" fill="#e8f5e3">{t.name}</text>
+              <text x={t.x + 7} y={t.y + 34} font-size="12" fill="#e8f5e3" fill-opacity="0.75">{fmt(t.lines)}</text>
+            </>
+          )}
+        </g>
+      ))}
+      {blocks.map((b) => (
+        <g>
+          <rect x={b.x + pad} y={b.y + pad} width={Math.max(0, b.w - 2 * pad)} height="22" fill={`hsl(${hues[b.key]} 50% 14%)`} />
+          {fits(b.w, 40, `${b.name} · ${pct(b.lines)}`, 13) && <text x={b.x + pad + 7} y={b.y + pad + 15.5} font-size="13" fill="#ffb300">{b.name.toUpperCase()} · {pct(b.lines)}</text>}
+          <rect class="area" x={b.x} y={b.y} width={b.w} height={b.h} />
+        </g>
+      ))}
+    </svg>
+    <ul class="legend">
+      {areas.map((a) => <li><i style={`background: hsl(${hues[a.key]} 55% 32%)`}></i>{a.name} <em>{fmt(a.lines)}</em></li>)}
+    </ul>
+
+    <div class="evidence-grid areas">
+      {areas.map((a) => (
+        <article class="evidence-card" id={a.key}>
+          <div class="lane-row"><span class="status-pill clean">{pct(a.lines)}</span><span>{fmt(a.lines)} lines</span></div>
+          <h3>{a.name}</h3>
+          <p>{a.summary}</p>
+          <ul class="bars">
+            {a.leaves.map((l, i) => (
+              <li>
+                <span>{l.name}</span><em>{fmt(l.lines)}</em>
+                <div class="bar"><span style={`width: ${(100 * l.lines) / a.leaves[0].lines}%; background: ${color(a.key, i, a.leaves.length)}`}></span></div>
+              </li>
+            ))}
+          </ul>
+        </article>
+      ))}
+    </div>
+
+    <section class="section-header narrow how">
+      <p class="section-kicker">method</p>
+      <h2>HOW THIS IS COUNTED.</h2>
+      <p>
+        Physical lines of every <code>.cs</code>, <code>.c</code>/<code>.h</code>, script, workflow and Markdown file, with build
+        output skipped. Each file goes to one responsibility by its directory and, inside the code generator, the C runtime and
+        the corelib, by its file name: the code generator is one <code>FunctionCodeGen.&lt;Feature&gt;.cs</code> partial per
+        feature area, so the file name says what it lowers. The ICU shim is .NET's own globalization native code, carried so
+        cultures work without .NET installed. Generated IL slices and recorded <code>.expected</code> outputs are not counted.
+        The rules live in <a href="https://github.com/jonathanperis/csharpc/blob/main/docs/src/lib/codebase.ts" target="_blank" rel="noopener noreferrer">docs/src/lib/codebase.ts</a>.
+      </p>
+    </section>
+  </main>
+  <Footer />
+</BaseLayout>
+
+<style>
+  .section-header { margin-bottom: 2rem; }
+  .treemap { width: 100%; height: auto; display: block; border: 1px solid var(--term-green-dim); box-shadow: 0 0 20px rgba(23, 134, 0, 0.10); }
+  .treemap text { font-family: var(--font-mono); pointer-events: none; }
+  .treemap rect.leaf { stroke: var(--bg-deep); stroke-width: 1.5; }
+  .treemap rect.area { fill: none; stroke: var(--bg-deep); stroke-width: 5; }
+  .legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1.4rem; margin: 1rem 0 3rem; list-style: none; color: var(--text-muted); font-size: 0.9rem; }
+  .legend i { display: inline-block; width: 0.8rem; height: 0.8rem; margin-right: 0.45rem; vertical-align: -1px; }
+  .legend em { font-style: normal; color: var(--term-green-soft); }
+  .areas { margin-bottom: 4rem; }
+  .bars { list-style: none; font-size: 0.85rem; }
+  .bars li { display: grid; grid-template-columns: 1fr auto; gap: 0.15rem 0.6rem; margin-top: 0.55rem; color: var(--text-main); }
+  .bars em { font-style: normal; color: var(--term-green-soft); font-variant-numeric: tabular-nums; }
+  .bars .bar { grid-column: 1 / -1; height: 4px; background: rgba(23, 134, 0, 0.12); overflow: hidden; }
+  .bars .bar span { display: block; height: 100%; }
+  .how { margin-bottom: 5rem; }
+  .how code, .how a { color: var(--term-green-soft); }
+</style>

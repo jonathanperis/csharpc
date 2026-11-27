@@ -84,6 +84,22 @@ public sealed partial class ModuleCodeGen
         return SubstitutionsOf(owner).BoolStubs.TryGetValue((method.ContainingType.ToDisplayString(), method.Name), out var value) ? value : null;
     }
 
+    /// <summary>
+    /// A static bool property marked [FeatureSwitchDefinition("name")] whose switch the program's runtime configuration sets: its value, as
+    /// ILCompiler substitutes it (System.Linq.Enumerable.IsSizeOptimized, which NativeAOT's targets set to true). Null otherwise; the getter
+    /// then runs and reads the same configuration through AppContext.
+    /// </summary>
+    internal bool? FeatureSwitchDefinitionValue(IMethodSymbol method)
+    {
+        if (method is not { IsStatic: true, MethodKind: MethodKind.PropertyGet, Parameters.IsEmpty: true, ReturnType.SpecialType: SpecialType.System_Boolean }
+            || method.AssociatedSymbol is not IPropertySymbol property) return null;
+        foreach (var attribute in property.GetAttributes())
+            if (attribute.AttributeClass is { Name: "FeatureSwitchDefinitionAttribute" } && attribute.ConstructorArguments is [{ Value: string name }])
+                foreach (var (key, value) in RuntimeConfig)
+                    if (key == name && bool.TryParse(value, out var configured)) return configured;
+        return null;
+    }
+
     /// <summary>Whether a substitution removes this manifest resource ("FxResources.X.SR.resources") of the assembly.</summary>
     internal bool IsResourceRemoved(IlAssembly assembly, string resourceName) => SubstitutionsOf(assembly).RemovedResources.Contains(resourceName);
 }

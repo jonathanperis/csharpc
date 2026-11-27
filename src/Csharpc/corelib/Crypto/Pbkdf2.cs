@@ -1,6 +1,8 @@
 // HMAC (RFC 2104) and PBKDF2 (RFC 8018) over the corelib's SHA-1 / SHA-256 (Hashing.cs): the derived
 // bytes are fixed by the standards, so they equal what .NET's OS-backed Rfc2898DeriveBytes.Pbkdf2
 // returns. System.IO.Compression derives its WinZip AES keys with it.
+// On Linux the framework's IL serves these types over the OpenSSL contract (Crypto/CryptoNative*.cs, docs/il-first/System.Security.Cryptography.md).
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_MACOS || CSHARPC_TARGET_WASI
 #nullable disable
 using System;
 using System.Security.Cryptography;
@@ -192,3 +194,4 @@ namespace CsharpcCoreLib
             HmacOneShot.TryHash(HashAlgorithmName.SHA512, key, source, destination, out bytesWritten);
     }
 }
+#endif

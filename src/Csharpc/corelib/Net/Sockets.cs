@@ -1,8 +1,8 @@
-// System.Net.Sockets: Socket, NetworkStream, TcpListener, TcpClient, UdpClient, Dns, and the
-// ExternalException -> Win32Exception -> SocketException chain (error codes need fields, which the
-// runtime's fixed exception layout doesn't have). Blocking calls; the asynchronous operations
-// (SocketAsyncEventArgs, ValueTask Receive/Send/AcceptAsync) run on the socket engine (SocketEngine.cs:
-// epoll on Linux), connects included; on macOS and Windows the engine runs them as blocking calls on the pool.
+// System.Net.Sockets on Windows: Socket, NetworkStream, TcpListener, TcpClient, UdpClient, Dns and SocketException over
+// Winsock. Blocking calls; the asynchronous operations run on the socket engine (SocketEngine.cs) as blocking calls on the pool.
+// Windows only: on Linux and macOS these types are the framework's IL over the libSystem.Native socket contract
+// (corelib/Net/SystemNative.Net.cs, docs/il-first/System.Net.Sockets.md); Windows keeps them until the IOCP engine exists.
+#if CSHARPC_TARGET_WINDOWS
 #nullable disable
 using System;
 using System.IO;
@@ -13,76 +13,6 @@ using System.Threading.Tasks;
 
 namespace CsharpcCoreLib
 {
-    [Shadows("System.Runtime.InteropServices.ExternalException")]
-    public class ExternalExceptionImpl : SystemException
-    {
-        internal const int E_FAIL = unchecked((int)0x80004005);
-        public ExternalExceptionImpl() : base("External component has thrown an exception.") { HResult = E_FAIL; }
-        public ExternalExceptionImpl(string message) : base(message) { HResult = E_FAIL; }
-        public ExternalExceptionImpl(string message, Exception inner) : base(message, inner) { HResult = E_FAIL; }
-        public ExternalExceptionImpl(string message, int errorCode) : base(message) { HResult = errorCode; }
-        public virtual int ErrorCode => HResult;
-
-        /// <summary>
-        /// .NET's ExternalException.ToString (DbException's, so Npgsql's): the HResult after the type name, the inner
-        /// exception after " ---> " without Exception's "--- End of inner exception stack trace ---" line, then the trace.
-        /// </summary>
-        public override string ToString()
-        {
-            string message = Message;
-            string s = string.Concat(GetType().ToString(), " (0x", Hex8(HResult), ")");
-            if (!string.IsNullOrEmpty(message)) s = string.Concat(s, ": ", message);
-            Exception inner = InnerException;
-            if (inner != null) s = string.Concat(s, Environment.NewLine, " ---> ", inner.ToString());
-            string stackTrace = StackTrace;
-            if (stackTrace != null) s = string.Concat(s, Environment.NewLine, stackTrace);
-            return s;
-        }
-
-        // HResult.ToString("X8") without number formatting: every program that compares strings with a culture can
-        // construct this exception (CompareInfo's sort handles), so its ToString is in most binaries.
-        private static string Hex8(int value)
-        {
-            Span<char> digits = stackalloc char[8];
-            uint v = (uint)value;
-            for (int i = 7; i >= 0; i--, v >>= 4) digits[i] = (char)((v & 0xF) < 10 ? '0' + (v & 0xF) : 'A' - 10 + (v & 0xF));
-            return new string(digits);
-        }
-    }
-
-    [Shadows("System.ComponentModel.Win32Exception")]
-    public class Win32ExceptionImpl : System.Runtime.InteropServices.ExternalException
-    {
-        private const int E_FAIL = unchecked((int)0x80004005);
-        public int NativeErrorCode { get; }
-        private int HResultValue => HResult;
-
-        public Win32ExceptionImpl() : this(System.Runtime.InteropServices.Marshal.GetLastPInvokeError()) { }
-        public Win32ExceptionImpl(int error) : this(error, System.Runtime.InteropServices.Marshal.GetPInvokeErrorMessage(error)) { }
-        public Win32ExceptionImpl(int error, string message) : base(message) { NativeErrorCode = error; }
-        public Win32ExceptionImpl(string message) : this(System.Runtime.InteropServices.Marshal.GetLastPInvokeError(), message) { }
-        public Win32ExceptionImpl(string message, Exception innerException) : base(message, innerException)
-        {
-            NativeErrorCode = System.Runtime.InteropServices.Marshal.GetLastPInvokeError();
-        }
-
-        /// <summary>.NET's Win32Exception.ToString: "Type (native): message", with the HResult when it isn't E_FAIL.</summary>
-        public override string ToString()
-        {
-            if (NativeErrorCode == 0 || NativeErrorCode == HResultValue) return base.ToString();
-            string native = NativeErrorCode < 0 ? "0x" + NativeErrorCode.ToString("X8") : NativeErrorCode.ToString();
-            var s = new System.Text.StringBuilder(GetType().ToString());
-            if (HResultValue == E_FAIL) s.Append(" (").Append(native).Append(')');
-            else s.Append(" (").Append(HResultValue.ToString("X8")).Append(", ").Append(native).Append(')');
-            string message = Message;
-            if (!string.IsNullOrEmpty(message)) s.Append(": ").Append(message);
-            if (InnerException != null) s.Append(" ---> ").Append(InnerException.ToString());
-            string stackTrace = StackTrace;
-            if (stackTrace != null) s.Append(Environment.NewLine).Append(stackTrace);
-            return s.ToString();
-        }
-    }
-
     [Shadows("System.Net.Sockets.SocketException")]
     public class SocketExceptionImpl : System.ComponentModel.Win32Exception
     {
@@ -92,6 +22,12 @@ namespace CsharpcCoreLib
 
         /// <summary>new SocketException(int SocketError value): the native error and message are the OS's for it.</summary>
         public SocketExceptionImpl(int errorCode) : this((SocketError)errorCode, NativeFor((SocketError)errorCode), (EndPoint)null) { }
+
+        /// <summary>The internal SocketException(SocketError) that System.Net.Primitives (IPAddressParser) throws.</summary>
+        internal SocketExceptionImpl(SocketError errorCode) : this((int)errorCode) { }
+
+        /// <summary>The internal SocketException(SocketError, string) of System.Net.Primitives (IPAddressParser, IPNetwork).</summary>
+        internal SocketExceptionImpl(SocketError errorCode, string message) : this((int)errorCode, message) { }
 
         public SocketExceptionImpl(int errorCode, string message)
             : base(NativeFor((SocketError)errorCode), message) { _errorCode = (SocketError)errorCode; }
@@ -107,11 +43,7 @@ namespace CsharpcCoreLib
 
         private static int NativeFor(SocketError error)
         {
-#if CSHARPC_TARGET_WINDOWS
             return (int)error;
-#else
-            return NetNative.NativeErrorFor(error);
-#endif
         }
 
         // The OS's text for the native error, as Win32Exception(int) gives it (strerror: "Unknown error 10067" for
@@ -200,24 +132,7 @@ namespace CsharpcCoreLib
             ArgumentNullException.ThrowIfNull(handle);
             var safe = (SafeSocketHandleImpl)(object)handle;
             if (safe.IsInvalid) throw new ArgumentException("The handle is invalid.", "handle");
-#if CSHARPC_TARGET_LINUX
-            long fd = safe.DangerousGetHandle();
-            int domain = NetNative.GetInt(fd, NetNative.SOL_SOCKET, 39 /* SO_DOMAIN */);
-            int type = NetNative.GetInt(fd, NetNative.SOL_SOCKET, 3 /* SO_TYPE */);
-            int protocol = NetNative.GetInt(fd, NetNative.SOL_SOCKET, 38 /* SO_PROTOCOL */);
-            if (domain != NetNative.AF_INET && domain != NetNative.AF_INET6)
-                throw new NotSupportedException("csharpc: sockets support only the InterNetwork and InterNetworkV6 address families.");
-            _handle = fd;
-            _ownsHandle = safe.OwnsHandle;
-            AddressFamily = domain == NetNative.AF_INET6 ? AddressFamily.InterNetworkV6 : AddressFamily.InterNetwork;
-            SocketType = type == NetNative.SOCK_DGRAM ? SocketType.Dgram : SocketType.Stream;
-            ProtocolType = protocol == NetNative.IPPROTO_UDP ? ProtocolType.Udp : ProtocolType.Tcp;
-            _bound = true;
-            _listening = NetNative.GetInt(fd, NetNative.SOL_SOCKET, 30 /* SO_ACCEPTCONN */) != 0;
-            if (AddressFamily == AddressFamily.InterNetworkV6) _dualMode = NetNative.GetInt(fd, NetNative.IPPROTO_IPV6, NetNative.IPV6_V6ONLY) == 0;
-#else
             throw new NotSupportedException("A socket over an existing handle is not supported by csharpc yet on this platform.");
-#endif
         }
 
         private SocketImpl(long handle, AddressFamily family, SocketType type, ProtocolType protocol, bool dualMode)
@@ -260,10 +175,8 @@ namespace CsharpcCoreLib
         /// <summary>Synchronous calls on a non-blocking socket wait for readiness (the timeout, or none).</summary>
         private void WaitReady(bool write, int timeout)
         {
-#if !CSHARPC_TARGET_WASI
             if (!NetNative.Wait(_handle, write, timeout <= 0 ? -1 : timeout))
                 throw (SocketException)(object)new SocketExceptionImpl(SocketError.TimedOut, NetNative.EAGAIN, (EndPoint)null);
-#endif
         }
 
         public static bool OSSupportsIPv4 => !OperatingSystem.IsWasi();
@@ -425,10 +338,6 @@ namespace CsharpcCoreLib
 
         private bool HasConnectCompleted(out bool succeeded)
         {
-#if CSHARPC_TARGET_WASI
-            succeeded = false;
-            return false;
-#else
             // Done when writable, or (Winsock) reported in exceptfds after failing.
             long handle = _handle;
             int events = NetNative.POLLOUT | NetNative.POLLERR, revents;
@@ -437,7 +346,6 @@ namespace CsharpcCoreLib
             if ((revents & (NetNative.POLLOUT | NetNative.POLLERR)) == 0) return false;
             succeeded = (revents & NetNative.POLLOUT) != 0 && NetNative.GetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_ERROR) == 0;
             return true;
-#endif
         }
 
         /// <summary>
@@ -450,12 +358,8 @@ namespace CsharpcCoreLib
             set
             {
                 EnsureOpen();
-#if CSHARPC_TARGET_WASI
-                if (!value) throw new NotSupportedException("csharpc: non-blocking sockets (Socket.Blocking = false) are not supported yet on this platform.");
-#else
                 if (!value) NetNative.SetBlockingMode(_handle, false);
                 else if (!_nonBlocking) NetNative.SetBlockingMode(_handle, true);
-#endif
                 _willBlock = value;
             }
         }
@@ -494,9 +398,6 @@ namespace CsharpcCoreLib
             if (reads > MaxSelect) throw new ArgumentOutOfRangeException("checkRead", "The checkRead list contains too many items; a maximum of 65536 is allowed.");
             if (writes > MaxSelect) throw new ArgumentOutOfRangeException("checkWrite", "The checkWrite list contains too many items; a maximum of 65536 is allowed.");
             if (errors > MaxSelect) throw new ArgumentOutOfRangeException("checkError", "The checkError list contains too many items; a maximum of 65536 is allowed.");
-#if CSHARPC_TARGET_WASI
-            throw new NotSupportedException("csharpc: Socket.Select is not supported yet on this platform.");
-#else
             int count = reads + writes + errors;
             long[] handles = new long[count];
             int[] events = new int[count], revents = new int[count];
@@ -530,7 +431,6 @@ namespace CsharpcCoreLib
             Filter(checkRead, reads, NetNative.POLLIN | NetNative.POLLHUP);
             Filter(checkWrite, writes, NetNative.POLLOUT);
             Filter(checkError, errors, NetNative.POLLPRI | NetNative.POLLERR);
-#endif
         }
 
         /// <summary>
@@ -543,9 +443,6 @@ namespace CsharpcCoreLib
             EnsureOpen();
             if (mode != SelectMode.SelectRead && mode != SelectMode.SelectWrite && mode != SelectMode.SelectError)
                 throw new NotSupportedException("The specified mode is not supported.");
-#if CSHARPC_TARGET_WASI
-            throw new NotSupportedException("csharpc: Socket.Poll is not supported yet on this platform.");
-#else
             int wanted = mode == SelectMode.SelectRead ? NetNative.POLLIN : mode == SelectMode.SelectWrite ? NetNative.POLLOUT : NetNative.POLLPRI;
             int ready = mode == SelectMode.SelectRead ? NetNative.POLLIN | NetNative.POLLHUP
                 : mode == SelectMode.SelectWrite ? NetNative.POLLOUT : NetNative.POLLPRI | NetNative.POLLERR;
@@ -553,7 +450,6 @@ namespace CsharpcCoreLib
             int events = wanted, revents = 0;
             NetNative.Poll(&handle, &events, &revents, 1, microSeconds == -1 ? -1 : microSeconds / 1000);
             return (revents & ready) != 0;
-#endif
         }
 
         public static void Select(System.Collections.IList checkRead, System.Collections.IList checkWrite, System.Collections.IList checkError, TimeSpan timeout) =>
@@ -579,12 +475,7 @@ namespace CsharpcCoreLib
                     case SocketOptionName.Error:
                         return (int)NetNative.ToSocketError(NetNative.GetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_ERROR));
                     case SocketOptionName.ReuseAddress:
-#if CSHARPC_TARGET_WINDOWS
                         return NetNative.GetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_REUSEADDR);
-#else
-                        // .NET on Unix reads SO_REUSEPORT (Bind's own SO_REUSEADDR doesn't show), as 0 or 1.
-                        return NetNative.GetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_REUSEPORT) != 0 ? 1 : 0;
-#endif
                     case SocketOptionName.KeepAlive:
                         return NetNative.GetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_KEEPALIVE);
                     case SocketOptionName.ReceiveBuffer:
@@ -659,10 +550,6 @@ namespace CsharpcCoreLib
             EnsureOpen();
             if (optionLevel == SocketOptionLevel.Socket && optionName == SocketOptionName.ReuseAddress)
             {
-#if !CSHARPC_TARGET_WINDOWS
-                // .NET on Unix (SystemNative_SetSockOpt): SO_REUSEPORT, which lets sockets share an address, then SO_REUSEADDR.
-                NetNative.SetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_REUSEPORT, optionValue);
-#endif
                 NetNative.SetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_REUSEADDR, optionValue);
             }
             else if (optionLevel == SocketOptionLevel.Tcp && optionName == SocketOptionName.NoDelay)
@@ -709,11 +596,6 @@ namespace CsharpcCoreLib
             EnsureOpen();
             if (localEP == null) throw new ArgumentNullException("localEP");
             var target = Adapt(localEP);
-#if !CSHARPC_TARGET_WINDOWS
-            // .NET on Unix (SystemNative_Bind): a TCP socket gets SO_REUSEADDR before bind, so a server can rebind its
-            // port while connections of a previous run are in TIME_WAIT (Windows allows that by default).
-            if (ProtocolType == ProtocolType.Tcp) NetNative.SetInt(_handle, NetNative.SOL_SOCKET, NetNative.SO_REUSEADDR, 1);
-#endif
             NetNative.Bind(_handle, target);
             _bound = true;
             _explicitBind = localEP;
@@ -795,53 +677,6 @@ namespace CsharpcCoreLib
         // descriptor with the old one's options. This is what lets one socket try the addresses of a name in turn.
         private void ReplaceHandleIfNecessaryAfterFailedConnect()
         {
-#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
-            if (!_lastConnectFailed || !_ownsHandle) return;
-            _lastConnectFailed = false;
-            long old = _handle;
-            long replacement = NetNative.Socket(AddressFamily == AddressFamily.InterNetworkV6 ? NetNative.AF_INET6 : NetNative.AF_INET,
-                SocketType == SocketType.Stream ? NetNative.SOCK_STREAM : NetNative.SOCK_DGRAM,
-                ProtocolType == ProtocolType.Tcp ? NetNative.IPPROTO_TCP : ProtocolType == ProtocolType.Udp ? NetNative.IPPROTO_UDP : 0);
-            try
-            {
-                if (AddressFamily == AddressFamily.InterNetworkV6) NetNative.SetInt(replacement, NetNative.IPPROTO_IPV6, NetNative.IPV6_V6ONLY, _dualMode ? 0 : 1);
-                if (_noDelay) NetNative.SetInt(replacement, NetNative.IPPROTO_TCP, NetNative.TCP_NODELAY, 1);
-                // Linux doubles the value it is given for these (and reports the doubled one).
-                int divisor = OperatingSystem.IsLinux() ? 2 : 1;
-                NetNative.SetInt(replacement, NetNative.SOL_SOCKET, NetNative.SO_RCVBUF, NetNative.GetInt(old, NetNative.SOL_SOCKET, NetNative.SO_RCVBUF) / divisor);
-                NetNative.SetInt(replacement, NetNative.SOL_SOCKET, NetNative.SO_SNDBUF, NetNative.GetInt(old, NetNative.SOL_SOCKET, NetNative.SO_SNDBUF) / divisor);
-                if (_receiveTimeout > 0) NetNative.SetTimeout(replacement, NetNative.SO_RCVTIMEO, _receiveTimeout);
-                if (_sendTimeout > 0) NetNative.SetTimeout(replacement, NetNative.SO_SNDTIMEO, _sendTimeout);
-                if (NetNative.GetInt(old, NetNative.SOL_SOCKET, NetNative.SO_KEEPALIVE) != 0)
-                {
-                    NetNative.SetInt(replacement, NetNative.SOL_SOCKET, NetNative.SO_KEEPALIVE, 1);
-                    NetNative.SetInt(replacement, NetNative.IPPROTO_TCP, NetNative.TCP_KEEPIDLE, NetNative.GetInt(old, NetNative.IPPROTO_TCP, NetNative.TCP_KEEPIDLE));
-                    NetNative.SetInt(replacement, NetNative.IPPROTO_TCP, NetNative.TCP_KEEPINTVL, NetNative.GetInt(old, NetNative.IPPROTO_TCP, NetNative.TCP_KEEPINTVL));
-                    NetNative.SetInt(replacement, NetNative.IPPROTO_TCP, NetNative.TCP_KEEPCNT, NetNative.GetInt(old, NetNative.IPPROTO_TCP, NetNative.TCP_KEEPCNT));
-                }
-                if (_explicitBind != null)
-                {
-                    EndPoint local = NetNative.LocalEndPoint(old);
-                    if (ProtocolType == ProtocolType.Tcp) NetNative.SetInt(replacement, NetNative.SOL_SOCKET, NetNative.SO_REUSEADDR, 1);
-                    NetNative.Bind(replacement, local);
-                }
-                if (!_willBlock) NetNative.SetBlockingMode(replacement, false);
-            }
-            catch
-            {
-                NetNative.Close(replacement);
-                throw;
-            }
-            // The engine watches descriptors: the old one's context is closed (nothing is pending on a socket that is
-            // about to connect), and the new descriptor registers with the next asynchronous operation.
-            SocketAsyncContext context = _async;
-            _async = null;
-            context?.Close();
-            _nonBlocking = false;
-            _handle = replacement;
-            _remote = null;
-            NetNative.Close(old);
-#endif
         }
 
         public void Connect(IPAddress address, int port) => Connect(new IPEndPoint(address, port));
@@ -1775,3 +1610,4 @@ namespace CsharpcCoreLib
         public static string GetHostName() => NetNative.HostName();
     }
 }
+#endif

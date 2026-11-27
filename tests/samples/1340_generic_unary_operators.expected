@@ -1,0 +1,8 @@
+Money: -x=-12.50 +x=12.50 checked -x=-12.50
+BFloat16: -x=-2.5 +x=2.5 checked -x=-2.5
+Decimal32: -x=7.25 +x=-7.25 checked -x=7.25
+Decimal64: -x=-0 +x=0 checked -x=-0
+Decimal128: -x=-123456789012345678901234.5 +x=123456789012345678901234.5 checked -x=-123456789012345678901234.5
+int: -x=-41 +x=41 checked -x=-41
+~Flags: 5
+checked -Money.Min: OverflowException

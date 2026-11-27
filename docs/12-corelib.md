@@ -3,6 +3,33 @@
 > Policy ([ADR 0023](adr/0023-framework-il-first.md)): the shadows are for the runtime-coupled `System.Private.CoreLib` surface; a
 > library of the rest of the framework is compiled from its IL (ADR 0013) where a per-library measurement
 > (`CSHARPC_IL_FIRST`, `tools/il-first/ab.sh`) says so, and its shadow is deleted in the same change.
+>
+> **Where a flip writes** (one file per library, so flips of different libraries run in parallel without conflicts; ADR 0025,
+> decision 6): its row of the ADR 0023 table in a new `docs/il-first/<library>.md` (copy the header from any file there); for a
+> CoreLib type, the type names in a new `src/Csharpc/upstream-types/<library>.txt` (same name as the doc); for a size program it
+> moves, that program's `tests/size/budgets/<program>.txt` (its lines and the reason, as a comment). Its NativeAOT column comes from
+> `tools/il-first/measure-aot.sh` on the library's program in `tools/il-first/bench` (add one when the library has none). `tools/il-first/ownership.tsv`
+> is generated on demand (`tools/il-first/ownership.sh`) and not committed; ownership.cs overrides of deleted files can stay.
+>
+> **Two slices, one per pointer size** (#382): CoreLib is compiled per target, so IL compiled under `TARGET_64BIT` (8-byte widths, a folded
+> `IntPtr.Size`) is wrong on a 4-byte-pointer target. The build cuts the same roots twice: from the shared framework's 64-bit CoreLib into
+> `CsharpcUpstream.dll`, and from the 32-bit CoreCLR CoreLib (`Microsoft.NETCore.App.Runtime.linux-arm`, the same version, verified with
+> `dotnet nuget verify` against the Microsoft author certificate pinned in `src/Csharpc/nuget-signers.txt`) into `upstream32/CsharpcUpstream.dll`.
+> The compiler picks the slice by the target's pointer size (`Frontend/UpstreamSlice.cs`; wasm32 takes the 32-bit one, and a missing 32-bit
+> slice is an error, never a fallback). `Slicer pointer-size` lists the members compiled differently for 32-bit targets at every build
+> (`obj/.../slicer/pointer-size.md`). Corelib members the slices call must exist for both widths (`ulong.PowersOf10` and `uint.PowersOf10`).
+>
+> **The contract layer** between the corelib and the CoreLib types sliced from the framework's IL (`tools/il-first/slicer`,
+> `CsharpcUpstream.dll`; chosen by the slicer's `csharpc` profile) is kept thin, and every member of it is listed here:
+> * `corelib/UpstreamSupport.cs`: the members the slice calls into the corelib for: SR texts, the string-comparer family,
+>   the throw helpers.
+> * `corelib/NumberUpstream.cs`, the other direction: number formatting and parsing are CoreLib's own `System.Number` (#426), and
+>   the compiler's paths that do not go through a primitive's public member (string concatenation, interpolation holes, boxed
+>   values, `Console.Write`) reach it through these `[UnsafeAccessor(StaticMethod)]` + `[UnsafeAccessorType]` declarations, with
+>   CoreLib's own signatures. (This replaced the shortest-digits `NumberBridge` the slicer used to emit.)
+> * `corelib/UpstreamTracing.cs`: the runtime QCalls System.Diagnostics.Tracing's IL makes (EventPipe's), bound by entry-point name like the
+>   libSystem.Native contract (`[RuntimeExport]` with a `QCall!` trigger, `ModuleCodeGen.PInvoke`): a disabled EventPipe and the thread's
+>   activity id. A QCall without a contract is a stub that ends the program with the "not supported by csharpc yet" diagnostic if called.
 
 csharpc's route to drop-in BCL coverage: library types re-implemented **in C#**, compiled by csharpc
 together with the user's program (closed world: monomorphized, inlined and optimized by LLVM along with
@@ -70,9 +97,9 @@ internal static class StringExtras { public static string Join<T>(string separat
   code valid both ways and stay conservative (no primary constructors, no collection expressions).
 * Prefer lazy static data (`static T[] s_x; static T[] X => s_x ??= ...`) to static field
   initializers: an initializer becomes a `.cctor` checked on every static field access of the type.
-* Code generated into the program (the reflection-style JSON contexts) can only use
+* Code generated into the program (the resource and `TypeDescriptor.GetConverter` hooks) can only use
   **public** corelib members; the corelib reaches generated program code through `CoreIntrinsics`
-  hooks (`JsonConfigureHook`/`JsonBuiltInHook` call `CsharpcCoreLib.ProgramHooks` when the program has it).
+  hooks (`ResourceObjectHook`/`TypeConverterHook` call `CsharpcCoreLib.ProgramHooks` when the program has it).
 * `#nullable disable` at the top; corelib diagnostics are never shown to users. A corelib that doesn't
   compile fails every compile with Roslyn's errors; `CSHARPC_CHECK_CORELIB=1` binds the sources inside
   a program's compilation (the source corelib) and reports them all, warnings included.
@@ -98,10 +125,7 @@ instantiation, giving the default comparers .NET semantics without boxing primit
 | `HashOf<T>(v)` | `EqualityComparer<T>.Default.GetHashCode` (inline for primitives; 0 for null) |
 | `Compare<T>(a, b)` | `Comparer<T>.Default.Compare`: primitives inline (NaN first), strings with culture collation, `IComparable<T>` / `IComparable`, null first; otherwise `InvalidOperationException("Failed to compare two elements in the array.")` |
 | `IsValueType<T>()`, `Box<T>(v)`, `Unbox<T>(o)` | helpers for generic code (boxing of types without a boxed form throws `NotSupportedException` at run time only) |
-| `EnumToUInt64<T>`, `EnumFromUInt64<T>`, `IsSignedEnum<T>`, `IsFlagsEnum<T>`, `EnumMemberJsonNames<T>` | enum values and names for `JsonStringEnumConverter` (names and `[JsonStringEnumMemberName]` read at compile time) |
-| `IsEnumType(Type)`, `CreateEnumConverter(Type, ...)` | a compile-time switch over the program's enums (`JsonStringEnumConverter` as a factory) |
-| `IsAbstractType<T>`, `IsInstanceOfType`, `IsTypeAssignableTo`, `IsInterfaceTypeObject` | the slice of reflection the serializer needs (base-chain and interface-map walks in `src/runtime/type.c`) |
-| `BuiltInJsonConverter<T>()` | `JsonMetadataServices`' converter for a built-in `T`, chosen at compile time so unused primitive converters aren't linked |
+| `IsInstanceOfType` | `Type.IsInstanceOfType` (base-chain and interface-map walks in `src/runtime/type.c`) |
 
 ## Arrays and strings as interfaces
 
@@ -120,20 +144,21 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   `Queue<T>`, `Stack<T>`, `LinkedList<T>`/`LinkedListNode<T>`, `PriorityQueue<TElement,TPriority>`,
   `SortedList<K,V>`, `SortedDictionary<K,V>`, `SortedSet<T>`, `EqualityComparer<T>`, `Comparer<T>`
   (`Default`, `Create`, subclassing), `CollectionExtensions` (`GetValueOrDefault`, `TryAdd`, `Remove`).
-* **Concurrent collections** (`corelib/Concurrent/`): `ConcurrentDictionary<TKey,TValue>` is a port of .NET's
-  (same striped-lock table, lock count from `Environment.ProcessorCount`, per-lock budget, growth to the next
-  prime of twice the size, nodes prepended to their bucket, non-randomized hashing of string keys under the
-  default/Ordinal/OrdinalIgnoreCase comparers), so it enumerates in .NET's order on the same machine (.NET's
-  own order depends on the processor count unless a concurrency level is given); `ConcurrentStack<T>` is a
-  port; `ConcurrentQueue<T>` and `ConcurrentBag<T>` are lock-based with .NET's observable order (FIFO; per
-  thread LIFO, stealing oldest-first from other threads, snapshots newest queue first) and snapshot
-  enumeration. `BlockingCollection<T>` is a port (its blocking waits are cancelable SemaphoreSlim waits
-  over the runtime's events; `AddToAny`/`TakeFromAny` wait on several of them with
+  `List<T>`, `Dictionary`, `HashSet<T>`, `Queue<T>`, `Collection<T>`, `ReadOnlyCollection<T>` and `ReadOnlyDictionary`
+  are the framework's own code, served from System.Private.CoreLib's IL (`src/Csharpc/upstream-types/`, ADR 0023);
+  `Stack<T>`, `LinkedList<T>`, the sorted collections and `PriorityQueue` come from System.Collections.dll's IL.
+  `ArrayList`, `BitArray` and `Hashtable` are still corelib shadows (#372, `docs/il-first/System.Collections.Hashtable.md`).
+* **Concurrent collections** are the framework's own code: `ConcurrentDictionary<TKey,TValue>` and `ConcurrentQueue<T>`
+  are System.Private.CoreLib types served from its IL (`src/Csharpc/upstream-types/System.Collections.Concurrent.txt`, #399), so
+  `ConcurrentDictionary` enumerates in .NET's order (striped locks from `Environment.ProcessorCount`, non-randomized hashing of string
+  keys under the default/Ordinal/OrdinalIgnoreCase comparers through the contract's `UpstreamNonRandomizedStringEqualityComparer`);
+  `BlockingCollection<T>`, `ConcurrentBag<T>`, `ConcurrentStack<T>` and the partitioners come from System.Collections.Concurrent.dll's IL
+  (`docs/il-first/System.Collections.md`). `BlockingCollection`'s waits are SemaphoreSlim waits over the runtime's events;
+  `AddToAny`/`TakeFromAny` wait on several of them with
   `WaitHandle.WaitAny`, `corelib/Threading/WaitHandles.cs`: the runtime has no multi-object wait, so a wait that
   has to block sleeps on the first handle in 1-4 ms slices and re-checks the others, and `WaitAll` takes an
   auto-reset event back (`Set`) when another handle isn't signaled yet; `CancellationToken.WaitHandle` and
-  `SemaphoreSlim.AvailableWaitHandle` are `ManualResetEvent`s kept in step as .NET's). `Partitioner`,
-  `OrderablePartitioner<T>` and the range/array/list/enumerable partitioners are ports (`corelib/Concurrent/Partitioner.cs`).
+  `SemaphoreSlim.AvailableWaitHandle` are `ManualResetEvent`s kept in step as .NET's).
   `Parallel.For` / `ForEach` with a `ParallelLoopState`, an index, thread-local state, `ParallelOptions` or a
   partitioner, `Parallel.Invoke(options, ...)`, `ForEachAsync` and `ForAsync` are corelib C#
   (`corelib/Tasks/ParallelState.cs`: .NET's flags: `Stop` starts nothing new, `Break` lets lower iterations finish and
@@ -147,14 +172,8 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   bucket+entries+free-list design (iteration order after removals, prime sizes, FastMod), `PriorityQueue`'s
   4-ary heap (dequeue order of equal priorities), the introsort port (order of equal keys in `List.Sort` /
   `Array.Sort`), stable `OrderBy`, `GroupBy` first-appearance order, exception types and messages.
-* **LINQ** (`System.Linq.Enumerable`): Where/Select (+index), SelectMany (3 forms), Take/Skip/TakeWhile/
-  SkipWhile/TakeLast/SkipLast, Concat/Append/Prepend/Reverse, Zip (2 forms), Chunk, DefaultIfEmpty,
-  Distinct/DistinctBy/Union/Intersect/Except, OrderBy/ThenBy (+Descending, comparers), Order/OrderDescending,
-  GroupBy (4 forms), ToLookup, CountBy, Join/GroupJoin, ToList/ToArray/ToDictionary/ToHashSet, Range/Repeat/
-  Empty, Count/LongCount/Any/All/Contains/SequenceEqual, First/Last/Single(+OrDefault, +default values),
-  ElementAt(+OrDefault), Sum/Average/Min/Max (int/long/double/float, selectors, generic), MinBy/MaxBy,
-  Aggregate (3), Cast/OfType, Index; query syntax (via `ITranslatedQueryOperation`). Lazy operators are
-  hand-written iterator classes with .NET's deferred-execution semantics.
+* **LINQ:** not in the corelib. `System.Linq` is the framework's own IL (ADR 0023, #267), with `Vector<T>` served as 16-byte LLVM vectors
+  (`FunctionCodeGen.Simd.cs`) for its vectorized `Sum`/`Min`/`Max`; query syntax is Roslyn's (`ITranslatedQueryOperation`).
 * **Value types:** `Guid` (port of .NET's `Guid.cs`: same field layout, so `ToByteArray`/`TryWriteBytes`,
   hashing and ordering match; every parse format and its compat forms with .NET's exception types and
   messages; `NewGuid` from OS entropy as on Unix; `CreateVersion7()`, also from a `DateTimeOffset`),
@@ -164,8 +183,8 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   ported `DateTimeFormat`/`DateTimeParse` with the offset, the local zone from libc like `DateTime`; binary
   serialization is not implemented).
 * **`System.Buffers`:** `ArrayPool<T>` (keeps returned arrays as .NET's shared pool does: one per size bucket per
-  thread, then 32 per bucket shared, up to 1 Mi elements), `MemoryPool<T>` (port of System.Memory's `ArrayMemoryPool`, buffers from
-  `ArrayPool<T>.Shared`, so sizes are .NET's), `IMemoryOwner<T>`.
+  thread, then 32 per bucket shared, up to 1 Mi elements), `IMemoryOwner<T>`. System.Memory (`MemoryPool<T>`,
+  `ReadOnlySequence<T>`, `SequenceReader<T>`, `ArrayBufferWriter<T>`, `EncodingExtensions`) comes from the framework's IL (ADR 0023).
 * **`MemoryExtensions`:** searches and comparisons compare integers, chars, bools and enums byte-wise in the
   runtime and every other element type with `EqualityComparer<T>.Default` semantics (`SpanEquality.cs`), plus the
   `IEqualityComparer<T>` overloads.
@@ -183,8 +202,10 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   (all constructors, the `IsSupported` switch). `Type.GetMember(s)` and TypeInfo's `GetDeclared*`/`Declared*` are composed from the
   per-kind queries in RuntimeType's order (methods, constructors, properties, events, fields) with its name filter (exact, `IgnoreCase`,
   trailing `*`) and always return a `MemberInfo[]` (csharpc arrays carry their element type, and a `MethodInfo[]` would not be an
-  `IEnumerable<MemberInfo>`). Nested types are not described by the reflection metadata: asking for them alone, or for
-  `DeclaredNestedTypes`, throws `NotSupportedException`, while `MemberTypes.All`, `GetMembers` and `DeclaredMembers` leave them out.
+  `IEnumerable<MemberInfo>`). Nested types are described for a type whose nested types reach a
+  `[DynamicallyAccessedMembers(PublicNestedTypes | NonPublicNestedTypes)]` location (each kept nested type whole, as ILLink keeps it):
+  `Type.GetNestedType(s)` answers for those (`corelib/Reflection/NestedTypes.cs`) and throws `NotSupportedException` for other types, as do
+  `DeclaredNestedTypes` and asking `GetMember` for nested types alone, while `MemberTypes.All`, `GetMembers` and `DeclaredMembers` leave them out.
 * **`System.MathF` and floating-point math** (`CodeGen/Intrinsics.cs` `AddMathF`, `corelib/FloatingPointMath.cs`): what .NET calls
   through the C runtime is libm's float function (`sinf`, `powf`, `acoshf`, ...) or an exact LLVM intrinsic (`Sqrt`, `Floor`, `Round`,
   `FusedMultiplyAdd`, `CopySign`, `Max`/`Min` as IEEE 754-2019); the members that are C# in .NET are ports of
@@ -203,17 +224,16 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   [10-async.md](10-async.md#async-state-machines-compiled-from-il)); `ResourceManager` over the IL
   assemblies' embedded string resources and `AppContext` over runtimeconfig data (`Resources.cs`; both
   read constants codegen builds through the `ResourceStrings()`/`RuntimeConfig()` core intrinsics).
-* **`TypeConverter` / `TypeDescriptor`** (`corelib/ComponentModel/TypeConverter.cs`, `EnumConverter.cs`):
-  `TypeConverter` (and `EnumConverter`) are shadows with dotnet/runtime's full virtual surface, so the other converters
-  (`PointConverter`, `SizeConverter`, `RectangleConverter`, `ColorConverter`, `DateTimeConverter`, `UriTypeConverter` ...)
-  come from `System.ComponentModel.TypeConverter`'s IL (a "mixed" assembly, [ADR 0013](adr/0013-framework-il.md)).
-  `TypeDescriptor.GetConverter(Type)` creates the primitives itself and asks a hook for the rest: the front end
-  (`Frontend/ResourceConverters.cs`) generates `ProgramHooks.TypeConverterFor` for the types the sources name in `typeof(...)`
-  (the IL front-end: every `ldtoken`) when they call `GetConverter`, and `ProgramHooks.ResourceObject` for the types a
-  program's preserialized `.resources` name, which `ResourceManager.GetObject` creates with `ConvertFromInvariantString`
-  as `DeserializingResourceReader` does. A type the closed world can't resolve, `InstanceDescriptor`, `Enum[]`
-  conversions, `GetStandardValues` of an enum, and resources stored as BinaryFormatter data, byte arrays or activator
-  streams (`Bitmap`, `Icon`, `ResXFileRef`) are explicit `NotSupportedException`s naming the type.
+* **`TypeConverter` / `TypeDescriptor`**: not in the corelib. System.ComponentModel, System.ComponentModel.Primitives and
+  System.ComponentModel.TypeConverter come from the framework's IL (ADR 0023, #276); the corelib serves what that code asks of the
+  runtime: the attributes of framework types (`Type.GetCustomAttributes` over the IL assemblies' metadata, the `[Serializable]`
+  pseudo-attribute, a `[TypeConverter(string)]` type named in it kept for creation), `Type.Attributes`, `Enum.Format(Type, ...)`
+  and `Enum.GetValuesAsUnderlyingType` for run-time Types, `ArrayList.Adapter`, and the negative answers of COM
+  (`Marshal.IsComObject`, `ComWrappers.TryGetComInstance`; `Marshal.Release` is a `PlatformNotSupportedException`: no COM object
+  exists). The front end (`Frontend/ResourceConverters.cs`) still generates `ProgramHooks.ResourceObject` for the types a program's
+  preserialized `.resources` name, which `ResourceManager.GetObject` creates with `ConvertFromInvariantString` as
+  `DeserializingResourceReader` does. Resources stored as BinaryFormatter data, byte arrays or activator streams (`Bitmap`, `Icon`,
+  `ResXFileRef`) are explicit `NotSupportedException`s naming the type.
 * **`ResourceSet`, `GetResourceSet` and `GetStream`** (`corelib/ResourceSets.cs`, `Resources.cs`): `ResourceManager` keeps
   the neutral culture's set (`RuntimeResourceSet`) as .NET's does, so `GetString`/`GetObject` and `GetResourceSet` share it
   (closing it closes it for the manager until `ReleaseAllResources`). A culture other than the invariant one gets the
@@ -228,42 +248,18 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
   `UnmanagedMemoryStreamWrapper`. The front end now keeps `Stream` entries' bytes (`ResourcesFile`). Not provided (rejected
   at compile time): `new ResourceSet(file|stream|reader)` and subclassing `ResourceSet`. A resource set the closed world
   has no table for is still the explicit `NotSupportedException` of `GetString`.
-* **`System.Text.Json`** (`corelib/Json/`, see [System.Text.Json](#systemtextjson)).
-* **`EventSource` and `EventListener`** (`corelib/Tracing/EventSource.cs`, `EventListener.cs`): a csharpc executable
-  has no EventPipe/ETW session, so what enables an `EventSource` is an in-process `EventListener` (derivable). Without
-  one `IsEnabled()` is false and `WriteEvent`/`WriteEventCore`/`Write` return at once. A listener's `EnableEvents`
-  builds the event table from the `[Event]` methods (the compiler records them as text, `EventSourceAttribute(type, 2)`
-  in `ModuleCodeGen.EventSource.cs`, instead of .NET's reflection), checks it as .NET checks a manifest (positive
-  ids, no duplicate ids, keywords defined in the nested `Keywords` class, defined opcodes, supported parameter types:
-  an error reaches the listener as an `EventSourceMessage` event and the source stays disabled), calls
-  `OnEventCommand`, and then `WriteEvent` dispatches to every listener whose level and keyword filter lets the event
-  through, newest listener first: `EventWrittenEventArgs` has .NET's id, name, level, keywords (with ETW's session
-  bits), opcode, task (an event with neither task nor opcode gets 0xFFFE minus its id), version, channel, tags,
-  message, payload names and values (the declared parameter types for the fixed-arity `WriteEvent` overloads, the
-  boxed arguments for `params object[]`), activity ids, thread id and time stamp. `OnEventSourceCreated` runs for
-  the sources that exist when a listener is created (from the listener's base constructor, before the derived
-  constructor, as in .NET) and for later ones; a new `EventSourceCreated` handler hears of the existing sources
-  at once. `Write(name)` / `Write(name, options)` dispatch (null `Payload` and `PayloadNames`). `Write<T>` reads the
-  payload as .NET does (`corelib/Tracing/SelfDescribing.cs`): the public instance properties of an anonymous type or a
-  type marked `[EventData]` (derived type first, `[EventIgnore]` honored), as scalars (primitives, enums, `Guid`,
-  `DateTime`, `DateTimeOffset`, `TimeSpan`, `decimal`, nullables), strings (null becomes `""`), nested payload types (a
-  read-only `IDictionary<string, object>`), and arrays (the array itself for primitives and `Guid`, an `object[]` of the
-  converted elements otherwise), through csharpc's reflection metadata (`T` is annotated `PublicProperties`; the compiler
-  adds the types of its properties, `MarkEventPayloadGraph`; an anonymous type has a Type object and getter functions
-  for it). The analysis runs whenever the source is enabled and fails as .NET does (`ArgumentException` for a
-  non-compliant type, `ArgumentNullException` for a primitive or enumerable `T`, `NotSupportedException` for string and
-  nested arrays, an `EventSourceMessage` event when the data can't be read); a self-describing event is checked
-  against the source's widest level and keywords and then goes to every listener that enabled the source. Not
-  reproduced (an explicit `NotSupportedException`): multi-dimensional array and non-array enumerable properties,
-  recursive payload types. Differences: a listener does not see the EventSources .NET's runtime
-  and libraries create (`Microsoft-Windows-DotNETRuntime`, `System.Runtime`, `System.Threading.Tasks.TplEventSource` ...),
-  so `GetSources()` lists only the program's own; the manifest check that .NET makes by reading each event method's IL
-  ("Event X was assigned event ID n but m was passed to WriteEvent") is not made; `SendCommand`, `GenerateManifest`
-  and the event counters are not implemented (CSLLVM0002), `WriteEventCore` of a `DateTime` parameter is a NotSupportedException (boxing one would link the whole date formatter), and a program that writes events with typed payloads links the boxed-primitive formatters its payload values need (the 446 sample grows from 204 to 274 KB). Without `#:property EventSourceSupport=true` (the file-based
-  app default) `EventSource.IsSupported` is false, a source never registers and no listener sees it, as in .NET.
-  What a program can observe without a listener is .NET's: the `IsSupported` feature switch, `Name` and `Guid` from
-  `[EventSource]` or derived from the name with .NET's SHA-1 name hashing, settings validation, traits,
-  `ConstructionException`, `ToString`.
+* **`System.Text.Json`**: no longer a shadow, it comes from the framework's IL (see [System.Text.Json](#systemtextjson)).
+* **`EventSource`, `EventListener` and the event counters** are not shadows: System.Diagnostics.Tracing comes from CoreLib's IL
+  (`src/Csharpc/upstream-types/System.Diagnostics.Tracing.txt`, [System.Diagnostics.Tracing.md](il-first/System.Diagnostics.Tracing.md)):
+  the manifest, the listener dispatch, `Write<T>` (TraceLogging), `GenerateManifest`, `SendCommand` and the counters' polling thread are the
+  framework's code. What it asks of the runtime is csharpc's: the reflection over an event source class (its `[Event]` methods, their
+  parameters, the constants of the nested `Keywords`, `Tasks` and `Opcodes` classes), kept because `EventSource` carries
+  `[DynamicallyAccessedMembers]` on the class, which csharpc applies to every derived class as NativeAOT does
+  (`ModuleCodeGen.NoteAnnotatedHierarchy`, nested types in `ModuleCodeGen.NestedTypes.cs`); and EventPipe's QCalls, a disabled EventPipe
+  (`corelib/UpstreamTracing.cs`): no session ever exists, so the runtime's own provider never delivers events, while the thread's activity
+  id is kept per thread. The runtime and library event sources .NET creates on its own (`Microsoft-Windows-DotNETRuntime`, `System.Runtime`,
+  `TplEventSource` ...) are not created, so a listener sees the program's own. Without `#:property EventSourceSupport=true` (the file-based
+  app default) `EventSource.IsSupported` is false and the framework's code turns event sources off, as in .NET.
 
 * **`System.Uri`** (`corelib/Net/Uri.cs`, `UriRelative.cs`, `UriMembers.cs`): the URIs whose .NET behaviour needs no
   escaping rules (absolute http, https, ftp, ws and wss URIs with a DNS name or canonical IPv4 host, plain file
@@ -299,74 +295,37 @@ Limitation: `object is IEnumerable<X>` on an array can't check the element type 
 
 ### System.Text.Json
 
-`src/Csharpc/corelib/Json/` ports System.Text.Json and System.Text.Encodings.Web from dotnet/runtime
-`release/11.0` (license headers kept; [THIRD-PARTY-NOTICES.md](../THIRD-PARTY-NOTICES.md)):
+System.Text.Json and System.Text.Encodings.Web are compiled from the shared framework's IL ([ADR 0023](adr/0023-framework-il-first.md),
+issue 286); the hand-written port that used to live in `src/Csharpc/corelib/Json/` (16.6k lines) is gone, and so is the front end that
+synthesized `[JsonSerializable]` contexts for reflection-style calls. The JSON source generator still runs for the program's own
+`[JsonSerializable]` contexts.
 
-* **Writer, reader, DOM.** `Utf8JsonWriter` (validation state machine, indentation options, every
-  `Write*` overload), `JsonEncodedText`, `JavaScriptEncoder`
-  (`Default`, `UnsafeRelaxedJsonEscaping`, `Create(ranges)`, `TextEncoderSettings`) with .NET's escaping
-  tables, `Utf8JsonReader` (ported nearly verbatim; `ReadOnlySequence` input is not supported),
-  `JsonDocument`/`JsonElement`/`JsonProperty` (same metadata database, so property order, duplicate-key
-  lookups and `WriteTo` output match), `JsonNode`/`JsonObject`/`JsonArray`/`JsonValue`, and every
-  `JsonException`/`JsonReaderException` message with its `Path`/`LineNumber`/`BytePositionInLine`.
-* **Serializer over source-generated metadata.** csharpc already runs the JSON source generator;
-  `JsonSerializerContext`, `JsonTypeInfo<T>`, `JsonPropertyInfo`, `JsonMetadataServices` and the
-  converters are reimplemented over its output. Supported: objects (properties, fields with
-  `IncludeFields`/`[JsonInclude]`, `[JsonPropertyName]`, `[JsonPropertyOrder]`, `[JsonIgnore]` and the
-  ignore conditions, `[JsonExtensionData]`), parameterized constructors and records, `required`/
-  `[JsonRequired]`/init-only members, callbacks, collections and dictionaries (non-string keys), nullable
-  values, enums (`JsonStringEnumConverter`, `JsonNumberEnumConverter`, `[JsonStringEnumMemberName]`,
-  flags), custom `JsonConverter<T>`s and factories, polymorphism (`[JsonPolymorphic]`/`[JsonDerivedType]`,
-  string/int discriminators, unknown-derived-type handling, `AllowOutOfOrderMetadataProperties`),
-  `ReferenceHandler.Preserve`/`IgnoreCycles`, naming policies, `NumberHandling`, `WriteIndented` and
-  friends, trailing commas, comments, `MaxDepth`, `JsonObjectCreationHandling.Populate`, contract
-  modifiers on `DefaultJsonTypeInfoResolver`, resolver chains, streams and the async APIs (buffered),
-  serialization-only contexts (the generated fast path).
-* **Reflection-based calls without reflection.** For `JsonSerializer` calls that take no
-  `JsonTypeInfo`/context, the front end (`Frontend/JsonReflectionContexts.cs`) collects the root types —
-  generic arguments, `typeof` arguments, the static types of values, instantiated through generic
-  methods and types — and synthesizes `[JsonSerializable]` contexts for them (nested in the declaring
-  class for private types); a corelib partial method wires them in as the stand-in for
-  `DefaultJsonTypeInfoResolver`. Types read from the stand-in follow reflection semantics where the
-  generator's differ (required/init-only members are set after construction). The
-  `JsonSerializerIsReflectionEnabledByDefault` switch is honored: projects evaluate it, file-based apps
-  default to `PublishAot` and therefore to disabled reflection, like `dotnet run app.cs`.
-  A program given as IL (`csharpc app.dll`) gets the same contexts, its roots read from the method
-  bodies (`Frontend/JsonReflectionContexts.Il.cs`: type arguments, the static type a value had before
-  csc passed it as its base or `object`, `typeof`/`GetType()` arguments, generic instantiations). The
-  generator only describes what its context can access, and the context lives in csharpc's binding
-  compilation, not in the program's assembly: the program grants that compilation internals access
-  (an `[InternalsVisibleTo]` Roslyn is told about through reflection, before anything binds), and the
-  compilation imports private members, so internal types, internal and private `[JsonInclude]` members
-  look as they do from source. Private nested types, which a source context reaches by being nested
-  beside them, are a `CSLLVM0001` where the call is lowered.
-* **Culture-invariant text.** Numbers, dates and GUIDs are written and parsed with the invariant culture whatever
-  the current culture is (a decimal comma, a Unicode minus, other digits or calendars): the writer, the converters
-  (including `JsonNumberHandling` strings and numeric dictionary keys, which are written unescaped like .NET's) and
-  the DOM. `1250_json_culture_real` (ICU cultures) and `1251_json_culture_synthetic` (cultures built from the invariant
-  one, every platform) compare the output of 12 and 5 cultures with the invariant run.
-* **JSON schema export.** `JsonSchemaExporter.GetJsonSchemaAsNode` (over `JsonSerializerOptions` or a
-  `JsonTypeInfo`) with `JsonSchemaExporterOptions` (`TreatNullObliviousAsNonNullable`,
-  `TransformSchemaNode`) and `JsonSchemaExporterContext`, ported from `release/11.0`
-  (`corelib/Json/SchemaExporter.cs`). Each built-in converter reports its own schema
-  (`JsonConverterImpl.GetSchema`: numbers with their string patterns under `NumberHandling`, enums,
-  `format`s, `contentEncoding`, the `true` schema for opaque converters); objects, collections,
-  dictionaries, polymorphism (`anyOf` with the discriminator), recursive types (`$ref`), constructor
-  defaults, required members and nullability follow the contract. `deprecated` comes from `[Obsolete]`: a
-  type's at compile time, a member's through the generator's `AttributeProviderFactory`, which csharpc
-  otherwise drops, kept only for members carrying the attribute.
-* **Code size.** The object converter's work is in a non-generic core, the built-in metadata
-  (every primitive converter) is linked only when reflection-based metadata can be requested, and
-  `BuiltInJsonConverter<T>` resolves dictionary-key converters at compile time. Hello world is
-  unchanged; a program serializing a few types through a source-generated context is about 1 MB, one
-  using the reflection-style API about 1.5 MB, and these compile in 20–60 s (most of it in LLVM).
-* **Explicit diagnostics (CSLLVM0001/0002)** instead of run-time surprises: anonymous types with the
-  reflection-style API and the BCL members csharpc doesn't implement.
-
-Codegen improvements made along the way (general, not corelib-specific): generic structs, structs
-implementing interfaces (constrained calls on struct receivers), property/indexer lvalue captures
-(`dict[k] = c ? a : b`), `t == null` folds for value-type `T`, generic interface methods excluded from slot
-tables, value-type `ToString` through `FormatValue`.
+* **Reflection-based calls.** `JsonSerializer`'s reflection path is the framework's own code, which reads the program's types through
+  `System.Reflection`. csharpc keeps reflection metadata only for the types a program roots, as NativeAOT does, so the framework's calls are
+  rooted by the trimmer's rule (`FunctionCodeGen.ReflectionRoots.cs`, `ModuleCodeGen.ReflectionRoots.cs`): a call to a framework method marked
+  `[RequiresUnreferencedCode]` roots the types it names (type arguments, `typeof`/`GetType()` and value arguments, and the types of the members
+  of those); every open generic definition the framework passes to `MakeGenericType` is instantiated over the roots in the argument shapes
+  frameworks build them with. Nothing in this rule is specific to JSON.
+* **Reflection answers.** `NullabilityInfoContext` (for records, `required` members and BCL types), `[Nullable]`/`[NullableContext]`,
+  required-member attributes, inherited attributes, `Type` as an `ICustomAttributeProvider` and `MethodInfo.CreateDelegate<T>` follow .NET.
+  Where an attribute list cannot be reproduced exactly (the attributes the C# compiler synthesizes into a type it does not own), the
+  program's own query is an explicit `NotSupportedException`, and the framework's own IL gets the attributes csharpc models: it filters
+  for classes the compiler never synthesizes. Two answers are partial for the framework's IL only: the non-public fields of a BCL type
+  (hidden by its reference assembly; System.Text.Json only keeps non-public fields marked `[JsonInclude]`, which BCL types never carry) and
+  `Exception.Source` of a thrown exception whose `Source` was never set (null instead of the throwing assembly's name; the serializer only
+  compares it with its own rethrow token).
+* **Reflection-based JSON is off by default, as under NativeAOT** (owner decision 2026-11-10, #320). csharpc is the program's AOT compiler:
+  a program that says nothing gets `System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault=false`, the value a PublishAot build writes,
+  and the framework's own code throws its own `InvalidOperationException` ("Reflection-based serialization has been disabled for this
+  application..."). What the program states explicitly gets what .NET evaluates for it: `JsonSerializerIsReflectionEnabledByDefault` (a
+  project property, `#:property` or the runtimeconfig option) always wins, and an explicit `PublishAot=false` leaves reflection on (.NET leaves
+  the switch unset then; a program given as IL has only its runtimeconfig.json, where `PublishAot=false` leaves no trace, so it opts in with the
+  switch itself). File-based apps already got the PublishAot switches (`dotnet run app.cs` sets them too, so the JIT oracle agrees).
+  `[FeatureSwitchDefinition]` properties fold to the value the runtime config sets, as ILCompiler folds them, so with the switch off the
+  reflection resolver is dead code: a reflection-JSON program that does not opt in compiles in 48 s of cpu and 544 MB of memory instead of
+  744 s and 3.3 GB. The other `System.Text.Json.*` feature switches are runtime-config properties the framework reads through `AppContext`.
+* **Code size and compile time.** The framework's serializer is bigger than the port was (ADR 0023 has the table); programs that do not use
+  System.Text.Json are unchanged.
 
 ## Type metadata (System.Type reflection)
 

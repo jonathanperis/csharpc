@@ -262,8 +262,11 @@ namespace CsharpcCoreLib
             while (length < source.Length && (source[length] is (>= (byte)'0' and <= (byte)'9') or (byte)'.' or (byte)':' or (byte)'-')) length++;
             for (; length > 0; length--)
             {
+                if (source[length - 1] == (byte)'.') continue; // a fraction needs digits: "13:30:15." is not a time span
                 if (TimeSpan.TryParseExact(Ascii(source.Slice(0, length)), "c", System.Globalization.CultureInfo.InvariantCulture, out value))
                 {
+                    // A '.' left after the longest valid run is a fraction the real parser rejects as a whole ("13:30:15." or "13:30:15.12345678").
+                    if (length < source.Length && source[length] == (byte)'.') { value = default; return false; }
                     bytesConsumed = length;
                     return true;
                 }

@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Build a platform release of csharpc: NativeAOT RID tool package + matching archive.
 # The archive and the `csharpc.<rid>.*.nupkg` carry the same layout (binary, corelib/,
-# runtime/, lib/libLLVM). The pointer package (`csharpc.*.nupkg`) is built separately
+# runtime/, lib/libLLVM, ref/net11.0 and shared/Microsoft.NETCore.App/<version>: the reference
+# assemblies to bind against and the framework IL to compile from, so no .NET install is
+# needed). The pointer package (`csharpc.*.nupkg`) is built separately
 # once all RID packages exist (tools/pack-tool-pointer.sh).
 #
 # Usage:
@@ -101,6 +103,7 @@ dotnet pack "$ROOT/src/Csharpc" -c Release -r "$RID" -o "$NUPKG_DIR" \
   -p:CsharpcPackRidTools=true \
   -p:CsharpcBundleLibLLVM=true \
   -p:CsharpcBundleRefPack="$REF_PACK" \
+  -p:CsharpcBundleSharedFramework=true \
   -p:Version="$VERSION" \
   -p:PackageVersion="$VERSION" \
   -p:CsharpcLibLLVM="$LIBLLVM" \
@@ -152,6 +155,9 @@ rm -f "$PUBLISH"/*.dbg "$PUBLISH"/*.pdb 2>/dev/null || true
 
 test -d "$PUBLISH/corelib" || { echo "pack-release: missing corelib/ in publish output" >&2; exit 1; }
 test -d "$PUBLISH/runtime" || { echo "pack-release: missing runtime/ in publish output" >&2; exit 1; }
+# The framework IL that Linq, Json, Regex ... are compiled from (#375): without it the bundle can't compile them where .NET isn't installed.
+compgen -G "$PUBLISH/shared/Microsoft.NETCore.App/11.*/System.Private.CoreLib.dll" > /dev/null \
+  || { echo "pack-release: missing shared/Microsoft.NETCore.App/<version>/ in publish output" >&2; exit 1; }
 if [[ $RID == win-x64 ]]; then
   test -f "$PUBLISH/csharpc.exe" || { echo "pack-release: missing csharpc.exe" >&2; exit 1; }
 else

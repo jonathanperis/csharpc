@@ -1,0 +1,5 @@
+InvalidOperationException: boom True
+thread handler: form boom
+FormatException: bad terminating=True
+unhandled handler: not an exception False
+null accepted

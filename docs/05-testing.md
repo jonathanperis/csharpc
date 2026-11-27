@@ -112,6 +112,15 @@ with `tests/culture-pin/CulturePin.cs` (a `[ModuleInitializer]` doing the same).
 A sample with a `NAME.env` file (`VAR=value` lines, e.g. `LC_ALL=pt_BR.UTF-8`) is recorded and run
 with that environment on both sides instead, without the pin.
 
+**NativeAOT as the oracle.** csharpc is a drop-in for NativeAOT, so where NativeAOT and the JIT print
+different things for the same program, csharpc matches NativeAOT. Such a sample has a `NAME.aot` file
+(one line naming the difference, e.g. `string.IsInterned`: the JIT interns every literal up front,
+NativeAOT only what `string.Intern` added). `tests/run.sh --regen` records it from its
+`dotnet publish -p:PublishAot=true` build instead of `dotnet run`, and `tests/check-oracle.sh` checks
+it the same way on every OS (`platform_aot_run` in `tests/platform.sh`). NativeAOT has no startup
+hooks, so on macOS and Windows its culture is the user's: an `.aot` sample must not print
+culture-dependent text.
+
 **WebAssembly.** `CSHARPC_TEST_TARGET=wasm32-wasip1` makes `tests/run.sh`, `tests/conformance.sh`
 and `tests/programs.sh` compile every test with `--target wasm32-wasip1` and run it with
 `tests/wasm-run.sh`: wasmtime with the environment inherited, the host file system preopened at `/`
@@ -134,14 +143,24 @@ barrier shows up there as wrong output or a crash ([ADR 0004](adr/0004-memory-ma
 
 The informational workflows (`GC concurrent`, `GC nursery`, `Program as IL`, `Bootstrap`, `Benchmarks`)
 each have a `concurrency` group per workflow and ref with `cancel-in-progress`, so a burst of merges to
-`main` leaves only the newest commit's run, queued or running, and none of them gates a merge. Branch
-pushes start `Benchmarks` only on `ci/perf*`, `ci/bench*` and `ci/m7-*` (the measurement branches);
-any other `ci/**` branch, such as a flake hunt, leaves the benchmark runners alone.
+`main` leaves only the newest commit's run, queued or running, and none of them gates a merge.
+`Benchmarks`, `GC concurrent` and `GC nursery` do not run on a push to `main`: a merge used to start
+two 120-minute benchmark jobs and two more suites that competed with every open PR's merge-bar jobs for
+the hosted runners. They run weekly (Mondays 06:00, 08:00 and 09:00 UTC, with `TechEmpower` at 07:00),
+on demand, and on their measurement branches: `ci/perf*`, `ci/bench*` and `ci/m7-*` for `Benchmarks`,
+`ci/gc-*` and `ci/m7-gc-concurrent*` for `GC concurrent`, `ci/nursery*` for `GC nursery`, and `ci/m7-*` or
+`ci/techempower*` for `TechEmpower` (a feature branch that merges `main` must not start the load tests). Any other
+`ci/**` branch, such as a flake hunt, leaves those runners alone.
 
 Failure output shows the compile errors (including `CSLLVM0001` "not supported yet" diagnostics) or
 the first lines of a unified diff between the expected and actual stdout.
 
 ## CI
+
+The merge bar for a PR that touches `src/**` also includes the Bootstrap checks "Roslyn hosted from IL" and
+"csharpc compiles csharpc (-O0)" / "(-O2)" (`.github/workflows/bootstrap.yml` on `pull_request`): the five
+jobs below do not compile Roslyn or csharpc itself, and Bootstrap was red on `main` twice in two days while
+every PR gate was green. The 16 native-suite shards and the two heavy-samples jobs of that workflow run nightly on `main`, on `ci/m6-**` pushes and on dispatch, not on every merge (#406).
 
 The merge bar is the five jobs `test (x86-64)`, `test (arm64)`, `test (macos-arm64)`,
 `test (windows-x64)` and `test (wasm32-wasi)` in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml).
@@ -153,13 +172,22 @@ fails if any shard or the suites job failed, or if the shard manifests do not li
 `LC_ALL=C` sorted sample names (`tests/run.sh --shard INDEX/COUNT`).
 
 Each shard compiles and runs several samples at once (`CSHARPC_JOBS`, 3 on every platform),
-which makes it 2-3x faster than a sequential shard, so a platform needs fewer of them: x86-64 3, the other platforms 2
-(11 differential jobs). The queue, not the work, is the usual delay (runner minutes are capped across the repository),
+which makes it 2-3x faster than a sequential shard, so a platform needs fewer of them: x86-64 and windows-x64 4, the other platforms 3
+(17 differential jobs; raised from 3/2 in #403, when the grown suite made shards take 40-75 minutes
+against the 100-minute job limit). The queue, not the work, is the usual delay (runner minutes are capped across the repository),
 so the counts aim at finishing near the platform's `suites` job rather than at the shortest shard. The `suites` jobs
 (size, conformance, programs, projects, IL; 11-21 minutes) set the wall clock of an unqueued gate.
 
-A push or pull request that only touches `docs/**`, `*.md`, or `LICENSE` / `COPYING` / `NOTICE` /
-`AUTHORS` skips the compiler suite when some ancestor of that commit already has the five `test`
+macOS runners are the scarce ones: the account gets only a few at once, and every full run needs several, so with a handful of
+pull requests open the macOS shards queued for hours (2026-11-25). A **pull request** therefore runs the macOS differential suite
+at `-O2` only, in 2 shards (`REDUCED_PR_PLATFORMS` in `tools/ci-plan.sh`), and `test (macos-arm64)` checks that every sample ran
+at `-O2` exactly once. Every other platform, every push to `main` or `ci/**`, and the **nightly full run** on `main` (`schedule`,
+04:00 UTC) run both opts everywhere. The trade-off: a macOS-only `-O0` difference is caught by the nightly run, not by the PR,
+and a merge that reuses the PR's gate (the identical-tree skip below) can publish the rolling `latest-main` prerelease before
+that night's run.
+
+A push or pull request that only touches `docs/**`, `*.md`, `.github/workflows/pages.yml` (the docs site's deploy), or
+`LICENSE` / `COPYING` / `NOTICE` / `AUTHORS` skips the compiler suite when some ancestor of that commit already has the five `test`
 checks green. The same five job names still run and pass, which is what a required check needs;
 `paths-ignore` would leave them pending. The skip does not apply when that ancestor's gate is
 missing, failed, or cancelled (a docs push that cancels an in-progress full run therefore runs the
@@ -262,7 +290,10 @@ Guidelines:
 - `--dump-cfg` and `--emit llvm-ir` (at `-O0` and `-O2`) are the main debugging tools. When libLLVM
   crashes, use `CSHARPC_TRACE=1` and `gdb` ([07-spike-log.md](07-spike-log.md)).
 - `tests/size.sh` compiles the small programs in `tests/size/` with the default options and fails when
-  one exceeds its budget in `tests/size/budgets.txt` (per platform; size + max(4 KiB, 3 %): file sizes move in whole pages). Being smaller than
+  one exceeds its budget in `tests/size/budgets/<program>.txt` (one file per program, so PRs that move different programs'
+  budgets never conflict; one `<platform> <program> <bytes>` line per platform, size + max(4 KiB, 3 %): file sizes move in
+  whole pages; the reasons for the numbers are comments in the same file; a new program adds both `<program>.cs` and
+  `budgets/<program>.txt`). Being smaller than
   .NET is part of the standing goal ([06-roadmap.md](06-roadmap.md)), so a size regression is a test
   failure. Platforms without budgets print the sizes (`tests/size.sh --print` gives budget lines).
   On Linux it also runs `tools/checksec.sh --check` on the same executables, so a size win can't come
