@@ -211,9 +211,21 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef EmitSimpleAssignment(ISimpleAssignmentOperation a)
     {
         if (a.IsRef) return EmitRefAssignment(a);
-        if (a.Target is IPropertyReferenceOperation { Property.RefKind: RefKind.None } p) return EmitPropertySet(p, () => EmitValue(a.Value), TypeOf(a.Value));
+        if (a.Target is IPropertyReferenceOperation { Property.RefKind: RefKind.None } p)
+        {
+            // An assignment is the setter's call: an annotated value parameter (or property) keeps the assigned typeof's members.
+            if (p.Property.SetMethod is { } setter && KnownTypeofValues(a.Value) is { Count: > 0 } assigned)
+                foreach (var known in assigned)
+                    _m.NoteDynamicallyAccessedArguments(S(setter), i => i == setter.Parameters.Length - 1 ? S(known) : null);
+            return EmitPropertySet(p, () => EmitValue(a.Value), TypeOf(a.Value));
+        }
         if (a.Target is IFlowCaptureReferenceOperation r && _cfg!.PropertyCaptures.TryGetValue(r.Id, out var pc))
             return SetCapturedProperty(pc, Coerce(EmitValue(a.Value), TypeOf(a.Value), pc.Property.Type));
+        // `[DynamicallyAccessedMembers(K)] Type field = typeof(X)` (an initializer or an assignment): X keeps its members of
+        // kinds K, as the IL front-end's NoteDynamicallyAccessedField does.
+        if (a.Target is IFieldReferenceOperation { Field: var annotatedField } && IsSystemType(annotatedField.Type)
+            && ModuleCodeGen.DamKindsOf(annotatedField.OriginalDefinition.GetAttributes()) is var fieldKinds and not 0)
+            foreach (var known in KnownTypeofValues(a.Value)) _m.MarkDynamicallyAccessed(S(known), fieldKinds);
 
         var targetType = TypeOf(a.Target)!;
         var address = StoreAddress(a.Target, out var covariant); // C#: target sub-expressions are evaluated first
@@ -273,17 +285,21 @@ public sealed partial class FunctionCodeGen
         {
             // Evaluate the receiver once, then call get + set on it.
             var property = S(p.Property);
-            var self = property.IsStatic ? default : Receiver(p.Instance!, property.GetMethod!);
+            // An override with one accessor reads or writes through the nearest overridden property's other one (virtually).
+            var getter = GetterOf(property) ?? throw CompileError.Unsupported($"reading set-only property '{property.Name}'", p);
+            var setter = property.SetMethod ?? (property.IsOverride ? SetterOf(property) : null)
+                ?? throw CompileError.Unsupported("compound assignment to a get-only property", p);
+            var self = property.IsStatic ? default : Receiver(p.Instance!, getter);
             // Indexer arguments are evaluated once, then shared by the get and set calls (c[i++] += v).
             var savedArgs = _argumentCache;
             if (!p.Arguments.IsEmpty)
             {
                 _argumentCache = new Dictionary<IArgumentOperation, LLVMValueRef>(ReferenceEqualityComparer.Instance);
-                foreach (var argument in p.Arguments) _argumentCache[argument] = EmitArgument(argument, property.GetMethod!);
+                foreach (var argument in p.Arguments) _argumentCache[argument] = EmitArgument(argument, getter);
             }
-            var old = CallAccessor(p, property.GetMethod!, self, []);
+            var old = CallAccessor(p, getter, self, []);
             var (newValue, result) = modify(old);
-            CallAccessor(p, property.SetMethod ?? throw CompileError.Unsupported("compound assignment to a get-only property", p), self, [newValue]);
+            CallAccessor(p, setter, self, [newValue]);
             _argumentCache = savedArgs;
             return result;
         }

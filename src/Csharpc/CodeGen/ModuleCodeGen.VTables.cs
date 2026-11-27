@@ -33,7 +33,55 @@ public sealed partial class ModuleCodeGen
     private readonly Dictionary<INamedTypeSymbol, HashSet<(int Slot, string? Instantiation)>> _dispatchedInterfaceSlots = new(SymbolEqualityComparer.Default);
     // Slots waiting for their root / interface member to be dispatched.
     private readonly Dictionary<IMethodSymbol, List<(PendingMethodTable Table, int Slot)>> _slotsByRoot = new(SymbolEqualityComparer.Default);
-    private readonly Dictionary<INamedTypeSymbol, List<(PendingMethodTable Table, int Interface)>> _interfaceEntries = new(SymbolEqualityComparer.Default);
+    private readonly Dictionary<INamedTypeSymbol, InterfaceEntries> _interfaceEntries = new(SymbolEqualityComparer.Default);
+    // Per generic definition: the dispatched slots, indexed like InterfaceEntries.
+    private readonly Dictionary<INamedTypeSymbol, Keyed<int>> _dispatchedSlotsByKey = new(SymbolEqualityComparer.Default);
+    private readonly Dictionary<INamedTypeSymbol, string?> _interfaceDispatchKeys = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// Items of one generic interface definition indexed by <see cref="InterfaceDispatchKey"/> (#93: programs have thousands of
+    /// IEnumerable&lt;T&gt; method-table entries, and every new dispatch through one instantiation used to visit all of them, each
+    /// recomputing its key). Each item keeps its insertion number, so the reachable ones are merged back in insertion order, the
+    /// order the full scan enqueued them in, and the emitted module does not change.
+    /// </summary>
+    private sealed class Keyed<T>
+    {
+        public List<(long Order, T Item)> All { get; } = [];
+        public List<(long Order, T Item)> AnyInstantiation { get; } = [];
+        public Dictionary<string, List<(long Order, T Item)>> ByInstantiation { get; } = new(StringComparer.Ordinal);
+
+        public void Add(long order, string? key, T item)
+        {
+            All.Add((order, item));
+            if (key is null) AnyInstantiation.Add((order, item));
+            else
+            {
+                if (!ByInstantiation.TryGetValue(key, out var list)) ByInstantiation[key] = list = [];
+                list.Add((order, item));
+            }
+        }
+
+        /// <summary>
+        /// The items a key reaches (DispatchReaches), in insertion order: every item for no key, else the keyless ones and the
+        /// key's own.
+        /// </summary>
+        public IEnumerable<T> Reached(string? key)
+        {
+            if (key is null) { foreach (var (_, item) in All) yield return item; yield break; }
+            var any = AnyInstantiation;
+            var own = ByInstantiation.TryGetValue(key, out var list) ? list : [];
+            int i = 0, j = 0;
+            while (i < any.Count || j < own.Count)
+                yield return j >= own.Count || (i < any.Count && any[i].Order < own[j].Order) ? any[i++].Item : own[j++].Item;
+        }
+    }
+
+    private sealed class InterfaceEntries
+    {
+        public Keyed<(PendingMethodTable Table, int Interface)> Entries { get; } = new();
+    }
+
+    private long _keyedOrder;
     // Slots to fill: (table, vtable slot, -1) or (table, interface member index, interface entry).
     private readonly Queue<(PendingMethodTable Table, int Slot, int Interface)> _slotRequests = new();
     private bool _methodTablesFinished;
@@ -54,9 +102,13 @@ public sealed partial class ModuleCodeGen
     /// null, any of them (variance lets an IEnumerable&lt;object&gt; call use an IEnumerable&lt;string&gt; table; an
     /// open instantiation is conservatively any). Compared by .NET metadata name, which corelib shadows share.
     /// </summary>
-    private string? InterfaceDispatchKey(INamedTypeSymbol itf) =>
-        itf.IsGenericType && !TypeSubstitution.IsOpen(itf) && itf.OriginalDefinition.TypeParameters.All(p => p.Variance == VarianceKind.None)
+    private string? InterfaceDispatchKey(INamedTypeSymbol itf)
+    {
+        if (_interfaceDispatchKeys.TryGetValue(itf, out var key)) return key;
+        key = itf.IsGenericType && !TypeSubstitution.IsOpen(itf) && itf.OriginalDefinition.TypeParameters.All(p => p.Variance == VarianceKind.None)
             ? Mangler.MetadataName(itf) : null;
+        return _interfaceDispatchKeys[itf] = key;
+    }
 
     private static bool DispatchReaches((int Slot, string? Instantiation) dispatch, string? table) =>
         dispatch.Instantiation is null || table is null || dispatch.Instantiation == table;
@@ -69,9 +121,10 @@ public sealed partial class ModuleCodeGen
         if (!_dispatchedInterfaceSlots.TryGetValue(definition, out var dispatched)) _dispatchedInterfaceSlots[definition] = dispatched = [];
         if (!dispatched.Add(dispatch)) return;
         CheckNotFinished();
+        if (!_dispatchedSlotsByKey.TryGetValue(definition, out var slots)) _dispatchedSlotsByKey[definition] = slots = new Keyed<int>();
+        slots.Add(_keyedOrder++, dispatch.Item2, index);
         if (_interfaceEntries.TryGetValue(definition, out var entries))
-            foreach (var (table, entry) in entries)
-                if (DispatchReaches(dispatch, InterfaceDispatchKey(table.Interfaces[entry].Interface))) _slotRequests.Enqueue((table, index, entry));
+            foreach (var (table, entry) in entries.Entries.Reached(dispatch.Item2)) _slotRequests.Enqueue((table, index, entry));
         NoteBuiltinInterfaceDispatch(definition, dispatch);
     }
 
@@ -144,12 +197,11 @@ public sealed partial class ModuleCodeGen
         for (var j = 0; j < table.Interfaces.Count; j++)
         {
             var definition = table.Interfaces[j].Interface.OriginalDefinition;
-            if (!_interfaceEntries.TryGetValue(definition, out var entries)) _interfaceEntries[definition] = entries = [];
-            entries.Add((table, j));
+            if (!_interfaceEntries.TryGetValue(definition, out var entries)) _interfaceEntries[definition] = entries = new InterfaceEntries();
             var key = InterfaceDispatchKey(table.Interfaces[j].Interface);
-            if (_dispatchedInterfaceSlots.TryGetValue(definition, out var dispatched))
-                foreach (var dispatch in dispatched)
-                    if (DispatchReaches(dispatch, key)) _slotRequests.Enqueue((table, dispatch.Slot, j));
+            entries.Entries.Add(_keyedOrder++, key, (table, j));
+            if (_dispatchedSlotsByKey.TryGetValue(definition, out var slots))
+                foreach (var slot in slots.Reached(key)) _slotRequests.Enqueue((table, slot, j));
         }
     }
 

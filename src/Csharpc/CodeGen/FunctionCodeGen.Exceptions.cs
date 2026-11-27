@@ -459,12 +459,21 @@ public sealed partial class FunctionCodeGen
             }
             var value = EmitValue(argument.Value);
             var uriFormat = Mangler.MetadataName(constructor.ContainingType) == "System.UriFormatException";
+            // The inner exception is the parameter typed System.Exception, whatever its name: "innerException" in most of the
+            // framework, "inner" in MissingMemberException, MissingMethodException, RegexMatchTimeoutException and others, "e" in
+            // UriFormatException and the SqlTypes exceptions. Matching only one name dropped the others' inner exception silently.
+            if (argument.Parameter?.Type is INamedTypeSymbol { Name: "Exception", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } })
+            {
+                inner = value;
+                continue;
+            }
             switch (argument.Parameter?.Name)
             {
                 case "message": message = value; break;
                 case "textString" when uriFormat: message = value; break; // UriFormatException(string textString, Exception e)
-                case "e" when uriFormat: inner = value; break;
-                case "innerException": inner = value; break;
+                case "fullTypeName" when Mangler.MetadataName(constructor.ContainingType) == "System.TypeInitializationException":
+                    message = CallCoreLib("ExceptionData", "TypeInitializerMessage", value); // its message names the type
+                    break;
                 case "paramName" or "parameterName": paramName = value; break; // parameterName: DuplicateWaitObjectException
                 case "fileName": paramName = value; break; // FileNotFoundException.FileName (csrt keeps it in param_name)
                 case "directoryPath": paramName = value; break; // DirectoryNotFoundException.DirectoryPath (.NET 11), likewise
