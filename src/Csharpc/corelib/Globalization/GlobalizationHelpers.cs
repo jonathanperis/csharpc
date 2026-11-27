@@ -130,62 +130,25 @@ namespace CsharpcCoreLib.Globalization
     /// <summary>The internal members of CharUnicodeInfo the port calls (csharpc's Unicode tables, .NET's data).</summary>
     internal static class CharUnicodeInfo
     {
-        internal static char ToUpper(char c) => CharOps.ToUpperTable(c);
-        internal static char ToLower(char c) => CharOps.ToLowerTable(c);
-        internal static uint ToUpper(uint cp) => cp < 0x10000 ? CharOps.ToUpperTable((char)cp) : (uint)CsharpcCoreLib.OrdinalCasing.ToUpper((int)cp);
-        internal static uint ToLower(uint cp) => cp < 0x10000 ? CharOps.ToLowerTable((char)cp) : (uint)CsharpcCoreLib.OrdinalCasing.ToLower((int)cp);
+        internal static char ToUpper(char c) => CsharpcCoreLib.OrdinalCasing.ToUpperTable(c);
+        internal static char ToLower(char c) => CsharpcCoreLib.OrdinalCasing.ToLowerTable(c);
+        internal static uint ToUpper(uint cp) => cp < 0x10000 ? CsharpcCoreLib.OrdinalCasing.ToUpperTable((char)cp) : (uint)CsharpcCoreLib.OrdinalCasing.ToUpper((int)cp);
+        internal static uint ToLower(uint cp) => cp < 0x10000 ? CsharpcCoreLib.OrdinalCasing.ToLowerTable((char)cp) : (uint)CsharpcCoreLib.OrdinalCasing.ToLower((int)cp);
 
-        internal static UnicodeCategory GetUnicodeCategory(char c) => CharOps.GetUnicodeCategory(c);
+        internal static UnicodeCategory GetUnicodeCategory(char c) => global::System.Globalization.CharUnicodeInfo.GetUnicodeCategory(c);
 
         internal static UnicodeCategory GetUnicodeCategory(string s, int index) => GetUnicodeCategoryInternal(s, index, out _);
 
-        internal static int GetDecimalDigitValue(string s, int index) => CharUnicodeInfoExtras.GetDecimalDigitValue(s, index);
+        internal static int GetDecimalDigitValue(string s, int index) => System.Globalization.CharUnicodeInfo.GetDecimalDigitValue(s, index);
 
         internal static UnicodeCategory GetUnicodeCategoryInternal(string value, int index, out int charLength)
         {
-            char c = value[index];
-            if (c >= 0xD800 && c <= 0xDBFF && index + 1 < value.Length && value[index + 1] >= 0xDC00 && value[index + 1] <= 0xDFFF)
-            {
-                // csharpc: the corelib's Unicode tables cover the BMP only.
-                throw new NotSupportedException("The Unicode category of a supplementary-plane character is not supported by csharpc yet.");
-            }
-            charLength = 1;
-            return CharOps.GetUnicodeCategory(c);
+            charLength = char.IsSurrogatePair(value, index) ? 2 : 1;
+            return global::System.Globalization.CharUnicodeInfo.GetUnicodeCategory(value, index);
         }
 
         internal static UnicodeCategory InternalGetUnicodeCategory(string value, int index) =>
             GetUnicodeCategoryInternal(value, index, out _);
-    }
-
-    internal enum TimeZoneInfoOptions
-    {
-        None = 1,
-        NoThrowOnInvalidTime = 2,
-    }
-
-    /// <summary>The members of TimeZoneInfo the formatting/parsing code uses, on csharpc's local-zone code (DateTimeOps).</summary>
-    internal sealed class TimeZoneInfo
-    {
-        private static TimeZoneInfo? s_local;
-        private readonly bool _utc;
-
-        private TimeZoneInfo(bool utc) => _utc = utc;
-
-        internal static TimeZoneInfo Local => s_local ??= new TimeZoneInfo(false);
-
-        internal TimeSpan GetUtcOffset(DateTime dateTime) => GetUtcOffset(dateTime, TimeZoneInfoOptions.NoThrowOnInvalidTime);
-
-        internal TimeSpan GetUtcOffset(DateTime dateTime, TimeZoneInfoOptions flags) =>
-            _utc ? TimeSpan.Zero : new TimeSpan(DateTimeOps.LocalUtcOffsetTicks(CoreIntrinsics.DateTimeData(dateTime)));
-
-        internal static TimeSpan GetLocalUtcOffset(DateTime dateTime, TimeZoneInfoOptions flags) => Local.GetUtcOffset(dateTime, flags);
-
-        internal static TimeSpan GetUtcOffsetFromUtc(DateTime time, TimeZoneInfo zone, out bool isDaylightSavings, out bool isAmbiguousLocalDst)
-        {
-            isDaylightSavings = false;
-            long offset = DateTimeOps.OffsetFromUtcTicks(time.Ticks, out isAmbiguousLocalDst);
-            return new TimeSpan(offset);
-        }
     }
 
     /// <summary>DateTime / DateTimeOffset internals (constants, TryCreate, the Local-with-ambiguity constructor).</summary>
@@ -266,7 +229,7 @@ namespace CsharpcCoreLib.Globalization
 
         internal static char ToLower(char c) => c == 'İ' || c == 'ϴ' || c == 'ẞ' || c == 'Ω' || c == 'K' || c == 'Å'
             ? c // InitOrdinalLowerCasingPage keeps these (their lower case would leave the ordinal upper-case class)
-            : CharOps.ToLowerTable(c);
+            : CsharpcCoreLib.OrdinalCasing.ToLowerTable(c);
     }
 
     /// <summary>System.Text.Ascii.ToUpper/ToLower(source, destination, out charsConsumed) (UTF-16).</summary>

@@ -1,4 +1,4 @@
-#:property PublishAot=false
+#:property JsonSerializerIsReflectionEnabledByDefault=true
 using System;
 using System.Collections.Generic;
 using System.Text.Json;

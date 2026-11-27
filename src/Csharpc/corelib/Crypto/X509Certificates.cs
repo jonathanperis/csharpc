@@ -9,6 +9,9 @@
 // (SslStream) and GetRSAPrivateKey use. Loading takes DER, PEM, PKCS#12 (X509CertificateLoader and the obsolete
 // constructors). Extensions, stores, PKCS#7, exporting a PFX and the non-RSA key getters are explicit
 // NotSupportedExceptions (docs/adr/0022-tls.md).
+// Linux compiles System.Security.Cryptography and System.Net.Security from the framework's IL over the OpenSSL and GSS contracts
+// (Crypto/CryptoNative*.cs, Net/NetSecurityNative.cs; docs/il-first/System.Net.Security.md); the other targets keep this copy (#449).
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_MACOS || CSHARPC_TARGET_WASI
 #nullable disable
 #if CSHARPC_OPENSSL
 using System;
@@ -974,7 +977,7 @@ namespace CsharpcCoreLib
     }
 
     [Shadows("System.Security.Cryptography.X509Certificates.X509CertificateCollection")]
-    public class X509CertificateCollectionImpl : CollectionBaseImpl
+    public class X509CertificateCollectionImpl : System.Collections.CollectionBase
     {
         public X509CertificateCollectionImpl() { }
 
@@ -986,11 +989,11 @@ namespace CsharpcCoreLib
 
         public X509Certificate this[int index]
         {
-            get => (X509Certificate)GetItem(index);
-            set => SetItem(index, value);
+            get => (X509Certificate)List[index];
+            set => List[index] = value;
         }
 
-        public int Add(X509Certificate value) => AddItem(value);
+        public int Add(X509Certificate value) => List.Add(value);
 
         public void AddRange(X509Certificate[] value)
         {
@@ -1005,15 +1008,15 @@ namespace CsharpcCoreLib
             for (int i = 0; i < other.Count; i++) Add(other.At(i));
         }
 
-        public bool Contains(X509Certificate value) => ContainsItem(value);
+        public bool Contains(X509Certificate value) => List.Contains(value);
 
         public void CopyTo(X509Certificate[] array, int index) => InnerList.CopyTo(array, index);
 
-        public int IndexOf(X509Certificate value) => IndexOfItem(value);
+        public int IndexOf(X509Certificate value) => List.IndexOf(value);
 
-        public void Insert(int index, X509Certificate value) => InsertItem(index, value);
+        public void Insert(int index, X509Certificate value) => List.Insert(index, value);
 
-        public void Remove(X509Certificate value) => RemoveItem(value);
+        public void Remove(X509Certificate value) => List.Remove(value);
 
         public new X509CertificateCollection.X509CertificateEnumerator GetEnumerator() =>
             (X509CertificateCollection.X509CertificateEnumerator)(object)new X509CertificateEnumeratorImpl((X509CertificateCollection)(object)this);
@@ -1052,18 +1055,18 @@ namespace CsharpcCoreLib
 
         public new X509Certificate2 this[int index]
         {
-            get => (X509Certificate2)GetItem(index);
+            get => (X509Certificate2)List[index];
             set
             {
                 ArgumentNullException.ThrowIfNull(value);
-                SetItem(index, value);
+                List[index] = value;
             }
         }
 
         public int Add(X509Certificate2 certificate)
         {
             ArgumentNullException.ThrowIfNull(certificate);
-            return AddItem(certificate);
+            return List.Add(certificate);
         }
 
         public void AddRange(X509Certificate2[] certificates)
@@ -1088,13 +1091,13 @@ namespace CsharpcCoreLib
             for (int i = 0; i < other.Count; i++) Add((X509Certificate2)other.At(i));
         }
 
-        public bool Contains(X509Certificate2 certificate) => ContainsItem(certificate);
+        public bool Contains(X509Certificate2 certificate) => List.Contains(certificate);
 
-        public int IndexOf(X509Certificate2 certificate) => IndexOfItem(certificate);
+        public int IndexOf(X509Certificate2 certificate) => List.IndexOf(certificate);
 
-        public void Insert(int index, X509Certificate2 certificate) => InsertItem(index, certificate);
+        public void Insert(int index, X509Certificate2 certificate) => List.Insert(index, certificate);
 
-        public void Remove(X509Certificate2 certificate) => RemoveItem(certificate);
+        public void Remove(X509Certificate2 certificate) => List.Remove(certificate);
 
         public void CopyTo(X509Certificate2[] array, int index) => InnerList.CopyTo(array, index);
 
@@ -1164,4 +1167,5 @@ namespace CsharpcCoreLib
         public void Dispose() { }
     }
 }
+#endif
 #endif

@@ -73,9 +73,7 @@ public sealed partial class FunctionCodeGen
                 var s = Text(0);
                 var ignoreCase = args.Count == 3 ? Arg(1) : L.False;
                 var temp = NewTemp(L.I64, "enum.parsed");
-                var status = CallRuntime("csrt_enum_parse", L.I32, [L.Ptr, L.I1, L.Ptr, L.Ptr, L.I32, L.I32, L.I1, L.Ptr],
-                    [s, ignoreCase, .. Table(), temp]);
-                var ok = _b.ICmp(LLVMIntPredicate.EQ, status, L.ConstInt(L.I32, 1));
+                var ok = CallCoreLib("EnumRuntime", "TryParseTable", [s, ignoreCase, .. Table(), temp]);
                 _b.Store(Narrow(_b.Load(L.I64, temp)), AddressOf(args[^1].Value));
                 return ok;
             }
@@ -84,10 +82,8 @@ public sealed partial class FunctionCodeGen
                 var s = Text(0);
                 var ignoreCase = args.Count == 2 ? Arg(1) : L.False;
                 if (!target.IsGenericMethod)  // Enum.Parse(Type, string): the parsed value, boxed
-                    return Box(Narrow(CallRuntime("csrt_enum_parse_or_throw", L.I64, [L.Ptr, L.I1, L.Ptr, L.Ptr, L.I32, L.I32, L.I1],
-                        [s, ignoreCase, .. Table()])), enumType, inv);
-                return Narrow(CallRuntime("csrt_enum_parse_or_throw", L.I64, [L.Ptr, L.I1, L.Ptr, L.Ptr, L.I32, L.I32, L.I1],
-                    [s, ignoreCase, .. Table()]));
+                    return Box(Narrow(CallCoreLib("EnumRuntime", "ParseTable", [s, ignoreCase, .. Table()])), enumType, inv);
+                return Narrow(CallCoreLib("EnumRuntime", "ParseTable", [s, ignoreCase, .. Table()]));
             }
             case ("GetValues", 0):
             {

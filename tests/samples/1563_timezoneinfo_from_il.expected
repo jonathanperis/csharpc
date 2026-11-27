@@ -1,0 +1,26 @@
+ids: Europe/Prague America/New_York Asia/Tokyo UTC
+base offsets: 01:00:00 -05:00:00 09:00:00
+DST support: True True
+not found: TimeZoneNotFoundException
+try find: True America/New_York False
+system zones: True
+from UTC: 2026-07-01T14:00:00 2026-07-01T08:00:00
+to UTC: 2026-01-15T08:00:00
+between: 2026-01-15T17:00:00
+by id: 2026-07-01T08:00:00
+offset: 2026-07-01T14:00:00.0000000+02:00
+summer/winter offset: 02:00:00 01:00:00
+is DST: True False
+invalid: True False
+ambiguous: True 01:00:00,02:00:00
+invalid convert: ArgumentException
+rules: 01:00:00 3 5 Sunday 10 False
+floating rule: 5
+fixed rule: 31
+bad rule: ArgumentOutOfRangeException
+custom: True True Plus Two Custom/Plus2;120;Plus Two;Plus Two;Plus Two;;
+serialized round trip: True
+display names: True True True
+local: Europe/Lisbon 00:00:00
+cleared: Europe/Lisbon
+legacy TimeZone: 00:00:00

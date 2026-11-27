@@ -128,7 +128,15 @@ public sealed class LlvmContext : IDisposable
         LLVMAddAttributeAtIndex(fn, 0 /* LLVMAttributeReturnIndex */, LLVMCreateEnumAttribute(Ref, kind, 0));
     }
 
-    public void Dispose() => LLVMContextDispose(Ref);
+    private bool _disposed;
+
+    /// <summary>Idempotent: parallel code generation frees the context with the program module, before the partitions parse.</summary>
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        LLVMContextDispose(Ref);
+    }
 }
 
 public sealed class LlvmModule(LlvmContext context, string name) : IDisposable

@@ -1,0 +1,3 @@
+# NFloat (Apple's CGFloat: a double on 64-bit targets) served from CoreLib's IL (ADR 0023): .NET's own arithmetic, conversions,
+# formatting and parsing; P/Invoke sees it as blittable as its fields (ModuleCodeGen.PInvoke.IsBlittable).
+System.Runtime.InteropServices.NFloat

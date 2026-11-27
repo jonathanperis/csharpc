@@ -53,34 +53,31 @@ public static partial class FrameworkIl
     /// Assemblies with some types csharpc implements itself (corelib shadows) and the rest portable IL:
     /// eligible anyway. Every member of a shadowed type is redirected to its shadow (the IL of those types
     /// is never lowered, so the native calls in them are not either), and the other types are compiled
-    /// from IL. System.Net.Primitives: IPAddress, IPEndPoint and EndPoint are shadows (their IL calls
-    /// libSystem.Native's socket-address shims); Cookie, CookieContainer, CredentialCache,
-    /// NetworkCredential, DnsEndPoint and HttpVersion are plain C#. System.Collections.NonGeneric:
-    /// CollectionBase is a shadow (X509CertificateCollection derives from it); SortedList, Queue and
-    /// Stack, which CookieContainer and others use, come from IL. System.Net.NetworkInformation: NetworkInterface and its
-    /// property types are shadows (getifaddrs / GetAdaptersAddresses in the corelib); PhysicalAddress, NetworkInformationException
-    /// and the rest the program may name (a List&lt;PhysicalAddress&gt; in ASP.NET Core) come from IL.
+    /// from IL. System.Net.Primitives: on Windows SocketException and SocketAddressPal are shadows (the Winsock socket engine);
+    /// elsewhere the whole assembly is IL over the libSystem.Native contract (corelib/Net/SystemNative.Net.cs).
+    /// System.Net.NetworkInformation: on Windows and macOS NetworkInterface and its property types are shadows (GetAdaptersAddresses /
+    /// getifaddrs in the corelib) and PhysicalAddress, NetworkInformationException and the rest the program may name (a
+    /// List&lt;PhysicalAddress&gt; in ASP.NET Core) come from IL; on Linux all of it is IL over the contract.
     /// </summary>
-    private static readonly string[] MixedWithShadows = ["System.Net.Primitives", "System.Collections.NonGeneric", "System.ComponentModel.TypeConverter", "System.Net.NetworkInformation"];
+    private static readonly string[] MixedWithShadows = ["System.Net.Primitives", "System.Net.NetworkInformation"];
 
     /// <summary>
-    /// Mixed assemblies that are taken for the types csharpc doesn't implement only: naming a shadowed type (System.ComponentModel's
-    /// TypeConverter) is served by the corelib alone.
+    /// References of an assembly that are not followed when it is chosen: System.ComponentModel.TypeConverter names
+    /// System.Net.Security (the native crypto shims), System.Xml.XDocument, System.Resources.Writer and the binary formatter
+    /// for designer and serialization types no converter reaches, and the closure must not load (and link the native
+    /// shims of) them for a program that creates a PointConverter. A list of what is left out, not of what is kept: a
+    /// reference the list misses costs compile time, while one an allow-list misses fails to compile code that is
+    /// reached (ColorConverter's static constructor sorts its colors with System.Linq's OrderBy, #376).
     /// </summary>
-    private static readonly string[] UsedOnlyForOtherTypes = ["System.ComponentModel.TypeConverter"];
-
-    /// <summary>
-    /// The references of an assembly that are followed when it is chosen, where not all are: System.ComponentModel.TypeConverter
-    /// names System.Xml, System.Net.Http ... for a few designer types that no converter reaches, and the closure must not
-    /// load (and link the native shims of) them for a program that creates a PointConverter.
-    /// </summary>
-    private static readonly Dictionary<string, string[]> FollowedReferences = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, string[]> SkippedReferences = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["System.ComponentModel.TypeConverter"] = ["System.ComponentModel.Primitives", "System.Collections.NonGeneric", "System.Collections.Specialized", "System.Drawing.Primitives"],
+        ["System.ComponentModel.TypeConverter"] = ["System.Net.Security", "System.Xml.XDocument", "System.Resources.Writer", "System.Runtime.Serialization.Formatters"],
     };
 
+    private static readonly string[] CorelibDependencies = ["System.Collections.NonGeneric", "System.Collections", "System.Collections.Concurrent", "System.ComponentModel.TypeConverter"];
+
     private static string[] Followed(Assembly a) =>
-        FollowedReferences.TryGetValue(a.Name, out var followed) ? [.. a.References.Where(r => followed.Contains(r, StringComparer.OrdinalIgnoreCase))] : a.References;
+        SkippedReferences.TryGetValue(a.Name, out var skipped) ? [.. a.References.Where(r => !skipped.Contains(r, StringComparer.OrdinalIgnoreCase))] : a.References;
 
     /// <summary>
     /// Assemblies the program uses that were not compiled from IL, and why (the NativeAOT runtime pack could not be restored, a shim
@@ -88,6 +85,8 @@ public static partial class FrameworkIl
     /// </summary>
     public static readonly System.Collections.Concurrent.ConcurrentDictionary<string, string> NotCompiledFromIl = new(StringComparer.OrdinalIgnoreCase);
 
+    // System.Security.Cryptography and System.Net.Security on Linux are the framework's IL whole, over the OpenSSL and GSS-API contracts
+    // (corelib/Crypto/CryptoNative*.cs, corelib/Net/NetSecurityNative.cs): their shadow files are compiled only for the other targets (#449).
     public static bool IsMixedWithShadows(string? assembly) => assembly is not null && (MixedWithShadows.Contains(assembly, StringComparer.OrdinalIgnoreCase)
         || IlFirst.IsPartial(assembly));
 
@@ -161,7 +160,9 @@ public static partial class FrameworkIl
         bool Named(string ns) => ns.Split('.').All(identifiers.Contains);
         var owners = index.Values.SelectMany(a => a.Types.Keys).GroupBy(n => n, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
         // In a namespace several assemblies share (System.Linq), an extension method only one of them defines
-        // still names it: AsParallel is System.Linq.Parallel's, while Select is everybody's.
+        // still names it: AsParallel is System.Linq.Parallel's, while Select is everybody's (System.Linq.Queryable's on
+        // IQueryable, System.Linq.Parallel's on ParallelQuery). A name several define counts for the assembly named like the
+        // namespace, the base one: it is the one every plain collection reaches (Select on an IEnumerable<T> is System.Linq's).
         var methodOwners = index.Values.SelectMany(a => a.Extensions.SelectMany(n => n.Value.Distinct(StringComparer.Ordinal).Select(m => n.Key + "." + m)))
             .GroupBy(m => m, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.Count(), StringComparer.Ordinal);
         foreach (var a in index.Values.Where(a => a.Ineligible is null).OrderBy(a => a.Name, StringComparer.Ordinal))
@@ -169,7 +170,8 @@ public static partial class FrameworkIl
             var use = a.Types.Where(n => Named(n.Key)).SelectMany(n => n.Value.Where(identifiers.Contains).Select(t => n.Key + "." + t))
                 .Concat(a.Extensions.Where(n => Named(n.Key))
                     .SelectMany(n => n.Value.Where(m => identifiers.Contains(m)
-                            && (owners.GetValueOrDefault(n.Key) == 1 || methodOwners.GetValueOrDefault(n.Key + "." + m) == 1))
+                            && (owners.GetValueOrDefault(n.Key) == 1 || methodOwners.GetValueOrDefault(n.Key + "." + m) == 1
+                                || string.Equals(a.Name, n.Key, StringComparison.OrdinalIgnoreCase)))
                         .Select(m => n.Key + "." + m + "()")))
                 .OrderBy(u => u, StringComparer.Ordinal).FirstOrDefault();
             if (use is null) continue;
@@ -181,15 +183,26 @@ public static partial class FrameworkIl
         if (settings.ResourceTypes.Count > 0 && index.TryGetValue("System.ComponentModel.TypeConverter", out var converters) && Unusable(converters) is null)
             Add(converters, $"a resource of type {settings.ResourceTypes[0]} is created by its TypeConverter");
 
+        // [DefaultValue(typeof(T), "text")]: the corelib's DefaultValueAttribute converts the text with TypeDescriptor.GetConverter.
+        if (identifiers.Contains("DefaultValue") && Named("System.ComponentModel") && index.TryGetValue("System.ComponentModel.TypeConverter", out var defaultValueConverters) && Unusable(defaultValueConverters) is null)
+            Add(defaultValueConverters, "the program uses DefaultValueAttribute, which converts its text with TypeDescriptor");
+
         // TypeDescriptor.GetConverter(typeof(X)) in the sources: the converters it gives (ResourceConverters) are that assembly's.
         if (identifiers.Contains("GetConverter") && Named("System.ComponentModel") && index.TryGetValue("System.ComponentModel.TypeConverter", out var described) && Unusable(described) is null)
             Add(described, "the program calls TypeDescriptor.GetConverter");
 
-        // The corelib's sockets (shadows) take and test types of System.Net.Primitives that are plain IL there
-        // (DnsEndPoint, for Socket.Connect(EndPoint)): a program that names System.Net.Sockets needs them, even
-        // when it never names System.Net.
-        if (Named("System.Net.Sockets") && index.TryGetValue("System.Net.Primitives", out var primitives) && primitives.Ineligible is null)
-            Add(primitives, "the corelib's sockets use its DnsEndPoint");
+        // What the corelib's shadows build on, reached from whichever call the program makes (it names none of these): the X509 certificate
+        // collections derive from the real CollectionBase, Parallel.ForEach and Task.Run's helpers use Partitioner, SemaphoreSlim and the
+        // JSON shadows use LinkedList and Stack.
+        foreach (var dependency in CorelibDependencies)
+            if (index.TryGetValue(dependency, out var needed) && needed.Ineligible is null && Unusable(needed) is null)
+                Add(needed, "the corelib uses its types");
+
+        // The networking types (Socket, Dns, NetworkInterface, and the corelib's SslStream shadow) take and return types of
+        // System.Net.Primitives, which come from its IL (IPAddress, IPEndPoint, DnsEndPoint): a program that names any
+        // System.Net namespace needs them, even when it never names one of those types (Dns.GetHostAddresses).
+        if (Named("System.Net") && index.TryGetValue("System.Net.Primitives", out var primitives) && primitives.Ineligible is null)
+            Add(primitives, "the corelib's networking types use its IPAddress and EndPoint types");
 
         // Closure: what the IL assemblies (the program's and the chosen framework ones) reference.
         var queue = new Queue<(string Name, string[] References)>();
@@ -228,6 +241,10 @@ public static partial class FrameworkIl
         return [.. md.AssemblyReferences.Select(h => md.GetString(md.GetAssemblyReference(h).Name))];
     }
 
+    /// <summary>What a query expression calls: it ends with `select` or `group`, and the other clauses are these methods (`from int x in xs` is Cast).</summary>
+    private static readonly string[] QueryMethods =
+        ["Select", "SelectMany", "Where", "OrderBy", "OrderByDescending", "ThenBy", "ThenByDescending", "GroupBy", "Join", "GroupJoin", "Cast"];
+
     /// <summary>Identifiers of the program's sources (and global usings), comments and strings included: a superset of the names it binds to.</summary>
     private static HashSet<string> SourceIdentifiers(FrontendSettings settings)
     {
@@ -250,6 +267,9 @@ public static partial class FrameworkIl
         if (settings.GlobalUsings is { } usings) Scan(usings);
         foreach (var project in settings.Projects)
             if (project.GlobalUsings is { } projectUsings) Scan(projectUsings);
+        // Query expressions name no method: `from x in xs where x > 1 select x` is Where and Select (System.Linq) to the compiler.
+        if (identifiers.Contains("select") || identifiers.Contains("group"))
+            foreach (var method in QueryMethods) identifiers.Add(method);
         return identifiers;
     }
 
@@ -348,11 +368,6 @@ public static partial class FrameworkIl
         foreach (var (ns, list) in extensions) a.Extensions[ns] = [.. list.Distinct(StringComparer.Ordinal)];
 
         var known = KnownTypes();
-        // Naming TypeConverter or TypeDescriptor (the shadows Configuration.Binder and friends use) must not take the
-        // whole assembly: only a program that names one of the rest (PointConverter, EnumConverter, ITypeDescriptorContext ...)
-        // does, so programs that only convert strings compile as before.
-        if (UsedOnlyForOtherTypes.Contains(a.Name, StringComparer.OrdinalIgnoreCase))
-            foreach (var ns in a.Types.Keys.ToList()) a.Types[ns] = [.. a.Types[ns].Where(n => !known.Contains(ns + "." + n))];
         // Native code of the .NET runtime it calls: the shims csharpc links from the NativeAOT pack are
         // recorded (eligible where that works), any other (QCalls, libSystem.Native ...) rules it out.
         var shims = new List<string>();
@@ -360,8 +375,15 @@ public static partial class FrameworkIl
         {
             for (var i = 1; i <= md.GetTableRowCount(TableIndex.ModuleRef); i++)
             {
-                var module = md.GetString(md.GetModuleReference(MetadataTokens.ModuleReferenceHandle(i)).Name);
+                var handle = MetadataTokens.ModuleReferenceHandle(i);
+                var module = md.GetString(md.GetModuleReference(handle).Name);
                 if (!(module.StartsWith("libSystem.", StringComparison.Ordinal) || module.StartsWith("System.", StringComparison.Ordinal) || module == "QCall")) continue;
+                // libSystem.Native served by csharpc's C# contract (corelib/IO/SystemNative.cs, corelib/Net/SystemNative.Net.cs): no shim to link,
+                // as long as the contract exports every entry point the assembly imports from it.
+                if (module == "libSystem.Native" && ServedByNativeContract(md, handle)) continue;
+                // The OpenSSL shim, served by the corelib's C# contract over libcrypto/libssl on Linux (corelib/Crypto/CryptoNative*.cs).
+                if ((module == CodeGen.ModuleCodeGen.CryptoNativeLibrary || module == CodeGen.ModuleCodeGen.NetSecurityNativeLibrary) && !NativeTls.On
+                    && ServedByNativeContract(md, handle)) continue;
                 if (!NativeAotPack.MayCall(a.Name, module)) return module;
                 shims.Add(module);
             }
@@ -397,8 +419,9 @@ public static partial class FrameworkIl
             // A library with types of its own that also forwards a few to CoreLib (System.Data.Common: DBNull)
             // stands on its own. It stays a facade when it forwards types its reference-pack twin defines
             // (System.Runtime.InteropServices: DllImportAttribute): with the implementation in the twin's place,
-            // those would resolve back to it through the CoreLib facade, and binding would loop.
-            if (a.Types.Values.Any(types => types.Length > 0) && !ForwardsTwinTypes(a)) continue;
+            // those would resolve back to it through the CoreLib facade, and binding would loop, unless the assembly
+            // is one whose twin is kept under another name (TwinReference).
+            if (a.Types.Values.Any(types => types.Length > 0) && (!ForwardsTwinTypes(a) || TwinReference.Supported(a.Name))) continue;
             var blocked = a.ForwardsTo.FirstOrDefault(t => t.StartsWith("System.Private.", StringComparison.Ordinal)
                 && (!index.TryGetValue(t, out var target) || target.Ineligible is not null));
             if (blocked is not null) a.Ineligible = $"it forwards types to {blocked} (a facade)";
@@ -475,12 +498,19 @@ public static partial class FrameworkIl
         var corelib = Path.Combine(AppContext.BaseDirectory, "corelib");
         if (Directory.Exists(corelib))
             foreach (var file in Directory.EnumerateFiles(corelib, "*.cs", SearchOption.AllDirectories))
-                foreach (Match m in ShadowAttribute().Matches(File.ReadAllText(file)))
+            {
+                var text = File.ReadAllText(file);
+                // A file compiled only into some targets' corelib (its first directive is `#if CSHARPC_TARGET_WINDOWS` or an `||` of such
+                // symbols, closed by its last line) shadows nothing on the others. The index describes the host's shared framework, whose
+                // IL is that OS's build.
+                if (!ForHostTarget(text)) continue;
+                foreach (Match m in ShadowAttribute().Matches(text))
                 {
                     if (IlFirst.Excluded(m.Groups[1].Value)) continue;
                     var top = m.Groups[1].Value.Split('+')[0];
                     known.Add(top.IndexOf('`') is var tick and >= 0 ? top[..tick] : top);
                 }
+            }
         known.UnionWith(CodeGen.FunctionCodeGen.TypesLoweredByName);
         // Intrinsic keys are display strings ("System.Console.WriteLine(int)", "System.Array.Length"): every
         // dotted prefix before the parameter list may be a type.
@@ -493,6 +523,55 @@ public static partial class FrameworkIl
         // --il-first: an assembly named there is eligible whatever the hand-written intrinsics say about its types.
         if (IlFirst.On) known.RemoveWhere(IlFirst.InListedAssembly);
         return s_known = known;
+    }
+
+    private static HashSet<string>? s_contractEntries;
+
+    /// <summary>
+    /// The libSystem.Native entry points the corelib exports itself ([RuntimeExport("SystemNative_X", ...)] in its sources), and on Linux the OpenSSL
+    /// shim's (CryptoNative_X, corelib/Crypto/CryptoNative*.cs; the other hosts' IL calls their own OS's crypto).
+    /// </summary>
+    private static HashSet<string> NativeContractEntries()
+    {
+        if (s_contractEntries is { } cached) return cached;
+        var entries = new HashSet<string>(StringComparer.Ordinal);
+        var corelib = Path.Combine(AppContext.BaseDirectory, "corelib");
+        // The contract is Unix's (Windows' CoreLib and libraries call kernel32 and Winsock directly).
+        if (Directory.Exists(corelib) && !OperatingSystem.IsWindows())
+            foreach (var file in Directory.EnumerateFiles(corelib, "*.cs", SearchOption.AllDirectories))
+                foreach (Match m in NativeContractExport().Matches(File.ReadAllText(file)))
+                    if (m.Groups[1].Value.StartsWith("SystemNative_", StringComparison.Ordinal) || OperatingSystem.IsLinux())
+                        entries.Add(m.Groups[1].Value);
+        return s_contractEntries = entries;
+    }
+
+    /// <summary>Whether every method the assembly imports from this module reference is an entry point of the contract.</summary>
+    private static bool ServedByNativeContract(MetadataReader md, ModuleReferenceHandle module)
+    {
+        var entries = NativeContractEntries();
+        if (entries.Count == 0) return false;
+        foreach (var h in md.MethodDefinitions)
+        {
+            var import = md.GetMethodDefinition(h).GetImport();
+            if (import.Module.IsNil || import.Module != module) continue;
+            var name = import.Name.IsNil ? md.GetString(md.GetMethodDefinition(h).Name) : md.GetString(import.Name);
+            if (!entries.Contains(name)) return false;
+        }
+        return true;
+    }
+
+    [GeneratedRegex(@"\[RuntimeExport\(""((?:SystemNative|CryptoNative|NetSecurityNative)_\w+)""")]
+    private static partial Regex NativeContractExport();
+
+    private static bool ForHostTarget(string source)
+    {
+        var lines = source.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0 && !l.StartsWith("//", StringComparison.Ordinal)).ToList();
+        if (lines is not [var first, .., var last] || last != "#endif" || !first.StartsWith("#if CSHARPC_TARGET_", StringComparison.Ordinal)) return true;
+        var targets = first["#if ".Length..].Split("||", StringSplitOptions.TrimEntries);
+        // WASI is never the host: a file for WASI (and other OSes) shadows nothing in the host's index, whose IL is the host OS's build.
+        if (!targets.All(t => t is "CSHARPC_TARGET_WINDOWS" or "CSHARPC_TARGET_MACOS" or "CSHARPC_TARGET_LINUX" or "CSHARPC_TARGET_WASI")) return true;
+        var host = OperatingSystem.IsWindows() ? "CSHARPC_TARGET_WINDOWS" : OperatingSystem.IsMacOS() ? "CSHARPC_TARGET_MACOS" : "CSHARPC_TARGET_LINUX";
+        return targets.Contains(host);
     }
 
     [GeneratedRegex(@"\[(?:Shadows|ShadowMembers)\(""([^""]+)""\)\]")]

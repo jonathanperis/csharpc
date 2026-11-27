@@ -67,6 +67,21 @@ namespace CsharpcCoreLib
             }
         }
 
+        /// <summary>ExecutionContext.IsDefault (CoreLib-internal; SafeFileHandle's thread-pool IO work items read it): no flow captured.</summary>
+        internal bool IsDefault => Flow == null;
+
+        /// <summary>
+        /// ExecutionContext.RunForThreadPoolUnsafe (CoreLib-internal): the callback under the context on a thread-pool thread, then the
+        /// thread's previous flow back (upstream resets a pool thread to the default context; csharpc's pool threads start without one).
+        /// </summary>
+        internal static void RunForThreadPoolUnsafe<TState>(ExecutionContext executionContext, Action<TState> callback, in TState state)
+        {
+            ExecutionFlow saved = ExecutionFlow.Current;
+            ExecutionFlow.Current = ((ExecutionContextImpl)(object)executionContext).Flow;
+            try { callback(state); }
+            finally { ExecutionFlow.Current = saved; }
+        }
+
         public static void Restore(ExecutionContextImpl executionContext)
         {
             if (executionContext == null) throw new InvalidOperationException("Cannot call Set on a null context");

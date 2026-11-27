@@ -1,0 +1,51 @@
+PollingCounter 'queue-length' Count 1 Mean 0.000
+IncrementingPollingCounter 'requests' Increment 0
+EventCounter 'latency' Count 0
+IncrementingEventCounter 'hits' Increment 0
+queue-length Queue Length items Demo-Counters 00:00:01
+hits
+  Name = hits (String)
+  DisplayName = Hits (String)
+  DisplayRateTimeScale = 00:01:00 (String)
+  Increment = 5.5 (Double)
+  Metadata =  (String)
+  Series = Interval=1000 (String)
+  CounterType = Sum (String)
+  DisplayUnits =  (String)
+latency
+  Name = latency (String)
+  DisplayName = Latency (String)
+  Mean = 3 (Double)
+  StandardDeviation = 1.8708286933869707 (Double)
+  Count = 3 (Int32)
+  Min = 1 (Double)
+  Max = 5.5 (Double)
+  Series = Interval=1000 (String)
+  CounterType = Mean (String)
+  Metadata =  (String)
+  DisplayUnits = ms (String)
+queue-length
+  Name = queue-length (String)
+  DisplayName = Queue Length (String)
+  Mean = 42.5 (Double)
+  StandardDeviation = 0 (Double)
+  Count = 1 (Int32)
+  Min = 42.5 (Double)
+  Max = 42.5 (Double)
+  Series = Interval=1000 (String)
+  CounterType = Mean (String)
+  Metadata = owner:demo,kind:gauge (String)
+  DisplayUnits = items (String)
+requests
+  Name = requests (String)
+  DisplayName = Requests (String)
+  DisplayRateTimeScale = 00:00:01 (String)
+  Increment = 0 (Double)
+  Metadata =  (String)
+  Series = Interval=1000 (String)
+  CounterType = Sum (String)
+  DisplayUnits =  (String)
+event name EventCounters, id -1, level LogAlways, payload names [Payload]
+write after disable ok
+Value cannot be null. (Parameter 'Name')
+Value cannot be null. (Parameter 'EventSource')

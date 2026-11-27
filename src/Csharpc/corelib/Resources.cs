@@ -68,10 +68,16 @@ namespace CsharpcCoreLib
         // The sets created so far, by culture name: csharpc is invariant-culture, so only the neutral set ("") exists.
         private readonly Dictionary<string, ResourceSetImpl> _sets = new Dictionary<string, ResourceSetImpl>();
 
+        // ResourceManager's public constants and the protected fields a subclass reads (#104), as .NET's.
+        public static readonly int MagicNumber = unchecked((int)0xBEEFCACE);
+        public static readonly int HeaderVersionNumber = 1;
+        protected Assembly MainAssembly;
+
         public ResourceManagerImpl(Type resourceSource)
         {
             if (resourceSource == null) throw new ArgumentNullException("resourceSource");
             _baseName = resourceSource.FullName;
+            MainAssembly = resourceSource.Assembly;
         }
 
         public ResourceManagerImpl(string baseName, Assembly assembly)
@@ -79,6 +85,7 @@ namespace CsharpcCoreLib
             if (baseName == null) throw new ArgumentNullException("baseName");
             if (assembly == null) throw new ArgumentNullException("assembly");
             _baseName = baseName;
+            MainAssembly = assembly;
         }
 
         public virtual string BaseName => _baseName;
@@ -198,7 +205,8 @@ namespace CsharpcCoreLib
                 catch (FormatException) { }
                 catch (OverflowException) { }
             }
-            else if (stored == ConverterString)
+            // (a constant: without such a resource, TypeDescriptor and the converters are not linked)
+            else if (stored == ConverterString && CoreIntrinsics.HasConverterResources())
             {
                 // A value DeserializingResourceReader creates with TypeDescriptor.GetConverter(type).ConvertFromInvariantString(text).
                 // A converter's own exceptions (bad text) propagate, as they do from .NET; a null result is a NullReferenceException there.
@@ -387,7 +395,7 @@ namespace CsharpcCoreLib
                 i = keyStart + keyLength;
                 int valueLength = (blob[i] << 16) | blob[i + 1];
                 // the last value of a key wins, as in the Data dictionary
-                if (keyLength == switchName.Length && StringOps.EqualsOrdinal(blob.AsSpan(keyStart, keyLength), switchName.AsSpan()))
+                if (keyLength == switchName.Length && blob.AsSpan(keyStart, keyLength).SequenceEqual(switchName.AsSpan()))
                     value = blob.Substring(i + 2, valueLength);
                 i += 2 + valueLength;
             }

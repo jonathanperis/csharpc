@@ -11,6 +11,7 @@
 #
 # Outputs: tests/conformance/results.json (machine-readable) and tests/conformance/results.md.
 # The ranked failure reasons are csharpc's prioritized backlog (docs/09-conformance.md).
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 export CONF_ROOT="$ROOT"

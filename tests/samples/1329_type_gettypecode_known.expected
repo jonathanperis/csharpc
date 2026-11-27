@@ -1,0 +1,27 @@
+bool: Boolean True
+char: Char True
+sbyte: SByte True
+byte: Byte True
+short: Int16 True
+ushort: UInt16 True
+int: Int32 True
+uint: UInt32 True
+long: Int64 True
+ulong: UInt64 True
+float: Single True
+double: Double True
+decimal: Decimal False
+DateTime: DateTime False
+string: String True
+DBNull: DBNull True
+object: Object True
+Small: Byte True
+Big: Int64 True
+DayOfWeek: Int32 True
+Pair: Object False
+int?: Object False
+Guid: Object False
+nint: Object False
+int[]: Object True
+Empty
+Int64

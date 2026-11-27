@@ -1,4 +1,4 @@
-#:property PublishAot=false
+#:property JsonSerializerIsReflectionEnabledByDefault=true
 // System.Text.Json is culture-invariant: whatever the current culture is (a decimal comma in de-DE, pt-BR,
 // fr-FR and cs-CZ, a Unicode minus in sv-SE, other digits and calendars in ar-SA, fa-IR, th-TH and hi-IN),
 // Utf8JsonWriter, JsonSerializer (source-generated and reflection-style), JsonNode, JsonElement and the

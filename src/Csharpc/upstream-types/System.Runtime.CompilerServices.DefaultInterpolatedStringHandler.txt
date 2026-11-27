@@ -1,0 +1,3 @@
+# DefaultInterpolatedStringHandler (#466): CoreLib's handler, which rents its buffer from ArrayPool<char> and formats holes through
+# ISpanFormattable without boxing. It replaced the corelib shadow that built a StringBuilder per string.
+System.Runtime.CompilerServices.DefaultInterpolatedStringHandler

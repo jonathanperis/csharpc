@@ -127,26 +127,14 @@ public sealed partial class FunctionCodeGen
             "SpanOf" or "ReadOnlySpanOf" or "MemoryOf" => MakeSpan(args[0], args[1]),
             "RefAddress" => _b.Cast(LLVMOpcode.PtrToInt, args[0], T.NativeInt),
             "PointerToObject" => args[0].Type.Kind == LLVMTypeKind.Pointer ? args[0] : _b.Cast(LLVMOpcode.IntToPtr, args[0], L.Ptr),
-            "EnumToUInt64" => EnumToUInt64(t!, args[0]),
-            "EnumFromUInt64" => EnumFromUInt64(t!, args[0]),
-            "IsSignedEnum" => t is INamedTypeSymbol { EnumUnderlyingType: { } u } && TypeMapper.IsSigned(u) ? L.True : L.False,
-            "IsFlagsEnum" => t!.GetAttributes().Any(a => a.AttributeClass is { Name: "FlagsAttribute", ContainingNamespace.Name: "System" }) ? L.True : L.False,
-            "EnumMemberJsonNames" => EnumMemberJsonNames(t!),
-            "IsAbstractType" => t!.IsAbstract ? L.True : L.False,
-            "IsObsoleteType" => t!.GetAttributes().Any(a => a.AttributeClass is { Name: "ObsoleteAttribute", ContainingNamespace.Name: "System" }) ? L.True : L.False,
-            "IsEnumType" => JsonEnumSwitch(args[0], null),
-            "BuiltInJsonConverter" => BuiltInJsonConverter(S(t!)),
             "IsInstanceOfType" => CallRuntime("csrt_type_is_instance", L.I1, [L.Ptr, L.Ptr], args[0], args[1]),
-            "IsTypeAssignableTo" => CallRuntime("csrt_type_is_assignable", L.I1, [L.Ptr, L.Ptr], args[0], args[1]),
-            "IsInterfaceTypeObject" => CallRuntime("csrt_type_is_interface", L.I1, [L.Ptr], args[0]),
-            "CreateEnumConverter" => JsonEnumSwitch(args[0], args),
             "CompareStrings" => CallRuntime("csrt_string_compare_culture", L.I32, [L.Ptr, L.Ptr, L.I1], args[0], args[1], L.False),
             "UnhandledException" => UnhandledException(args[0]),
             "CaptureStackTrace" => CallRuntime("csrt_exception_capture_trace", L.Ptr, [L.Ptr], args[0]),
             "LibraryFrames" => LibraryFrames(args[0], inv, preset: true),
             "AppendLibraryFrames" => LibraryFrames(args[0], inv, preset: false),
             "ThrowWithStackTrace" => ThrowWithStackTrace(args[0], args[1]),
-            "ResourceStrings" => _m.ResourceStringsBlob(),
+            "ResourceStrings" => _b.Load(L.Ptr, _m.ResourceStringsSlot()),
             "IsCoroutineIterator" => CallRuntime("csrt_is_iterator", L.I1, [L.Ptr], args[0]),
             "RuntimeConfig" => _m.AppContextBlob(),
             "LoadableAssemblies" => _m.LoadableAssembliesBlob(),
@@ -156,10 +144,13 @@ public sealed partial class FunctionCodeGen
             "AssemblyTypeNames" => _m.AssemblyTypeNamesBlob(),
             "AssemblyTypeTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.AssemblyTypeTable(), T.NativeInt),
             "ManifestResourceData" => _m.ManifestResourceData(),
-            // The shared framework the program was compiled against ("11.0.0-rc.2.26504.105"), as NativeAOT
+            // The shared framework the program was compiled against ("11.0.0"; "11.0.0-rc.2.26504.105" for an RC), as NativeAOT
             // bakes in its System.Private.CoreLib's version.
             "TargetArchitecture" => L.ConstInt(L.I32, _m.Types.Target.Triple.StartsWith("x86_64") ? 1 : _m.Types.Target.Triple.StartsWith("wasm32") ? 5
                 : _m.Types.Target.Triple.StartsWith("aarch64") || _m.Types.Target.Triple.StartsWith("arm64") ? 3 : 1),
+            "HasNativeIntegerConversion" => NativeIntegerConversionArch() is not null ? L.True : L.False,
+            "ConvertToInt32Native" => NativeIntegerConversion(args[0], L.I32),
+            "ConvertToInt64Native" => NativeIntegerConversion(args[0], L.I64),
             "FrameworkVersion" => _m.StringLiteral(Frontend.SharedFramework.ProductVersion
                 ?? (Path.GetFileName(Frontend.SharedFramework.Directory?.TrimEnd('/', '\\') ?? "") is { Length: > 0 } version ? version : "11.0.0")),
             "TypeInfoTableAddress" => _b.Cast(LLVMOpcode.PtrToInt, _m.TypeInfoTable(), T.NativeInt),
@@ -178,13 +169,12 @@ public sealed partial class FunctionCodeGen
             "DelegateTargetObject" => LastDelegateField(args[0], 1),
             "TryFaultAsyncTask" => CallRuntime("csrt_task_try_fault_async", L.I1, [L.Ptr, L.Ptr], args[0], args[1]),
             "CompareStringsWith" => CallRuntime("csrt_string_compare_with", L.I32, [L.Ptr, L.Ptr, L.I32], args[0], args[1], args[2]),
-            "JsonConfigureHook" => ProgramHook("JsonConfigure", target, args),
-            "JsonBuiltInHook" => ProgramHook("JsonBuiltIn", target, args),
             "ResourceObjectHook" => ProgramHook("ResourceObject", target, args),
-            "TypeConverterHook" => ProgramHook("TypeConverterFor", target, args),
-            "EventSourceAttribute" => _b.Call(_m.EventSourceAttributeFunction().Type, _m.EventSourceAttributeFunction().Fn, [args[0], args[1]]),
-            // A CancellationToken is its source object (null: None), so these are reinterpretations.
-            "TokenSource" or "SourceToken" => args[0],
+            "HasConverterResources" => _m.HasConverterResources() ? L.True : L.False,
+            "HasNonStringResources" => _m.HasNonStringResources() ? L.True : L.False,
+            "NestedTypeTable" => _b.Call(_m.NestedTypesFunction().Type, _m.NestedTypesFunction().Fn, [args[0], args[1]]),
+            // A CancellationToken is its source object (null: None), a ValueTask its task (null: default), so these are reinterpretations.
+            "TokenSource" or "SourceToken" or "ValueTaskObject" => args[0],
             // `extern R csrt_name(...)`: a direct call of that C runtime function (runtime/*.c).
             _ when target.Name.StartsWith("csrt_", StringComparison.Ordinal) => CallRuntime(target.Name,
                 target.ReturnsVoid ? L.Void : T.Value(target.ReturnType), [.. target.Parameters.Select(p => T.Value(p.Type))], args),
@@ -213,7 +203,7 @@ public sealed partial class FunctionCodeGen
 
     /// <summary>
     /// CoreIntrinsics.*Hook: calls the CsharpcCoreLib.ProgramHooks member the front end generated into the
-    /// program (Frontend/JsonReflectionContexts.cs); without one, nothing happens (null for a value). A
+    /// program (Frontend/ResourceConverters.cs); without one, nothing happens (null for a value). A
     /// precompiled corelib (ADR 0015) can't name code of the program it is linked into.
     /// </summary>
     private LLVMValueRef ProgramHook(string name, IMethodSymbol intrinsic, LLVMValueRef[] args)
@@ -264,127 +254,6 @@ public sealed partial class FunctionCodeGen
         return default;
     }
 
-    private LLVMValueRef EnumToUInt64(ITypeSymbol t, LLVMValueRef value)
-    {
-        if (t is not INamedTypeSymbol { EnumUnderlyingType: { } underlying }) throw CompileError.Unsupported($"EnumToUInt64 of non-enum '{t}'", (ISymbol)t);
-        if (value.Type.IntWidth == 64) return value;
-        return _b.Cast(TypeMapper.IsSigned(underlying) ? LLVMOpcode.SExt : LLVMOpcode.ZExt, value, L.I64);
-    }
-
-    private LLVMValueRef EnumFromUInt64(ITypeSymbol t, LLVMValueRef value)
-    {
-        var target = T.Value(t);
-        return target.IntWidth == 64 ? value : _b.Cast(LLVMOpcode.Trunc, value, target);
-    }
-
-    /// <summary>
-    /// Type → enum dispatch for the non-generic JsonStringEnumConverter (which .NET drives with
-    /// reflection): compares the Type with every enum the program declares or serializes, and either
-    /// answers "is an enum" or calls JsonEnumFactory.Create&lt;E&gt;(options, policy, serializerOptions).
-    /// </summary>
-    /// <summary>
-    /// JsonMetadataServices' converter for a built-in T, chosen at compile time: a run-time lookup by Type
-    /// would link every primitive converter into each program that uses JSON.
-    /// </summary>
-    private LLVMValueRef BuiltInJsonConverter(ITypeSymbol t)
-    {
-        string? name = t.SpecialType switch
-        {
-            SpecialType.System_Int32 => "Int32Converter",
-            SpecialType.System_String => "StringConverter",
-            SpecialType.System_Int64 => "Int64Converter",
-            SpecialType.System_Boolean => "BooleanConverter",
-            SpecialType.System_Double => "DoubleConverter",
-            SpecialType.System_Decimal => "DecimalConverter",
-            SpecialType.System_Single => "SingleConverter",
-            SpecialType.System_Int16 => "Int16Converter",
-            SpecialType.System_Byte => "ByteConverter",
-            SpecialType.System_SByte => "SByteConverter",
-            SpecialType.System_UInt16 => "UInt16Converter",
-            SpecialType.System_UInt32 => "UInt32Converter",
-            SpecialType.System_UInt64 => "UInt64Converter",
-            SpecialType.System_Char => "CharConverter",
-            SpecialType.System_DateTime => "DateTimeConverter",
-            SpecialType.System_Object => "ObjectConverter",
-            _ => null,
-        };
-        name ??= t switch
-        {
-            IArrayTypeSymbol { Rank: 1, ElementType.SpecialType: SpecialType.System_Byte } => "ByteArrayConverter",
-            INamedTypeSymbol n => n.ToDisplayString() switch
-            {
-                "System.TimeSpan" => "TimeSpanConverter",
-                "System.Int128" => "Int128Converter",
-                "System.UInt128" => "UInt128Converter",
-                "System.Half" or CoreLib.Namespace + ".HalfImpl" => "HalfConverter",
-                "System.DateOnly" or CoreLib.Namespace + ".DateOnlyImpl" => "DateOnlyConverter",
-                "System.TimeOnly" or CoreLib.Namespace + ".TimeOnlyImpl" => "TimeOnlyConverter",
-                "System.Uri" or CoreLib.Namespace + ".UriImpl" => "UriConverter",
-                "System.Version" or CoreLib.Namespace + ".VersionImpl" => "VersionConverter",
-                "System.ReadOnlyMemory<byte>" => "ReadOnlyMemoryByteConverter",
-                "System.Memory<byte>" => "MemoryByteConverter",
-                "System.DateTimeOffset" or CoreLib.Namespace + ".DateTimeOffsetImpl" => "DateTimeOffsetConverter",
-                "System.Text.Json.JsonElement" or CoreLib.Namespace + ".JsonElementImpl" => "JsonElementConverter",
-                "System.Text.Json.JsonDocument" or CoreLib.Namespace + ".JsonDocumentImpl" => "JsonDocumentConverter",
-                "System.Text.Json.Nodes.JsonNode" or CoreLib.Namespace + ".JsonNodeImpl" => "JsonNodeConverter",
-                "System.Text.Json.Nodes.JsonObject" or CoreLib.Namespace + ".JsonObjectImpl" => "JsonObjectConverter",
-                "System.Text.Json.Nodes.JsonArray" or CoreLib.Namespace + ".JsonArrayImpl" => "JsonArrayConverter",
-                "System.Text.Json.Nodes.JsonValue" or CoreLib.Namespace + ".JsonValueImpl" => "JsonValueConverter",
-                _ => null,
-            },
-            _ => null,
-        };
-        if (name is null) return LlvmContext.Null(L.Ptr);
-        var services = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".JsonMetadataServicesImpl")
-            ?? throw CompileError.Unsupported("corelib JsonMetadataServicesImpl not found", (ISymbol?)null!);
-        var getter = services.GetMembers(name).OfType<IPropertySymbol>().Single().GetMethod!;
-        return DirectCall(getter, []);
-    }
-
-    private LLVMValueRef JsonEnumSwitch(LLVMValueRef type, LLVMValueRef[]? createArgs)
-    {
-        var enums = _m.JsonEnumTypes();
-        var resultType = createArgs is null ? L.I1 : L.Ptr;
-        var result = NewTemp(resultType, "enum.switch");
-        _b.Store(createArgs is null ? L.False : LlvmContext.Null(L.Ptr), result);
-        var done = NewBlock("enum.done");
-        IMethodSymbol? create = null;
-        if (createArgs is not null)
-            create = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".JsonEnumFactory")?.GetMembers("Create").OfType<IMethodSymbol>().Single()
-                ?? throw CompileError.Unsupported("corelib JsonEnumFactory not found", (ISymbol?)null!);
-        foreach (var e in enums)
-        {
-            var hit = NewBlock("enum.hit");
-            var next = NewBlock("enum.next");
-            _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, type, TypeObject(e, null!)), hit, next);
-            _b.PositionAtEnd(hit);
-            _b.Store(createArgs is null ? L.True : DirectCall(create!.Construct(e), createArgs[1..]), result);
-            _b.Br(done);
-            _b.PositionAtEnd(next);
-        }
-        _b.Br(done);
-        _b.PositionAtEnd(done);
-        return _b.Load(resultType, result);
-    }
-
-    /// <summary>[JsonStringEnumMemberName("...")] on each enum member (Enum.GetNames order), read at compile time.</summary>
-    private LLVMValueRef EnumMemberJsonNames(ITypeSymbol t)
-    {
-        if (t is not INamedTypeSymbol { TypeKind: TypeKind.Enum } enumType) throw CompileError.Unsupported($"EnumMemberJsonNames of non-enum '{t}'", (ISymbol)t);
-        var members = _m.EnumMembers(enumType);
-        var fields = enumType.OriginalDefinition.GetMembers().OfType<IFieldSymbol>().Where(f => f.HasConstantValue).ToDictionary(f => f.Name);
-        var stringType = _m.Compilation.GetSpecialType(SpecialType.System_String);
-        var array = NewArray(stringType, L.ConstInt(L.I64, members.Count));
-        for (var i = 0; i < members.Count; i++)
-        {
-            var name = fields[members[i].Name].GetAttributes()
-                .FirstOrDefault(a => a.AttributeClass is { Name: "JsonStringEnumMemberNameAttribute" })?.ConstructorArguments.FirstOrDefault().Value as string;
-            _b.Store(name is null ? LlvmContext.Null(L.Ptr) : _m.StringLiteral(name),
-                _b.InBoundsGep(T.ArrayHeader(L.Ptr), array, [L.ConstInt(L.I32, 0), L.ConstInt(L.I32, 2), L.ConstInt(L.I64, i)]));
-        }
-        return array;
-    }
-
     /// <summary>
     /// Calls a static CsharpcCoreLib.&lt;type&gt;.&lt;method&gt; (an implementation moved from the C runtime to C#),
     /// picked by name and parameter count. Its body is lowered on demand.
@@ -413,7 +282,7 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef CallCoreLib(string type, string method, params LLVMValueRef[] args)
     {
         var owner = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + "." + type)
-            ?? throw CompileError.Unsupported($"corelib type '{type}' not found (is src/Csharpc/corelib shipped?)", (ISymbol?)null!);
+            ?? throw CompileError.Unsupported($"corelib type '{type}' not found (is src/Csharpc/corelib shipped?)");
         var target = owner.GetMembers(method).OfType<IMethodSymbol>().Single(m => m.IsStatic && m.Parameters.Length == args.Length);
         return DirectCall(target, args);
     }
@@ -422,7 +291,7 @@ public sealed partial class FunctionCodeGen
     internal LLVMValueRef CallCoreLibGenericMethod(string type, string method, ITypeSymbol[] typeArguments, params LLVMValueRef[] args)
     {
         var owner = _m.Compilation.GetTypeByMetadataName(CoreLib.Namespace + "." + type)
-            ?? throw CompileError.Unsupported($"corelib type '{type}' not found (is src/Csharpc/corelib shipped?)", (ISymbol?)null!);
+            ?? throw CompileError.Unsupported($"corelib type '{type}' not found (is src/Csharpc/corelib shipped?)");
         var target = owner.GetMembers(method).OfType<IMethodSymbol>()
             .Single(m => m.IsStatic && m.Parameters.Length == args.Length && m.TypeParameters.Length == typeArguments.Length);
         return DirectCall(target.Construct(typeArguments), args);
@@ -476,7 +345,7 @@ public sealed partial class FunctionCodeGen
 
     /// <summary>
     /// CoreIntrinsics.FormatValue: a library struct with its own ToString(string, IFormatProvider) lowering
-    /// (BigInteger, Int128...) is formatted through it, as `value.ToString(format, provider)` in source would be:
+    /// (Int128...) is formatted through it, as `value.ToString(format, provider)` in source would be:
     /// its box (if it has one) isn't IFormattable. Null for every other T.
     /// </summary>
     private LLVMValueRef FormatValueDirect(ITypeSymbol t, LLVMValueRef[] args, IInvocationOperation inv)
@@ -532,7 +401,7 @@ public sealed partial class FunctionCodeGen
         if (!t.IsValueType) return obj; // reference types: the corelib only uses this where the type is known
         try
         {
-            var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(t, at));
+            var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], obj, TypeTestMethodTable(t) ?? MethodTableFor(t, at));
             return LoadValue(payload, t);
         }
         catch (CompileError)
@@ -614,8 +483,6 @@ public sealed partial class FunctionCodeGen
         t = EnumBase(t);
         if (IsIntegral(t) || Int128Support.Is128(t)) return _b.ICmp(LLVMIntPredicate.EQ, a, b);
         if (BclValueTypes.IsTicks(t)) return _b.ICmp(LLVMIntPredicate.EQ, BclValueTypes.TicksOf(this, t, a), BclValueTypes.TicksOf(this, t, b));
-        if (BclValueTypes.IsBigInteger(t))
-            return _b.ICmp(LLVMIntPredicate.EQ, CallRuntime("csrt_bigint_compare", L.I32, [L.Ptr, L.Ptr], a, b), L.ConstInt(L.I32, 0));
         if (t.SpecialType == SpecialType.System_Decimal) // decimal equality is by value (1.0m == 1.00m)
             return _b.ICmp(LLVMIntPredicate.EQ, CallRuntime("csrt_decimal_compare", L.I32, [L.Ptr, L.Ptr], Spill(a), Spill(b)), L.ConstInt(L.I32, 0));
         if (TypeMapper.IsFloatingPoint(t))
@@ -689,7 +556,6 @@ public sealed partial class FunctionCodeGen
                 _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.LShr, a, L.ConstInt(a.Type, 64)), L.I64));
             return _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.Xor, folded, _b.BinOp(LLVMOpcode.LShr, folded, L.ConstInt(L.I64, 32))), i32);
         }
-        if (BclValueTypes.IsBigInteger(t)) return CallRuntime("csrt_bigint_get_hash_code", i32, [L.Ptr], a);
         if (BclValueTypes.IsTicks(t)) // TimeSpan/DateTime.GetHashCode: (int)ticks ^ (int)(ticks >> 32), DateTime's Kind excluded
         {
             a = BclValueTypes.TicksOf(this, t, a);
@@ -820,7 +686,7 @@ public sealed partial class FunctionCodeGen
         LLVMValueRef Sign(LLVMValueRef gt, LLVMValueRef lt) =>
             _b.BinOp(LLVMOpcode.Sub, _b.Cast(LLVMOpcode.ZExt, gt, i32), _b.Cast(LLVMOpcode.ZExt, lt, i32));
 
-        if (IsIntegral(t)) return BclValueTypes.IntegerCompareTo(this, a, b, TypeMapper.IsSigned(t));
+        if (IsIntegral(t) || Int128Support.Is128(t)) return BclValueTypes.IntegerCompareTo(this, a, b, TypeMapper.IsSigned(t));
         if (TypeMapper.IsFloatingPoint(t))
         {
             // double.CompareTo: NaN is smaller than everything (and equal to NaN).
@@ -848,7 +714,6 @@ public sealed partial class FunctionCodeGen
             var valueOrder = CompareOf(u, NullablePayload(a, u), NullablePayload(b, u), at);
             return _b.Select(_b.BinOp(LLVMOpcode.And, ha, hb), valueOrder, nullOrder);
         }
-        if (BclValueTypes.IsBigInteger(t)) return CallRuntime("csrt_bigint_compare", i32, [L.Ptr, L.Ptr], a, b);
         if (t is INamedTypeSymbol { IsTupleType: true } tuple)
         {
             // ValueTuple.CompareTo: lexicographic over the elements with Comparer<Ti>.Default.
@@ -863,9 +728,10 @@ public sealed partial class FunctionCodeGen
         var nonGeneric = comparable is null ? NonGenericComparable(t) : null;
         if (comparable is null && nonGeneric is null && t.TypeKind is not (TypeKind.Interface or TypeKind.TypeParameter) && t.SpecialType != SpecialType.System_Object)
         {
-            // .NET throws InvalidOperationException("Failed to compare two elements in the array.") at runtime.
-            ThrowAndContinue("System.InvalidOperationException", "Failed to compare two elements in the array.");
-            return L.ConstInt(i32, 0);
+            // .NET's Comparer<T>.Default for such a T is an ObjectComparer: Comparer.Default.Compare on the boxed values, which
+            // throws ArgumentException("At least one object must implement IComparable.") unless they are the same reference
+            // or null (#246). Sorts wrap it in their InvalidOperationException ("Failed to compare two elements in the array.").
+            return CallCoreLib("ObjectComparison", "Compare", t.IsValueType ? Box(a, t, at) : a, t.IsValueType ? Box(b, t, at) : b);
         }
 
         LLVMValueRef Call()

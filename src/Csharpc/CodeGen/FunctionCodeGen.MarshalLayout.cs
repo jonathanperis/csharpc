@@ -472,7 +472,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef UnboxedAddress(LLVMValueRef box, ITypeSymbol type)
     {
         ThrowMarshalIfNull(box, "structure");
-        return CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], box, MethodTableFor(type, null!));
+        return CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], box, TypeTestMethodTable(type) ?? MethodTableFor(type, null!));
     }
 
     // DestroyStructure<T>(IntPtr) / DestroyStructure(IntPtr, Type)

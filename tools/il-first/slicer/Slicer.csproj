@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Cuts the part of System.Private.CoreLib's IL that a list of types needs into a standalone assembly (see Program.cs, docs/21-ownership.md
        Part B, ADR 0023). src/Csharpc/Csharpc.csproj builds it and runs it after every build of the compiler (the types served from the
-       framework's IL: src/Csharpc/upstream-types.txt); tools/il-first/slicer/slice.sh runs it for experiments. A BUILD-TIME TOOL ONLY:
+       framework's IL: src/Csharpc/upstream-types/); tools/il-first/slicer/slice.sh runs it for experiments. A BUILD-TIME TOOL ONLY:
        Mono.Cecil comes from the Microsoft.NET.ILLink.Tasks package (the one the SDK restores for trimming and PublishAot; Csharpc.csproj
        downloads it with a PackageDownload, as it does crossgen2) and is never referenced by the compiler or shipped. -->
   <PropertyGroup>

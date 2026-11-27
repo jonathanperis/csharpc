@@ -45,7 +45,8 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     internal LLVMValueRef TaskMethodTable(INamedTypeSymbol task, bool observed)
     {
-        var key = "type:" + CoreLib.Map(TypeSubstitution.EraseTupleNames(task, Compilation)).ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+        if (IsCanonDependent(task)) return CanonMethodTable; // shared generic code: the exact table comes from a dictionary
+        var key = "type:" + IdentityKey(CoreLib.Map(TypeSubstitution.EraseTupleNames(task, Compilation)));
         if (!_taskTables.TryGetValue(key, out var entry))
         {
             var global = Module.AddGlobal("csrt.taskmt." + Mangler.MetadataName(task), TaskTableType, constant: true, linkage: LLVMLinkage.Private);
