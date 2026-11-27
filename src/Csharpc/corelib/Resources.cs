@@ -217,13 +217,29 @@ namespace CsharpcCoreLib
                 object[] converted = CoreIntrinsics.ResourceObjectHook(type, text);
                 if (converted != null) return converted[0] ?? throw new NullReferenceException();
             }
+            // Format 2: the converter's byte array (a WinForms .resx's images and icons), DeserializingResourceReader's
+            // TypeDescriptor.GetConverter(type).ConvertFrom(bytes); a byte[] itself gets TypeDescriptor's ArrayConverter (#300).
+            else if (stored == ConverterBytes && CoreIntrinsics.HasConverterResources())
+            {
+                byte[] data = Convert.FromBase64String(text);
+                if (type == "System.Byte[]") return TypeDescriptor.GetConverter(typeof(byte[])).ConvertFrom(data) ?? throw new NullReferenceException();
+                object[] converted = CoreIntrinsics.ResourceObjectFromBytesHook(type, data);
+                if (converted != null) return converted[0] ?? throw new NullReferenceException();
+            }
+            // Format 4: a read-only stream of the bytes for the type's (Stream) constructor (a ResXFileRef), as Activator.CreateInstance(type, stream).
+            else if (stored == ActivatorStream && CoreIntrinsics.HasConverterResources())
+            {
+                object[] created = CoreIntrinsics.ResourceObjectFromStreamHook(type, new System.IO.MemoryStream(Convert.FromBase64String(text), false));
+                if (created != null) return created[0];
+            }
             throw new NotSupportedException("csharpc: the resource '" + name + "' of '" + baseName + "' is a " + type
                 + (stored != null && stored != ConverterString ? " stored " + StoredHow(stored) : "")
-                + ", which ResourceManager.GetObject does not create yet (only strings, numbers, bools, chars, byte arrays, streams and types whose TypeConverter csharpc can create from the string in the .resx, from the types the project's .resx files name).");
+                + ", which ResourceManager.GetObject does not create yet (only strings, numbers, bools, chars, byte arrays, streams, and the types the project's .resx files name whose TypeConverter or (Stream) constructor csharpc can call).");
         }
 
         // A preserialized value that is the type converter's string ("\u0002" + this after the type name).
         private const string ConverterString = "3";
+        private const string ConverterBytes = "2", ActivatorStream = "4";
 
         private static string StoredHow(string format)
         {
