@@ -1,0 +1,10 @@
+bool: true shared, false shared, true/false new
+int: -2 new, -1 shared, 0 shared, 8 shared, 9 new, 1000 new
+long: 0 shared, 1 new; byte 0 shared; char 0 shared; short 0 shared
+double: 0.0 shared, -0.0 new, 1.5 new; decimal 0 shared
+Int128 0 shared, Guid.Empty shared, DateTime default shared
+string: null shared, "" new; object null shared
+int?: null shared, 0 new; long?: null shared
+struct Pair default shared, Pair(1,0) new
+struct WithRef default new, three bytes default new
+shared task: RanToCompletion, True, id>0 True, options None, state null

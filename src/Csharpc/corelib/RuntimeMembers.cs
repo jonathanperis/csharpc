@@ -189,6 +189,12 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Environment")]
     internal static class EnvironmentVersionMembers
     {
+        /// <summary>Environment.IsSingleProcessor (internal upstream; ReaderWriterLockSlim and the spin waits read it).</summary>
+        public static bool IsSingleProcessor => Environment.ProcessorCount == 1;
+
+        /// <summary>Environment.HasShutdownStarted: always false in .NET Core (finalizers don't run on shutdown); SocketAsyncEventArgs' finalizer asks it.</summary>
+        public static bool HasShutdownStarted => false;
+
         private static Version s_version;
 
         /// <summary>The runtime's major.minor.build ("11.0.0" for 11.0.0-rc.2.*), as .NET reports Environment.Version.</summary>
@@ -237,6 +243,10 @@ namespace CsharpcCoreLib
         public static int ThreadCount => PoolThreads();
         public static long PendingWorkItemCount => PoolPending();
         public static long CompletedWorkItemCount => PoolCompleted();
+
+        // An I/O completion of the Windows CoreLib's overlapped file I/O (ThreadPoolBoundHandle.OnNativeIOCompleted) runs as one csharpc
+        // thread-pool work item (corelib/UpstreamThreadPoolIo.cs), which the pool's completed count already includes.
+        public static void IncrementCompletedWorkItemCount() { }
     }
 
     [ShadowMembers("System.Environment")]
@@ -397,6 +407,39 @@ namespace CsharpcCoreLib
             try { handlers(CurrentDomain, EventArgs.Empty); }
             catch (Exception e) { CoreIntrinsics.UnhandledException(e); }
         }
+
+        // UnhandledException (#97) is raised once, with a null sender and IsTerminating true, when an exception reaches the top of a thread with no
+        // handler, before the runtime prints it and terminates the process (runtime/eh.c); the first handler registers the raiser.
+        private static readonly object s_unhandledLock = new object();
+        private static UnhandledExceptionEventHandler s_unhandled;
+
+        public event UnhandledExceptionEventHandler UnhandledException
+        {
+            add
+            {
+                lock (s_unhandledLock) s_unhandled = (UnhandledExceptionEventHandler)Delegate.Combine(s_unhandled, value);
+                CoreIntrinsics.csrt_unhandled_exception_register();
+            }
+            remove
+            {
+                lock (s_unhandledLock) s_unhandled = (UnhandledExceptionEventHandler)Delegate.Remove(s_unhandled, value);
+            }
+        }
+
+        [RuntimeExport("csrt_unhandled_exception_raise", "csrt_unhandled_exception_register")]
+        internal static void RaiseUnhandledException(object exception)
+        {
+            UnhandledExceptionEventHandler handlers;
+            lock (s_unhandledLock) handlers = s_unhandled;
+            if (handlers == null) return;
+            // An exception a handler throws is not reported again: the process is terminating with the first one.
+            // .NET Core raises it with a null sender (AppContext.OnUnhandledException).
+            try { handlers(null, new UnhandledExceptionEventArgs(exception, true)); }
+            catch (Exception) { }
+        }
+
+        // The one app domain is never unloaded.
+        public bool IsFinalizingForUnload() => false;
 
         public Assembly Load(AssemblyName assemblyRef) => Assembly.Load(assemblyRef);
         public Assembly Load(string assemblyString) => Assembly.Load(assemblyString);

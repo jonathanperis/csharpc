@@ -119,4 +119,34 @@ namespace CsharpcCoreLib
         public static (T1, T2, T3, T4, T5, T6) Create<T1, T2, T3, T4, T5, T6>(T1 item1, T2 item2, T3 item3, T4 item4, T5 item5, T6 item6) => (item1, item2, item3, item4, item5, item6);
         public static (T1, T2, T3, T4, T5, T6, T7) Create<T1, T2, T3, T4, T5, T6, T7>(T1 item1, T2 item2, T3 item3, T4 item4, T5 item5, T6 item6, T7 item7) => (item1, item2, item3, item4, item5, item6, item7);
     }
+
+    /// <summary>
+    /// System.TupleExtensions (#104) for the reference tuples csharpc has (one to seven items): Deconstruct, ToValueTuple and ToTuple,
+    /// as .NET's. A null tuple is a NullReferenceException, as there.
+    /// </summary>
+    [Shadows("System.TupleExtensions")]
+    public static class TupleExtensionsImpl
+    {
+        public static void Deconstruct<T1>(this Tuple<T1> value, out T1 item1) { item1 = value.Item1; }
+        public static ValueTuple<T1> ToValueTuple<T1>(this Tuple<T1> value) => new ValueTuple<T1>(value.Item1);
+        public static Tuple<T1> ToTuple<T1>(this ValueTuple<T1> value) => new Tuple<T1>(value.Item1);
+        public static void Deconstruct<T1,T2>(this Tuple<T1,T2> value, out T1 item1, out T2 item2) { item1 = value.Item1; item2 = value.Item2; }
+        public static ValueTuple<T1,T2> ToValueTuple<T1,T2>(this Tuple<T1,T2> value) => new ValueTuple<T1,T2>(value.Item1, value.Item2);
+        public static Tuple<T1,T2> ToTuple<T1,T2>(this ValueTuple<T1,T2> value) => new Tuple<T1,T2>(value.Item1, value.Item2);
+        public static void Deconstruct<T1,T2,T3>(this Tuple<T1,T2,T3> value, out T1 item1, out T2 item2, out T3 item3) { item1 = value.Item1; item2 = value.Item2; item3 = value.Item3; }
+        public static ValueTuple<T1,T2,T3> ToValueTuple<T1,T2,T3>(this Tuple<T1,T2,T3> value) => new ValueTuple<T1,T2,T3>(value.Item1, value.Item2, value.Item3);
+        public static Tuple<T1,T2,T3> ToTuple<T1,T2,T3>(this ValueTuple<T1,T2,T3> value) => new Tuple<T1,T2,T3>(value.Item1, value.Item2, value.Item3);
+        public static void Deconstruct<T1,T2,T3,T4>(this Tuple<T1,T2,T3,T4> value, out T1 item1, out T2 item2, out T3 item3, out T4 item4) { item1 = value.Item1; item2 = value.Item2; item3 = value.Item3; item4 = value.Item4; }
+        public static ValueTuple<T1,T2,T3,T4> ToValueTuple<T1,T2,T3,T4>(this Tuple<T1,T2,T3,T4> value) => new ValueTuple<T1,T2,T3,T4>(value.Item1, value.Item2, value.Item3, value.Item4);
+        public static Tuple<T1,T2,T3,T4> ToTuple<T1,T2,T3,T4>(this ValueTuple<T1,T2,T3,T4> value) => new Tuple<T1,T2,T3,T4>(value.Item1, value.Item2, value.Item3, value.Item4);
+        public static void Deconstruct<T1,T2,T3,T4,T5>(this Tuple<T1,T2,T3,T4,T5> value, out T1 item1, out T2 item2, out T3 item3, out T4 item4, out T5 item5) { item1 = value.Item1; item2 = value.Item2; item3 = value.Item3; item4 = value.Item4; item5 = value.Item5; }
+        public static ValueTuple<T1,T2,T3,T4,T5> ToValueTuple<T1,T2,T3,T4,T5>(this Tuple<T1,T2,T3,T4,T5> value) => new ValueTuple<T1,T2,T3,T4,T5>(value.Item1, value.Item2, value.Item3, value.Item4, value.Item5);
+        public static Tuple<T1,T2,T3,T4,T5> ToTuple<T1,T2,T3,T4,T5>(this ValueTuple<T1,T2,T3,T4,T5> value) => new Tuple<T1,T2,T3,T4,T5>(value.Item1, value.Item2, value.Item3, value.Item4, value.Item5);
+        public static void Deconstruct<T1,T2,T3,T4,T5,T6>(this Tuple<T1,T2,T3,T4,T5,T6> value, out T1 item1, out T2 item2, out T3 item3, out T4 item4, out T5 item5, out T6 item6) { item1 = value.Item1; item2 = value.Item2; item3 = value.Item3; item4 = value.Item4; item5 = value.Item5; item6 = value.Item6; }
+        public static ValueTuple<T1,T2,T3,T4,T5,T6> ToValueTuple<T1,T2,T3,T4,T5,T6>(this Tuple<T1,T2,T3,T4,T5,T6> value) => new ValueTuple<T1,T2,T3,T4,T5,T6>(value.Item1, value.Item2, value.Item3, value.Item4, value.Item5, value.Item6);
+        public static Tuple<T1,T2,T3,T4,T5,T6> ToTuple<T1,T2,T3,T4,T5,T6>(this ValueTuple<T1,T2,T3,T4,T5,T6> value) => new Tuple<T1,T2,T3,T4,T5,T6>(value.Item1, value.Item2, value.Item3, value.Item4, value.Item5, value.Item6);
+        public static void Deconstruct<T1,T2,T3,T4,T5,T6,T7>(this Tuple<T1,T2,T3,T4,T5,T6,T7> value, out T1 item1, out T2 item2, out T3 item3, out T4 item4, out T5 item5, out T6 item6, out T7 item7) { item1 = value.Item1; item2 = value.Item2; item3 = value.Item3; item4 = value.Item4; item5 = value.Item5; item6 = value.Item6; item7 = value.Item7; }
+        public static ValueTuple<T1,T2,T3,T4,T5,T6,T7> ToValueTuple<T1,T2,T3,T4,T5,T6,T7>(this Tuple<T1,T2,T3,T4,T5,T6,T7> value) => new ValueTuple<T1,T2,T3,T4,T5,T6,T7>(value.Item1, value.Item2, value.Item3, value.Item4, value.Item5, value.Item6, value.Item7);
+        public static Tuple<T1,T2,T3,T4,T5,T6,T7> ToTuple<T1,T2,T3,T4,T5,T6,T7>(this ValueTuple<T1,T2,T3,T4,T5,T6,T7> value) => new Tuple<T1,T2,T3,T4,T5,T6,T7>(value.Item1, value.Item2, value.Item3, value.Item4, value.Item5, value.Item6, value.Item7);
+    }
 }

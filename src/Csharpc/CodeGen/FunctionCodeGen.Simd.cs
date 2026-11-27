@@ -5,7 +5,7 @@ using Microsoft.CodeAnalysis.Operations;
 namespace Csharpc.CodeGen;
 
 /// <summary>
-/// <c>Vector128&lt;T&gt;</c> on LLVM vectors (issue #252). A Vector128 is a <c>&lt;16 x i8&gt;</c> whatever its element type; an operation views it as
+/// <c>Vector128&lt;T&gt;</c> (and <c>System.Numerics.Vector&lt;T&gt;</c> at the same 16 bytes) on LLVM vectors (issue #252). A Vector128 is a <c>&lt;16 x i8&gt;</c> whatever its element type; an operation views it as
 /// <c>&lt;N x T&gt;</c> by bitcast and returns it as <c>&lt;16 x i8&gt;</c> again, so <c>As&lt;T, U&gt;</c> and the <c>AsByte</c> family are the identity.
 /// The framework's span helpers (<c>SpanHelpers.IndexOfValueType</c>, <c>IndexOfAny</c>, <c>SequenceEqual</c>...) test
 /// <c>Vector128.IsHardwareAccelerated</c> and then run their vector path, which this serves for both front-ends: <see cref="TrySimdCall"/>
@@ -30,9 +30,17 @@ public sealed partial class FunctionCodeGen
     private static bool InIntrinsicsNamespace(INamedTypeSymbol type) =>
         type.ContainingNamespace is { Name: "Intrinsics", ContainingNamespace: { Name: "Runtime", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } };
 
-    private static bool IsVector128Struct(ITypeSymbol? type) => type is INamedTypeSymbol { Name: "Vector128", Arity: 1 } n && InIntrinsicsNamespace(n);
+    /// <summary>System.Numerics.Vector / Vector&lt;T&gt;: 16 bytes here (NativeAOT's default on x64 and arm64), so the same lowering as Vector128.</summary>
+    internal static bool InNumericsNamespace(INamedTypeSymbol type) =>
+        type.ContainingNamespace is { Name: "Numerics", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } };
 
-    private static bool IsVector128Class(ITypeSymbol? type) => type is INamedTypeSymbol { Name: "Vector128", Arity: 0 } n && InIntrinsicsNamespace(n);
+    private static bool IsVector128Struct(ITypeSymbol? type) =>
+        type is INamedTypeSymbol { Name: "Vector128", Arity: 1 } n && InIntrinsicsNamespace(n)
+        || type is INamedTypeSymbol { Name: "Vector", Arity: 1, ContainingType: null } v && InNumericsNamespace(v);
+
+    private static bool IsVector128Class(ITypeSymbol? type) =>
+        type is INamedTypeSymbol { Name: "Vector128", Arity: 0 } n && InIntrinsicsNamespace(n)
+        || type is INamedTypeSymbol { Name: "Vector", Arity: 0, ContainingType: null } v && InNumericsNamespace(v);
 
     private SimdElement ElementOf(ITypeSymbol type, IOperation? at = null)
     {
@@ -129,6 +137,14 @@ public sealed partial class FunctionCodeGen
             return EmitSimd(property.GetMethod!, property.ContainingType.TypeArguments[0], EmitValue(p.Instance), [EmitValue(p.Arguments[0].Value)], p);
         if (!property.IsStatic) return null;
         if (IsVector128Class(property.ContainingType) && property.Name == "IsHardwareAccelerated") return Vector128Accelerated ? L.True : L.False;
+        // Vector64/256/512<T>.Count: their lane count, a constant, which the framework's code reads next to an IsHardwareAccelerated test
+        // (false here) to size buffers and loop bounds (BitArray.CreateArray); their operations stay opaque.
+        if (property.Name == "Count" && property.ContainingType is INamedTypeSymbol { Name: "Vector64" or "Vector256" or "Vector512", Arity: 1 } wide
+            && InIntrinsicsNamespace(wide))
+        {
+            var bits = wide.Name switch { "Vector64" => 64, "Vector256" => 256, _ => 512 };
+            return L.ConstInt(L.I32, bits / ElementOf(wide.TypeArguments[0], p).Bits);
+        }
         var vector = SimdVectorOf(property.ContainingType, p.ConstrainedToType);
         if (vector is null) return null;
         if (property.Name == "IsHardwareAccelerated") return Vector128Accelerated ? L.True : L.False;
@@ -139,6 +155,7 @@ public sealed partial class FunctionCodeGen
             "One" => Raw(Splat(element.IsFloat ? LlvmContext.ConstReal(element.Llvm, 1) : L.ConstInt(element.Llvm, 1), element)),
             "AllBitsSet" => ConstAllOnes(),
             "Count" or "ElementCount" => L.ConstInt(L.I32, element.Count),
+            "Indices" => Raw(Native.LLVMConstVector([.. Enumerable.Range(0, element.Count).Select(i => element.IsFloat ? LlvmContext.ConstReal(element.Llvm, i) : L.ConstInt(element.Llvm, i))], (uint)element.Count)),
             "IsSupported" => L.True,
             _ => null,
         };
@@ -148,16 +165,47 @@ public sealed partial class FunctionCodeGen
     private INamedTypeSymbol? SimdVectorOf(INamedTypeSymbol owner, ITypeSymbol? constrainedTo)
     {
         if (IsVector128Struct(owner)) return owner;
-        if (owner is { TypeKind: TypeKind.Interface, Name: "ISimdVector" } && constrainedTo is not null && S(constrainedTo) is INamedTypeSymbol concrete && IsVector128Struct(concrete)) return concrete;
+        // A constrained call on any interface Vector128<T> implements (ISimdVector<TSelf, T>, and the generic-math operator interfaces:
+        // `constrained. TVector call IBitwiseOperators<...>::op_BitwiseAnd` in BitArray's IL) is the vector's own member of that name.
+        if (owner.TypeKind == TypeKind.Interface && constrainedTo is not null && S(constrainedTo) is INamedTypeSymbol concrete && IsVector128Struct(concrete)) return concrete;
         return null;
     }
 
     private LLVMValueRef ConstAllOnes() => Native.LLVMConstAllOnes(RawVector);
 
+    /// <summary>
+    /// <c>new Vector&lt;T&gt;(T value)</c> (every lane the value) and <c>new Vector&lt;T&gt;(ReadOnlySpan&lt;T&gt; / Span&lt;T&gt; values)</c> (the first 16 bytes; a span
+    /// that is too short throws ArgumentOutOfRangeException, as .NET's). Other forms (arrays, bytes) are an explicit diagnostic.
+    /// </summary>
+    private LLVMValueRef? TrySimdCreation(IObjectCreationOperation creation, INamedTypeSymbol type)
+    {
+        if (!IsVector128Struct(type) || creation.Constructor is not { Parameters.Length: 1 } constructor) return null;
+        var parameter = S(constructor.Parameters[0].Type);
+        var element = ElementOf(type.TypeArguments[0], creation);
+        if (SymbolEqualityComparer.Default.Equals(parameter, element.Type))
+            return Raw(Splat(EmitArgumentValue(creation.Arguments[0]), element));
+        if (parameter is INamedTypeSymbol { Name: "ReadOnlySpan" or "Span", TypeArguments: [var spanElement] } && TypeMapper.IsSpan(parameter))
+        {
+            var span = EmitArgumentValue(creation.Arguments[0]);
+            var perVector = 16 / (int)T.Target.SizeOf(T.Storage(S(spanElement)));
+            var tooShort = NewBlock("simd.span.short");
+            var ok = NewBlock("simd.span.ok");
+            _b.CondBr(_b.ICmp(LLVMIntPredicate.SLT, SpanLength(span), L.ConstInt(L.I32, perVector)), tooShort, ok);
+            _b.PositionAtEnd(tooShort);
+            ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.ArgumentOutOfRangeException")!, "Specified argument was out of the range of valid values. (Parameter 'values')");
+            _b.PositionAtEnd(ok);
+            return Load128(SpanPointer(span));
+        }
+        return null;
+    }
+
     private LLVMValueRef? TrySimdCall(IInvocationOperation inv, IMethodSymbol target)
     {
         var owner = target.ContainingType;
-        var constrained = SimdVectorOf(owner, inv.ConstrainedToType);
+        if (IsVector64Class(owner) && target.IsStatic)
+            return TryVector64(target, inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a => EmitArgument(a, target)).ToArray(), inv);
+        // A C# generic method instantiated with a Vector128 (`a.Equals(b)` with T : IEquatable<T>) names no constrained type: the receiver's is it.
+        var constrained = SimdVectorOf(owner, inv.ConstrainedToType ?? (owner.TypeKind == TypeKind.Interface && inv.Instance is { } receiver ? TypeOf(receiver) : null));
         if (!IsVector128Class(owner) && constrained is null) return null;
         var arguments = inv.Arguments.OrderBy(a => a.Parameter!.Ordinal).Select(a => EmitArgument(a, target)).ToArray();
         // The element type: the vector the operation produces or takes first, else its type argument.
@@ -175,7 +223,8 @@ public sealed partial class FunctionCodeGen
     {
         var name = target.Name;
         // Members that name no element type: conversions between element views are the identity on the raw bytes.
-        if (name is "As" or "AsByte" or "AsSByte" or "AsUInt16" or "AsInt16" or "AsUInt32" or "AsInt32" or "AsUInt64" or "AsInt64" or "AsSingle" or "AsDouble" or "AsNInt" or "AsNUInt")
+        if (name is "As" or "AsByte" or "AsSByte" or "AsUInt16" or "AsInt16" or "AsUInt32" or "AsInt32" or "AsUInt64" or "AsInt64" or "AsSingle" or "AsDouble" or "AsNInt" or "AsNUInt"
+            || name.StartsWith("AsVector", StringComparison.Ordinal)) // Vector.AsVectorInt32 ...
             return a[0];
         if (elementType is null) throw CompileError.Unsupported($"'{target}'", at);
         var e = ElementOf(elementType, at);
@@ -196,6 +245,143 @@ public sealed partial class FunctionCodeGen
             case "get_Zero": return Zero();
             case "get_AllBitsSet": return ConstAllOnes();
             case "get_Count" or "get_ElementCount": return L.ConstInt(L.I32, e.Count);
+            case "Create" when a.Length == 1 && a[0].Type.Kind == LLVMTypeKind.Struct: // Create(ReadOnlySpan<T>): the first vector's worth
+            {
+                var tooShort = NewBlock("simd.span.short");
+                var ok = NewBlock("simd.span.ok");
+                _b.CondBr(_b.ICmp(LLVMIntPredicate.SLT, SpanLength(a[0]), L.ConstInt(L.I32, e.Count)), tooShort, ok);
+                _b.PositionAtEnd(tooShort);
+                ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.ArgumentOutOfRangeException")!, "Specified argument was out of the range of valid values. (Parameter 'values')");
+                _b.PositionAtEnd(ok);
+                return Load128(SpanPointer(a[0]));
+            }
+            case "Widen" when a.Length == 3: // Widen(source, out low, out high): the lower and upper half, each lane twice as wide
+            {
+                var wide = ElementOf(((INamedTypeSymbol)target.Parameters[1].Type).TypeArguments[0], at);
+                var source = View(a[0], e);
+                var half = e.Count / 2;
+                LLVMValueRef Half(int start)
+                {
+                    var mask = Native.LLVMConstVector([.. Enumerable.Range(start, half).Select(i => L.ConstInt(L.I32, i))], (uint)half);
+                    var lanes = _b.ShuffleVector(source, Native.LLVMGetPoison(VectorOf(e)), mask);
+                    var to = Native.LLVMVectorType(wide.Llvm, (uint)half);
+                    return Raw(_b.Cast(e.IsFloat ? LLVMOpcode.FPExt : e.IsSigned ? LLVMOpcode.SExt : LLVMOpcode.ZExt, lanes, to));
+                }
+                foreach (var (address, value) in new[] { (a[1], Half(0)), (a[2], Half(half)) })
+                    Native.LLVMSetAlignment(_b.Store(value, address), 1);
+                return default;
+            }
+            case "Create" or "CopyTo" when target.Parameters.Any(p => p.Type is IArrayTypeSymbol):
+            {
+                // Create(T[] values[, int index]) and CopyTo(T[] destination[, int startIndex]), with .NET's checks and messages.
+                var create = name == "Create";
+                var arrayAt = target.Parameters.ToList().FindIndex(p => p.Type is IArrayTypeSymbol);
+                var array = a[arrayAt];
+                var vector = create ? default : target.IsStatic ? a[0] : instance;
+                NullCheck(array);
+                var length = LoadArrayLength(array);
+                var index = a.Length > arrayAt + 1 ? _b.Cast(LLVMOpcode.SExt, a[arrayAt + 1], L.I64) : L.ConstInt(L.I64, 0);
+                var hasIndex = a.Length > arrayAt + 1;
+                var count = L.ConstInt(L.I64, e.Count);
+                void Throw(LLVMValueRef bad, string type, string message)
+                {
+                    var fail = NewBlock("simd.array.bad");
+                    var ok = NewBlock("simd.array.ok");
+                    _b.CondBr(bad, fail, ok);
+                    _b.PositionAtEnd(fail);
+                    ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName(type)!, message);
+                    _b.PositionAtEnd(ok);
+                }
+                var room = _b.BinOp(LLVMOpcode.Sub, length, index);
+                if (create)
+                    Throw(hasIndex ? _b.BinOp(LLVMOpcode.Or, _b.ICmp(LLVMIntPredicate.SLT, index, L.ConstInt(L.I64, 0)), _b.ICmp(LLVMIntPredicate.SLT, room, count))
+                        : _b.ICmp(LLVMIntPredicate.SLT, length, count),
+                        "System.ArgumentOutOfRangeException", "Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'index')");
+                else
+                {
+                    if (hasIndex)
+                        Throw(_b.ICmp(LLVMIntPredicate.UGE, index, length), "System.ArgumentOutOfRangeException",
+                            "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'startIndex')");
+                    Throw(_b.ICmp(LLVMIntPredicate.SLT, room, count), "System.ArgumentException", "Destination is too short. (Parameter 'destination')");
+                }
+                var start = Offset(_b.StructGep(T.ArrayHeader(L.I8), array, 2), index, e);
+                if (create) return Load128(start);
+                Native.LLVMSetAlignment(_b.Store(vector, start), 1);
+                return default;
+            }
+            case "WidenLower" or "WidenUpper" when a.Length == 1:
+            {
+                // (the element type taken above is the result's; the lanes come from the source's)
+                var source = ElementOf(((INamedTypeSymbol)target.Parameters[0].Type).TypeArguments[0], at);
+                return WidenHalf(a[0], source, e, name == "WidenLower" ? 0 : source.Count / 2);
+            }
+            case "Widen" when a.Length == 1: // Widen(source): (Lower, Upper), each lane twice as wide
+            {
+                var tuple = (INamedTypeSymbol)target.ReturnType;
+                var wide = ElementOf(((INamedTypeSymbol)tuple.TupleElements[0].Type).TypeArguments[0], at);
+                var pair = Native.LLVMGetPoison(T.Storage(tuple));
+                pair = _b.InsertValue(pair, WidenHalf(a[0], e, wide, 0), 0);
+                return _b.InsertValue(pair, WidenHalf(a[0], e, wide, e.Count / 2), 1);
+            }
+            case "Narrow" when a.Length == 2: // Narrow(lower, upper): each lane truncated to half its width, lower's lanes first (not saturating, as .NET's)
+            {
+                var wide = ElementOf(((INamedTypeSymbol)target.Parameters[0].Type).TypeArguments[0], at);
+                var both = _b.ShuffleVector(View(a[0], wide), View(a[1], wide),
+                    Native.LLVMConstVector([.. Enumerable.Range(0, wide.Count * 2).Select(i => L.ConstInt(L.I32, i))], (uint)(wide.Count * 2)));
+                return Raw(_b.Cast(wide.IsFloat ? LLVMOpcode.FPTrunc : LLVMOpcode.Trunc, both, Native.LLVMVectorType(e.Llvm, (uint)(wide.Count * 2))));
+            }
+            case "AddSaturate" or "SubtractSaturate" when a.Length == 2:
+            {
+                if (e.IsFloat) return Arith(name == "AddSaturate" ? LLVMOpcode.Add : LLVMOpcode.Sub, name == "AddSaturate" ? LLVMOpcode.FAdd : LLVMOpcode.FSub);
+                var op = (e.IsSigned ? "s" : "u") + (name == "AddSaturate" ? "add" : "sub");
+                var vector = VectorOf(e);
+                var f = _m.Intrinsic($"llvm.{op}.sat.v{e.Count}i{e.Bits}", vector, vector, vector);
+                return Raw(_b.Call(f.Type, f.Fn, [View(a[0], e), View(a[1], e)]));
+            }
+            case "Equals" when a.Length == 1 && instance.Handle != IntPtr.Zero: // IEquatable<Vector128<T>>.Equals: every lane equal, NaN equal to NaN (as .NET's)
+            {
+                var equal = Compare(e, "eq", instance, a[0]);
+                if (e.IsFloat)
+                {
+                    var (x, y) = (View(instance, e), View(a[0], e));
+                    var bothNaN = _b.BinOp(LLVMOpcode.And, _b.FCmp(LLVMRealPredicate.UNO, x, x), _b.FCmp(LLVMRealPredicate.UNO, y, y));
+                    equal = _b.BinOp(LLVMOpcode.Or, equal, Raw(_b.Cast(LLVMOpcode.SExt, bothNaN, IntVectorOf(e))));
+                }
+                return AllSet(equal, e);
+            }
+            case "get_Alignment": return L.ConstInt(L.I32, 16); // ISimdVector<Vector128<T>, T>.Alignment: the vector's size
+            case "Create" when a.Length == 2 && a[0].Type.Kind == LLVMTypeKind.Array: // Create(Vector64<T> lower, Vector64<T> upper)
+            {
+                var bytes = Native.LLVMGetPoison(RawVector);
+                for (var i = 0; i < 16; i++) bytes = _b.InsertElement(bytes, _b.ExtractValue(a[i / 8], (uint)(i % 8)), L.ConstInt(L.I32, i));
+                return bytes;
+            }
+            case "GetLower" or "GetUpper" when a.Length == 1:
+            {
+                var half = Native.LLVMGetPoison(LlvmContext.Array(L.I8, 8));
+                for (var i = 0; i < 8; i++) half = _b.InsertValue(half, _b.ExtractElement(a[0], L.ConstInt(L.I32, (name == "GetLower" ? 0 : 8) + i)), (uint)i);
+                return half;
+            }
+            case "Sum" when a.Length == 1:
+            {
+                // Lanes added pairwise ((a0 + a1) + (a2 + a3)), as the hardware's horizontal add does: the order is only visible for floats.
+                var lanes = Enumerable.Range(0, e.Count).Select(i => _b.ExtractElement(View(a[0], e), L.ConstInt(L.I32, i))).ToList();
+                while (lanes.Count > 1)
+                    lanes = [.. Enumerable.Range(0, lanes.Count / 2).Select(i => _b.BinOp(e.IsFloat ? LLVMOpcode.FAdd : LLVMOpcode.Add, lanes[2 * i], lanes[2 * i + 1]))];
+                return lanes[0];
+            }
+            case "CopyTo" when a.Length == (target.IsStatic ? 2 : 1) && a[^1].Type.Kind == LLVMTypeKind.Struct: // CopyTo(Span<T> destination), as an instance (Vector<T>) or an extension (Vector128)
+            {
+                var (vectorValue, destination) = target.IsStatic ? (a[0], a[1]) : (instance, a[0]);
+                var tooShort = NewBlock("simd.copy.short");
+                var ok = NewBlock("simd.copy.ok");
+                _b.CondBr(_b.ICmp(LLVMIntPredicate.SLT, SpanLength(destination), L.ConstInt(L.I32, e.Count)), tooShort, ok);
+                _b.PositionAtEnd(tooShort);
+                ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.ArgumentException")!, "Destination is too short. (Parameter 'destination')");
+                _b.PositionAtEnd(ok);
+                Native.LLVMSetAlignment(_b.Store(vectorValue, SpanPointer(destination)), 1);
+                return default;
+            }
             case "Create" or "CreateScalarUnsafe" or "CreateScalar" when a.Length == 1 && a[0].Type == e.Llvm:
                 if (name == "Create") return Raw(Splat(a[0], e));
                 return Raw(_b.InsertElement(name == "CreateScalar" ? LlvmContext.Null(VectorOf(e)) : Native.LLVMGetPoison(VectorOf(e)), a[0], L.ConstInt(L.I32, 0)));
@@ -226,6 +412,10 @@ public sealed partial class FunctionCodeGen
             case "GreaterThanAny": return AnySet(Compare(e, "gt", a[0], a[1]), e);
             case "LessThanAll": return AllSet(Compare(e, "lt", a[0], a[1]), e);
             case "LessThanAny": return AnySet(Compare(e, "lt", a[0], a[1]), e);
+            case "GreaterThanOrEqualAll": return AllSet(Compare(e, "ge", a[0], a[1]), e);
+            case "GreaterThanOrEqualAny": return AnySet(Compare(e, "ge", a[0], a[1]), e);
+            case "LessThanOrEqualAll": return AllSet(Compare(e, "le", a[0], a[1]), e);
+            case "LessThanOrEqualAny": return AnySet(Compare(e, "le", a[0], a[1]), e);
             case "BitwiseAnd" or "op_BitwiseAnd": return _b.BinOp(LLVMOpcode.And, a[0], a[1]);
             case "BitwiseOr" or "op_BitwiseOr": return _b.BinOp(LLVMOpcode.Or, a[0], a[1]);
             case "Xor" or "op_ExclusiveOr": return _b.BinOp(LLVMOpcode.Xor, a[0], a[1]);
@@ -302,6 +492,93 @@ public sealed partial class FunctionCodeGen
             case "GetElementUnsafe": return _b.ExtractElement(View(_b.Load(RawVector, a[0]), e), a[1]);
             default:
                 throw CompileError.Unsupported($"'{target}' (Vector128 is lowered for the operations the framework's span helpers use)", at);
+        }
+    }
+
+    /// <summary>Half of a vector's lanes from <paramref name="start"/>, each widened to <paramref name="wide"/> (zero- or sign-extended, or float to double).</summary>
+    private LLVMValueRef WidenHalf(LLVMValueRef raw, SimdElement e, SimdElement wide, int start)
+    {
+        var half = e.Count / 2;
+        var mask = Native.LLVMConstVector([.. Enumerable.Range(start, half).Select(i => L.ConstInt(L.I32, i))], (uint)half);
+        var lanes = _b.ShuffleVector(View(raw, e), Native.LLVMGetPoison(VectorOf(e)), mask);
+        return Raw(_b.Cast(e.IsFloat ? LLVMOpcode.FPExt : e.IsSigned ? LLVMOpcode.SExt : LLVMOpcode.ZExt, lanes, Native.LLVMVectorType(wide.Llvm, (uint)half)));
+    }
+
+    private static bool IsVector64Class(ITypeSymbol? type) => type is INamedTypeSymbol { Name: "Vector64", Arity: 0 } n && InIntrinsicsNamespace(n);
+
+    /// <summary>
+    /// The Vector64 statics the framework's 128-bit paths use where an ISA class would (Ascii's widening loader without Sse2:
+    /// <c>Vector64.LoadUnsafe</c>, then <c>Vector64.Widen</c> and <c>Vector128.Create(lower, upper)</c>). A Vector64&lt;T&gt; stays 8 bytes
+    /// (<c>[8 x i8]</c>); its lanes are viewed as an LLVM vector for the operation. Other members are an explicit diagnostic.
+    /// </summary>
+    private LLVMValueRef TryVector64(IMethodSymbol target, LLVMValueRef[] a, IOperation at)
+    {
+        var bytes = LlvmContext.Array(L.I8, 8);
+        LLVMValueRef ToLanes(LLVMValueRef value, SimdElement e)
+        {
+            var v = Native.LLVMGetPoison(Native.LLVMVectorType(L.I8, 8));
+            for (var i = 0; i < 8; i++) v = _b.InsertElement(v, _b.ExtractValue(value, (uint)i), L.ConstInt(L.I32, i));
+            return _b.Cast(LLVMOpcode.BitCast, v, Native.LLVMVectorType(e.Llvm, (uint)(64 / e.Bits)));
+        }
+        LLVMValueRef FromLanes(LLVMValueRef lanes)
+        {
+            var v = _b.Cast(LLVMOpcode.BitCast, lanes, Native.LLVMVectorType(L.I8, 8));
+            var r = Native.LLVMGetPoison(bytes);
+            for (var i = 0; i < 8; i++) r = _b.InsertValue(r, _b.ExtractElement(v, L.ConstInt(L.I32, i)), (uint)i);
+            return r;
+        }
+        ITypeSymbol? elementType = target.IsGenericMethod ? target.TypeArguments[0]
+            : target.Parameters.Select(p => p.Type).OfType<INamedTypeSymbol>().FirstOrDefault(t => t.Name == "Vector64")?.TypeArguments[0]
+                ?? (target.ReturnType is INamedTypeSymbol { Name: "Vector64", Arity: 1 } result ? result.TypeArguments[0] : null);
+        if (elementType is null) throw CompileError.Unsupported($"'{target}'", at);
+        var e = ElementOf(elementType, at);
+        LLVMValueRef Widened(int start, SimdElement wide)
+        {
+            var count = 64 / e.Bits;
+            var lanes = ToLanes(a[0], e);
+            var mask = Native.LLVMConstVector([.. Enumerable.Range(start, count / 2).Select(i => L.ConstInt(L.I32, i))], (uint)(count / 2));
+            var half = _b.ShuffleVector(lanes, Native.LLVMGetPoison(lanes.Type), mask);
+            return FromLanes(_b.Cast(e.IsFloat ? LLVMOpcode.FPExt : e.IsSigned ? LLVMOpcode.SExt : LLVMOpcode.ZExt, half, Native.LLVMVectorType(wide.Llvm, (uint)(count / 2))));
+        }
+        switch (target.Name)
+        {
+            case "LoadUnsafe" or "Load":
+            {
+                var load = _b.Load(Native.LLVMVectorType(L.I8, 8), a.Length == 2 ? Offset(a[0], a[1], e) : a[0]);
+                Native.LLVMSetAlignment(load, 1);
+                var r = Native.LLVMGetPoison(bytes);
+                for (var i = 0; i < 8; i++) r = _b.InsertValue(r, _b.ExtractElement(load, L.ConstInt(L.I32, i)), (uint)i);
+                return r;
+            }
+            case "Create" when a.Length == 1 && a[0].Type == e.Llvm: // every lane the value
+            {
+                var lanes = Native.LLVMGetPoison(Native.LLVMVectorType(e.Llvm, (uint)(64 / e.Bits)));
+                for (var i = 0; i < 64 / e.Bits; i++) lanes = _b.InsertElement(lanes, a[0], L.ConstInt(L.I32, i));
+                return FromLanes(lanes);
+            }
+            case "GetElement" when a.Length == 2:
+            {
+                var lanes = new SimdElement(e.Type, e.Llvm, e.Bits, e.IsFloat, e.IsSigned);
+                var bad = NewBlock("simd64.lane.bad");
+                var ok = NewBlock("simd64.lane.ok");
+                _b.CondBr(_b.ICmp(LLVMIntPredicate.ULT, a[1], L.ConstInt(a[1].Type, 64 / e.Bits)), ok, bad);
+                _b.PositionAtEnd(bad);
+                ThrowNewLibraryException(_m.Compilation.GetTypeByMetadataName("System.ArgumentOutOfRangeException")!, "Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'index')");
+                _b.PositionAtEnd(ok);
+                return _b.ExtractElement(ToLanes(a[0], lanes), a[1]);
+            }
+            case "WidenLower" or "WidenUpper" when a.Length == 1:
+                return Widened(target.Name == "WidenLower" ? 0 : 64 / e.Bits / 2, ElementOf(((INamedTypeSymbol)target.ReturnType).TypeArguments[0], at));
+            case "Widen" when a.Length == 1:
+            {
+                var tuple = (INamedTypeSymbol)target.ReturnType;
+                var wide = ElementOf(((INamedTypeSymbol)tuple.TupleElements[0].Type).TypeArguments[0], at);
+                var pair = Native.LLVMGetPoison(T.Storage(tuple));
+                pair = _b.InsertValue(pair, Widened(0, wide), 0);
+                return _b.InsertValue(pair, Widened(64 / e.Bits / 2, wide), 1);
+            }
+            default:
+                throw CompileError.Unsupported($"'{target}' (Vector64 is lowered for the loads and widenings the framework's 128-bit paths use)", at);
         }
     }
 

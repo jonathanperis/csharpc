@@ -1,0 +1,12 @@
+AQL6-_wA_w 0102FAFBFC00FF max 7 len 10
+Done 7 10 AQL6-_wA_w
+valid True invalid False
+FormatException
+2 -1 False
+&lt;a href=&quot;x&quot;&gt;&amp;&#233;&#39;&lt;/a&gt;
+<b> & é é A &unknown;
+a+b%26c%3Dd%2F%C3%A9 a b&c=d/é
+True True
+&lt;a &amp; &quot;b&quot; &apos;c&apos;&gt;
+True False True
+<tag name="value">text</tag>

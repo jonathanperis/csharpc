@@ -1,0 +1,47 @@
+Small '42' Integer: TryParse=True S42 Parse=S42
+Small '42' Thousands: TryParse=True S42 Parse=S42
+Small '42' IUtf8SpanParsable: TryParse=True S42 Parse=S42
+Own '42': TryParse=True O2000 Parse=O-2
+Small ' -17 ' Integer: TryParse=True S-17 Parse=S-17
+Small ' -17 ' Thousands: TryParse=True S-17 Parse=S-17
+Small ' -17 ' IUtf8SpanParsable: TryParse=True S-17 Parse=S-17
+Own ' -17 ': TryParse=True O5000 Parse=O-5
+Small '1,000' Integer: TryParse=False S0 Parse=FormatException
+Small '1,000' Thousands: TryParse=True S1000 Parse=S1000
+Small '1,000' IUtf8SpanParsable: TryParse=False S0 Parse=FormatException
+Own '1,000': TryParse=True O5000 Parse=O-5
+Small 'abc' Integer: TryParse=False S0 Parse=FormatException
+Small 'abc' Thousands: TryParse=False S0 Parse=FormatException
+Small 'abc' IUtf8SpanParsable: TryParse=False S0 Parse=FormatException
+Own 'abc': TryParse=True O3000 Parse=O-3
+Small '' Integer: TryParse=False S0 Parse=FormatException
+Small '' Thousands: TryParse=False S0 Parse=FormatException
+Small '' IUtf8SpanParsable: TryParse=False S0 Parse=FormatException
+Own '': TryParse=True O0 Parse=O0
+Small '99999999999' Integer: TryParse=False S0 Parse=OverflowException
+Small '99999999999' Thousands: TryParse=False S0 Parse=OverflowException
+Small '99999999999' IUtf8SpanParsable: TryParse=False S0 Parse=OverflowException
+Own '99999999999': TryParse=True O11000 Parse=O-11
+Small fullwidth: TryParse=False S0 Parse=FormatException
+Small invalid utf8: False S0
+Small long: TryParse=True S7 Parse=S7
+Small partial '123abc': utf16 False S0 0, utf8 False S0 0
+Small partial '-5 tail': utf16 False S0 0, utf8 False S0 0
+Small partial 'x1': utf16 False S0 0, utf8 False S0 0
+Small partial '+8': utf16 True S8 2, utf8 True S8 2
+Small from int 0: checked=S0 saturating=S0 truncating=S0
+Small from int 5: checked=S5 saturating=S5 truncating=S5
+Small from int -5: checked=S-5 saturating=S-5 truncating=S-5
+Small from int 40000: checked=OverflowException saturating=S32767 truncating=S-25536
+Small from int -2147483648: checked=OverflowException saturating=S-32768 truncating=S0
+Small from double 1.9: checked=S1 saturating=S1 truncating=S1
+Small from double -1.9: checked=S-1 saturating=S-1 truncating=S-1
+Small from double 10000000000: checked=OverflowException saturating=S32767 truncating=S-7168
+Small from double NaN: checked=OverflowException saturating=S0 truncating=S0
+int from Small S12: checked=12 saturating=12 truncating=12
+sbyte from Small S12: checked=12 saturating=12 truncating=12
+int from Small S-300: checked=-300 saturating=-300 truncating=-300
+sbyte from Small S-300: checked=OverflowException saturating=-128 truncating=-44
+int from Small S32767: checked=32767 saturating=32767 truncating=32767
+sbyte from Small S32767: checked=OverflowException saturating=127 truncating=-1
+MultiplyAddEstimate: S40 S0

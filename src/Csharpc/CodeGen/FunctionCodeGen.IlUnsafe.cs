@@ -71,7 +71,7 @@ public sealed partial class FunctionCodeGen
             case "SkipInit" when args.Length == 1:
                 return handled;
             case "Unbox" when ta.Length == 1 && args.Length == 1:
-                return new IlEntry(IlKind.ByRef, CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], IlRef(args[0]), MethodTableFor(S(T0()), IlAt())), T0());
+                return new IlEntry(IlKind.ByRef, CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], IlRef(args[0]), TypeTestMethodTable(S(T0())) ?? MethodTableFor(S(T0()), IlAt())), T0());
             case "BitCast" when ta.Length == 2 && args.Length == 1:
             {
                 // Same-size value types: reinterpret the bits through memory.

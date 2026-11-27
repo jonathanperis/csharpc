@@ -1,0 +1,13 @@
+HOME: /tmp
+Desktop: $HOME/Desktop
+DesktopDirectory: $HOME/Desktop
+ApplicationData: $HOME/.config
+LocalApplicationData: $HOME/.local/share
+MyDocuments: $HOME/Documents
+MyMusic: $HOME/Music
+MyVideos: $HOME/Videos
+MyPictures: $HOME/Pictures
+InternetCache: 
+Fonts: $HOME/.fonts
+Favorites: 
+UserProfile: $HOME

@@ -361,13 +361,8 @@ internal static class Intrinsics
                 return result;
             };
 
-        foreach (var type in new[] { "int", "long", "uint", "ulong", "short", "ushort", "byte", "sbyte", "double", "float" })
-        {
-            t[$"{type}.ToString(string)"] = (g, inv) => g.FormatWith(inv.Instance!, Arg(g, inv, 0));
-            // The provider (CultureInfo, NumberFormatInfo, or null for the current culture) goes to the corelib.
-            t[$"{type}.ToString(string, System.IFormatProvider)"] = (g, inv) => g.FormatWithProvider(inv.Instance!, Arg(g, inv, 0), Arg(g, inv, 1));
-            t[$"{type}.ToString(System.IFormatProvider)"] = (g, inv) => g.FormatWithProvider(inv.Instance!, LlvmContext.Null(g.Module.Llvm.Ptr), Arg(g, inv, 0));
-        }
+        // The primitives' ToString(format), ToString(provider) and ToString(format, provider) are their own members, hosted from the framework's IL
+        // (src/Csharpc/upstream-types/System.Globalization.txt, #426): no intrinsic, so a call lowers like any other method call.
 
         // Composite formatting: fixed-arity overloads (the params ReadOnlySpan<object> ones need spans).
         IntrinsicHandler composite(Action<FunctionCodeGen, LLVMValueRef>? sink, bool newline) => (g, inv) =>
@@ -444,10 +439,19 @@ internal static class Intrinsics
         AddTaskMethods(t);
 
         // ---- parsing (src/runtime/strings.c) ---------------------------------------------------------
-        // System.Char classification/casing: src/Csharpc/corelib/StringOps.cs (CharOps).
-        // Numeric Parse/TryParse: corelib NumberParsingMembers.cs (culture-aware, Number.Parsing.Culture.cs).
+        // System.Char classification/casing: CoreLib's IL (src/Csharpc/upstream-types/System.String.txt).
+        // Numeric Parse/TryParse: the framework's own, hosted from the primitives' IL (upstream-types/System.Globalization.txt).
 
-        // System.Text.StringBuilder: src/Csharpc/corelib/StringBuilder.cs (StringBuilderImpl).
+        // System.Text.StringBuilder: the framework's own IL (src/Csharpc/upstream-types/System.Text.StringBuilder.txt); StringBuilderRuntime.cs has the entry points of synthesized code.
+
+        // Range.GetOffsetAndLength(length) (MemoryExtensions.AsSpan(T[], Range) from CoreLib's IL, which System.Runtime.Numerics calls): the
+        // (offset, length) pair the range lowering computes, with .NET's check and message.
+        t["System.Range.GetOffsetAndLength(int)"] = (g, inv) =>
+        {
+            var (start, count) = g.ResolveRange(g.EmitValue(inv.Instance!), Arg(g, inv, 0), "length");
+            var tuple = LlvmContext.Null(g.Types.Value(g.S(inv.TargetMethod.ReturnType)));
+            return g.Builder.InsertValue(g.Builder.InsertValue(tuple, start, 0), count, 1);
+        };
 
         // ---- System.Math -----------------------------------------------------------------------
         foreach (var (name, llvm) in new[] { ("Sqrt", "llvm.sqrt"), ("Floor", "llvm.floor"), ("Ceiling", "llvm.ceil"),
@@ -487,8 +491,6 @@ internal static class Intrinsics
             t[$"System.Math.Max({type}, {type})"] = (g, inv) => SelectCompare(g, Arg(g, inv, 0), Arg(g, inv, 1), signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT);
             t[$"System.Math.Min({type}, {type})"] = (g, inv) => SelectCompare(g, Arg(g, inv, 0), Arg(g, inv, 1), signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT);
         }
-        t["System.Math.Round(double, int)"] = (g, inv) =>
-            g.CallRuntime("csrt_math_round_digits", g.Module.Llvm.F64, [g.Module.Llvm.F64, g.Module.Llvm.I32], Arg(g, inv, 0), Arg(g, inv, 1));
         foreach (var (name, to) in new[] { ("DoubleToInt64Bits(double)", "i64"), ("Int64BitsToDouble(long)", "f64"), ("DoubleToUInt64Bits(double)", "i64"),
                      ("UInt64BitsToDouble(ulong)", "f64"), ("SingleToInt32Bits(float)", "i32"), ("Int32BitsToSingle(int)", "f32"),
                      ("SingleToUInt32Bits(float)", "i32"), ("UInt32BitsToSingle(uint)", "f32") })
@@ -511,7 +513,8 @@ internal static class Intrinsics
         t["System.Math.Log(double)"] = (g, inv) => logOf(g, inv, "log");
         t["System.Math.Log2(double)"] = (g, inv) => logOf(g, inv, "llvm.log2.f64");
         // Math.Sign(double/float) is corelib C# (FloatingPointMath.cs): NaN throws ArithmeticException with .NET's message.
-        foreach (var type in new[] { "int", "long", "short", "sbyte" })
+        // (nint at the target's pointer width: the comparisons are on the value's own LLVM type.)
+        foreach (var type in new[] { "int", "long", "short", "sbyte", "nint" })
             t[$"System.Math.Sign({type})"] = (g, inv) =>
             {
                 var b = g.Builder;
@@ -529,11 +532,13 @@ internal static class Intrinsics
         t["System.Math.Max(double, double)"] = (g, inv) => CallBinaryF64(g, "llvm.maximum.f64", Arg(g, inv, 0), Arg(g, inv, 1));
         t["System.Math.Min(double, double)"] = (g, inv) => CallBinaryF64(g, "llvm.minimum.f64", Arg(g, inv, 0), Arg(g, inv, 1));
 
-        // Math.Clamp for the other numeric types: value < min ? min : value > max ? max : value.
-        foreach (var (type, signed) in new[] { ("long", true), ("short", true), ("sbyte", true), ("uint", false), ("ulong", false), ("byte", false), ("ushort", false) })
+        // Math.Clamp: ArgumentException when min > max (FunctionCodeGen.ClampBounds.cs, #392), then value < min ? min : value > max ? max : value.
+        foreach (var (type, signed) in new[] { ("int", true), ("long", true), ("short", true), ("sbyte", true), ("uint", false), ("ulong", false), ("byte", false), ("ushort", false),
+                     ("nint", true), ("nuint", false) })
             t[$"System.Math.Clamp({type}, {type}, {type})"] = (g, inv) =>
             {
                 var (v, lo, hi) = (Arg(g, inv, 0), Arg(g, inv, 1), Arg(g, inv, 2));
+                g.ClampBoundsCheck(lo, hi, inv.TargetMethod.Parameters[1].Type);
                 return SelectCompare(g, SelectCompare(g, v, lo, signed ? LLVMIntPredicate.SGT : LLVMIntPredicate.UGT), hi, signed ? LLVMIntPredicate.SLT : LLVMIntPredicate.ULT);
             };
         foreach (var type in new[] { "double", "float" })
@@ -541,16 +546,10 @@ internal static class Intrinsics
             {
                 var b = g.Builder;
                 var (v, lo, hi) = (Arg(g, inv, 0), Arg(g, inv, 1), Arg(g, inv, 2));
+                g.ClampBoundsCheck(lo, hi, inv.TargetMethod.Parameters[1].Type);
                 var low = b.Select(b.FCmp(LLVMRealPredicate.OLT, v, lo), lo, v);   // NaN stays NaN
                 return b.Select(b.FCmp(LLVMRealPredicate.OGT, low, hi), hi, low);
             };
-        t["System.Math.Clamp(int, int, int)"] = (g, inv) =>
-        {
-            var v = Arg(g, inv, 0);
-            var lo = Arg(g, inv, 1);
-            var hi = Arg(g, inv, 2);
-            return SelectCompare(g, SelectCompare(g, v, lo, LLVMIntPredicate.SGT), hi, LLVMIntPredicate.SLT);
-        };
 
         // ---- foreach over arrays (see FunctionCodeGen.ArrayGetEnumerator) ------------------------
         t["System.Collections.Generic.IEnumerable<T>.GetEnumerator()"] = (g, inv) => g.ArrayGetEnumerator(inv.Instance!, inv);
@@ -652,6 +651,13 @@ internal static class Intrinsics
         $"{Rcs}.ConfiguredValueTaskAwaitable.ConfiguredValueTaskAwaiter",
     ];
 
+    /// <summary>
+    /// TResult of a Task&lt;TResult&gt; / TaskCompletionSource&lt;TResult&gt; member, from the method's own type: the receiver's static type can be a
+    /// class deriving from either (a TaskCompletionSource subclass, CoreLib's SemaphoreSlim.TaskNode : Task&lt;bool&gt;), which has no type argument.
+    /// </summary>
+    private static ITypeSymbol ResultTypeOf(FunctionCodeGen g, IInvocationOperation inv) =>
+        ((INamedTypeSymbol)g.S(inv.TargetMethod.ContainingType)).TypeArguments[0];
+
     private static void AddTaskMethods(Dictionary<string, IntrinsicHandler> t)
     {
         static LLVMValueRef Wait(FunctionCodeGen g, LLVMValueRef task)
@@ -702,7 +708,7 @@ internal static class Intrinsics
                 {
                     var self = g.EmitValue(inv.Instance!);
                     if (!generic) return g.SetTaskResult(self, null, null, tryMode);
-                    var type = ((INamedTypeSymbol)g.TypeOf(inv.Instance!)!).TypeArguments[0];
+                    var type = ResultTypeOf(g, inv);
                     return g.SetTaskResult(self, Arg(g, inv, 0), type, tryMode);
                 };
                 t[$"{tcs}.{prefix}Exception(System.Exception)"] = (g, inv) =>
@@ -730,6 +736,16 @@ internal static class Intrinsics
                         ? g.CallRuntime("csrt_task_try_cancel", g.Module.Llvm.I1, [g.Module.Llvm.Ptr], self)
                         : g.CallRuntime("csrt_task_cancel", g.Module.Llvm.Void, [g.Module.Llvm.Ptr], self);
                 };
+                // TrySetFromTask (#96): corelib/Tasks/TaskExceptions.cs (TaskCompletionFrom) copies the completed task's outcome.
+                if (tryMode)
+                    t[generic ? $"{tcs}.TrySetFromTask({Tasks}.Task<TResult>)" : $"{tcs}.TrySetFromTask({Tasks}.Task)"] = (g, inv) =>
+                    {
+                        var self = g.EmitValue(inv.Instance!);
+                        g.NullCheck(self);
+                        return generic
+                            ? g.CallCoreLibGeneric("TaskCompletionFrom", "TrySetFromTask", ResultTypeOf(g, inv), self, Arg(g, inv, 0))
+                            : g.CallCoreLib("TaskCompletionFrom", "TrySetFromPlainTask", self, Arg(g, inv, 0));
+                    };
                 // (Try)SetCanceled(token): the TaskCanceledException an await throws carries the token.
                 t[$"{tcs}.{prefix}Canceled(System.Threading.CancellationToken)"] = (g, inv) =>
                 {
@@ -774,7 +790,7 @@ internal static class Intrinsics
                     args.Add(token >= 0 ? Arg(g, inv, first + token) : LlvmContext.Null(l.Ptr));
                     args.Add(options >= 0 ? Arg(g, inv, first + options) : l.ConstInt(l.I32, 0));
                     args.Add(scheduler >= 0 ? Arg(g, inv, first + scheduler) : g.CallCoreLib("TaskSchedulerImpl", "get_Current"));
-                    var result = ((INamedTypeSymbol)g.TypeOf(inv.Instance!)!).TypeArguments[0];
+                    var result = ResultTypeOf(g, inv);
                     ITypeSymbol[] typeArguments = generic ? [result, g.S(inv.TargetMethod.TypeArguments[0])] : [result];
                     return g.CallCoreLibGenericMethod("TaskResultContinuations", target, typeArguments, [.. args]);
                 };
@@ -791,7 +807,7 @@ internal static class Intrinsics
                 g.NullCheck(receiver);
                 var span = timeout >= 0 ? Arg(g, inv, timeout) : l.ConstInt(l.I64, -TimeSpan.TicksPerMillisecond);
                 var cancel = token >= 0 ? Arg(g, inv, token) : LlvmContext.Null(l.Ptr);
-                var result = ((INamedTypeSymbol)g.TypeOf(inv.Instance!)!).TypeArguments[0];
+                var result = ResultTypeOf(g, inv);
                 return g.CallCoreLibGenericMethod("TaskResultContinuations", "WaitAsync", [result], receiver, span, cancel);
             };
         }
@@ -832,7 +848,7 @@ internal static class Intrinsics
             var b = Arg(g, inv, inv.Instance is null ? 1 : 0);
             return g.Builder.ICmp(LLVMIntPredicate.EQ, a, b);
         };
-        t[$"{Th}.CancellationToken.Equals({Th}.CancellationToken)"] = sameSource;
+        // Equals(CancellationToken) is a corelib shadow (CancellationTokenMembers): a boxed token's IEquatable slot needs a function (#96).
         t[$"{Th}.CancellationToken.op_Equality({Th}.CancellationToken, {Th}.CancellationToken)"] = sameSource;
         t[$"{Th}.CancellationToken.op_Inequality({Th}.CancellationToken, {Th}.CancellationToken)"] = (g, inv) =>
             g.Builder.Not(sameSource(g, inv));
@@ -858,8 +874,8 @@ internal static class Intrinsics
 
         t[$"{Tasks}.Task.Delay(int)"] = (g, inv) => g.CallRuntime("csrt_task_delay", g.Module.Llvm.Ptr, [g.Module.Llvm.I32], Arg(g, inv, 0));
         t[$"{Tasks}.Task.Yield()"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
-        t[$"{Tasks}.Task.FromResult(TResult)"] = (g, inv) =>
-            g.CompletedTask(Arg(g, inv, 0), ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0]);
+        // .NET's cache first (corelib/Tasks/TaskCache.cs: true/false, -1..8, default values share one task), else a new completed task.
+        t[$"{Tasks}.Task.FromResult(TResult)"] = (g, inv) => g.CachedOrCompletedTask(Arg(g, inv, 0), ((INamedTypeSymbol)g.TypeOf(inv)!).TypeArguments[0]);
 
         IntrinsicHandler whenAll = (g, inv) =>
         {
@@ -1030,7 +1046,8 @@ internal static class Intrinsics
         };
         t[$"{Tasks}.Task<TResult>.Result"] = result;
         t[$"{Tasks}.Task.CompletedTask"] = (g, _) => g.CallRuntime("csrt_task_completed_task", g.Module.Llvm.Ptr, []);
-        t[$"{Tasks}.ValueTask.CompletedTask"] = t[$"{Tasks}.Task.CompletedTask"];
+        // ValueTask.CompletedTask is default(ValueTask) in .NET (no task object: null here), so it equals `default` (#96).
+        t[$"{Tasks}.ValueTask.CompletedTask"] = (g, _) => LlvmContext.Null(g.Module.Llvm.Ptr);
     }
 
     private static FrozenDictionary<string, ConstructorHandler> BuildConstructors()
@@ -1100,6 +1117,12 @@ internal static class Intrinsics
                 : g.CallCoreLib("ColdTasks", withState ? "CreateWithState" : "Create", args);
         };
         const string token = "System.Threading.CancellationToken", options = $"{Tasks}.TaskCreationOptions";
+        // Task<TResult>(bool canceled, TResult result, TaskCreationOptions, CancellationToken) (internal): a task completed at creation,
+        // which CoreLib caches (SemaphoreSlim's s_trueTask). Only the public creation options are visible through CreationOptions,
+        // as .NET masks its internal ones (DoNotDispose).
+        t[$"{Tasks}.Task<TResult>..ctor(bool, TResult, {options}, {token})"] = (g, c) =>
+            g.CallCoreLibGenericMethod("ColdTasks", "Completed", [((INamedTypeSymbol)g.TypeOf(c)!).TypeArguments[0]],
+                CtorArg(g, c, 0), CtorArg(g, c, 1), CtorArg(g, c, 2), CtorArg(g, c, 3));
         foreach (var (type, plain, stateful) in new[] { ("Task", "System.Action", "System.Action<object>"), ("Task<TResult>", "System.Func<TResult>", "System.Func<object, TResult>") })
             foreach (var parameters in new[] { plain, $"{plain}, {token}", $"{plain}, {options}", $"{plain}, {token}, {options}",
                          $"{stateful}, object", $"{stateful}, object, {token}", $"{stateful}, object, {options}", $"{stateful}, object, {token}, {options}" })
@@ -1359,6 +1382,34 @@ internal static class Intrinsics
         // IEEE 754-2019 maximum/minimum, as Math.Max/Min above.
         t["System.MathF.Max(float, float)"] = (g, inv) => CallBinary(g, "llvm.maximum.f32", g.Module.Llvm.F32, Arg(g, inv, 0), Arg(g, inv, 1));
         t["System.MathF.Min(float, float)"] = (g, inv) => CallBinary(g, "llvm.minimum.f32", g.Module.Llvm.F32, Arg(g, inv, 0), Arg(g, inv, 1));
+        // Math.SinCos / MathF.SinCos: the IL is `IsKnownConstant(x) ? (Sin(x), Cos(x)) : SinCos(x)`, a call RyuJIT expands to the C runtime's
+        // sincos; csharpc computes the pair with the same libm sin and cos as Math.Sin and Math.Cos. ConvertToIntegerNative<TInteger> calls
+        // itself for a primitive TInteger (FunctionCodeGen.NativeConversions.cs).
+        foreach (var (type, sin, cos) in new[] { ("System.Math.SinCos(double)", "sin", "cos"), ("System.MathF.SinCos(float)", "sinf", "cosf") })
+            t[type] = (g, inv) =>
+            {
+                var x = Arg(g, inv, 0);
+                var tuple = g.S(inv.TargetMethod.ReturnType);
+                var pair = LlvmContext.Null(g.Module.Types.Value(tuple));
+                pair = g.Builder.InsertValue(pair, CallUnary(g, sin, x.Type, x), 0);
+                return g.Builder.InsertValue(pair, CallUnary(g, cos, x.Type, x), 1);
+            };
+        foreach (var type in new[] { "double", "float" })
+            t[$"{type}.ConvertToIntegerNative({type})"] = (g, inv) => g.ConvertToIntegerNative(inv, Arg(g, inv, 0));
+        // [Intrinsic] members whose CoreLib IL only calls itself (RyuJIT expands them; the slicer refuses to copy such a body). .NET leaves
+        // the precision of the estimates open (RCPSS / FRECPE where the hardware has them, 1 / x elsewhere); the exact quotient is always within
+        // it. MultiplyAddEstimate is a fused multiply-add, which RyuJIT emits on every x64 and ARM64 csharpc targets.
+        foreach (var (type, suffix, math) in new[] { ("double", "f64", "System.Math"), ("float", "f32", "System.MathF") })
+        {
+            LLVMTypeRef F(FunctionCodeGen g) => suffix == "f64" ? g.Module.Llvm.F64 : g.Module.Llvm.F32;
+            LLVMValueRef One(FunctionCodeGen g) => LlvmContext.ConstReal(F(g), 1.0);
+            t[$"{math}.ReciprocalEstimate({type})"] = t[$"{type}.ReciprocalEstimate({type})"] = (g, inv) =>
+                g.Builder.BinOp(LLVMOpcode.FDiv, One(g), Arg(g, inv, 0));
+            t[$"{math}.ReciprocalSqrtEstimate({type})"] = t[$"{type}.ReciprocalSqrtEstimate({type})"] = (g, inv) =>
+                g.Builder.BinOp(LLVMOpcode.FDiv, One(g), CallUnary(g, $"llvm.sqrt.{suffix}", F(g), Arg(g, inv, 0)));
+            t[$"{type}.MultiplyAddEstimate({type}, {type}, {type})"] = (g, inv) =>
+                CallTernary(g, $"llvm.fma.{suffix}", F(g), Arg(g, inv, 0), Arg(g, inv, 1), Arg(g, inv, 2));
+        }
     }
 
     private static LLVMValueRef CallUnary(FunctionCodeGen g, string name, LLVMTypeRef type, LLVMValueRef x)

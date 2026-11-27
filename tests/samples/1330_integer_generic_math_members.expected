@@ -1,0 +1,2014 @@
+byte.Log2(byte.MinValue): 0
+byte.PopCount(byte.MinValue): 0
+byte.LeadingZeroCount(byte.MinValue): 8
+byte.TrailingZeroCount(byte.MinValue): 8
+byte.Sign(byte.MinValue): 0
+byte.IsPow2(byte.MinValue): False
+byte.IsEvenInteger(byte.MinValue): True
+byte.IsOddInteger(byte.MinValue): False
+byte.RotateLeft(byte.MinValue, 3): 0
+byte.RotateRight(byte.MinValue, 3): 0
+byte.Clamp(byte.MinValue, 1, 9): 1
+byte.Min/Max(byte.MinValue, 2): (0, 2)
+byte.DivRem(byte.MinValue, 2): (0, 0)
+byte.Log2((byte)0): 0
+byte.PopCount((byte)0): 0
+byte.LeadingZeroCount((byte)0): 8
+byte.TrailingZeroCount((byte)0): 8
+byte.Sign((byte)0): 0
+byte.IsPow2((byte)0): False
+byte.IsEvenInteger((byte)0): True
+byte.IsOddInteger((byte)0): False
+byte.RotateLeft((byte)0, 3): 0
+byte.RotateRight((byte)0, 3): 0
+byte.Clamp((byte)0, 1, 9): 1
+byte.Min/Max((byte)0, 2): (0, 2)
+byte.DivRem((byte)0, 2): (0, 0)
+byte.Log2((byte)1): 0
+byte.PopCount((byte)1): 1
+byte.LeadingZeroCount((byte)1): 7
+byte.TrailingZeroCount((byte)1): 0
+byte.Sign((byte)1): 1
+byte.IsPow2((byte)1): True
+byte.IsEvenInteger((byte)1): False
+byte.IsOddInteger((byte)1): True
+byte.RotateLeft((byte)1, 3): 8
+byte.RotateRight((byte)1, 3): 32
+byte.Clamp((byte)1, 1, 9): 1
+byte.Min/Max((byte)1, 2): (1, 2)
+byte.DivRem((byte)1, 2): (0, 1)
+byte.Log2((byte)5): 2
+byte.PopCount((byte)5): 2
+byte.LeadingZeroCount((byte)5): 5
+byte.TrailingZeroCount((byte)5): 0
+byte.Sign((byte)5): 1
+byte.IsPow2((byte)5): False
+byte.IsEvenInteger((byte)5): False
+byte.IsOddInteger((byte)5): True
+byte.RotateLeft((byte)5, 3): 40
+byte.RotateRight((byte)5, 3): 160
+byte.Clamp((byte)5, 1, 9): 5
+byte.Min/Max((byte)5, 2): (2, 5)
+byte.DivRem((byte)5, 2): (2, 1)
+byte.Log2((byte)64): 6
+byte.PopCount((byte)64): 1
+byte.LeadingZeroCount((byte)64): 1
+byte.TrailingZeroCount((byte)64): 6
+byte.Sign((byte)64): 1
+byte.IsPow2((byte)64): True
+byte.IsEvenInteger((byte)64): True
+byte.IsOddInteger((byte)64): False
+byte.RotateLeft((byte)64, 3): 2
+byte.RotateRight((byte)64, 3): 8
+byte.Clamp((byte)64, 1, 9): 9
+byte.Min/Max((byte)64, 2): (2, 64)
+byte.DivRem((byte)64, 2): (32, 0)
+byte.Log2(byte.MaxValue): 7
+byte.PopCount(byte.MaxValue): 8
+byte.LeadingZeroCount(byte.MaxValue): 0
+byte.TrailingZeroCount(byte.MaxValue): 0
+byte.Sign(byte.MaxValue): 1
+byte.IsPow2(byte.MaxValue): False
+byte.IsEvenInteger(byte.MaxValue): False
+byte.IsOddInteger(byte.MaxValue): True
+byte.RotateLeft(byte.MaxValue, 3): 255
+byte.RotateRight(byte.MaxValue, 3): 255
+byte.Clamp(byte.MaxValue, 1, 9): 9
+byte.Min/Max(byte.MaxValue, 2): (2, 255)
+byte.DivRem(byte.MaxValue, 2): (127, 1)
+byte.CreateChecked((int)-1): OverflowException Arithmetic operation resulted in an overflow.
+byte.CreateSaturating((int)-1): 0
+byte.CreateTruncating((int)-1): 255
+byte.CreateChecked((int)300): OverflowException Arithmetic operation resulted in an overflow.
+byte.CreateSaturating((int)300): 255
+byte.CreateTruncating((int)300): 44
+byte.CreateChecked((uint)4000000000u): OverflowException Arithmetic operation resulted in an overflow.
+byte.CreateSaturating((uint)4000000000u): 255
+byte.CreateTruncating((uint)4000000000u): 0
+byte.CreateChecked((long)-5000000000L): OverflowException Arithmetic operation resulted in an overflow.
+byte.CreateSaturating((long)-5000000000L): 0
+byte.CreateTruncating((long)-5000000000L): 0
+byte.CreateChecked((ulong)18000000000000000000UL): OverflowException Arithmetic operation resulted in an overflow.
+byte.CreateSaturating((ulong)18000000000000000000UL): 255
+byte.CreateTruncating((ulong)18000000000000000000UL): 0
+byte.CreateChecked((double)-1.5): OverflowException Arithmetic operation resulted in an overflow.
+byte.CreateSaturating((double)-1.5): 0
+byte.CreateTruncating((double)-1.5): 0
+byte.CreateChecked((double)1e30): OverflowException Arithmetic operation resulted in an overflow.
+byte.CreateSaturating((double)1e30): 255
+byte.CreateTruncating((double)1e30): 255
+byte.CreateChecked((double)double.NaN): OverflowException Arithmetic operation resulted in an overflow.
+byte.CreateSaturating((double)double.NaN): 0
+byte.CreateTruncating((double)double.NaN): 0
+sbyte.Log2(sbyte.MinValue): ArgumentOutOfRangeException Non-negative number required. (Parameter 'value')
+sbyte.PopCount(sbyte.MinValue): 1
+sbyte.LeadingZeroCount(sbyte.MinValue): 0
+sbyte.TrailingZeroCount(sbyte.MinValue): 7
+sbyte.Sign(sbyte.MinValue): -1
+sbyte.IsPow2(sbyte.MinValue): False
+sbyte.IsEvenInteger(sbyte.MinValue): True
+sbyte.IsOddInteger(sbyte.MinValue): False
+sbyte.Abs(sbyte.MinValue): OverflowException Negating the minimum value of a twos complement number is invalid.
+sbyte.IsNegative(sbyte.MinValue): True
+sbyte.IsPositive(sbyte.MinValue): False
+sbyte.RotateLeft(sbyte.MinValue, 3): 4
+sbyte.RotateRight(sbyte.MinValue, 3): 16
+sbyte.Clamp(sbyte.MinValue, 1, 9): 1
+sbyte.Min/Max(sbyte.MinValue, 2): (-128, 2)
+sbyte.DivRem(sbyte.MinValue, 2): (-64, 0)
+sbyte.CopySign(sbyte.MinValue, -1/1): OverflowException Negating the minimum value of a twos complement number is invalid.
+sbyte.Log2((sbyte)0): 0
+sbyte.PopCount((sbyte)0): 0
+sbyte.LeadingZeroCount((sbyte)0): 8
+sbyte.TrailingZeroCount((sbyte)0): 8
+sbyte.Sign((sbyte)0): 0
+sbyte.IsPow2((sbyte)0): False
+sbyte.IsEvenInteger((sbyte)0): True
+sbyte.IsOddInteger((sbyte)0): False
+sbyte.Abs((sbyte)0): 0
+sbyte.IsNegative((sbyte)0): False
+sbyte.IsPositive((sbyte)0): True
+sbyte.RotateLeft((sbyte)0, 3): 0
+sbyte.RotateRight((sbyte)0, 3): 0
+sbyte.Clamp((sbyte)0, 1, 9): 1
+sbyte.Min/Max((sbyte)0, 2): (0, 2)
+sbyte.DivRem((sbyte)0, 2): (0, 0)
+sbyte.CopySign((sbyte)0, -1/1): (0, 0)
+sbyte.Log2((sbyte)1): 0
+sbyte.PopCount((sbyte)1): 1
+sbyte.LeadingZeroCount((sbyte)1): 7
+sbyte.TrailingZeroCount((sbyte)1): 0
+sbyte.Sign((sbyte)1): 1
+sbyte.IsPow2((sbyte)1): True
+sbyte.IsEvenInteger((sbyte)1): False
+sbyte.IsOddInteger((sbyte)1): True
+sbyte.Abs((sbyte)1): 1
+sbyte.IsNegative((sbyte)1): False
+sbyte.IsPositive((sbyte)1): True
+sbyte.RotateLeft((sbyte)1, 3): 8
+sbyte.RotateRight((sbyte)1, 3): 32
+sbyte.Clamp((sbyte)1, 1, 9): 1
+sbyte.Min/Max((sbyte)1, 2): (1, 2)
+sbyte.DivRem((sbyte)1, 2): (0, 1)
+sbyte.CopySign((sbyte)1, -1/1): (-1, 1)
+sbyte.Log2((sbyte)5): 2
+sbyte.PopCount((sbyte)5): 2
+sbyte.LeadingZeroCount((sbyte)5): 5
+sbyte.TrailingZeroCount((sbyte)5): 0
+sbyte.Sign((sbyte)5): 1
+sbyte.IsPow2((sbyte)5): False
+sbyte.IsEvenInteger((sbyte)5): False
+sbyte.IsOddInteger((sbyte)5): True
+sbyte.Abs((sbyte)5): 5
+sbyte.IsNegative((sbyte)5): False
+sbyte.IsPositive((sbyte)5): True
+sbyte.RotateLeft((sbyte)5, 3): 40
+sbyte.RotateRight((sbyte)5, 3): -96
+sbyte.Clamp((sbyte)5, 1, 9): 5
+sbyte.Min/Max((sbyte)5, 2): (2, 5)
+sbyte.DivRem((sbyte)5, 2): (2, 1)
+sbyte.CopySign((sbyte)5, -1/1): (-5, 5)
+sbyte.Log2((sbyte)64): 6
+sbyte.PopCount((sbyte)64): 1
+sbyte.LeadingZeroCount((sbyte)64): 1
+sbyte.TrailingZeroCount((sbyte)64): 6
+sbyte.Sign((sbyte)64): 1
+sbyte.IsPow2((sbyte)64): True
+sbyte.IsEvenInteger((sbyte)64): True
+sbyte.IsOddInteger((sbyte)64): False
+sbyte.Abs((sbyte)64): 64
+sbyte.IsNegative((sbyte)64): False
+sbyte.IsPositive((sbyte)64): True
+sbyte.RotateLeft((sbyte)64, 3): 2
+sbyte.RotateRight((sbyte)64, 3): 8
+sbyte.Clamp((sbyte)64, 1, 9): 9
+sbyte.Min/Max((sbyte)64, 2): (2, 64)
+sbyte.DivRem((sbyte)64, 2): (32, 0)
+sbyte.CopySign((sbyte)64, -1/1): (-64, 64)
+sbyte.Log2(sbyte.MaxValue): 6
+sbyte.PopCount(sbyte.MaxValue): 7
+sbyte.LeadingZeroCount(sbyte.MaxValue): 1
+sbyte.TrailingZeroCount(sbyte.MaxValue): 0
+sbyte.Sign(sbyte.MaxValue): 1
+sbyte.IsPow2(sbyte.MaxValue): False
+sbyte.IsEvenInteger(sbyte.MaxValue): False
+sbyte.IsOddInteger(sbyte.MaxValue): True
+sbyte.Abs(sbyte.MaxValue): 127
+sbyte.IsNegative(sbyte.MaxValue): False
+sbyte.IsPositive(sbyte.MaxValue): True
+sbyte.RotateLeft(sbyte.MaxValue, 3): -5
+sbyte.RotateRight(sbyte.MaxValue, 3): -17
+sbyte.Clamp(sbyte.MaxValue, 1, 9): 9
+sbyte.Min/Max(sbyte.MaxValue, 2): (2, 127)
+sbyte.DivRem(sbyte.MaxValue, 2): (63, 1)
+sbyte.CopySign(sbyte.MaxValue, -1/1): (-127, 127)
+sbyte.Log2((sbyte)(-1)): ArgumentOutOfRangeException Non-negative number required. (Parameter 'value')
+sbyte.PopCount((sbyte)(-1)): 8
+sbyte.LeadingZeroCount((sbyte)(-1)): 0
+sbyte.TrailingZeroCount((sbyte)(-1)): 0
+sbyte.Sign((sbyte)(-1)): -1
+sbyte.IsPow2((sbyte)(-1)): False
+sbyte.IsEvenInteger((sbyte)(-1)): False
+sbyte.IsOddInteger((sbyte)(-1)): True
+sbyte.Abs((sbyte)(-1)): 1
+sbyte.IsNegative((sbyte)(-1)): True
+sbyte.IsPositive((sbyte)(-1)): False
+sbyte.RotateLeft((sbyte)(-1), 3): -1
+sbyte.RotateRight((sbyte)(-1), 3): -1
+sbyte.Clamp((sbyte)(-1), 1, 9): 1
+sbyte.Min/Max((sbyte)(-1), 2): (-1, 2)
+sbyte.DivRem((sbyte)(-1), 2): (0, -1)
+sbyte.CopySign((sbyte)(-1), -1/1): (-1, 1)
+sbyte.CreateChecked((int)-1): -1
+sbyte.CreateSaturating((int)-1): -1
+sbyte.CreateTruncating((int)-1): -1
+sbyte.CreateChecked((int)300): OverflowException Arithmetic operation resulted in an overflow.
+sbyte.CreateSaturating((int)300): 127
+sbyte.CreateTruncating((int)300): 44
+sbyte.CreateChecked((uint)4000000000u): OverflowException Arithmetic operation resulted in an overflow.
+sbyte.CreateSaturating((uint)4000000000u): 127
+sbyte.CreateTruncating((uint)4000000000u): 0
+sbyte.CreateChecked((long)-5000000000L): OverflowException Arithmetic operation resulted in an overflow.
+sbyte.CreateSaturating((long)-5000000000L): -128
+sbyte.CreateTruncating((long)-5000000000L): 0
+sbyte.CreateChecked((ulong)18000000000000000000UL): OverflowException Arithmetic operation resulted in an overflow.
+sbyte.CreateSaturating((ulong)18000000000000000000UL): 127
+sbyte.CreateTruncating((ulong)18000000000000000000UL): 0
+sbyte.CreateChecked((double)-1.5): -1
+sbyte.CreateSaturating((double)-1.5): -1
+sbyte.CreateTruncating((double)-1.5): -1
+sbyte.CreateChecked((double)1e30): OverflowException Arithmetic operation resulted in an overflow.
+sbyte.CreateSaturating((double)1e30): 127
+sbyte.CreateTruncating((double)1e30): 127
+sbyte.CreateChecked((double)double.NaN): OverflowException Arithmetic operation resulted in an overflow.
+sbyte.CreateSaturating((double)double.NaN): 0
+sbyte.CreateTruncating((double)double.NaN): 0
+short.Log2(short.MinValue): ArgumentOutOfRangeException Non-negative number required. (Parameter 'value')
+short.PopCount(short.MinValue): 1
+short.LeadingZeroCount(short.MinValue): 0
+short.TrailingZeroCount(short.MinValue): 15
+short.Sign(short.MinValue): -1
+short.IsPow2(short.MinValue): False
+short.IsEvenInteger(short.MinValue): True
+short.IsOddInteger(short.MinValue): False
+short.Abs(short.MinValue): OverflowException Negating the minimum value of a twos complement number is invalid.
+short.IsNegative(short.MinValue): True
+short.IsPositive(short.MinValue): False
+short.RotateLeft(short.MinValue, 3): 4
+short.RotateRight(short.MinValue, 3): 4096
+short.Clamp(short.MinValue, 1, 9): 1
+short.Min/Max(short.MinValue, 2): (-32768, 2)
+short.DivRem(short.MinValue, 2): (-16384, 0)
+short.CopySign(short.MinValue, -1/1): OverflowException Negating the minimum value of a twos complement number is invalid.
+short.Log2((short)0): 0
+short.PopCount((short)0): 0
+short.LeadingZeroCount((short)0): 16
+short.TrailingZeroCount((short)0): 16
+short.Sign((short)0): 0
+short.IsPow2((short)0): False
+short.IsEvenInteger((short)0): True
+short.IsOddInteger((short)0): False
+short.Abs((short)0): 0
+short.IsNegative((short)0): False
+short.IsPositive((short)0): True
+short.RotateLeft((short)0, 3): 0
+short.RotateRight((short)0, 3): 0
+short.Clamp((short)0, 1, 9): 1
+short.Min/Max((short)0, 2): (0, 2)
+short.DivRem((short)0, 2): (0, 0)
+short.CopySign((short)0, -1/1): (0, 0)
+short.Log2((short)1): 0
+short.PopCount((short)1): 1
+short.LeadingZeroCount((short)1): 15
+short.TrailingZeroCount((short)1): 0
+short.Sign((short)1): 1
+short.IsPow2((short)1): True
+short.IsEvenInteger((short)1): False
+short.IsOddInteger((short)1): True
+short.Abs((short)1): 1
+short.IsNegative((short)1): False
+short.IsPositive((short)1): True
+short.RotateLeft((short)1, 3): 8
+short.RotateRight((short)1, 3): 8192
+short.Clamp((short)1, 1, 9): 1
+short.Min/Max((short)1, 2): (1, 2)
+short.DivRem((short)1, 2): (0, 1)
+short.CopySign((short)1, -1/1): (-1, 1)
+short.Log2((short)5): 2
+short.PopCount((short)5): 2
+short.LeadingZeroCount((short)5): 13
+short.TrailingZeroCount((short)5): 0
+short.Sign((short)5): 1
+short.IsPow2((short)5): False
+short.IsEvenInteger((short)5): False
+short.IsOddInteger((short)5): True
+short.Abs((short)5): 5
+short.IsNegative((short)5): False
+short.IsPositive((short)5): True
+short.RotateLeft((short)5, 3): 40
+short.RotateRight((short)5, 3): -24576
+short.Clamp((short)5, 1, 9): 5
+short.Min/Max((short)5, 2): (2, 5)
+short.DivRem((short)5, 2): (2, 1)
+short.CopySign((short)5, -1/1): (-5, 5)
+short.Log2((short)64): 6
+short.PopCount((short)64): 1
+short.LeadingZeroCount((short)64): 9
+short.TrailingZeroCount((short)64): 6
+short.Sign((short)64): 1
+short.IsPow2((short)64): True
+short.IsEvenInteger((short)64): True
+short.IsOddInteger((short)64): False
+short.Abs((short)64): 64
+short.IsNegative((short)64): False
+short.IsPositive((short)64): True
+short.RotateLeft((short)64, 3): 512
+short.RotateRight((short)64, 3): 8
+short.Clamp((short)64, 1, 9): 9
+short.Min/Max((short)64, 2): (2, 64)
+short.DivRem((short)64, 2): (32, 0)
+short.CopySign((short)64, -1/1): (-64, 64)
+short.Log2(short.MaxValue): 14
+short.PopCount(short.MaxValue): 15
+short.LeadingZeroCount(short.MaxValue): 1
+short.TrailingZeroCount(short.MaxValue): 0
+short.Sign(short.MaxValue): 1
+short.IsPow2(short.MaxValue): False
+short.IsEvenInteger(short.MaxValue): False
+short.IsOddInteger(short.MaxValue): True
+short.Abs(short.MaxValue): 32767
+short.IsNegative(short.MaxValue): False
+short.IsPositive(short.MaxValue): True
+short.RotateLeft(short.MaxValue, 3): -5
+short.RotateRight(short.MaxValue, 3): -4097
+short.Clamp(short.MaxValue, 1, 9): 9
+short.Min/Max(short.MaxValue, 2): (2, 32767)
+short.DivRem(short.MaxValue, 2): (16383, 1)
+short.CopySign(short.MaxValue, -1/1): (-32767, 32767)
+short.Log2((short)(-1)): ArgumentOutOfRangeException Non-negative number required. (Parameter 'value')
+short.PopCount((short)(-1)): 16
+short.LeadingZeroCount((short)(-1)): 0
+short.TrailingZeroCount((short)(-1)): 0
+short.Sign((short)(-1)): -1
+short.IsPow2((short)(-1)): False
+short.IsEvenInteger((short)(-1)): False
+short.IsOddInteger((short)(-1)): True
+short.Abs((short)(-1)): 1
+short.IsNegative((short)(-1)): True
+short.IsPositive((short)(-1)): False
+short.RotateLeft((short)(-1), 3): -1
+short.RotateRight((short)(-1), 3): -1
+short.Clamp((short)(-1), 1, 9): 1
+short.Min/Max((short)(-1), 2): (-1, 2)
+short.DivRem((short)(-1), 2): (0, -1)
+short.CopySign((short)(-1), -1/1): (-1, 1)
+short.CreateChecked((int)-1): -1
+short.CreateSaturating((int)-1): -1
+short.CreateTruncating((int)-1): -1
+short.CreateChecked((int)300): 300
+short.CreateSaturating((int)300): 300
+short.CreateTruncating((int)300): 300
+short.CreateChecked((uint)4000000000u): OverflowException Arithmetic operation resulted in an overflow.
+short.CreateSaturating((uint)4000000000u): 32767
+short.CreateTruncating((uint)4000000000u): 10240
+short.CreateChecked((long)-5000000000L): OverflowException Arithmetic operation resulted in an overflow.
+short.CreateSaturating((long)-5000000000L): -32768
+short.CreateTruncating((long)-5000000000L): 3584
+short.CreateChecked((ulong)18000000000000000000UL): OverflowException Arithmetic operation resulted in an overflow.
+short.CreateSaturating((ulong)18000000000000000000UL): 32767
+short.CreateTruncating((ulong)18000000000000000000UL): 0
+short.CreateChecked((double)-1.5): -1
+short.CreateSaturating((double)-1.5): -1
+short.CreateTruncating((double)-1.5): -1
+short.CreateChecked((double)1e30): OverflowException Arithmetic operation resulted in an overflow.
+short.CreateSaturating((double)1e30): 32767
+short.CreateTruncating((double)1e30): 32767
+short.CreateChecked((double)double.NaN): OverflowException Arithmetic operation resulted in an overflow.
+short.CreateSaturating((double)double.NaN): 0
+short.CreateTruncating((double)double.NaN): 0
+ushort.Log2(ushort.MinValue): 0
+ushort.PopCount(ushort.MinValue): 0
+ushort.LeadingZeroCount(ushort.MinValue): 16
+ushort.TrailingZeroCount(ushort.MinValue): 16
+ushort.Sign(ushort.MinValue): 0
+ushort.IsPow2(ushort.MinValue): False
+ushort.IsEvenInteger(ushort.MinValue): True
+ushort.IsOddInteger(ushort.MinValue): False
+ushort.RotateLeft(ushort.MinValue, 3): 0
+ushort.RotateRight(ushort.MinValue, 3): 0
+ushort.Clamp(ushort.MinValue, 1, 9): 1
+ushort.Min/Max(ushort.MinValue, 2): (0, 2)
+ushort.DivRem(ushort.MinValue, 2): (0, 0)
+ushort.Log2((ushort)0): 0
+ushort.PopCount((ushort)0): 0
+ushort.LeadingZeroCount((ushort)0): 16
+ushort.TrailingZeroCount((ushort)0): 16
+ushort.Sign((ushort)0): 0
+ushort.IsPow2((ushort)0): False
+ushort.IsEvenInteger((ushort)0): True
+ushort.IsOddInteger((ushort)0): False
+ushort.RotateLeft((ushort)0, 3): 0
+ushort.RotateRight((ushort)0, 3): 0
+ushort.Clamp((ushort)0, 1, 9): 1
+ushort.Min/Max((ushort)0, 2): (0, 2)
+ushort.DivRem((ushort)0, 2): (0, 0)
+ushort.Log2((ushort)1): 0
+ushort.PopCount((ushort)1): 1
+ushort.LeadingZeroCount((ushort)1): 15
+ushort.TrailingZeroCount((ushort)1): 0
+ushort.Sign((ushort)1): 1
+ushort.IsPow2((ushort)1): True
+ushort.IsEvenInteger((ushort)1): False
+ushort.IsOddInteger((ushort)1): True
+ushort.RotateLeft((ushort)1, 3): 8
+ushort.RotateRight((ushort)1, 3): 8192
+ushort.Clamp((ushort)1, 1, 9): 1
+ushort.Min/Max((ushort)1, 2): (1, 2)
+ushort.DivRem((ushort)1, 2): (0, 1)
+ushort.Log2((ushort)5): 2
+ushort.PopCount((ushort)5): 2
+ushort.LeadingZeroCount((ushort)5): 13
+ushort.TrailingZeroCount((ushort)5): 0
+ushort.Sign((ushort)5): 1
+ushort.IsPow2((ushort)5): False
+ushort.IsEvenInteger((ushort)5): False
+ushort.IsOddInteger((ushort)5): True
+ushort.RotateLeft((ushort)5, 3): 40
+ushort.RotateRight((ushort)5, 3): 40960
+ushort.Clamp((ushort)5, 1, 9): 5
+ushort.Min/Max((ushort)5, 2): (2, 5)
+ushort.DivRem((ushort)5, 2): (2, 1)
+ushort.Log2((ushort)64): 6
+ushort.PopCount((ushort)64): 1
+ushort.LeadingZeroCount((ushort)64): 9
+ushort.TrailingZeroCount((ushort)64): 6
+ushort.Sign((ushort)64): 1
+ushort.IsPow2((ushort)64): True
+ushort.IsEvenInteger((ushort)64): True
+ushort.IsOddInteger((ushort)64): False
+ushort.RotateLeft((ushort)64, 3): 512
+ushort.RotateRight((ushort)64, 3): 8
+ushort.Clamp((ushort)64, 1, 9): 9
+ushort.Min/Max((ushort)64, 2): (2, 64)
+ushort.DivRem((ushort)64, 2): (32, 0)
+ushort.Log2(ushort.MaxValue): 15
+ushort.PopCount(ushort.MaxValue): 16
+ushort.LeadingZeroCount(ushort.MaxValue): 0
+ushort.TrailingZeroCount(ushort.MaxValue): 0
+ushort.Sign(ushort.MaxValue): 1
+ushort.IsPow2(ushort.MaxValue): False
+ushort.IsEvenInteger(ushort.MaxValue): False
+ushort.IsOddInteger(ushort.MaxValue): True
+ushort.RotateLeft(ushort.MaxValue, 3): 65535
+ushort.RotateRight(ushort.MaxValue, 3): 65535
+ushort.Clamp(ushort.MaxValue, 1, 9): 9
+ushort.Min/Max(ushort.MaxValue, 2): (2, 65535)
+ushort.DivRem(ushort.MaxValue, 2): (32767, 1)
+ushort.CreateChecked((int)-1): OverflowException Arithmetic operation resulted in an overflow.
+ushort.CreateSaturating((int)-1): 0
+ushort.CreateTruncating((int)-1): 65535
+ushort.CreateChecked((int)300): 300
+ushort.CreateSaturating((int)300): 300
+ushort.CreateTruncating((int)300): 300
+ushort.CreateChecked((uint)4000000000u): OverflowException Arithmetic operation resulted in an overflow.
+ushort.CreateSaturating((uint)4000000000u): 65535
+ushort.CreateTruncating((uint)4000000000u): 10240
+ushort.CreateChecked((long)-5000000000L): OverflowException Arithmetic operation resulted in an overflow.
+ushort.CreateSaturating((long)-5000000000L): 0
+ushort.CreateTruncating((long)-5000000000L): 3584
+ushort.CreateChecked((ulong)18000000000000000000UL): OverflowException Arithmetic operation resulted in an overflow.
+ushort.CreateSaturating((ulong)18000000000000000000UL): 65535
+ushort.CreateTruncating((ulong)18000000000000000000UL): 0
+ushort.CreateChecked((double)-1.5): OverflowException Arithmetic operation resulted in an overflow.
+ushort.CreateSaturating((double)-1.5): 0
+ushort.CreateTruncating((double)-1.5): 0
+ushort.CreateChecked((double)1e30): OverflowException Arithmetic operation resulted in an overflow.
+ushort.CreateSaturating((double)1e30): 65535
+ushort.CreateTruncating((double)1e30): 65535
+ushort.CreateChecked((double)double.NaN): OverflowException Arithmetic operation resulted in an overflow.
+ushort.CreateSaturating((double)double.NaN): 0
+ushort.CreateTruncating((double)double.NaN): 0
+int.PopCount(int.MinValue): 1
+int.LeadingZeroCount(int.MinValue): 0
+int.TrailingZeroCount(int.MinValue): 31
+int.Sign(int.MinValue): -1
+int.IsPow2(int.MinValue): False
+int.IsEvenInteger(int.MinValue): True
+int.IsOddInteger(int.MinValue): False
+int.Abs(int.MinValue): OverflowException Negating the minimum value of a twos complement number is invalid.
+int.IsNegative(int.MinValue): True
+int.IsPositive(int.MinValue): False
+int.RotateLeft(int.MinValue, 3): 4
+int.RotateRight(int.MinValue, 3): 268435456
+int.Clamp(int.MinValue, 1, 9): 1
+int.Min/Max(int.MinValue, 2): (-2147483648, 2)
+int.DivRem(int.MinValue, 2): (-1073741824, 0)
+int.CopySign(int.MinValue, -1/1): OverflowException Negating the minimum value of a twos complement number is invalid.
+int.Log2((int)0): 0
+int.PopCount((int)0): 0
+int.LeadingZeroCount((int)0): 32
+int.TrailingZeroCount((int)0): 32
+int.Sign((int)0): 0
+int.IsPow2((int)0): False
+int.IsEvenInteger((int)0): True
+int.IsOddInteger((int)0): False
+int.Abs((int)0): 0
+int.IsNegative((int)0): False
+int.IsPositive((int)0): True
+int.RotateLeft((int)0, 3): 0
+int.RotateRight((int)0, 3): 0
+int.Clamp((int)0, 1, 9): 1
+int.Min/Max((int)0, 2): (0, 2)
+int.DivRem((int)0, 2): (0, 0)
+int.CopySign((int)0, -1/1): (0, 0)
+int.Log2((int)1): 0
+int.PopCount((int)1): 1
+int.LeadingZeroCount((int)1): 31
+int.TrailingZeroCount((int)1): 0
+int.Sign((int)1): 1
+int.IsPow2((int)1): True
+int.IsEvenInteger((int)1): False
+int.IsOddInteger((int)1): True
+int.Abs((int)1): 1
+int.IsNegative((int)1): False
+int.IsPositive((int)1): True
+int.RotateLeft((int)1, 3): 8
+int.RotateRight((int)1, 3): 536870912
+int.Clamp((int)1, 1, 9): 1
+int.Min/Max((int)1, 2): (1, 2)
+int.DivRem((int)1, 2): (0, 1)
+int.CopySign((int)1, -1/1): (-1, 1)
+int.Log2((int)5): 2
+int.PopCount((int)5): 2
+int.LeadingZeroCount((int)5): 29
+int.TrailingZeroCount((int)5): 0
+int.Sign((int)5): 1
+int.IsPow2((int)5): False
+int.IsEvenInteger((int)5): False
+int.IsOddInteger((int)5): True
+int.Abs((int)5): 5
+int.IsNegative((int)5): False
+int.IsPositive((int)5): True
+int.RotateLeft((int)5, 3): 40
+int.RotateRight((int)5, 3): -1610612736
+int.Clamp((int)5, 1, 9): 5
+int.Min/Max((int)5, 2): (2, 5)
+int.DivRem((int)5, 2): (2, 1)
+int.CopySign((int)5, -1/1): (-5, 5)
+int.Log2((int)64): 6
+int.PopCount((int)64): 1
+int.LeadingZeroCount((int)64): 25
+int.TrailingZeroCount((int)64): 6
+int.Sign((int)64): 1
+int.IsPow2((int)64): True
+int.IsEvenInteger((int)64): True
+int.IsOddInteger((int)64): False
+int.Abs((int)64): 64
+int.IsNegative((int)64): False
+int.IsPositive((int)64): True
+int.RotateLeft((int)64, 3): 512
+int.RotateRight((int)64, 3): 8
+int.Clamp((int)64, 1, 9): 9
+int.Min/Max((int)64, 2): (2, 64)
+int.DivRem((int)64, 2): (32, 0)
+int.CopySign((int)64, -1/1): (-64, 64)
+int.Log2(int.MaxValue): 30
+int.PopCount(int.MaxValue): 31
+int.LeadingZeroCount(int.MaxValue): 1
+int.TrailingZeroCount(int.MaxValue): 0
+int.Sign(int.MaxValue): 1
+int.IsPow2(int.MaxValue): False
+int.IsEvenInteger(int.MaxValue): False
+int.IsOddInteger(int.MaxValue): True
+int.Abs(int.MaxValue): 2147483647
+int.IsNegative(int.MaxValue): False
+int.IsPositive(int.MaxValue): True
+int.RotateLeft(int.MaxValue, 3): -5
+int.RotateRight(int.MaxValue, 3): -268435457
+int.Clamp(int.MaxValue, 1, 9): 9
+int.Min/Max(int.MaxValue, 2): (2, 2147483647)
+int.DivRem(int.MaxValue, 2): (1073741823, 1)
+int.CopySign(int.MaxValue, -1/1): (-2147483647, 2147483647)
+int.PopCount((int)(-1)): 32
+int.LeadingZeroCount((int)(-1)): 0
+int.TrailingZeroCount((int)(-1)): 0
+int.Sign((int)(-1)): -1
+int.IsPow2((int)(-1)): False
+int.IsEvenInteger((int)(-1)): False
+int.IsOddInteger((int)(-1)): True
+int.Abs((int)(-1)): 1
+int.IsNegative((int)(-1)): True
+int.IsPositive((int)(-1)): False
+int.RotateLeft((int)(-1), 3): -1
+int.RotateRight((int)(-1), 3): -1
+int.Clamp((int)(-1), 1, 9): 1
+int.Min/Max((int)(-1), 2): (-1, 2)
+int.DivRem((int)(-1), 2): (0, -1)
+int.CopySign((int)(-1), -1/1): (-1, 1)
+int.CreateChecked((int)-1): -1
+int.CreateSaturating((int)-1): -1
+int.CreateTruncating((int)-1): -1
+int.CreateChecked((int)300): 300
+int.CreateSaturating((int)300): 300
+int.CreateTruncating((int)300): 300
+int.CreateChecked((uint)4000000000u): OverflowException Arithmetic operation resulted in an overflow.
+int.CreateSaturating((uint)4000000000u): 2147483647
+int.CreateTruncating((uint)4000000000u): -294967296
+int.CreateChecked((long)-5000000000L): OverflowException Arithmetic operation resulted in an overflow.
+int.CreateSaturating((long)-5000000000L): -2147483648
+int.CreateTruncating((long)-5000000000L): -705032704
+int.CreateChecked((ulong)18000000000000000000UL): OverflowException Arithmetic operation resulted in an overflow.
+int.CreateSaturating((ulong)18000000000000000000UL): 2147483647
+int.CreateTruncating((ulong)18000000000000000000UL): -989331456
+int.CreateChecked((double)-1.5): -1
+int.CreateSaturating((double)-1.5): -1
+int.CreateTruncating((double)-1.5): -1
+int.CreateChecked((double)1e30): OverflowException Arithmetic operation resulted in an overflow.
+int.CreateSaturating((double)1e30): 2147483647
+int.CreateTruncating((double)1e30): 2147483647
+int.CreateChecked((double)double.NaN): OverflowException Arithmetic operation resulted in an overflow.
+int.CreateSaturating((double)double.NaN): 0
+int.CreateTruncating((double)double.NaN): 0
+uint.Log2(uint.MinValue): 0
+uint.PopCount(uint.MinValue): 0
+uint.LeadingZeroCount(uint.MinValue): 32
+uint.TrailingZeroCount(uint.MinValue): 32
+uint.Sign(uint.MinValue): 0
+uint.IsPow2(uint.MinValue): False
+uint.IsEvenInteger(uint.MinValue): True
+uint.IsOddInteger(uint.MinValue): False
+uint.RotateLeft(uint.MinValue, 3): 0
+uint.RotateRight(uint.MinValue, 3): 0
+uint.Clamp(uint.MinValue, 1, 9): 1
+uint.Min/Max(uint.MinValue, 2): (0, 2)
+uint.DivRem(uint.MinValue, 2): (0, 0)
+uint.Log2((uint)0): 0
+uint.PopCount((uint)0): 0
+uint.LeadingZeroCount((uint)0): 32
+uint.TrailingZeroCount((uint)0): 32
+uint.Sign((uint)0): 0
+uint.IsPow2((uint)0): False
+uint.IsEvenInteger((uint)0): True
+uint.IsOddInteger((uint)0): False
+uint.RotateLeft((uint)0, 3): 0
+uint.RotateRight((uint)0, 3): 0
+uint.Clamp((uint)0, 1, 9): 1
+uint.Min/Max((uint)0, 2): (0, 2)
+uint.DivRem((uint)0, 2): (0, 0)
+uint.Log2((uint)1): 0
+uint.PopCount((uint)1): 1
+uint.LeadingZeroCount((uint)1): 31
+uint.TrailingZeroCount((uint)1): 0
+uint.Sign((uint)1): 1
+uint.IsPow2((uint)1): True
+uint.IsEvenInteger((uint)1): False
+uint.IsOddInteger((uint)1): True
+uint.RotateLeft((uint)1, 3): 8
+uint.RotateRight((uint)1, 3): 536870912
+uint.Clamp((uint)1, 1, 9): 1
+uint.Min/Max((uint)1, 2): (1, 2)
+uint.DivRem((uint)1, 2): (0, 1)
+uint.Log2((uint)5): 2
+uint.PopCount((uint)5): 2
+uint.LeadingZeroCount((uint)5): 29
+uint.TrailingZeroCount((uint)5): 0
+uint.Sign((uint)5): 1
+uint.IsPow2((uint)5): False
+uint.IsEvenInteger((uint)5): False
+uint.IsOddInteger((uint)5): True
+uint.RotateLeft((uint)5, 3): 40
+uint.RotateRight((uint)5, 3): 2684354560
+uint.Clamp((uint)5, 1, 9): 5
+uint.Min/Max((uint)5, 2): (2, 5)
+uint.DivRem((uint)5, 2): (2, 1)
+uint.Log2((uint)64): 6
+uint.PopCount((uint)64): 1
+uint.LeadingZeroCount((uint)64): 25
+uint.TrailingZeroCount((uint)64): 6
+uint.Sign((uint)64): 1
+uint.IsPow2((uint)64): True
+uint.IsEvenInteger((uint)64): True
+uint.IsOddInteger((uint)64): False
+uint.RotateLeft((uint)64, 3): 512
+uint.RotateRight((uint)64, 3): 8
+uint.Clamp((uint)64, 1, 9): 9
+uint.Min/Max((uint)64, 2): (2, 64)
+uint.DivRem((uint)64, 2): (32, 0)
+uint.Log2(uint.MaxValue): 31
+uint.PopCount(uint.MaxValue): 32
+uint.LeadingZeroCount(uint.MaxValue): 0
+uint.TrailingZeroCount(uint.MaxValue): 0
+uint.Sign(uint.MaxValue): 1
+uint.IsPow2(uint.MaxValue): False
+uint.IsEvenInteger(uint.MaxValue): False
+uint.IsOddInteger(uint.MaxValue): True
+uint.RotateLeft(uint.MaxValue, 3): 4294967295
+uint.RotateRight(uint.MaxValue, 3): 4294967295
+uint.Clamp(uint.MaxValue, 1, 9): 9
+uint.Min/Max(uint.MaxValue, 2): (2, 4294967295)
+uint.DivRem(uint.MaxValue, 2): (2147483647, 1)
+uint.CreateChecked((int)-1): OverflowException Arithmetic operation resulted in an overflow.
+uint.CreateSaturating((int)-1): 0
+uint.CreateTruncating((int)-1): 4294967295
+uint.CreateChecked((int)300): 300
+uint.CreateSaturating((int)300): 300
+uint.CreateTruncating((int)300): 300
+uint.CreateChecked((uint)4000000000u): 4000000000
+uint.CreateSaturating((uint)4000000000u): 4000000000
+uint.CreateTruncating((uint)4000000000u): 4000000000
+uint.CreateChecked((long)-5000000000L): OverflowException Arithmetic operation resulted in an overflow.
+uint.CreateSaturating((long)-5000000000L): 0
+uint.CreateTruncating((long)-5000000000L): 3589934592
+uint.CreateChecked((ulong)18000000000000000000UL): OverflowException Arithmetic operation resulted in an overflow.
+uint.CreateSaturating((ulong)18000000000000000000UL): 4294967295
+uint.CreateTruncating((ulong)18000000000000000000UL): 3305635840
+uint.CreateChecked((double)-1.5): OverflowException Arithmetic operation resulted in an overflow.
+uint.CreateSaturating((double)-1.5): 0
+uint.CreateTruncating((double)-1.5): 0
+uint.CreateChecked((double)1e30): OverflowException Arithmetic operation resulted in an overflow.
+uint.CreateSaturating((double)1e30): 4294967295
+uint.CreateTruncating((double)1e30): 4294967295
+uint.CreateChecked((double)double.NaN): OverflowException Arithmetic operation resulted in an overflow.
+uint.CreateSaturating((double)double.NaN): 0
+uint.CreateTruncating((double)double.NaN): 0
+long.PopCount(long.MinValue): 1
+long.LeadingZeroCount(long.MinValue): 0
+long.TrailingZeroCount(long.MinValue): 63
+long.Sign(long.MinValue): -1
+long.IsPow2(long.MinValue): False
+long.IsEvenInteger(long.MinValue): True
+long.IsOddInteger(long.MinValue): False
+long.Abs(long.MinValue): OverflowException Negating the minimum value of a twos complement number is invalid.
+long.IsNegative(long.MinValue): True
+long.IsPositive(long.MinValue): False
+long.RotateLeft(long.MinValue, 3): 4
+long.RotateRight(long.MinValue, 3): 1152921504606846976
+long.Clamp(long.MinValue, 1, 9): 1
+long.Min/Max(long.MinValue, 2): (-9223372036854775808, 2)
+long.DivRem(long.MinValue, 2): (-4611686018427387904, 0)
+long.CopySign(long.MinValue, -1/1): OverflowException Negating the minimum value of a twos complement number is invalid.
+long.Log2((long)0): 0
+long.PopCount((long)0): 0
+long.LeadingZeroCount((long)0): 64
+long.TrailingZeroCount((long)0): 64
+long.Sign((long)0): 0
+long.IsPow2((long)0): False
+long.IsEvenInteger((long)0): True
+long.IsOddInteger((long)0): False
+long.Abs((long)0): 0
+long.IsNegative((long)0): False
+long.IsPositive((long)0): True
+long.RotateLeft((long)0, 3): 0
+long.RotateRight((long)0, 3): 0
+long.Clamp((long)0, 1, 9): 1
+long.Min/Max((long)0, 2): (0, 2)
+long.DivRem((long)0, 2): (0, 0)
+long.CopySign((long)0, -1/1): (0, 0)
+long.Log2((long)1): 0
+long.PopCount((long)1): 1
+long.LeadingZeroCount((long)1): 63
+long.TrailingZeroCount((long)1): 0
+long.Sign((long)1): 1
+long.IsPow2((long)1): True
+long.IsEvenInteger((long)1): False
+long.IsOddInteger((long)1): True
+long.Abs((long)1): 1
+long.IsNegative((long)1): False
+long.IsPositive((long)1): True
+long.RotateLeft((long)1, 3): 8
+long.RotateRight((long)1, 3): 2305843009213693952
+long.Clamp((long)1, 1, 9): 1
+long.Min/Max((long)1, 2): (1, 2)
+long.DivRem((long)1, 2): (0, 1)
+long.CopySign((long)1, -1/1): (-1, 1)
+long.Log2((long)5): 2
+long.PopCount((long)5): 2
+long.LeadingZeroCount((long)5): 61
+long.TrailingZeroCount((long)5): 0
+long.Sign((long)5): 1
+long.IsPow2((long)5): False
+long.IsEvenInteger((long)5): False
+long.IsOddInteger((long)5): True
+long.Abs((long)5): 5
+long.IsNegative((long)5): False
+long.IsPositive((long)5): True
+long.RotateLeft((long)5, 3): 40
+long.RotateRight((long)5, 3): -6917529027641081856
+long.Clamp((long)5, 1, 9): 5
+long.Min/Max((long)5, 2): (2, 5)
+long.DivRem((long)5, 2): (2, 1)
+long.CopySign((long)5, -1/1): (-5, 5)
+long.Log2((long)64): 6
+long.PopCount((long)64): 1
+long.LeadingZeroCount((long)64): 57
+long.TrailingZeroCount((long)64): 6
+long.Sign((long)64): 1
+long.IsPow2((long)64): True
+long.IsEvenInteger((long)64): True
+long.IsOddInteger((long)64): False
+long.Abs((long)64): 64
+long.IsNegative((long)64): False
+long.IsPositive((long)64): True
+long.RotateLeft((long)64, 3): 512
+long.RotateRight((long)64, 3): 8
+long.Clamp((long)64, 1, 9): 9
+long.Min/Max((long)64, 2): (2, 64)
+long.DivRem((long)64, 2): (32, 0)
+long.CopySign((long)64, -1/1): (-64, 64)
+long.Log2(long.MaxValue): 62
+long.PopCount(long.MaxValue): 63
+long.LeadingZeroCount(long.MaxValue): 1
+long.TrailingZeroCount(long.MaxValue): 0
+long.Sign(long.MaxValue): 1
+long.IsPow2(long.MaxValue): False
+long.IsEvenInteger(long.MaxValue): False
+long.IsOddInteger(long.MaxValue): True
+long.Abs(long.MaxValue): 9223372036854775807
+long.IsNegative(long.MaxValue): False
+long.IsPositive(long.MaxValue): True
+long.RotateLeft(long.MaxValue, 3): -5
+long.RotateRight(long.MaxValue, 3): -1152921504606846977
+long.Clamp(long.MaxValue, 1, 9): 9
+long.Min/Max(long.MaxValue, 2): (2, 9223372036854775807)
+long.DivRem(long.MaxValue, 2): (4611686018427387903, 1)
+long.CopySign(long.MaxValue, -1/1): (-9223372036854775807, 9223372036854775807)
+long.PopCount((long)(-1)): 64
+long.LeadingZeroCount((long)(-1)): 0
+long.TrailingZeroCount((long)(-1)): 0
+long.Sign((long)(-1)): -1
+long.IsPow2((long)(-1)): False
+long.IsEvenInteger((long)(-1)): False
+long.IsOddInteger((long)(-1)): True
+long.Abs((long)(-1)): 1
+long.IsNegative((long)(-1)): True
+long.IsPositive((long)(-1)): False
+long.RotateLeft((long)(-1), 3): -1
+long.RotateRight((long)(-1), 3): -1
+long.Clamp((long)(-1), 1, 9): 1
+long.Min/Max((long)(-1), 2): (-1, 2)
+long.DivRem((long)(-1), 2): (0, -1)
+long.CopySign((long)(-1), -1/1): (-1, 1)
+long.CreateChecked((int)-1): -1
+long.CreateSaturating((int)-1): -1
+long.CreateTruncating((int)-1): -1
+long.CreateChecked((int)300): 300
+long.CreateSaturating((int)300): 300
+long.CreateTruncating((int)300): 300
+long.CreateChecked((uint)4000000000u): 4000000000
+long.CreateSaturating((uint)4000000000u): 4000000000
+long.CreateTruncating((uint)4000000000u): 4000000000
+long.CreateChecked((long)-5000000000L): -5000000000
+long.CreateSaturating((long)-5000000000L): -5000000000
+long.CreateTruncating((long)-5000000000L): -5000000000
+long.CreateChecked((ulong)18000000000000000000UL): OverflowException Arithmetic operation resulted in an overflow.
+long.CreateSaturating((ulong)18000000000000000000UL): 9223372036854775807
+long.CreateTruncating((ulong)18000000000000000000UL): -446744073709551616
+long.CreateChecked((double)-1.5): -1
+long.CreateSaturating((double)-1.5): -1
+long.CreateTruncating((double)-1.5): -1
+long.CreateChecked((double)1e30): OverflowException Arithmetic operation resulted in an overflow.
+long.CreateSaturating((double)1e30): 9223372036854775807
+long.CreateTruncating((double)1e30): 9223372036854775807
+long.CreateChecked((double)double.NaN): OverflowException Arithmetic operation resulted in an overflow.
+long.CreateSaturating((double)double.NaN): 0
+long.CreateTruncating((double)double.NaN): 0
+ulong.Log2(ulong.MinValue): 0
+ulong.PopCount(ulong.MinValue): 0
+ulong.LeadingZeroCount(ulong.MinValue): 64
+ulong.TrailingZeroCount(ulong.MinValue): 64
+ulong.Sign(ulong.MinValue): 0
+ulong.IsPow2(ulong.MinValue): False
+ulong.IsEvenInteger(ulong.MinValue): True
+ulong.IsOddInteger(ulong.MinValue): False
+ulong.RotateLeft(ulong.MinValue, 3): 0
+ulong.RotateRight(ulong.MinValue, 3): 0
+ulong.Clamp(ulong.MinValue, 1, 9): 1
+ulong.Min/Max(ulong.MinValue, 2): (0, 2)
+ulong.DivRem(ulong.MinValue, 2): (0, 0)
+ulong.Log2((ulong)0): 0
+ulong.PopCount((ulong)0): 0
+ulong.LeadingZeroCount((ulong)0): 64
+ulong.TrailingZeroCount((ulong)0): 64
+ulong.Sign((ulong)0): 0
+ulong.IsPow2((ulong)0): False
+ulong.IsEvenInteger((ulong)0): True
+ulong.IsOddInteger((ulong)0): False
+ulong.RotateLeft((ulong)0, 3): 0
+ulong.RotateRight((ulong)0, 3): 0
+ulong.Clamp((ulong)0, 1, 9): 1
+ulong.Min/Max((ulong)0, 2): (0, 2)
+ulong.DivRem((ulong)0, 2): (0, 0)
+ulong.Log2((ulong)1): 0
+ulong.PopCount((ulong)1): 1
+ulong.LeadingZeroCount((ulong)1): 63
+ulong.TrailingZeroCount((ulong)1): 0
+ulong.Sign((ulong)1): 1
+ulong.IsPow2((ulong)1): True
+ulong.IsEvenInteger((ulong)1): False
+ulong.IsOddInteger((ulong)1): True
+ulong.RotateLeft((ulong)1, 3): 8
+ulong.RotateRight((ulong)1, 3): 2305843009213693952
+ulong.Clamp((ulong)1, 1, 9): 1
+ulong.Min/Max((ulong)1, 2): (1, 2)
+ulong.DivRem((ulong)1, 2): (0, 1)
+ulong.Log2((ulong)5): 2
+ulong.PopCount((ulong)5): 2
+ulong.LeadingZeroCount((ulong)5): 61
+ulong.TrailingZeroCount((ulong)5): 0
+ulong.Sign((ulong)5): 1
+ulong.IsPow2((ulong)5): False
+ulong.IsEvenInteger((ulong)5): False
+ulong.IsOddInteger((ulong)5): True
+ulong.RotateLeft((ulong)5, 3): 40
+ulong.RotateRight((ulong)5, 3): 11529215046068469760
+ulong.Clamp((ulong)5, 1, 9): 5
+ulong.Min/Max((ulong)5, 2): (2, 5)
+ulong.DivRem((ulong)5, 2): (2, 1)
+ulong.Log2((ulong)64): 6
+ulong.PopCount((ulong)64): 1
+ulong.LeadingZeroCount((ulong)64): 57
+ulong.TrailingZeroCount((ulong)64): 6
+ulong.Sign((ulong)64): 1
+ulong.IsPow2((ulong)64): True
+ulong.IsEvenInteger((ulong)64): True
+ulong.IsOddInteger((ulong)64): False
+ulong.RotateLeft((ulong)64, 3): 512
+ulong.RotateRight((ulong)64, 3): 8
+ulong.Clamp((ulong)64, 1, 9): 9
+ulong.Min/Max((ulong)64, 2): (2, 64)
+ulong.DivRem((ulong)64, 2): (32, 0)
+ulong.Log2(ulong.MaxValue): 63
+ulong.PopCount(ulong.MaxValue): 64
+ulong.LeadingZeroCount(ulong.MaxValue): 0
+ulong.TrailingZeroCount(ulong.MaxValue): 0
+ulong.Sign(ulong.MaxValue): 1
+ulong.IsPow2(ulong.MaxValue): False
+ulong.IsEvenInteger(ulong.MaxValue): False
+ulong.IsOddInteger(ulong.MaxValue): True
+ulong.RotateLeft(ulong.MaxValue, 3): 18446744073709551615
+ulong.RotateRight(ulong.MaxValue, 3): 18446744073709551615
+ulong.Clamp(ulong.MaxValue, 1, 9): 9
+ulong.Min/Max(ulong.MaxValue, 2): (2, 18446744073709551615)
+ulong.DivRem(ulong.MaxValue, 2): (9223372036854775807, 1)
+ulong.CreateChecked((int)-1): OverflowException Arithmetic operation resulted in an overflow.
+ulong.CreateSaturating((int)-1): 0
+ulong.CreateTruncating((int)-1): 18446744073709551615
+ulong.CreateChecked((int)300): 300
+ulong.CreateSaturating((int)300): 300
+ulong.CreateTruncating((int)300): 300
+ulong.CreateChecked((uint)4000000000u): 4000000000
+ulong.CreateSaturating((uint)4000000000u): 4000000000
+ulong.CreateTruncating((uint)4000000000u): 4000000000
+ulong.CreateChecked((long)-5000000000L): OverflowException Arithmetic operation resulted in an overflow.
+ulong.CreateSaturating((long)-5000000000L): 0
+ulong.CreateTruncating((long)-5000000000L): 18446744068709551616
+ulong.CreateChecked((ulong)18000000000000000000UL): 18000000000000000000
+ulong.CreateSaturating((ulong)18000000000000000000UL): 18000000000000000000
+ulong.CreateTruncating((ulong)18000000000000000000UL): 18000000000000000000
+ulong.CreateChecked((double)-1.5): OverflowException Arithmetic operation resulted in an overflow.
+ulong.CreateSaturating((double)-1.5): 0
+ulong.CreateTruncating((double)-1.5): 0
+ulong.CreateChecked((double)1e30): OverflowException Arithmetic operation resulted in an overflow.
+ulong.CreateSaturating((double)1e30): 18446744073709551615
+ulong.CreateTruncating((double)1e30): 18446744073709551615
+ulong.CreateChecked((double)double.NaN): OverflowException Arithmetic operation resulted in an overflow.
+ulong.CreateSaturating((double)double.NaN): 0
+ulong.CreateTruncating((double)double.NaN): 0
+nint.Log2((nint)0): 0
+nint.PopCount((nint)0): 0
+nint.TrailingZeroCount((nint)0) is the width: True
+nint.Sign((nint)0): 0
+nint.IsPow2((nint)0): False
+nint.IsEvenInteger((nint)0): True
+nint.IsOddInteger((nint)0): False
+nint.Abs((nint)0): 0
+nint.IsNegative((nint)0): False
+nint.IsPositive((nint)0): True
+nint.Clamp((nint)0, 1, 9): 1
+nint.Min/Max((nint)0, 2): (0, 2)
+nint.DivRem((nint)0, 2): (0, 0)
+nint.CopySign((nint)0, -1): 0
+nint.Log2((nint)1): 0
+nint.PopCount((nint)1): 1
+nint.TrailingZeroCount((nint)1): 0
+nint.Sign((nint)1): 1
+nint.IsPow2((nint)1): True
+nint.IsEvenInteger((nint)1): False
+nint.IsOddInteger((nint)1): True
+nint.Abs((nint)1): 1
+nint.IsNegative((nint)1): False
+nint.IsPositive((nint)1): True
+nint.Clamp((nint)1, 1, 9): 1
+nint.Min/Max((nint)1, 2): (1, 2)
+nint.DivRem((nint)1, 2): (0, 1)
+nint.CopySign((nint)1, -1): -1
+nint.Log2((nint)5): 2
+nint.PopCount((nint)5): 2
+nint.TrailingZeroCount((nint)5): 0
+nint.Sign((nint)5): 1
+nint.IsPow2((nint)5): False
+nint.IsEvenInteger((nint)5): False
+nint.IsOddInteger((nint)5): True
+nint.Abs((nint)5): 5
+nint.IsNegative((nint)5): False
+nint.IsPositive((nint)5): True
+nint.Clamp((nint)5, 1, 9): 5
+nint.Min/Max((nint)5, 2): (2, 5)
+nint.DivRem((nint)5, 2): (2, 1)
+nint.CopySign((nint)5, -1): -5
+nint.Log2((nint)64): 6
+nint.PopCount((nint)64): 1
+nint.TrailingZeroCount((nint)64): 6
+nint.Sign((nint)64): 1
+nint.IsPow2((nint)64): True
+nint.IsEvenInteger((nint)64): True
+nint.IsOddInteger((nint)64): False
+nint.Abs((nint)64): 64
+nint.IsNegative((nint)64): False
+nint.IsPositive((nint)64): True
+nint.Clamp((nint)64, 1, 9): 9
+nint.Min/Max((nint)64, 2): (2, 64)
+nint.DivRem((nint)64, 2): (32, 0)
+nint.CopySign((nint)64, -1): -64
+nint.PopCount((nint)(-5)) is the width - 1: True
+nint.TrailingZeroCount((nint)(-5)): 0
+nint.Sign((nint)(-5)): -1
+nint.IsPow2((nint)(-5)): False
+nint.IsEvenInteger((nint)(-5)): False
+nint.IsOddInteger((nint)(-5)): True
+nint.Abs((nint)(-5)): 5
+nint.IsNegative((nint)(-5)): True
+nint.IsPositive((nint)(-5)): False
+nint.Clamp((nint)(-5), 1, 9): 1
+nint.Min/Max((nint)(-5), 2): (-5, 2)
+nint.DivRem((nint)(-5), 2): (-2, -1)
+nint.CopySign((nint)(-5), -1): -5
+nint.LeadingZeroCount(1) is the width - 1: True
+nint.RotateLeft(1, width - 1) is the top bit: True
+nint.RotateRight(1, 1) is the top bit: True
+nint.MaxValue/MinValue are the width's: True
+nint.PopCount(MaxValue) is the width: True
+nint.CreateChecked((int)-1): -1
+nint.CreateSaturating((int)-1): -1
+nint.CreateTruncating((int)-1): -1
+nint.CreateChecked((int)300): 300
+nint.CreateSaturating((int)300): 300
+nint.CreateTruncating((int)300): 300
+nint.CreateChecked((long)-5): -5
+nint.CreateSaturating((long)-5): -5
+nint.CreateTruncating((long)-5): -5
+nint.CreateChecked((double)-1.5): -1
+nint.CreateSaturating((double)-1.5): -1
+nint.CreateTruncating((double)-1.5): -1
+nint.CreateChecked((double)double.NaN): OverflowException Arithmetic operation resulted in an overflow.
+nint.CreateSaturating((double)double.NaN): 0
+nint.CreateTruncating((double)double.NaN): 0
+nuint.Log2((nuint)0): 0
+nuint.PopCount((nuint)0): 0
+nuint.TrailingZeroCount((nuint)0) is the width: True
+nuint.Sign((nuint)0): 0
+nuint.IsPow2((nuint)0): False
+nuint.IsEvenInteger((nuint)0): True
+nuint.IsOddInteger((nuint)0): False
+nuint.Clamp((nuint)0, 1, 9): 1
+nuint.Min/Max((nuint)0, 2): (0, 2)
+nuint.DivRem((nuint)0, 2): (0, 0)
+nuint.Log2((nuint)1): 0
+nuint.PopCount((nuint)1): 1
+nuint.TrailingZeroCount((nuint)1): 0
+nuint.Sign((nuint)1): 1
+nuint.IsPow2((nuint)1): True
+nuint.IsEvenInteger((nuint)1): False
+nuint.IsOddInteger((nuint)1): True
+nuint.Clamp((nuint)1, 1, 9): 1
+nuint.Min/Max((nuint)1, 2): (1, 2)
+nuint.DivRem((nuint)1, 2): (0, 1)
+nuint.Log2((nuint)5): 2
+nuint.PopCount((nuint)5): 2
+nuint.TrailingZeroCount((nuint)5): 0
+nuint.Sign((nuint)5): 1
+nuint.IsPow2((nuint)5): False
+nuint.IsEvenInteger((nuint)5): False
+nuint.IsOddInteger((nuint)5): True
+nuint.Clamp((nuint)5, 1, 9): 5
+nuint.Min/Max((nuint)5, 2): (2, 5)
+nuint.DivRem((nuint)5, 2): (2, 1)
+nuint.Log2((nuint)64): 6
+nuint.PopCount((nuint)64): 1
+nuint.TrailingZeroCount((nuint)64): 6
+nuint.Sign((nuint)64): 1
+nuint.IsPow2((nuint)64): True
+nuint.IsEvenInteger((nuint)64): True
+nuint.IsOddInteger((nuint)64): False
+nuint.Clamp((nuint)64, 1, 9): 9
+nuint.Min/Max((nuint)64, 2): (2, 64)
+nuint.DivRem((nuint)64, 2): (32, 0)
+nuint.LeadingZeroCount(1) is the width - 1: True
+nuint.RotateLeft(1, width - 1) is the top bit: True
+nuint.RotateRight(1, 1) is the top bit: True
+nuint.MaxValue/MinValue are the width's: True
+nuint.PopCount(MaxValue) is the width: True
+nuint.CreateChecked((int)-1): OverflowException Arithmetic operation resulted in an overflow.
+nuint.CreateSaturating((int)-1): 0
+nuint.CreateChecked((int)300): 300
+nuint.CreateSaturating((int)300): 300
+nuint.CreateTruncating((int)300): 300
+nuint.CreateChecked((long)-5): OverflowException Arithmetic operation resulted in an overflow.
+nuint.CreateSaturating((long)-5): 0
+nuint.CreateChecked((double)-1.5): OverflowException Arithmetic operation resulted in an overflow.
+nuint.CreateSaturating((double)-1.5): 0
+nuint.CreateTruncating((double)-1.5): 0
+nuint.CreateChecked((double)double.NaN): OverflowException Arithmetic operation resulted in an overflow.
+nuint.CreateSaturating((double)double.NaN): 0
+nuint.CreateTruncating((double)double.NaN): 0
+T.Log2 Byte(5): 2
+T.PopCount Byte(5): 2
+T.TrailingZeroCount Byte(5): 0
+T.Sign Byte(5): 1
+T.IsPow2 Byte(5): False
+T.IsEvenInteger Byte(5): False
+T.IsOddInteger Byte(5): True
+T.Abs Byte(5): 5
+T.IsNegative Byte(5): False
+T.IsPositive Byte(5): True
+T.IsZero Byte(5): False
+T.IsCanonical Byte(5): True
+T.IsComplexNumber Byte(5): False
+T.IsFinite Byte(5): True
+T.IsImaginaryNumber Byte(5): False
+T.IsInfinity Byte(5): False
+T.IsInteger Byte(5): True
+T.IsNaN Byte(5): False
+T.IsNegativeInfinity Byte(5): False
+T.IsNormal Byte(5): True
+T.IsPositiveInfinity Byte(5): False
+T.IsRealNumber Byte(5): True
+T.IsSubnormal Byte(5): False
+T.Clamp/Min/Max/CopySign Byte(5): (1, 1, 5, 5)
+T.MaxMagnitude/MinMagnitude Byte(5): (5, 1)
+T.CreateSaturating(300)/(-1) Byte(5): (255, 0)
+T.CreateChecked(5UL) Byte(5): 5
+T.Log2 Byte(0): 0
+T.PopCount Byte(0): 0
+T.TrailingZeroCount Byte(0): 8
+T.Sign Byte(0): 0
+T.IsPow2 Byte(0): False
+T.IsEvenInteger Byte(0): True
+T.IsOddInteger Byte(0): False
+T.Abs Byte(0): 0
+T.IsNegative Byte(0): False
+T.IsPositive Byte(0): True
+T.IsZero Byte(0): True
+T.IsCanonical Byte(0): True
+T.IsComplexNumber Byte(0): False
+T.IsFinite Byte(0): True
+T.IsImaginaryNumber Byte(0): False
+T.IsInfinity Byte(0): False
+T.IsInteger Byte(0): True
+T.IsNaN Byte(0): False
+T.IsNegativeInfinity Byte(0): False
+T.IsNormal Byte(0): False
+T.IsPositiveInfinity Byte(0): False
+T.IsRealNumber Byte(0): True
+T.IsSubnormal Byte(0): False
+T.Clamp/Min/Max/CopySign Byte(0): (0, 0, 1, 0)
+T.MaxMagnitude/MinMagnitude Byte(0): (1, 0)
+T.CreateSaturating(300)/(-1) Byte(0): (255, 0)
+T.CreateChecked(5UL) Byte(0): 5
+T.Log2 Byte(64): 6
+T.PopCount Byte(64): 1
+T.TrailingZeroCount Byte(64): 6
+T.Sign Byte(64): 1
+T.IsPow2 Byte(64): True
+T.IsEvenInteger Byte(64): True
+T.IsOddInteger Byte(64): False
+T.Abs Byte(64): 64
+T.IsNegative Byte(64): False
+T.IsPositive Byte(64): True
+T.IsZero Byte(64): False
+T.IsCanonical Byte(64): True
+T.IsComplexNumber Byte(64): False
+T.IsFinite Byte(64): True
+T.IsImaginaryNumber Byte(64): False
+T.IsInfinity Byte(64): False
+T.IsInteger Byte(64): True
+T.IsNaN Byte(64): False
+T.IsNegativeInfinity Byte(64): False
+T.IsNormal Byte(64): True
+T.IsPositiveInfinity Byte(64): False
+T.IsRealNumber Byte(64): True
+T.IsSubnormal Byte(64): False
+T.Clamp/Min/Max/CopySign Byte(64): (1, 1, 64, 64)
+T.MaxMagnitude/MinMagnitude Byte(64): (64, 1)
+T.CreateSaturating(300)/(-1) Byte(64): (255, 0)
+T.CreateChecked(5UL) Byte(64): 5
+T.Log2 SByte(5): 2
+T.PopCount SByte(5): 2
+T.TrailingZeroCount SByte(5): 0
+T.Sign SByte(5): 1
+T.IsPow2 SByte(5): False
+T.IsEvenInteger SByte(5): False
+T.IsOddInteger SByte(5): True
+T.Abs SByte(5): 5
+T.IsNegative SByte(5): False
+T.IsPositive SByte(5): True
+T.IsZero SByte(5): False
+T.IsCanonical SByte(5): True
+T.IsComplexNumber SByte(5): False
+T.IsFinite SByte(5): True
+T.IsImaginaryNumber SByte(5): False
+T.IsInfinity SByte(5): False
+T.IsInteger SByte(5): True
+T.IsNaN SByte(5): False
+T.IsNegativeInfinity SByte(5): False
+T.IsNormal SByte(5): True
+T.IsPositiveInfinity SByte(5): False
+T.IsRealNumber SByte(5): True
+T.IsSubnormal SByte(5): False
+T.Clamp/Min/Max/CopySign SByte(5): (1, 1, 5, 5)
+T.MaxMagnitude/MinMagnitude SByte(5): (5, 1)
+T.CreateSaturating(300)/(-1) SByte(5): (127, -1)
+T.CreateChecked(5UL) SByte(5): 5
+T.Log2 SByte(0): 0
+T.PopCount SByte(0): 0
+T.TrailingZeroCount SByte(0): 8
+T.Sign SByte(0): 0
+T.IsPow2 SByte(0): False
+T.IsEvenInteger SByte(0): True
+T.IsOddInteger SByte(0): False
+T.Abs SByte(0): 0
+T.IsNegative SByte(0): False
+T.IsPositive SByte(0): True
+T.IsZero SByte(0): True
+T.IsCanonical SByte(0): True
+T.IsComplexNumber SByte(0): False
+T.IsFinite SByte(0): True
+T.IsImaginaryNumber SByte(0): False
+T.IsInfinity SByte(0): False
+T.IsInteger SByte(0): True
+T.IsNaN SByte(0): False
+T.IsNegativeInfinity SByte(0): False
+T.IsNormal SByte(0): False
+T.IsPositiveInfinity SByte(0): False
+T.IsRealNumber SByte(0): True
+T.IsSubnormal SByte(0): False
+T.Clamp/Min/Max/CopySign SByte(0): (0, 0, 1, 0)
+T.MaxMagnitude/MinMagnitude SByte(0): (1, 0)
+T.CreateSaturating(300)/(-1) SByte(0): (127, -1)
+T.CreateChecked(5UL) SByte(0): 5
+T.Log2 SByte(64): 6
+T.PopCount SByte(64): 1
+T.TrailingZeroCount SByte(64): 6
+T.Sign SByte(64): 1
+T.IsPow2 SByte(64): True
+T.IsEvenInteger SByte(64): True
+T.IsOddInteger SByte(64): False
+T.Abs SByte(64): 64
+T.IsNegative SByte(64): False
+T.IsPositive SByte(64): True
+T.IsZero SByte(64): False
+T.IsCanonical SByte(64): True
+T.IsComplexNumber SByte(64): False
+T.IsFinite SByte(64): True
+T.IsImaginaryNumber SByte(64): False
+T.IsInfinity SByte(64): False
+T.IsInteger SByte(64): True
+T.IsNaN SByte(64): False
+T.IsNegativeInfinity SByte(64): False
+T.IsNormal SByte(64): True
+T.IsPositiveInfinity SByte(64): False
+T.IsRealNumber SByte(64): True
+T.IsSubnormal SByte(64): False
+T.Clamp/Min/Max/CopySign SByte(64): (1, 1, 64, 64)
+T.MaxMagnitude/MinMagnitude SByte(64): (64, 1)
+T.CreateSaturating(300)/(-1) SByte(64): (127, -1)
+T.CreateChecked(5UL) SByte(64): 5
+T.Log2 SByte(-5): ArgumentOutOfRangeException Non-negative number required. (Parameter 'value')
+T.PopCount SByte(-5): 7
+T.TrailingZeroCount SByte(-5): 0
+T.Sign SByte(-5): -1
+T.IsPow2 SByte(-5): False
+T.IsEvenInteger SByte(-5): False
+T.IsOddInteger SByte(-5): True
+T.Abs SByte(-5): 5
+T.IsNegative SByte(-5): True
+T.IsPositive SByte(-5): False
+T.IsZero SByte(-5): False
+T.IsCanonical SByte(-5): True
+T.IsComplexNumber SByte(-5): False
+T.IsFinite SByte(-5): True
+T.IsImaginaryNumber SByte(-5): False
+T.IsInfinity SByte(-5): False
+T.IsInteger SByte(-5): True
+T.IsNaN SByte(-5): False
+T.IsNegativeInfinity SByte(-5): False
+T.IsNormal SByte(-5): True
+T.IsPositiveInfinity SByte(-5): False
+T.IsRealNumber SByte(-5): True
+T.IsSubnormal SByte(-5): False
+T.Clamp/Min/Max/CopySign SByte(-5): (0, -5, 1, 5)
+T.MaxMagnitude/MinMagnitude SByte(-5): (-5, 1)
+T.CreateSaturating(300)/(-1) SByte(-5): (127, -1)
+T.CreateChecked(5UL) SByte(-5): 5
+T.Log2 Int16(5): 2
+T.PopCount Int16(5): 2
+T.TrailingZeroCount Int16(5): 0
+T.Sign Int16(5): 1
+T.IsPow2 Int16(5): False
+T.IsEvenInteger Int16(5): False
+T.IsOddInteger Int16(5): True
+T.Abs Int16(5): 5
+T.IsNegative Int16(5): False
+T.IsPositive Int16(5): True
+T.IsZero Int16(5): False
+T.IsCanonical Int16(5): True
+T.IsComplexNumber Int16(5): False
+T.IsFinite Int16(5): True
+T.IsImaginaryNumber Int16(5): False
+T.IsInfinity Int16(5): False
+T.IsInteger Int16(5): True
+T.IsNaN Int16(5): False
+T.IsNegativeInfinity Int16(5): False
+T.IsNormal Int16(5): True
+T.IsPositiveInfinity Int16(5): False
+T.IsRealNumber Int16(5): True
+T.IsSubnormal Int16(5): False
+T.Clamp/Min/Max/CopySign Int16(5): (1, 1, 5, 5)
+T.MaxMagnitude/MinMagnitude Int16(5): (5, 1)
+T.CreateSaturating(300)/(-1) Int16(5): (300, -1)
+T.CreateChecked(5UL) Int16(5): 5
+T.Log2 Int16(0): 0
+T.PopCount Int16(0): 0
+T.TrailingZeroCount Int16(0): 16
+T.Sign Int16(0): 0
+T.IsPow2 Int16(0): False
+T.IsEvenInteger Int16(0): True
+T.IsOddInteger Int16(0): False
+T.Abs Int16(0): 0
+T.IsNegative Int16(0): False
+T.IsPositive Int16(0): True
+T.IsZero Int16(0): True
+T.IsCanonical Int16(0): True
+T.IsComplexNumber Int16(0): False
+T.IsFinite Int16(0): True
+T.IsImaginaryNumber Int16(0): False
+T.IsInfinity Int16(0): False
+T.IsInteger Int16(0): True
+T.IsNaN Int16(0): False
+T.IsNegativeInfinity Int16(0): False
+T.IsNormal Int16(0): False
+T.IsPositiveInfinity Int16(0): False
+T.IsRealNumber Int16(0): True
+T.IsSubnormal Int16(0): False
+T.Clamp/Min/Max/CopySign Int16(0): (0, 0, 1, 0)
+T.MaxMagnitude/MinMagnitude Int16(0): (1, 0)
+T.CreateSaturating(300)/(-1) Int16(0): (300, -1)
+T.CreateChecked(5UL) Int16(0): 5
+T.Log2 Int16(64): 6
+T.PopCount Int16(64): 1
+T.TrailingZeroCount Int16(64): 6
+T.Sign Int16(64): 1
+T.IsPow2 Int16(64): True
+T.IsEvenInteger Int16(64): True
+T.IsOddInteger Int16(64): False
+T.Abs Int16(64): 64
+T.IsNegative Int16(64): False
+T.IsPositive Int16(64): True
+T.IsZero Int16(64): False
+T.IsCanonical Int16(64): True
+T.IsComplexNumber Int16(64): False
+T.IsFinite Int16(64): True
+T.IsImaginaryNumber Int16(64): False
+T.IsInfinity Int16(64): False
+T.IsInteger Int16(64): True
+T.IsNaN Int16(64): False
+T.IsNegativeInfinity Int16(64): False
+T.IsNormal Int16(64): True
+T.IsPositiveInfinity Int16(64): False
+T.IsRealNumber Int16(64): True
+T.IsSubnormal Int16(64): False
+T.Clamp/Min/Max/CopySign Int16(64): (1, 1, 64, 64)
+T.MaxMagnitude/MinMagnitude Int16(64): (64, 1)
+T.CreateSaturating(300)/(-1) Int16(64): (300, -1)
+T.CreateChecked(5UL) Int16(64): 5
+T.Log2 Int16(-5): ArgumentOutOfRangeException Non-negative number required. (Parameter 'value')
+T.PopCount Int16(-5): 15
+T.TrailingZeroCount Int16(-5): 0
+T.Sign Int16(-5): -1
+T.IsPow2 Int16(-5): False
+T.IsEvenInteger Int16(-5): False
+T.IsOddInteger Int16(-5): True
+T.Abs Int16(-5): 5
+T.IsNegative Int16(-5): True
+T.IsPositive Int16(-5): False
+T.IsZero Int16(-5): False
+T.IsCanonical Int16(-5): True
+T.IsComplexNumber Int16(-5): False
+T.IsFinite Int16(-5): True
+T.IsImaginaryNumber Int16(-5): False
+T.IsInfinity Int16(-5): False
+T.IsInteger Int16(-5): True
+T.IsNaN Int16(-5): False
+T.IsNegativeInfinity Int16(-5): False
+T.IsNormal Int16(-5): True
+T.IsPositiveInfinity Int16(-5): False
+T.IsRealNumber Int16(-5): True
+T.IsSubnormal Int16(-5): False
+T.Clamp/Min/Max/CopySign Int16(-5): (0, -5, 1, 5)
+T.MaxMagnitude/MinMagnitude Int16(-5): (-5, 1)
+T.CreateSaturating(300)/(-1) Int16(-5): (300, -1)
+T.CreateChecked(5UL) Int16(-5): 5
+T.Log2 UInt16(5): 2
+T.PopCount UInt16(5): 2
+T.TrailingZeroCount UInt16(5): 0
+T.Sign UInt16(5): 1
+T.IsPow2 UInt16(5): False
+T.IsEvenInteger UInt16(5): False
+T.IsOddInteger UInt16(5): True
+T.Abs UInt16(5): 5
+T.IsNegative UInt16(5): False
+T.IsPositive UInt16(5): True
+T.IsZero UInt16(5): False
+T.IsCanonical UInt16(5): True
+T.IsComplexNumber UInt16(5): False
+T.IsFinite UInt16(5): True
+T.IsImaginaryNumber UInt16(5): False
+T.IsInfinity UInt16(5): False
+T.IsInteger UInt16(5): True
+T.IsNaN UInt16(5): False
+T.IsNegativeInfinity UInt16(5): False
+T.IsNormal UInt16(5): True
+T.IsPositiveInfinity UInt16(5): False
+T.IsRealNumber UInt16(5): True
+T.IsSubnormal UInt16(5): False
+T.Clamp/Min/Max/CopySign UInt16(5): (1, 1, 5, 5)
+T.MaxMagnitude/MinMagnitude UInt16(5): (5, 1)
+T.CreateSaturating(300)/(-1) UInt16(5): (300, 0)
+T.CreateChecked(5UL) UInt16(5): 5
+T.Log2 UInt16(0): 0
+T.PopCount UInt16(0): 0
+T.TrailingZeroCount UInt16(0): 16
+T.Sign UInt16(0): 0
+T.IsPow2 UInt16(0): False
+T.IsEvenInteger UInt16(0): True
+T.IsOddInteger UInt16(0): False
+T.Abs UInt16(0): 0
+T.IsNegative UInt16(0): False
+T.IsPositive UInt16(0): True
+T.IsZero UInt16(0): True
+T.IsCanonical UInt16(0): True
+T.IsComplexNumber UInt16(0): False
+T.IsFinite UInt16(0): True
+T.IsImaginaryNumber UInt16(0): False
+T.IsInfinity UInt16(0): False
+T.IsInteger UInt16(0): True
+T.IsNaN UInt16(0): False
+T.IsNegativeInfinity UInt16(0): False
+T.IsNormal UInt16(0): False
+T.IsPositiveInfinity UInt16(0): False
+T.IsRealNumber UInt16(0): True
+T.IsSubnormal UInt16(0): False
+T.Clamp/Min/Max/CopySign UInt16(0): (0, 0, 1, 0)
+T.MaxMagnitude/MinMagnitude UInt16(0): (1, 0)
+T.CreateSaturating(300)/(-1) UInt16(0): (300, 0)
+T.CreateChecked(5UL) UInt16(0): 5
+T.Log2 UInt16(64): 6
+T.PopCount UInt16(64): 1
+T.TrailingZeroCount UInt16(64): 6
+T.Sign UInt16(64): 1
+T.IsPow2 UInt16(64): True
+T.IsEvenInteger UInt16(64): True
+T.IsOddInteger UInt16(64): False
+T.Abs UInt16(64): 64
+T.IsNegative UInt16(64): False
+T.IsPositive UInt16(64): True
+T.IsZero UInt16(64): False
+T.IsCanonical UInt16(64): True
+T.IsComplexNumber UInt16(64): False
+T.IsFinite UInt16(64): True
+T.IsImaginaryNumber UInt16(64): False
+T.IsInfinity UInt16(64): False
+T.IsInteger UInt16(64): True
+T.IsNaN UInt16(64): False
+T.IsNegativeInfinity UInt16(64): False
+T.IsNormal UInt16(64): True
+T.IsPositiveInfinity UInt16(64): False
+T.IsRealNumber UInt16(64): True
+T.IsSubnormal UInt16(64): False
+T.Clamp/Min/Max/CopySign UInt16(64): (1, 1, 64, 64)
+T.MaxMagnitude/MinMagnitude UInt16(64): (64, 1)
+T.CreateSaturating(300)/(-1) UInt16(64): (300, 0)
+T.CreateChecked(5UL) UInt16(64): 5
+T.Log2 Int32(5): 2
+T.PopCount Int32(5): 2
+T.TrailingZeroCount Int32(5): 0
+T.Sign Int32(5): 1
+T.IsPow2 Int32(5): False
+T.IsEvenInteger Int32(5): False
+T.IsOddInteger Int32(5): True
+T.Abs Int32(5): 5
+T.IsNegative Int32(5): False
+T.IsPositive Int32(5): True
+T.IsZero Int32(5): False
+T.IsCanonical Int32(5): True
+T.IsComplexNumber Int32(5): False
+T.IsFinite Int32(5): True
+T.IsImaginaryNumber Int32(5): False
+T.IsInfinity Int32(5): False
+T.IsInteger Int32(5): True
+T.IsNaN Int32(5): False
+T.IsNegativeInfinity Int32(5): False
+T.IsNormal Int32(5): True
+T.IsPositiveInfinity Int32(5): False
+T.IsRealNumber Int32(5): True
+T.IsSubnormal Int32(5): False
+T.Clamp/Min/Max/CopySign Int32(5): (1, 1, 5, 5)
+T.MaxMagnitude/MinMagnitude Int32(5): (5, 1)
+T.CreateSaturating(300)/(-1) Int32(5): (300, -1)
+T.CreateChecked(5UL) Int32(5): 5
+T.Log2 Int32(0): 0
+T.PopCount Int32(0): 0
+T.TrailingZeroCount Int32(0): 32
+T.Sign Int32(0): 0
+T.IsPow2 Int32(0): False
+T.IsEvenInteger Int32(0): True
+T.IsOddInteger Int32(0): False
+T.Abs Int32(0): 0
+T.IsNegative Int32(0): False
+T.IsPositive Int32(0): True
+T.IsZero Int32(0): True
+T.IsCanonical Int32(0): True
+T.IsComplexNumber Int32(0): False
+T.IsFinite Int32(0): True
+T.IsImaginaryNumber Int32(0): False
+T.IsInfinity Int32(0): False
+T.IsInteger Int32(0): True
+T.IsNaN Int32(0): False
+T.IsNegativeInfinity Int32(0): False
+T.IsNormal Int32(0): False
+T.IsPositiveInfinity Int32(0): False
+T.IsRealNumber Int32(0): True
+T.IsSubnormal Int32(0): False
+T.Clamp/Min/Max/CopySign Int32(0): (0, 0, 1, 0)
+T.MaxMagnitude/MinMagnitude Int32(0): (1, 0)
+T.CreateSaturating(300)/(-1) Int32(0): (300, -1)
+T.CreateChecked(5UL) Int32(0): 5
+T.Log2 Int32(64): 6
+T.PopCount Int32(64): 1
+T.TrailingZeroCount Int32(64): 6
+T.Sign Int32(64): 1
+T.IsPow2 Int32(64): True
+T.IsEvenInteger Int32(64): True
+T.IsOddInteger Int32(64): False
+T.Abs Int32(64): 64
+T.IsNegative Int32(64): False
+T.IsPositive Int32(64): True
+T.IsZero Int32(64): False
+T.IsCanonical Int32(64): True
+T.IsComplexNumber Int32(64): False
+T.IsFinite Int32(64): True
+T.IsImaginaryNumber Int32(64): False
+T.IsInfinity Int32(64): False
+T.IsInteger Int32(64): True
+T.IsNaN Int32(64): False
+T.IsNegativeInfinity Int32(64): False
+T.IsNormal Int32(64): True
+T.IsPositiveInfinity Int32(64): False
+T.IsRealNumber Int32(64): True
+T.IsSubnormal Int32(64): False
+T.Clamp/Min/Max/CopySign Int32(64): (1, 1, 64, 64)
+T.MaxMagnitude/MinMagnitude Int32(64): (64, 1)
+T.CreateSaturating(300)/(-1) Int32(64): (300, -1)
+T.CreateChecked(5UL) Int32(64): 5
+T.Log2 Int32(-5): ArgumentOutOfRangeException Non-negative number required. (Parameter 'value')
+T.PopCount Int32(-5): 31
+T.TrailingZeroCount Int32(-5): 0
+T.Sign Int32(-5): -1
+T.IsPow2 Int32(-5): False
+T.IsEvenInteger Int32(-5): False
+T.IsOddInteger Int32(-5): True
+T.Abs Int32(-5): 5
+T.IsNegative Int32(-5): True
+T.IsPositive Int32(-5): False
+T.IsZero Int32(-5): False
+T.IsCanonical Int32(-5): True
+T.IsComplexNumber Int32(-5): False
+T.IsFinite Int32(-5): True
+T.IsImaginaryNumber Int32(-5): False
+T.IsInfinity Int32(-5): False
+T.IsInteger Int32(-5): True
+T.IsNaN Int32(-5): False
+T.IsNegativeInfinity Int32(-5): False
+T.IsNormal Int32(-5): True
+T.IsPositiveInfinity Int32(-5): False
+T.IsRealNumber Int32(-5): True
+T.IsSubnormal Int32(-5): False
+T.Clamp/Min/Max/CopySign Int32(-5): (0, -5, 1, 5)
+T.MaxMagnitude/MinMagnitude Int32(-5): (-5, 1)
+T.CreateSaturating(300)/(-1) Int32(-5): (300, -1)
+T.CreateChecked(5UL) Int32(-5): 5
+T.Log2 UInt32(5): 2
+T.PopCount UInt32(5): 2
+T.TrailingZeroCount UInt32(5): 0
+T.Sign UInt32(5): 1
+T.IsPow2 UInt32(5): False
+T.IsEvenInteger UInt32(5): False
+T.IsOddInteger UInt32(5): True
+T.Abs UInt32(5): 5
+T.IsNegative UInt32(5): False
+T.IsPositive UInt32(5): True
+T.IsZero UInt32(5): False
+T.IsCanonical UInt32(5): True
+T.IsComplexNumber UInt32(5): False
+T.IsFinite UInt32(5): True
+T.IsImaginaryNumber UInt32(5): False
+T.IsInfinity UInt32(5): False
+T.IsInteger UInt32(5): True
+T.IsNaN UInt32(5): False
+T.IsNegativeInfinity UInt32(5): False
+T.IsNormal UInt32(5): True
+T.IsPositiveInfinity UInt32(5): False
+T.IsRealNumber UInt32(5): True
+T.IsSubnormal UInt32(5): False
+T.Clamp/Min/Max/CopySign UInt32(5): (1, 1, 5, 5)
+T.MaxMagnitude/MinMagnitude UInt32(5): (5, 1)
+T.CreateSaturating(300)/(-1) UInt32(5): (300, 0)
+T.CreateChecked(5UL) UInt32(5): 5
+T.Log2 UInt32(0): 0
+T.PopCount UInt32(0): 0
+T.TrailingZeroCount UInt32(0): 32
+T.Sign UInt32(0): 0
+T.IsPow2 UInt32(0): False
+T.IsEvenInteger UInt32(0): True
+T.IsOddInteger UInt32(0): False
+T.Abs UInt32(0): 0
+T.IsNegative UInt32(0): False
+T.IsPositive UInt32(0): True
+T.IsZero UInt32(0): True
+T.IsCanonical UInt32(0): True
+T.IsComplexNumber UInt32(0): False
+T.IsFinite UInt32(0): True
+T.IsImaginaryNumber UInt32(0): False
+T.IsInfinity UInt32(0): False
+T.IsInteger UInt32(0): True
+T.IsNaN UInt32(0): False
+T.IsNegativeInfinity UInt32(0): False
+T.IsNormal UInt32(0): False
+T.IsPositiveInfinity UInt32(0): False
+T.IsRealNumber UInt32(0): True
+T.IsSubnormal UInt32(0): False
+T.Clamp/Min/Max/CopySign UInt32(0): (0, 0, 1, 0)
+T.MaxMagnitude/MinMagnitude UInt32(0): (1, 0)
+T.CreateSaturating(300)/(-1) UInt32(0): (300, 0)
+T.CreateChecked(5UL) UInt32(0): 5
+T.Log2 UInt32(64): 6
+T.PopCount UInt32(64): 1
+T.TrailingZeroCount UInt32(64): 6
+T.Sign UInt32(64): 1
+T.IsPow2 UInt32(64): True
+T.IsEvenInteger UInt32(64): True
+T.IsOddInteger UInt32(64): False
+T.Abs UInt32(64): 64
+T.IsNegative UInt32(64): False
+T.IsPositive UInt32(64): True
+T.IsZero UInt32(64): False
+T.IsCanonical UInt32(64): True
+T.IsComplexNumber UInt32(64): False
+T.IsFinite UInt32(64): True
+T.IsImaginaryNumber UInt32(64): False
+T.IsInfinity UInt32(64): False
+T.IsInteger UInt32(64): True
+T.IsNaN UInt32(64): False
+T.IsNegativeInfinity UInt32(64): False
+T.IsNormal UInt32(64): True
+T.IsPositiveInfinity UInt32(64): False
+T.IsRealNumber UInt32(64): True
+T.IsSubnormal UInt32(64): False
+T.Clamp/Min/Max/CopySign UInt32(64): (1, 1, 64, 64)
+T.MaxMagnitude/MinMagnitude UInt32(64): (64, 1)
+T.CreateSaturating(300)/(-1) UInt32(64): (300, 0)
+T.CreateChecked(5UL) UInt32(64): 5
+T.Log2 Int64(5): 2
+T.PopCount Int64(5): 2
+T.TrailingZeroCount Int64(5): 0
+T.Sign Int64(5): 1
+T.IsPow2 Int64(5): False
+T.IsEvenInteger Int64(5): False
+T.IsOddInteger Int64(5): True
+T.Abs Int64(5): 5
+T.IsNegative Int64(5): False
+T.IsPositive Int64(5): True
+T.IsZero Int64(5): False
+T.IsCanonical Int64(5): True
+T.IsComplexNumber Int64(5): False
+T.IsFinite Int64(5): True
+T.IsImaginaryNumber Int64(5): False
+T.IsInfinity Int64(5): False
+T.IsInteger Int64(5): True
+T.IsNaN Int64(5): False
+T.IsNegativeInfinity Int64(5): False
+T.IsNormal Int64(5): True
+T.IsPositiveInfinity Int64(5): False
+T.IsRealNumber Int64(5): True
+T.IsSubnormal Int64(5): False
+T.Clamp/Min/Max/CopySign Int64(5): (1, 1, 5, 5)
+T.MaxMagnitude/MinMagnitude Int64(5): (5, 1)
+T.CreateSaturating(300)/(-1) Int64(5): (300, -1)
+T.CreateChecked(5UL) Int64(5): 5
+T.Log2 Int64(0): 0
+T.PopCount Int64(0): 0
+T.TrailingZeroCount Int64(0): 64
+T.Sign Int64(0): 0
+T.IsPow2 Int64(0): False
+T.IsEvenInteger Int64(0): True
+T.IsOddInteger Int64(0): False
+T.Abs Int64(0): 0
+T.IsNegative Int64(0): False
+T.IsPositive Int64(0): True
+T.IsZero Int64(0): True
+T.IsCanonical Int64(0): True
+T.IsComplexNumber Int64(0): False
+T.IsFinite Int64(0): True
+T.IsImaginaryNumber Int64(0): False
+T.IsInfinity Int64(0): False
+T.IsInteger Int64(0): True
+T.IsNaN Int64(0): False
+T.IsNegativeInfinity Int64(0): False
+T.IsNormal Int64(0): False
+T.IsPositiveInfinity Int64(0): False
+T.IsRealNumber Int64(0): True
+T.IsSubnormal Int64(0): False
+T.Clamp/Min/Max/CopySign Int64(0): (0, 0, 1, 0)
+T.MaxMagnitude/MinMagnitude Int64(0): (1, 0)
+T.CreateSaturating(300)/(-1) Int64(0): (300, -1)
+T.CreateChecked(5UL) Int64(0): 5
+T.Log2 Int64(64): 6
+T.PopCount Int64(64): 1
+T.TrailingZeroCount Int64(64): 6
+T.Sign Int64(64): 1
+T.IsPow2 Int64(64): True
+T.IsEvenInteger Int64(64): True
+T.IsOddInteger Int64(64): False
+T.Abs Int64(64): 64
+T.IsNegative Int64(64): False
+T.IsPositive Int64(64): True
+T.IsZero Int64(64): False
+T.IsCanonical Int64(64): True
+T.IsComplexNumber Int64(64): False
+T.IsFinite Int64(64): True
+T.IsImaginaryNumber Int64(64): False
+T.IsInfinity Int64(64): False
+T.IsInteger Int64(64): True
+T.IsNaN Int64(64): False
+T.IsNegativeInfinity Int64(64): False
+T.IsNormal Int64(64): True
+T.IsPositiveInfinity Int64(64): False
+T.IsRealNumber Int64(64): True
+T.IsSubnormal Int64(64): False
+T.Clamp/Min/Max/CopySign Int64(64): (1, 1, 64, 64)
+T.MaxMagnitude/MinMagnitude Int64(64): (64, 1)
+T.CreateSaturating(300)/(-1) Int64(64): (300, -1)
+T.CreateChecked(5UL) Int64(64): 5
+T.Log2 Int64(-5): ArgumentOutOfRangeException Non-negative number required. (Parameter 'value')
+T.PopCount Int64(-5): 63
+T.TrailingZeroCount Int64(-5): 0
+T.Sign Int64(-5): -1
+T.IsPow2 Int64(-5): False
+T.IsEvenInteger Int64(-5): False
+T.IsOddInteger Int64(-5): True
+T.Abs Int64(-5): 5
+T.IsNegative Int64(-5): True
+T.IsPositive Int64(-5): False
+T.IsZero Int64(-5): False
+T.IsCanonical Int64(-5): True
+T.IsComplexNumber Int64(-5): False
+T.IsFinite Int64(-5): True
+T.IsImaginaryNumber Int64(-5): False
+T.IsInfinity Int64(-5): False
+T.IsInteger Int64(-5): True
+T.IsNaN Int64(-5): False
+T.IsNegativeInfinity Int64(-5): False
+T.IsNormal Int64(-5): True
+T.IsPositiveInfinity Int64(-5): False
+T.IsRealNumber Int64(-5): True
+T.IsSubnormal Int64(-5): False
+T.Clamp/Min/Max/CopySign Int64(-5): (0, -5, 1, 5)
+T.MaxMagnitude/MinMagnitude Int64(-5): (-5, 1)
+T.CreateSaturating(300)/(-1) Int64(-5): (300, -1)
+T.CreateChecked(5UL) Int64(-5): 5
+T.Log2 UInt64(5): 2
+T.PopCount UInt64(5): 2
+T.TrailingZeroCount UInt64(5): 0
+T.Sign UInt64(5): 1
+T.IsPow2 UInt64(5): False
+T.IsEvenInteger UInt64(5): False
+T.IsOddInteger UInt64(5): True
+T.Abs UInt64(5): 5
+T.IsNegative UInt64(5): False
+T.IsPositive UInt64(5): True
+T.IsZero UInt64(5): False
+T.IsCanonical UInt64(5): True
+T.IsComplexNumber UInt64(5): False
+T.IsFinite UInt64(5): True
+T.IsImaginaryNumber UInt64(5): False
+T.IsInfinity UInt64(5): False
+T.IsInteger UInt64(5): True
+T.IsNaN UInt64(5): False
+T.IsNegativeInfinity UInt64(5): False
+T.IsNormal UInt64(5): True
+T.IsPositiveInfinity UInt64(5): False
+T.IsRealNumber UInt64(5): True
+T.IsSubnormal UInt64(5): False
+T.Clamp/Min/Max/CopySign UInt64(5): (1, 1, 5, 5)
+T.MaxMagnitude/MinMagnitude UInt64(5): (5, 1)
+T.CreateSaturating(300)/(-1) UInt64(5): (300, 0)
+T.CreateChecked(5UL) UInt64(5): 5
+T.Log2 UInt64(0): 0
+T.PopCount UInt64(0): 0
+T.TrailingZeroCount UInt64(0): 64
+T.Sign UInt64(0): 0
+T.IsPow2 UInt64(0): False
+T.IsEvenInteger UInt64(0): True
+T.IsOddInteger UInt64(0): False
+T.Abs UInt64(0): 0
+T.IsNegative UInt64(0): False
+T.IsPositive UInt64(0): True
+T.IsZero UInt64(0): True
+T.IsCanonical UInt64(0): True
+T.IsComplexNumber UInt64(0): False
+T.IsFinite UInt64(0): True
+T.IsImaginaryNumber UInt64(0): False
+T.IsInfinity UInt64(0): False
+T.IsInteger UInt64(0): True
+T.IsNaN UInt64(0): False
+T.IsNegativeInfinity UInt64(0): False
+T.IsNormal UInt64(0): False
+T.IsPositiveInfinity UInt64(0): False
+T.IsRealNumber UInt64(0): True
+T.IsSubnormal UInt64(0): False
+T.Clamp/Min/Max/CopySign UInt64(0): (0, 0, 1, 0)
+T.MaxMagnitude/MinMagnitude UInt64(0): (1, 0)
+T.CreateSaturating(300)/(-1) UInt64(0): (300, 0)
+T.CreateChecked(5UL) UInt64(0): 5
+T.Log2 UInt64(64): 6
+T.PopCount UInt64(64): 1
+T.TrailingZeroCount UInt64(64): 6
+T.Sign UInt64(64): 1
+T.IsPow2 UInt64(64): True
+T.IsEvenInteger UInt64(64): True
+T.IsOddInteger UInt64(64): False
+T.Abs UInt64(64): 64
+T.IsNegative UInt64(64): False
+T.IsPositive UInt64(64): True
+T.IsZero UInt64(64): False
+T.IsCanonical UInt64(64): True
+T.IsComplexNumber UInt64(64): False
+T.IsFinite UInt64(64): True
+T.IsImaginaryNumber UInt64(64): False
+T.IsInfinity UInt64(64): False
+T.IsInteger UInt64(64): True
+T.IsNaN UInt64(64): False
+T.IsNegativeInfinity UInt64(64): False
+T.IsNormal UInt64(64): True
+T.IsPositiveInfinity UInt64(64): False
+T.IsRealNumber UInt64(64): True
+T.IsSubnormal UInt64(64): False
+T.Clamp/Min/Max/CopySign UInt64(64): (1, 1, 64, 64)
+T.MaxMagnitude/MinMagnitude UInt64(64): (64, 1)
+T.CreateSaturating(300)/(-1) UInt64(64): (300, 0)
+T.CreateChecked(5UL) UInt64(64): 5
+T.Log2 IntPtr(5): 2
+T.PopCount IntPtr(5): 2
+T.TrailingZeroCount IntPtr(5): 0
+T.Sign IntPtr(5): 1
+T.IsPow2 IntPtr(5): False
+T.IsEvenInteger IntPtr(5): False
+T.IsOddInteger IntPtr(5): True
+T.Abs IntPtr(5): 5
+T.IsNegative IntPtr(5): False
+T.IsPositive IntPtr(5): True
+T.IsZero IntPtr(5): False
+T.IsCanonical IntPtr(5): True
+T.IsComplexNumber IntPtr(5): False
+T.IsFinite IntPtr(5): True
+T.IsImaginaryNumber IntPtr(5): False
+T.IsInfinity IntPtr(5): False
+T.IsInteger IntPtr(5): True
+T.IsNaN IntPtr(5): False
+T.IsNegativeInfinity IntPtr(5): False
+T.IsNormal IntPtr(5): True
+T.IsPositiveInfinity IntPtr(5): False
+T.IsRealNumber IntPtr(5): True
+T.IsSubnormal IntPtr(5): False
+T.Clamp/Min/Max/CopySign IntPtr(5): (1, 1, 5, 5)
+T.MaxMagnitude/MinMagnitude IntPtr(5): (5, 1)
+T.CreateSaturating(300)/(-1) IntPtr(5): (300, -1)
+T.CreateChecked(5UL) IntPtr(5): 5
+T.Log2 IntPtr(0): 0
+T.PopCount IntPtr(0): 0
+T.TrailingZeroCount IntPtr(0): the width
+T.Sign IntPtr(0): 0
+T.IsPow2 IntPtr(0): False
+T.IsEvenInteger IntPtr(0): True
+T.IsOddInteger IntPtr(0): False
+T.Abs IntPtr(0): 0
+T.IsNegative IntPtr(0): False
+T.IsPositive IntPtr(0): True
+T.IsZero IntPtr(0): True
+T.IsCanonical IntPtr(0): True
+T.IsComplexNumber IntPtr(0): False
+T.IsFinite IntPtr(0): True
+T.IsImaginaryNumber IntPtr(0): False
+T.IsInfinity IntPtr(0): False
+T.IsInteger IntPtr(0): True
+T.IsNaN IntPtr(0): False
+T.IsNegativeInfinity IntPtr(0): False
+T.IsNormal IntPtr(0): False
+T.IsPositiveInfinity IntPtr(0): False
+T.IsRealNumber IntPtr(0): True
+T.IsSubnormal IntPtr(0): False
+T.Clamp/Min/Max/CopySign IntPtr(0): (0, 0, 1, 0)
+T.MaxMagnitude/MinMagnitude IntPtr(0): (1, 0)
+T.CreateSaturating(300)/(-1) IntPtr(0): (300, -1)
+T.CreateChecked(5UL) IntPtr(0): 5
+T.Log2 IntPtr(-5): ArgumentOutOfRangeException Non-negative number required. (Parameter 'value')
+T.PopCount IntPtr(-5): the width - 1
+T.TrailingZeroCount IntPtr(-5): 0
+T.Sign IntPtr(-5): -1
+T.IsPow2 IntPtr(-5): False
+T.IsEvenInteger IntPtr(-5): False
+T.IsOddInteger IntPtr(-5): True
+T.Abs IntPtr(-5): 5
+T.IsNegative IntPtr(-5): True
+T.IsPositive IntPtr(-5): False
+T.IsZero IntPtr(-5): False
+T.IsCanonical IntPtr(-5): True
+T.IsComplexNumber IntPtr(-5): False
+T.IsFinite IntPtr(-5): True
+T.IsImaginaryNumber IntPtr(-5): False
+T.IsInfinity IntPtr(-5): False
+T.IsInteger IntPtr(-5): True
+T.IsNaN IntPtr(-5): False
+T.IsNegativeInfinity IntPtr(-5): False
+T.IsNormal IntPtr(-5): True
+T.IsPositiveInfinity IntPtr(-5): False
+T.IsRealNumber IntPtr(-5): True
+T.IsSubnormal IntPtr(-5): False
+T.Clamp/Min/Max/CopySign IntPtr(-5): (0, -5, 1, 5)
+T.MaxMagnitude/MinMagnitude IntPtr(-5): (-5, 1)
+T.CreateSaturating(300)/(-1) IntPtr(-5): (300, -1)
+T.CreateChecked(5UL) IntPtr(-5): 5
+T.Log2 UIntPtr(5): 2
+T.PopCount UIntPtr(5): 2
+T.TrailingZeroCount UIntPtr(5): 0
+T.Sign UIntPtr(5): 1
+T.IsPow2 UIntPtr(5): False
+T.IsEvenInteger UIntPtr(5): False
+T.IsOddInteger UIntPtr(5): True
+T.Abs UIntPtr(5): 5
+T.IsNegative UIntPtr(5): False
+T.IsPositive UIntPtr(5): True
+T.IsZero UIntPtr(5): False
+T.IsCanonical UIntPtr(5): True
+T.IsComplexNumber UIntPtr(5): False
+T.IsFinite UIntPtr(5): True
+T.IsImaginaryNumber UIntPtr(5): False
+T.IsInfinity UIntPtr(5): False
+T.IsInteger UIntPtr(5): True
+T.IsNaN UIntPtr(5): False
+T.IsNegativeInfinity UIntPtr(5): False
+T.IsNormal UIntPtr(5): True
+T.IsPositiveInfinity UIntPtr(5): False
+T.IsRealNumber UIntPtr(5): True
+T.IsSubnormal UIntPtr(5): False
+T.Clamp/Min/Max/CopySign UIntPtr(5): (1, 1, 5, 5)
+T.MaxMagnitude/MinMagnitude UIntPtr(5): (5, 1)
+T.CreateSaturating(300)/(-1) UIntPtr(5): (300, 0)
+T.CreateChecked(5UL) UIntPtr(5): 5
+T.Log2 UIntPtr(0): 0
+T.PopCount UIntPtr(0): 0
+T.TrailingZeroCount UIntPtr(0): the width
+T.Sign UIntPtr(0): 0
+T.IsPow2 UIntPtr(0): False
+T.IsEvenInteger UIntPtr(0): True
+T.IsOddInteger UIntPtr(0): False
+T.Abs UIntPtr(0): 0
+T.IsNegative UIntPtr(0): False
+T.IsPositive UIntPtr(0): True
+T.IsZero UIntPtr(0): True
+T.IsCanonical UIntPtr(0): True
+T.IsComplexNumber UIntPtr(0): False
+T.IsFinite UIntPtr(0): True
+T.IsImaginaryNumber UIntPtr(0): False
+T.IsInfinity UIntPtr(0): False
+T.IsInteger UIntPtr(0): True
+T.IsNaN UIntPtr(0): False
+T.IsNegativeInfinity UIntPtr(0): False
+T.IsNormal UIntPtr(0): False
+T.IsPositiveInfinity UIntPtr(0): False
+T.IsRealNumber UIntPtr(0): True
+T.IsSubnormal UIntPtr(0): False
+T.Clamp/Min/Max/CopySign UIntPtr(0): (0, 0, 1, 0)
+T.MaxMagnitude/MinMagnitude UIntPtr(0): (1, 0)
+T.CreateSaturating(300)/(-1) UIntPtr(0): (300, 0)
+T.CreateChecked(5UL) UIntPtr(0): 5

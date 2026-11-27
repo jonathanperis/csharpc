@@ -1,0 +1,20 @@
+== filtered rethrow: a
+   at Program.Thrower(String what) in 1393_stack_trace_rethrow_inlined_callers.cs:line 11
+   at Program.Inner(String what) in 1393_stack_trace_rethrow_inlined_callers.cs:line 15
+   at Program.Middle(String what) in 1393_stack_trace_rethrow_inlined_callers.cs:line 19
+   at Program.Outer(String what) in 1393_stack_trace_rethrow_inlined_callers.cs:line 21
+   at Program.<>c.<Main>b__9_0() in 1393_stack_trace_rethrow_inlined_callers.cs:line 41
+   at Program.Show(String name, Action action) in 1393_stack_trace_rethrow_inlined_callers.cs:line 49
+== finally: b
+   at Program.Thrower(String what) in 1393_stack_trace_rethrow_inlined_callers.cs:line 11
+   at Program.InnerFinally(String what) in 1393_stack_trace_rethrow_inlined_callers.cs:line 25
+   at Program.OuterFinally(String what) in 1393_stack_trace_rethrow_inlined_callers.cs:line 29
+   at Program.<>c.<Main>b__9_1() in 1393_stack_trace_rethrow_inlined_callers.cs:line 42
+   at Program.Show(String name, Action action) in 1393_stack_trace_rethrow_inlined_callers.cs:line 49
+== catch-all rethrow: c
+   at Program.Thrower(String what) in 1393_stack_trace_rethrow_inlined_callers.cs:line 11
+   at Program.InnerCatchAll(String what) in 1393_stack_trace_rethrow_inlined_callers.cs:line 33
+   at Program.OuterCatchAll(String what) in 1393_stack_trace_rethrow_inlined_callers.cs:line 37
+   at Program.<>c.<Main>b__9_2() in 1393_stack_trace_rethrow_inlined_callers.cs:line 43
+   at Program.Show(String name, Action action) in 1393_stack_trace_rethrow_inlined_callers.cs:line 49
+3

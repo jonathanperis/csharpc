@@ -3,6 +3,9 @@
 // Unix domain socket itself is still an explicit NotSupportedException (the Socket constructor).
 // Licensed to the .NET Foundation under one or more agreements.
 // The .NET Foundation licenses this file to you under the MIT license.
+// Windows only: on Linux and macOS these types are the framework's IL over the libSystem.Native socket contract
+// (corelib/Net/SystemNative.Net.cs, docs/il-first/System.Net.Sockets.md); Windows keeps them until the IOCP engine exists.
+#if CSHARPC_TARGET_WINDOWS
 #nullable disable
 using System;
 using System.Net;
@@ -15,11 +18,7 @@ namespace CsharpcCoreLib
     public sealed class UnixDomainSocketEndPointImpl : EndPoint
     {
         // sizeof(sockaddr_un.sun_path)
-#if CSHARPC_TARGET_MACOS
-        private const int NativePathLength = 104;
-#else
         private const int NativePathLength = 108;
-#endif
         private readonly string _path;
 
         public UnixDomainSocketEndPointImpl(string path)
@@ -30,11 +29,7 @@ namespace CsharpcCoreLib
             if (path.Length == 0 || bufferLength > NativePathLength)
                 throw new ArgumentOutOfRangeException("path", path,
                     "The path '" + path + "' is of an invalid length for use with domain sockets on this platform.  The length must be between 1 and " + NativePathLength + " characters, inclusive.");
-#if CSHARPC_TARGET_WASI
-            throw new PlatformNotSupportedException();
-#else
             _path = path;
-#endif
         }
 
         public override AddressFamily AddressFamily => AddressFamily.Unix;
@@ -48,3 +43,4 @@ namespace CsharpcCoreLib
         private static bool IsAbstract(string path) => path.Length > 0 && path[0] == '\0';
     }
 }
+#endif

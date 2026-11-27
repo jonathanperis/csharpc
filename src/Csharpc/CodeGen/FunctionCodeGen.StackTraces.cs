@@ -212,8 +212,67 @@ public sealed partial class FunctionCodeGen
     }
 
     private int CurrentTraceSite() => _il is { } il
-        ? _m.StackTraces!.IlSite(TraceIl, _traceFrame, _method!, il.Current.Offset)
+        ? _m.StackTraces!.IlSite(TraceIl, IlImplicitTailCall(il) ? _m.StackTraces.TailCallFrame(_traceFrame) : _traceFrame, _method!, il.Current.Offset)
         : _m.StackTraces!.Site(_traceFrame, _traceAt ?? DeclarationSyntax(), _traceAtEnd);
+
+    /// <summary>Per IL body: offset of each `ret`, and whether the body takes an address of a local or argument or uses localloc.</summary>
+    private (Frontend.Il.IlMethodBody Body, HashSet<int> Rets, bool Exposes)? _tailCallScan;
+
+    /// <summary>
+    /// A call of optimized framework code (<see cref="StackTraceInfo.IsPrecompiledFramework"/>) that .NET's precompiled code makes an
+    /// implicit tail call, so its frame isn't in .NET's traces: `call`/`callvirt` directly followed by `ret`, outside any protected
+    /// region, in a method without localloc or exposed local addresses, to a callee whose arguments all go in registers (SysV x64:
+    /// six integer and eight floating-point; a struct of up to 16 bytes, here only spans, takes two). The JIT's conditions
+    /// (fgCanFastTailCall) are a superset; this is the part decidable from IL. The runtime keeps the frame when the callee was inlined
+    /// into it (the call is gone then, not turned into a jump).
+    /// </summary>
+    private bool IlImplicitTailCall(IlState il)
+    {
+        var current = il.Current;
+        if (current.OpCode is not (System.Reflection.Metadata.ILOpCode.Call or System.Reflection.Metadata.ILOpCode.Callvirt)) return false;
+        if (!StackTraceInfo.IsPrecompiledFramework(TraceIl) || !_m.StackTraces!.IlRelease(TraceIl)) return false;
+        if (il.Tail) return false; // an explicit tail. prefix is a different path (csharpc warns about it)
+        if (_tailCallScan is not { } scan || scan.Body != il.Body)
+        {
+            var (r, x) = ScanTailCalls(il.Body);
+            _tailCallScan = scan = (il.Body, r, x);
+        }
+        var (_, rets, exposes) = scan;
+        if (exposes || !rets.Contains(current.Next)) return false;
+        foreach (var region in il.Body.Regions)
+            if ((current.Offset >= region.TryOffset && current.Offset < region.TryOffset + region.TryLength)
+                || (current.Offset >= region.HandlerOffset && current.Offset < region.HandlerOffset + region.HandlerLength))
+                return false;
+        IMethodSymbol? callee;
+        try { callee = il.Body.Assembly.ResolveMember(current.Token, il.Body.Context) as IMethodSymbol; }
+        catch (Exception e) when (e is Frontend.Il.IlException or BadImageFormatException) { return false; }
+        if (callee is null) return false;
+        int integers = callee.IsStatic ? 0 : 1, floats = 0;
+        foreach (var p in callee.Parameters)
+        {
+            if (p.RefKind != RefKind.None) { integers++; continue; }
+            var t = p.Type;
+            if (t.SpecialType is SpecialType.System_Single or SpecialType.System_Double) floats++;
+            else if (!t.IsValueType || t.TypeKind == TypeKind.Enum || t.TypeKind == TypeKind.Pointer || t.SpecialType is >= SpecialType.System_Boolean and <= SpecialType.System_UIntPtr) integers++;
+            else if (t is INamedTypeSymbol { Name: "Span" or "ReadOnlySpan", ContainingNamespace.Name: "System" }) integers += 2;
+            else return false;
+        }
+        return integers <= 6 && floats <= 8;
+    }
+
+    private static (HashSet<int>, bool) ScanTailCalls(Frontend.Il.IlMethodBody body)
+    {
+        var rets = new HashSet<int>();
+        var exposes = false;
+        foreach (var i in body.Instructions)
+        {
+            if (i.OpCode == System.Reflection.Metadata.ILOpCode.Ret) rets.Add(i.Offset);
+            if (i.OpCode is System.Reflection.Metadata.ILOpCode.Localloc or System.Reflection.Metadata.ILOpCode.Ldloca or System.Reflection.Metadata.ILOpCode.Ldloca_s
+                or System.Reflection.Metadata.ILOpCode.Ldarga or System.Reflection.Metadata.ILOpCode.Ldarga_s)
+                exposes = true;
+        }
+        return (rets, exposes);
+    }
 
     /// <summary>Set with <see cref="_traceAt"/>: the location is the node's last token.</summary>
     private bool _traceAtEnd;

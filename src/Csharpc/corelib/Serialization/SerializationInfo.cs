@@ -33,8 +33,41 @@ namespace CsharpcCoreLib
     [Shadows("System.Runtime.Serialization.SerializationInfo")]
     public sealed class SerializationInfoImpl
     {
-        // csharpc: SerializationInfo.SerializationGuard.cs — the tracking only feeds an internal guard (see DeserializationToken below).
-        public static DeserializationToken StartDeserialization() => default;
+        // SerializationInfo.SerializationGuard.cs, as upstream: framework IL that deserializes (System.Data's DataSet) declares it with
+        // StartDeserialization, and CoreLib's guards (FileStream opened for writing, through ThrowIfDeserializationInProgress in
+        // corelib/IO/UpstreamIoMembers.cs) then throw SerializationException unless their AppContext switch allows the action.
+        internal static System.Threading.AsyncLocal<bool> AsyncDeserializationInProgress { get; } = new System.Threading.AsyncLocal<bool>();
+
+        [ThreadStatic]
+        private static DeserializationTrackerImpl? t_deserializationTracker;
+
+        private static DeserializationTrackerImpl GetThreadDeserializationTracker() =>
+            t_deserializationTracker ??= new DeserializationTrackerImpl();
+
+        internal static bool DeserializationInProgress =>
+            AsyncDeserializationInProgress.Value || GetThreadDeserializationTracker().DeserializationInProgress;
+
+        public static DeserializationToken StartDeserialization()
+        {
+            // LocalAppContextSwitches.SerializationGuard: "Switch.System.Runtime.Serialization.SerializationGuard", true unless set false.
+            if (!AppContext.TryGetSwitch("Switch.System.Runtime.Serialization.SerializationGuard", out bool guard) || guard)
+            {
+                DeserializationTrackerImpl tracker = GetThreadDeserializationTracker();
+                if (!tracker.DeserializationInProgress)
+                {
+                    lock (tracker)
+                    {
+                        if (!tracker.DeserializationInProgress)
+                        {
+                            AsyncDeserializationInProgress.Value = true;
+                            tracker.DeserializationInProgress = true;
+                            return new DeserializationToken(tracker);
+                        }
+                    }
+                }
+            }
+            return new DeserializationToken(null);
+        }
 
         private const int DefaultSize = 4;
 
@@ -614,10 +647,36 @@ namespace System.Runtime.Serialization
     /// <summary>
     /// csharpc: DeserializationToken is public in CoreLib but not in the reference pack, so System.Data.Common's IL
     /// names it in System.Private.CoreLib; the facade (Frontend/CoreLibFacade.cs) finds it here under its own name.
-    /// It tracks deserialization for a CoreLib-internal guard csharpc's corelib never calls, so it is a no-op.
+    /// DeserializationToken.cs, as upstream: disposing the token that started deserialization ends it.
     /// </summary>
     public readonly struct DeserializationToken : IDisposable
     {
-        public void Dispose() { }
+        private readonly CsharpcCoreLib.DeserializationTrackerImpl? _tracker;
+
+        internal DeserializationToken(CsharpcCoreLib.DeserializationTrackerImpl? tracker) => _tracker = tracker;
+
+        public void Dispose()
+        {
+            if (_tracker != null && _tracker.DeserializationInProgress)
+            {
+                lock (_tracker)
+                {
+                    if (_tracker.DeserializationInProgress)
+                    {
+                        _tracker.DeserializationInProgress = false;
+                        CsharpcCoreLib.SerializationInfoImpl.AsyncDeserializationInProgress.Value = false;
+                    }
+                }
+            }
+        }
+    }
+}
+
+namespace CsharpcCoreLib
+{
+    /// <summary>DeserializationTracker.cs: whether the thread is deserializing (its own lock object too).</summary>
+    internal sealed class DeserializationTrackerImpl
+    {
+        internal bool DeserializationInProgress { get; set; }
     }
 }

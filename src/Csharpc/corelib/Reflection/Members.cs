@@ -819,7 +819,7 @@ namespace CsharpcCoreLib
     }
 
     /// <summary>The reflection entry points (BclValueTypes.Reflection.cs maps Type/Array/Delegate members here).</summary>
-    internal static unsafe class ReflectionRuntime
+    internal static unsafe partial class ReflectionRuntime
     {
 
         private static readonly object s_lock = new object();
@@ -942,6 +942,14 @@ namespace CsharpcCoreLib
             GetConstructor(type, BindingFlags.Public | BindingFlags.Instance, null, types, null);
         public static ConstructorInfo GetConstructorFlagsTypes(Type type, BindingFlags flags, Type[] types) => GetConstructor(type, flags, null, types, null);
 
+        private static bool ConstructorsDescribed(Type type, BindingFlags flags)
+        {
+            byte* info = InfoOf(type, "constructors");
+            if (info == null) return false;
+            int described = ReflectionRecords.InfoDescribed(info);
+            return ((flags & BindingFlags.Public) == 0 || (described & 1) != 0) && ((flags & BindingFlags.NonPublic) == 0 || (described & 2) != 0);
+        }
+
         public static ConstructorInfo GetConstructor(Type type, BindingFlags flags, Binder binder, Type[] types, ParameterModifier[] modifiers)
         {
             ArgumentNullException.ThrowIfNull(types);
@@ -949,6 +957,8 @@ namespace CsharpcCoreLib
             if (binder != null) throw new NotSupportedException("A custom Binder in GetConstructor is not supported by csharpc yet.");
             // Arrays (their constructors take the lengths) and string (no default constructor) have no parameterless constructor.
             if (types.Length == 0 && (type.IsArray || type == typeof(string)) && InfoOf(type, "constructors") == null) return null;
+            // A struct of the framework (JsonElement, KeyValuePair<,>...) declares no parameterless constructor.
+            if (types.Length == 0 && type.IsValueType && !ConstructorsDescribed(type, flags) && !IsProgramAssembly(type)) return null;
             foreach (var c in GetConstructors(type, flags))
                 if (SameParameterTypes(((RuntimeConstructorInfoImpl)(object)c).ParametersNoCopy, types)) return c;
             return null;
@@ -1227,7 +1237,7 @@ namespace CsharpcCoreLib
             uint described = (uint)ReflectionRecords.InfoDescribed(info);
             // 4096: incomplete, but its [Nullable] attributes are exact (what NullabilityInfoContext reads).
             if ((described & 128) != 0 && !(s_nullabilityReads > 0 && (described & 4096) != 0))
-                throw new NotSupportedException("The custom attributes of '" + type + "' are not supported by csharpc yet: it can't reproduce the list .NET reports for this type.");
+                throw new NotSupportedException("The custom attributes of '" + type + "' are not supported by csharpc yet: it can't reproduce the list .NET reports for this type" + "" + ".");
             if ((described & 16) == 0) throw NotKept(type, "custom attributes");
             return info;
         }
@@ -1248,7 +1258,7 @@ namespace CsharpcCoreLib
                 if ((described & 128) != 0)
                     throw new NotSupportedException("Inherited custom attributes of '" + type + "' (from '" + b + "') are not supported by csharpc yet.");
                 if ((described & 16) == 0) continue;
-                if (ReflectionRecords.InfoAttributeCount(info) > 0)
+                if ((ReflectionRecords.InfoAttributeCount(info) & 0xFFFFFF) > 0)
                     throw new NotSupportedException("Inherited custom attributes of '" + type + "' (from '" + b + "') are not supported by csharpc yet.");
             }
         }
@@ -1329,7 +1339,7 @@ namespace CsharpcCoreLib
                 uint described = (uint)ReflectionRecords.InfoDescribed(info);
                 if ((described & 128) != 0 || (described & 16) == 0) return -1;
                 byte* records = ReflectionRecords.InfoAttributes(info);
-                int count = ReflectionRecords.InfoAttributeCount(info);
+                int count = ReflectionRecords.InfoAttributeCount(info) & 0xFFFFFF; // the flag bits of ModuleCodeGen.AttributeCount
                 for (int i = 0; i < count; i++)
                     if (TypeOf(ReflectionRecords.AttributeType(records + i * ReflectionRecords.AttributeSize)).FullName == fullName) return 1;
             }
@@ -1368,13 +1378,18 @@ namespace CsharpcCoreLib
             ArgumentNullException.ThrowIfNull(attributeType);
             if (CannotCarry(type, attributeType)) return CreateAttributes(null, 0, attributeType);
             byte* info = InfoOf(type, "custom attributes");
-            // A type nothing describes (a framework type, a generic parameter without attributes): none. A CoreLib type whose list
-            // csharpc cannot reproduce: the part it describes.
-            if (info == null) return type.IsGenericParameter || IsCoreLibType(type) || !IsProgramAssembly(type) ? CreateAttributes(null, 0, attributeType) : GetTypeCustomAttributes(type, attributeType, inherit);
-            uint described = (uint)ReflectionRecords.InfoDescribed(info);
-            if (PartialAnswer(described, type))
-                return (described & 16) == 0 ? CreateAttributes(null, 0, attributeType)
-                    : CreateAttributes(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
+            // A framework type (or a generic parameter) whose list csharpc cannot give: none when nothing is described, else the part it describes.
+            bool framework = type.IsGenericParameter || IsCoreLibType(type) || !IsProgramAssembly(type);
+            if (framework)
+            {
+                if (info == null) return CreateAttributes(null, 0, attributeType);
+                int described = ReflectionRecords.InfoDescribed(info);
+                bool unknown = (described & 128) != 0;
+                bool notKept = (described & 16) == 0;
+                if (unknown || notKept)
+                    return notKept ? CreateAttributes(null, 0, attributeType)
+                        : CreateAttributes(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info), attributeType);
+            }
             return GetTypeCustomAttributes(type, attributeType, inherit);
         }
 
@@ -1430,6 +1445,17 @@ namespace CsharpcCoreLib
                     return (described & 16) == 0 ? AttributeData(null, 0) : AttributeData(ReflectionRecords.InfoAttributes(info), ReflectionRecords.InfoAttributeCount(info));
                 return GetTypeCustomAttributesData(type);
             }
+            finally { s_partialReads--; }
+        }
+
+        /// <summary>CustomAttributeData.GetCustomAttributes(MemberInfo) called from the framework's IL (FunctionCodeGen.FrameworkStaticAttributeQuery):
+        /// the attributes csharpc models where it cannot complete the list.</summary>
+        public static IList<CustomAttributeData> MemberAttributeDataFramework(MemberInfo target)
+        {
+            ArgumentNullException.ThrowIfNull(target);
+            if (target is Type type) return GetTypeCustomAttributesDataFramework(type);
+            s_partialReads++;
+            try { return target.GetCustomAttributesData(); }
             finally { s_partialReads--; }
         }
 
@@ -1529,6 +1555,126 @@ namespace CsharpcCoreLib
             return found;
         }
 
+        /// <summary>
+        /// Type.GetType(name, assemblyResolver, typeResolver[, throwOnError[, ignoreCase]]) (#104), as .NET's TypeNameResolver for a type name
+        /// without generic arguments, nesting or modifiers: an assembly-qualified name's assembly comes from assemblyResolver (else
+        /// Assembly.Load), then the type from typeResolver(assembly, name, ignoreCase) (else the assembly's GetType, or the usual lookup
+        /// without an assembly). Other names with a resolver are not supported yet (explicit error).
+        /// </summary>
+        public static Type GetTypeWithResolvers(string typeName, Func<AssemblyName, Assembly> assemblyResolver, Func<Assembly, string, bool, Type> typeResolver,
+            bool throwOnError, bool ignoreCase)
+        {
+            ArgumentNullException.ThrowIfNull(typeName);
+            if (assemblyResolver == null && typeResolver == null) return GetTypeByName(typeName, throwOnError, ignoreCase);
+            string name = StripAssembly(typeName);
+            if (name.IndexOfAny(new[] { '[', '+', '*', '&' }) >= 0)
+                throw new NotSupportedException("Type.GetType with resolvers for a generic, nested, pointer or by-ref type name is not supported by csharpc yet.");
+            Assembly assembly = null;
+            int comma = typeName.IndexOf(',');
+            if (comma >= 0)
+            {
+                var assemblyName = new AssemblyName(typeName.Substring(comma + 1).Trim());
+                assembly = assemblyResolver != null ? assemblyResolver(assemblyName) : Assembly.Load(assemblyName);
+                if (assembly == null)
+                {
+                    if (throwOnError) throw new System.IO.FileNotFoundException("Could not load file or assembly '" + assemblyName.FullName + "'. The system cannot find the file specified.");
+                    return null;
+                }
+            }
+            Type type = typeResolver != null ? typeResolver(assembly, name, ignoreCase)
+                : assembly != null ? assembly.GetType(name, false, ignoreCase) : GetTypeByName(name, false, ignoreCase);
+            if (type == null && throwOnError)
+                throw new TypeLoadException("Could not resolve type '" + name + "'" + (assembly != null ? " in assembly '" + assembly.FullName + "'." : "."));
+            return type;
+        }
+
+        /// <summary>
+        /// Type.InvokeMember(name, flags, binder, target, args) (#104) for what needs no binder choice, as .NET's: a method (InvokeMethod),
+        /// property (Get/SetProperty) or field (Get/SetField) of that name; with no lookup flags, public instance members. Several methods
+        /// that fit the arguments need .NET's DefaultBinder to choose: not supported yet (explicit error), as is CreateInstance.
+        /// </summary>
+        /// <summary>Whether each argument can be passed to its parameter (null to a reference or Nullable&lt;T&gt; parameter).</summary>
+        private static bool ArgumentsFit(ParameterInfo[] parameters, object[] args)
+        {
+            for (int i = 0; i < parameters.Length && i < args.Length; i++)
+            {
+                Type parameterType = parameters[i].ParameterType;
+                bool fits = args[i] == null ? !parameterType.IsValueType || Nullable.GetUnderlyingType(parameterType) != null : parameterType.IsInstanceOfType(args[i]);
+                if (!fits) return false;
+            }
+            return true;
+        }
+
+        public static object InvokeMember(Type type, string name, BindingFlags invokeAttr, Binder binder, object target, object[] args)
+        {
+            ArgumentNullException.ThrowIfNull(name);
+            const BindingFlags Actions = BindingFlags.InvokeMethod | BindingFlags.CreateInstance | BindingFlags.GetField | BindingFlags.SetField
+                | BindingFlags.GetProperty | BindingFlags.SetProperty;
+            if ((invokeAttr & Actions) == 0)
+                throw new ArgumentException("Must specify binding flags describing the invoke operation required (BindingFlags.InvokeMethod CreateInstance GetField SetField GetProperty SetProperty).", "bindingFlags");
+            if ((invokeAttr & BindingFlags.CreateInstance) != 0)
+                throw new NotSupportedException("Type.InvokeMember with BindingFlags.CreateInstance is not supported by csharpc yet.");
+            BindingFlags lookup = invokeAttr & ~Actions;
+            // No member-binding flags at all: public instance and static members, as .NET's (static unless creating an instance).
+            if (((int)invokeAttr & 0xFF) == 0) lookup |= BindingFlags.Instance | BindingFlags.Public | BindingFlags.Static;
+            if ((invokeAttr & BindingFlags.GetField) != 0 && args != null && args.Length > 0)
+                throw new ArgumentException("No arguments can be provided to Get a field value.", "bindingFlags");
+            if ((invokeAttr & BindingFlags.SetField) != 0)
+            {
+                if (args == null) throw new ArgumentNullException("providedArgs");
+                if (args.Length != 1) throw new ArgumentException("Only the field value can be specified to set a field value.", "bindingFlags");
+            }
+            if ((invokeAttr & (BindingFlags.GetField | BindingFlags.SetField)) != 0)
+            {
+                // No such field: .NET goes on to the properties and methods when those flags are set too, else MissingFieldException.
+                FieldInfo field = type.GetField(name, lookup);
+                if (field != null)
+                {
+                    if ((invokeAttr & BindingFlags.SetField) != 0) { field.SetValue(target, args[0]); return null; }
+                    return field.GetValue(target);
+                }
+                if ((invokeAttr & (BindingFlags.InvokeMethod | BindingFlags.GetProperty | BindingFlags.SetProperty)) == 0)
+                    throw new MissingFieldException("Field '" + type.FullName + "." + name + "' not found.");
+            }
+            args ??= new object[0];
+            if ((invokeAttr & (BindingFlags.GetProperty | BindingFlags.SetProperty)) != 0 && (invokeAttr & BindingFlags.InvokeMethod) == 0)
+            {
+                // A property's accessor takes the index arguments (an indexer is "Item"), and a setter the value last.
+                bool set = (invokeAttr & BindingFlags.SetProperty) != 0;
+                int indexCount = set ? args.Length - 1 : args.Length;
+                // The index arguments must fit the property's index parameters, as the method arguments do below; several properties that
+                // fit (overloaded indexers) need .NET's DefaultBinder to choose: an explicit error.
+                PropertyInfo chosenProperty = null;
+                foreach (PropertyInfo property in type.GetProperties(lookup))
+                {
+                    if (!string.Equals(property.Name, name, (lookup & BindingFlags.IgnoreCase) != 0 ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) continue;
+                    ParameterInfo[] indexes = property.GetIndexParameters();
+                    if (indexCount < 0 || indexes.Length != indexCount || !ArgumentsFit(indexes, args)) continue;
+                    if (chosenProperty != null)
+                        throw new NotSupportedException("Type.InvokeMember choosing between overloads of '" + name + "' is not supported by csharpc yet.");
+                    chosenProperty = property;
+                }
+                if (chosenProperty == null) throw new MissingMethodException("Method '" + type.FullName + "." + name + "' not found.");
+                object[] index = null;
+                if (indexCount > 0) { index = new object[indexCount]; Array.Copy(args, index, indexCount); }
+                if (set) { chosenProperty.SetValue(target, args[args.Length - 1], index); return null; }
+                return chosenProperty.GetValue(target, index);
+            }
+            MethodInfo chosen = null;
+            foreach (MethodInfo method in type.GetMethods(lookup))
+            {
+                if (!string.Equals(method.Name, name, (lookup & BindingFlags.IgnoreCase) != 0 ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) continue;
+                ParameterInfo[] parameters = method.GetParameters();
+                if (parameters.Length != args.Length) continue;
+                if (!ArgumentsFit(parameters, args)) continue;
+                if (chosen != null)
+                    throw new NotSupportedException("Type.InvokeMember choosing between overloads of '" + name + "' is not supported by csharpc yet.");
+                chosen = method;
+            }
+            if (chosen == null) throw new MissingMethodException("Method '" + type.FullName + "." + name + "' not found.");
+            return chosen.Invoke(chosen.IsStatic ? null : target, args);
+        }
+
         public static Type GetTypeByName(string typeName) => GetTypeByName(typeName, false, false);
         public static Type GetTypeByName(string typeName, bool throwOnError) => GetTypeByName(typeName, throwOnError, false);
 
@@ -1612,8 +1758,10 @@ namespace CsharpcCoreLib
             if (type == typeof(ulong)) return TypeCode.UInt64;
             if (type == typeof(float)) return TypeCode.Single;
             if (type == typeof(double)) return TypeCode.Double;
-            if (type == typeof(decimal)) return TypeCode.Decimal;
-            if (type == typeof(DateTime)) return TypeCode.DateTime;
+            // decimal and DateTime by name: typeof of their boxes' runtime method tables would count as boxing them and link their
+            // formatters (DateTime's pulls in every calendar, ModuleCodeGen.RuntimeExports.cs) into every program that asks a type code.
+            if (type.IsValueType && type.FullName is "System.Decimal" or "System.DateTime" && IsCoreLibType(type))
+                return type.FullName == "System.Decimal" ? TypeCode.Decimal : TypeCode.DateTime;
             if (type == typeof(string)) return TypeCode.String;
             if (type == typeof(DBNull)) return TypeCode.DBNull;
             return TypeCode.Object;

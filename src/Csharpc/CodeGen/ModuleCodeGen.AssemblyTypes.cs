@@ -164,7 +164,13 @@ public sealed partial class ModuleCodeGen
 
         using var reader = new PEReader(new MemoryStream(image));
         var metadata = reader.GetMetadataReader();
-        _programReferences = [.. metadata.AssemblyReferences.Select(h => metadata.GetAssemblyReference(h).GetAssemblyName().FullName)];
+        // A reference to the renamed copy of a twin ("Collections") is csc's reference to the assembly it stands for ("System.Collections"), once.
+        _programReferences = [.. metadata.AssemblyReferences.Select(h =>
+        {
+            var name = metadata.GetAssemblyReference(h).GetAssemblyName();
+            name.Name = Frontend.TwinReference.OriginalName(name.Name ?? "");
+            return name.FullName;
+        }).Distinct()];
         var names = new Dictionary<TypeDefinitionHandle, string>();
         string ClrName(TypeDefinitionHandle handle)
         {

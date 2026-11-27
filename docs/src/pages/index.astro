@@ -1,0 +1,123 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+import Navbar from '../components/home/Navbar.astro';
+import Hero from '../components/home/Hero.astro';
+import Footer from '../components/home/Footer.astro';
+import { measure } from '../lib/codebase';
+import { navigation } from '../lib/nav';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const doc = (id: string) => `${base}/docs/${id}/`;
+const areas = measure();
+const total = areas.reduce((s, a) => s + a.lines, 0);
+const groups = await navigation();
+const docCount = groups.reduce((s, g) => s + g.items.length, 0);
+const fmt = (n: number) => n.toLocaleString('en-US');
+const area = (key: string) => areas.find((a) => a.key === key)!;
+
+const trace = [
+  ['01 // input', 'C# or IL', '.cs files, a .csproj, or DLLs and NuGet packages read through the IL front-end.'],
+  ['02 // bind', 'Roslyn', 'Parsing, binding and every diagnostic, exactly the official compiler\'s.'],
+  ['03 // lower', 'CFG to LLVM IR', 'Generics, closures, async, exceptions and reflection metadata, one partial per feature.'],
+  ['04 // optimize', 'Whole-program LTO', 'The program, the C# corelib and the csrt runtime optimized together.'],
+  ['05 // link', 'Native executable', 'One hardened file: no JIT, no CoreCLR, no IL at run time.'],
+];
+const entries = [
+  ['00-vision', 'vision', 'Vision', 'What csharpc is for, its goals and its non-goals.'],
+  ['02-architecture', 'architecture', 'Architecture', 'The pipeline, its phases and how the pieces fit together.'],
+  ['04-runtime', 'runtime', 'Runtime', 'csrt: the GC, exception dispatch, threads and the C / C# boundary.'],
+  ['08-drop-in', 'toolchain', 'Drop-in toolchain', '.csproj input and dotnet build / run / publish integration.'],
+  ['05-testing', 'oracle', 'Testing', 'Every test is recorded from real .NET and compared byte for byte.'],
+  ['06-roadmap', 'roadmap', 'Roadmap', 'Milestones, the feature-support matrix and what comes next.'],
+];
+---
+
+<BaseLayout>
+  <Navbar />
+  <main>
+    <Hero />
+
+    <section class="stats-grid" aria-label="The repository in numbers">
+      <div class="stat-box">
+        <div class="stat-label">Lines in the repo</div>
+        <div class="stat-value">{fmt(total)}</div>
+        <div class="stat-sub">counted when this site was built</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Code generation</div>
+        <div class="stat-value">{fmt(area('codegen').lines)}</div>
+        <div class="stat-sub">CFG and IL to LLVM IR</div>
+      </div>
+      <div class="stat-box warning">
+        <div class="stat-label">C runtime</div>
+        <div class="stat-value">{fmt(area('runtime').lines)}</div>
+        <div class="stat-sub">GC, unwinding, threads, OS</div>
+      </div>
+      <div class="stat-box">
+        <div class="stat-label">Documents</div>
+        <div class="stat-value">{docCount}</div>
+        <div class="stat-sub">design notes, ADRs and IL notes</div>
+      </div>
+    </section>
+
+    <section class="runtime-trace" aria-labelledby="trace-title">
+      <div class="section-header">
+        <p class="section-kicker">compile path</p>
+        <h2 id="trace-title">FROM SOURCE TO ONE NATIVE FILE.</h2>
+        <p>Roslyn's control-flow graph is csharpc's mid-level IR; everything between it and LLVM is csharpc.</p>
+      </div>
+      <ol class="trace-list">
+        {trace.map(([step, name, text]) => (
+          <li><span>{step}</span><strong>{name}</strong><p>{text}</p></li>
+        ))}
+      </ol>
+    </section>
+
+    <section class="evidence-panel" aria-labelledby="rule-title">
+      <div class="section-header narrow">
+        <p class="section-kicker">the one rule</p>
+        <h2 id="rule-title">SAME OUTPUT AS REAL .NET.</h2>
+        <p>
+          A program compiled by csharpc behaves exactly like the same program under .NET: byte-identical stdout and the same
+          exit code. Every test is recorded from <code>dotnet run</code>, or from NativeAOT where the two differ, and anything
+          csharpc cannot do yet is an explicit diagnostic.
+        </p>
+      </div>
+      <div class="evidence-grid">
+        {entries.map(([id, signal, name, text]) => (
+          <article class="evidence-card">
+            <div class="lane-row"><span class="status-pill clean">{signal}</span><span>{id}.md</span></div>
+            <h3>{name}</h3>
+            <p>{text}</p>
+            <a class="action-link" href={doc(id)}>open</a>
+          </article>
+        ))}
+      </div>
+    </section>
+
+    <section class="evidence-panel" aria-labelledby="quick-title">
+      <div class="section-header narrow">
+        <p class="section-kicker">quick start</p>
+        <h2 id="quick-title">BUILD IT, COMPILE A PROGRAM.</h2>
+        <p>Linux, macOS or Windows with the .NET 11 SDK, LLVM 18 and clang. Setup per platform is in the <a href={doc('08-drop-in')}>drop-in guide</a>.</p>
+      </div>
+      <div class="terminal-panel quick">
+        <div class="terminal-content">
+          <div class="term-line">&gt; dotnet build src/Csharpc -c Release</div>
+          <div class="term-line">&gt; dotnet src/Csharpc/bin/Release/net11.0/csharpc.dll hello.cs -o hello</div>
+          <div class="term-line">&gt; dotnet src/Csharpc/bin/Release/net11.0/csharpc.dll MyApp.csproj -o myapp</div>
+          <div class="term-line">&gt; csharpc app.cs --target wasm32-wasip1 -o app.wasm</div>
+        </div>
+      </div>
+    </section>
+  </main>
+  <Footer />
+</BaseLayout>
+
+<style>
+  .terminal-panel.quick { min-height: 0; }
+  .terminal-panel.quick .term-line { overflow-wrap: anywhere; }
+  .section-header a { color: var(--term-green-soft); }
+  .section-header code { color: var(--term-green-soft); }
+  .tagline :global(code) { color: var(--term-green-soft); }
+</style>

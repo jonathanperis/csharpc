@@ -211,24 +211,28 @@ await Pair("not authenticated",
         return string.Join("\n    ", lines);
     });
 
-// 7. a graceful shutdown: the peer's close_notify is the end of the stream
+// 7. a graceful shutdown: the peer's close_notify is the end of the stream. The client keeps its socket open until the server
+// has read both: closing right away can reset the connection on Windows (TLS data left unread) before the server reads the data.
+var serverReadAll = new TaskCompletionSource();
 await Pair("shutdown",
     async ssl =>
     {
-        await ssl.AuthenticateAsServerAsync(cert);
-        var buffer = new byte[16];
-        int n = await ssl.ReadAsync(buffer);
-        // The end is the close_notify; a client that closes right after it can instead reset the connection on some OSes
-        // (when it left TLS data unread), which loses nothing the server needs: it is the end either way.
-        int end;
-        try { end = await ssl.ReadAsync(buffer); }
-        catch (IOException) { end = 0; }
-        return $"read={n} then={end}";
+        try
+        {
+            await ssl.AuthenticateAsServerAsync(cert);
+            var buffer = new byte[16];
+            int n = await ssl.ReadAsync(buffer);
+            int end = await ssl.ReadAsync(buffer);
+            return $"read={n} then={end}";
+        }
+        finally { serverReadAll.TrySetResult(); }
     },
     async ssl =>
     {
         await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions { TargetHost = "localhost", RemoteCertificateValidationCallback = acceptAll });
         await ssl.WriteAsync(new byte[] { 1, 2, 3 });
         await ssl.ShutdownAsync();
-        return "shutdown write=" + ssl.CanWrite;
+        string result = "shutdown write=" + ssl.CanWrite;
+        await serverReadAll.Task;
+        return result;
     });

@@ -49,8 +49,6 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         _ when BclValueTypes.IsTicks(type) => Llvm.I64,
         // Int128 / UInt128: LLVM's native i128 (CodeGen/Int128Support.cs).
         _ when Int128Support.Is128(type) => Llvm.IntTypeOf(128),
-        // BigInteger: pointer to an immutable runtime bignum, null == 0 (src/runtime/bigint.c).
-        _ when BclValueTypes.IsBigInteger(type) => Llvm.Ptr,
         // Value types (docs/03-lowering.md#structs): first-class LLVM aggregates of storage types.
         INamedTypeSymbol { OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } n =>
             Llvm.Struct(Llvm.I8, Storage(n.TypeArguments[0])),              // { hasValue, value }
@@ -62,8 +60,6 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         INamedTypeSymbol n when IsSystemStruct(n, "Range") => Llvm.Struct(Llvm.I32, Llvm.I32), // { Index start, Index end }
         // StringBuilder.AppendInterpolatedStringHandler: represented by the StringBuilder it appends into.
         INamedTypeSymbol { Name: "AppendInterpolatedStringHandler", ContainingType.Name: "StringBuilder" } when !Frontend.UpstreamSlice.Serves("System.Text.StringBuilder") => Llvm.Ptr,
-        // DefaultInterpolatedStringHandler (compiled `$"..."`, seen by the IL front-end): a StringBuilder.
-        INamedTypeSymbol { Name: "DefaultInterpolatedStringHandler", ContainingType: null, ContainingNamespace.Name: "CompilerServices" } => Llvm.Ptr,
         // System.Threading.Lock.Scope: represented by the Lock itself (Scope.Dispose exits it).
         INamedTypeSymbol { Name: "Scope", ContainingType: { Name: "Lock", ContainingNamespace.Name: "Threading" } } => Llvm.Ptr,
         INamedTypeSymbol n when IsSpan(n) => Llvm.Struct(Llvm.Ptr, Llvm.I32),                  // { ref T, length }
@@ -74,13 +70,14 @@ public sealed class TypeMapper(LlvmContext llvm, TargetMachine target)
         // Vector64/128/256<T>: opaque bytes. csharpc has no SIMD operations yet (their IsHardwareAccelerated
         // and the ISA classes' IsSupported fold to false); locals and fields of these types still need a size.
         // Vector128<T> is <16 x i8> whatever T (FunctionCodeGen.Simd.cs); the others stay bytes.
-        INamedTypeSymbol n when SimdVectorBytes(n) is { } bytes => n.Name == "Vector128" ? Native.LLVMVectorType(Llvm.I8, 16) : LlvmContext.Array(Llvm.I8, bytes),
+        INamedTypeSymbol n when SimdVectorBytes(n) is { } bytes => n.Name is "Vector128" or "Vector" ? Native.LLVMVectorType(Llvm.I8, 16) : LlvmContext.Array(Llvm.I8, bytes),
         { TypeKind: TypeKind.Struct } => throw CompileError.Unsupported($"struct '{type}'", type),
         { TypeKind: TypeKind.TypeParameter } => throw CompileError.Unsupported($"generic type parameter '{type}'", type),
         _ => throw CompileError.Unsupported($"type '{type}'", type),
     };
 
     private static uint? SimdVectorBytes(INamedTypeSymbol type) =>
+        type is { Name: "Vector", Arity: 1, ContainingType: null } && FunctionCodeGen.InNumericsNamespace(type) ? 16u : // Vector<T>: NativeAOT's default size
         type is { Arity: 1, ContainingNamespace: { Name: "Intrinsics", ContainingNamespace: { Name: "Runtime", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } }
             ? type.Name switch { "Vector64" => 8u, "Vector128" => 16u, "Vector256" => 32u, "Vector512" => 64u, _ => null }
             : null;
@@ -174,6 +171,15 @@ public sealed class ClassLayout
 
     /// <summary>Root virtual method (the original "virtual" declaration) -> slot.</summary>
     public Dictionary<IMethodSymbol, int> SlotOf { get; } = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// --shared-generics (ADR 0026): the vtable slot that holds each generic class's dictionary, keyed by the class's generic definition,
+    /// for this class and the generic classes it derives from. The slot sits in the generic class's own vtable section, right after the
+    /// virtual methods it introduces, so it has the same index in every instantiation of the class and in every class derived from one:
+    /// shared code reads `this->MT->vtable[k]`. Nothing else reads it (the runtime's fixed slots are the System.Object and Exception ones,
+    /// which come first). Empty with the flag off.
+    /// </summary>
+    public Dictionary<INamedTypeSymbol, int> DictionarySlots { get; } = new(SymbolEqualityComparer.Default);
 
     public LLVMTypeRef MethodTableType { get; set; }
     public LLVMValueRef MethodTable { get; set; }

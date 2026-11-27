@@ -1,0 +1,11 @@
+# String's and Char's library members from their own CoreLib IL (#423): searching, comparing, casing, trimming, padding, splitting,
+# joining, replacing and copying on string; classification, conversion, casing and parsing on char. The slicer hosts string's instance
+# members as statics whose first parameter is the string (`this.` roots; the body starts with the callvirt's null check), char's statics
+# as they are; their IL reads string's _stringLength and `ref _firstChar` (FunctionCodeGen.BuiltinPrivateFields.cs). What csharpc lowers
+# itself keeps priority: Length, the indexer, ==, Equals, Concat of strings, IsNullOrEmpty, GetHashCode, CompareTo, string.Format,
+# EnumerateRunes and Normalize (corelib shadows), and the runtime helpers codegen calls (corelib StringRuntime.cs).
+host:System.String::this.Substring,this.Insert,this.Remove,this.IndexOf,this.LastIndexOf,this.IndexOfAny,this.LastIndexOfAny,this.Contains,this.StartsWith,this.EndsWith,this.Replace,this.ReplaceLineEndings,this.CopyTo,this.TryCopyTo,this.ToCharArray,this.ToUpper,this.ToLower,this.ToUpperInvariant,this.ToLowerInvariant,this.Trim,this.TrimStart,this.TrimEnd,this.PadLeft,this.PadRight,this.Split
+host:System.String::Compare,CompareOrdinal,Join,Concat,Create,Format,IsNullOrWhiteSpace,Copy
+host:System.Char::GetNumericValue,GetUnicodeCategory,IsAscii,IsAsciiDigit,IsAsciiHexDigit,IsAsciiHexDigitLower,IsAsciiHexDigitUpper,IsAsciiLetter,IsAsciiLetterLower,IsAsciiLetterOrDigit,IsAsciiLetterUpper,IsBetween,IsControl,IsDigit,IsHighSurrogate,IsLetter,IsLetterOrDigit,IsLowSurrogate,IsLower,IsNumber,IsPunctuation,IsSeparator,IsSurrogate,IsSurrogatePair,IsSymbol,IsUpper,IsWhiteSpace,Parse,ToLower,ToLowerInvariant,ToUpper,ToUpperInvariant,TryParse,ConvertFromUtf32,ConvertToUtf32,ToString,this.ToString
+# String's private holder of the newline SearchValues that ReplaceLineEndings and IndexOfNewlineChar read.
+System.String/SearchValuesStorage
