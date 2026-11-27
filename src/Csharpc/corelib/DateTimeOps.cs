@@ -221,7 +221,7 @@ namespace CsharpcCoreLib
             {
                 char standard = f.Length == 0 ? 'c' : f[0] == 'g' ? 'g' : f[0] == 'G' ? 'G' : 'c';
                 TimeSpanStandard(ref sb, ticks, standard,
-                    standard == 'c' ? "." : CsharpcCoreLib.Globalization.DateTimeFormatInfo.GetInstance(provider).DecimalSeparator);
+                    standard == 'c' ? "." : Globalization.DateTimeFormatInfoInternals.DecimalSeparator(System.Globalization.DateTimeFormatInfo.GetInstance(provider)));
                 return sb.Build();
             }
             // Any other single character is an unknown standard format, not a custom one.
@@ -698,6 +698,86 @@ namespace CsharpcCoreLib
         private static DateTime M(long data) => CoreIntrinsics.MakeDateTime(data);
 
         public static DateTime SpecifyKind(DateTime value, DateTimeKind kind) => M(DateTimeOps.SpecifyKind(D(value), (int)kind));
+
+        // CoreLib-internal members that the framework's date and time code (DateTimeFormat, DateTimeParse, the calendars; #426) calls.
+        [ShadowInstance]
+        public static void GetDate(DateTime @this, out int year, out int month, out int day)
+        {
+            year = @this.Year;
+            month = @this.Month;
+            day = @this.Day;
+        }
+
+        [ShadowInstance]
+        public static void GetTime(DateTime @this, out int hour, out int minute, out int second)
+        {
+            long seconds = @this.Ticks / TimeSpan.TicksPerSecond;
+            long minutes = seconds / 60;
+            second = (int)(seconds - (minutes * 60));
+            long hours = minutes / 60;
+            minute = (int)(minutes - (hours * 60));
+            hour = (int)((uint)hours % 24);
+        }
+
+        [ShadowInstance]
+        public static void GetTime(DateTime @this, out int hour, out int minute, out int second, out int millisecond)
+        {
+            long milliseconds = @this.Ticks / TimeSpan.TicksPerMillisecond;
+            long seconds = milliseconds / 1000;
+            millisecond = (int)(milliseconds - (seconds * 1000));
+            long minutes = seconds / 60;
+            second = (int)(seconds - (minutes * 60));
+            long hours = minutes / 60;
+            minute = (int)(minutes - (hours * 60));
+            hour = (int)((uint)hours % 24);
+        }
+
+        [ShadowInstance]
+        public static void GetTimePrecise(DateTime @this, out int hour, out int minute, out int second, out int tick)
+        {
+            long ticks = @this.Ticks;
+            long seconds = ticks / TimeSpan.TicksPerSecond;
+            tick = (int)(ticks - (seconds * TimeSpan.TicksPerSecond));
+            long minutes = seconds / 60;
+            second = (int)(seconds - (minutes * 60));
+            long hours = minutes / 60;
+            minute = (int)(minutes - (hours * 60));
+            hour = (int)((uint)hours % 24);
+        }
+
+        [ShadowInstance]
+        public static bool TryAddTicks(DateTime @this, long value, out DateTime result)
+        {
+            long ticks = @this.Ticks;
+            if (value > DateTime.MaxValue.Ticks - ticks || value < -ticks)
+            {
+                result = default;
+                return false;
+            }
+            result = M((ticks + value) | (D(@this) & unchecked((long)0xC000000000000000UL)));
+            return true;
+        }
+
+        /// <summary>CoreLib's internal DateTime.IsAmbiguousDaylightSavingTime (TimeZoneInfo from IL, #98): the Local-ambiguous-DST kind bits.</summary>
+        [ShadowInstance]
+        public static bool IsAmbiguousDaylightSavingTime(DateTime @this) => (D(@this) & unchecked((long)0xC000000000000000UL)) == unchecked((long)0xC000000000000000UL);
+
+        /// <summary>DateTime(long ticks, DateTimeKind kind, bool isAmbiguousDst): a Local value whose ambiguous-DST flag is given.</summary>
+        [ShadowConstructor]
+        public static DateTime Create(long ticks, DateTimeKind kind, bool isAmbiguousDst) =>
+            kind == DateTimeKind.Local ? M(DateTimeOps.MakeLocal(ticks, isAmbiguousDst)) : new DateTime(ticks, kind);
+
+        public static bool TryCreate(int year, int month, int day, int hour, int minute, int second, int millisecond, out DateTime result)
+        {
+            if (year < 1 || year > 9999 || month < 1 || month > 12 || day < 1 || day > DateTime.DaysInMonth(year, month)
+                || (uint)hour >= 24 || (uint)minute >= 60 || (uint)second >= 60 || (uint)millisecond >= 1000)
+            {
+                result = default;
+                return false;
+            }
+            result = new DateTime(year, month, day, hour, minute, second, millisecond);
+            return true;
+        }
         [ShadowInstance] public static DateTime ToUniversalTime(DateTime @this) => M(DateTimeOps.ToUniversalTime(D(@this)));
         [ShadowInstance] public static DateTime ToLocalTime(DateTime @this) => M(DateTimeOps.ToLocalTime(D(@this)));
         [ShadowInstance] public static bool IsDaylightSavingTime(DateTime @this) => DateTimeOps.IsDaylightSavingTime(D(@this));
@@ -710,12 +790,12 @@ namespace CsharpcCoreLib
 
         // Parsing: .NET's DateTimeParse (Globalization/DateTimeParse.cs) with the provider's DateTimeFormatInfo,
         // argument checks as in DateTime.cs.
-        private static Globalization.DateTimeFormatInfo Dtfi(IFormatProvider provider) => Globalization.DateTimeFormatInfo.GetInstance(provider);
+        private static System.Globalization.DateTimeFormatInfo Dtfi(IFormatProvider provider) => System.Globalization.DateTimeFormatInfo.GetInstance(provider);
 
         public static DateTime Parse(string s)
         {
             if (s == null) throw new ArgumentNullException("s");
-            return Globalization.DateTimeParse.Parse(s, Globalization.DateTimeFormatInfo.CurrentInfo, System.Globalization.DateTimeStyles.None);
+            return Globalization.DateTimeParse.Parse(s, System.Globalization.DateTimeFormatInfo.CurrentInfo, System.Globalization.DateTimeStyles.None);
         }
 
         public static DateTime Parse(string s, IFormatProvider provider)
@@ -726,7 +806,7 @@ namespace CsharpcCoreLib
 
         public static DateTime Parse(string s, IFormatProvider provider, System.Globalization.DateTimeStyles styles)
         {
-            Globalization.DateTimeFormatInfo.ValidateStyles(styles, styles: true);
+            Globalization.DateTimeFormatInfoInternals.ValidateStyles(styles, styles: true);
             if (s == null) throw new ArgumentNullException("s");
             return Globalization.DateTimeParse.Parse(s, Dtfi(provider), styles);
         }
@@ -736,14 +816,14 @@ namespace CsharpcCoreLib
 
         public static DateTime Parse(ReadOnlySpan<char> s, IFormatProvider provider, System.Globalization.DateTimeStyles styles)
         {
-            Globalization.DateTimeFormatInfo.ValidateStyles(styles, styles: true);
+            Globalization.DateTimeFormatInfoInternals.ValidateStyles(styles, styles: true);
             return Globalization.DateTimeParse.Parse(s, Dtfi(provider), styles);
         }
 
         public static bool TryParse(string s, out DateTime result)
         {
             if (s == null) { result = default; return false; }
-            return Globalization.DateTimeParse.TryParse(s, Globalization.DateTimeFormatInfo.CurrentInfo, System.Globalization.DateTimeStyles.None, out result);
+            return Globalization.DateTimeParse.TryParse(s, System.Globalization.DateTimeFormatInfo.CurrentInfo, System.Globalization.DateTimeStyles.None, out result);
         }
 
         public static bool TryParse(string s, IFormatProvider provider, out DateTime result) =>
@@ -751,20 +831,20 @@ namespace CsharpcCoreLib
 
         public static bool TryParse(string s, IFormatProvider provider, System.Globalization.DateTimeStyles styles, out DateTime result)
         {
-            Globalization.DateTimeFormatInfo.ValidateStyles(styles, styles: true);
+            Globalization.DateTimeFormatInfoInternals.ValidateStyles(styles, styles: true);
             if (s == null) { result = default; return false; }
             return Globalization.DateTimeParse.TryParse(s, Dtfi(provider), styles, out result);
         }
 
         public static bool TryParse(ReadOnlySpan<char> s, out DateTime result) =>
-            Globalization.DateTimeParse.TryParse(s, Globalization.DateTimeFormatInfo.CurrentInfo, System.Globalization.DateTimeStyles.None, out result);
+            Globalization.DateTimeParse.TryParse(s, System.Globalization.DateTimeFormatInfo.CurrentInfo, System.Globalization.DateTimeStyles.None, out result);
 
         public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, out DateTime result) =>
             TryParse(s, provider, System.Globalization.DateTimeStyles.None, out result);
 
         public static bool TryParse(ReadOnlySpan<char> s, IFormatProvider provider, System.Globalization.DateTimeStyles styles, out DateTime result)
         {
-            Globalization.DateTimeFormatInfo.ValidateStyles(styles, styles: true);
+            Globalization.DateTimeFormatInfoInternals.ValidateStyles(styles, styles: true);
             return Globalization.DateTimeParse.TryParse(s, Dtfi(provider), styles, out result);
         }
 
@@ -777,7 +857,7 @@ namespace CsharpcCoreLib
 
         public static DateTime ParseExact(string s, string format, IFormatProvider provider, System.Globalization.DateTimeStyles style)
         {
-            Globalization.DateTimeFormatInfo.ValidateStyles(style);
+            Globalization.DateTimeFormatInfoInternals.ValidateStyles(style);
             if (s == null) throw new ArgumentNullException("s");
             if (format == null) throw new ArgumentNullException("format");
             return Globalization.DateTimeParse.ParseExact(s, format, Dtfi(provider), style);
@@ -785,46 +865,46 @@ namespace CsharpcCoreLib
 
         public static DateTime ParseExact(string s, string[] formats, IFormatProvider provider, System.Globalization.DateTimeStyles style)
         {
-            Globalization.DateTimeFormatInfo.ValidateStyles(style);
+            Globalization.DateTimeFormatInfoInternals.ValidateStyles(style);
             if (s == null) throw new ArgumentNullException("s");
             return Globalization.DateTimeParse.ParseExactMultiple(s, formats, Dtfi(provider), style);
         }
 
         public static bool TryParseExact(string s, string format, IFormatProvider provider, System.Globalization.DateTimeStyles style, out DateTime result)
         {
-            Globalization.DateTimeFormatInfo.ValidateStyles(style);
+            Globalization.DateTimeFormatInfoInternals.ValidateStyles(style);
             if (s == null || format == null) { result = default; return false; }
             return Globalization.DateTimeParse.TryParseExact(s, format, Dtfi(provider), style, out result);
         }
 
         public static bool TryParseExact(string s, string[] formats, IFormatProvider provider, System.Globalization.DateTimeStyles style, out DateTime result)
         {
-            Globalization.DateTimeFormatInfo.ValidateStyles(style);
+            Globalization.DateTimeFormatInfoInternals.ValidateStyles(style);
             if (s == null) { result = default; return false; }
             return Globalization.DateTimeParse.TryParseExactMultiple(s, formats, Dtfi(provider), style, out result);
         }
 
         public static DateTime ParseExact(ReadOnlySpan<char> s, ReadOnlySpan<char> format, IFormatProvider provider, System.Globalization.DateTimeStyles style = System.Globalization.DateTimeStyles.None)
         {
-            Globalization.DateTimeFormatInfo.ValidateStyles(style);
+            Globalization.DateTimeFormatInfoInternals.ValidateStyles(style);
             return Globalization.DateTimeParse.ParseExact(s, format, Dtfi(provider), style);
         }
 
         public static DateTime ParseExact(ReadOnlySpan<char> s, string[] formats, IFormatProvider provider, System.Globalization.DateTimeStyles style = System.Globalization.DateTimeStyles.None)
         {
-            Globalization.DateTimeFormatInfo.ValidateStyles(style);
+            Globalization.DateTimeFormatInfoInternals.ValidateStyles(style);
             return Globalization.DateTimeParse.ParseExactMultiple(s, formats, Dtfi(provider), style);
         }
 
         public static bool TryParseExact(ReadOnlySpan<char> s, ReadOnlySpan<char> format, IFormatProvider provider, System.Globalization.DateTimeStyles style, out DateTime result)
         {
-            Globalization.DateTimeFormatInfo.ValidateStyles(style);
+            Globalization.DateTimeFormatInfoInternals.ValidateStyles(style);
             return Globalization.DateTimeParse.TryParseExact(s, format, Dtfi(provider), style, out result);
         }
 
         public static bool TryParseExact(ReadOnlySpan<char> s, string[] formats, IFormatProvider provider, System.Globalization.DateTimeStyles style, out DateTime result)
         {
-            Globalization.DateTimeFormatInfo.ValidateStyles(style);
+            Globalization.DateTimeFormatInfoInternals.ValidateStyles(style);
             return Globalization.DateTimeParse.TryParseExactMultiple(s, formats, Dtfi(provider), style, out result);
         }
 

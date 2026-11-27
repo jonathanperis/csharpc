@@ -21,7 +21,33 @@ public sealed partial class FunctionCodeGen
     /// RuntimeFeature.IsDynamicCodeSupported` in System.Linq.Expressions, without which Compile() would
     /// reach the LambdaCompiler (Reflection.Emit) and CallInstruction its ~20,000 generic fast paths.
     /// </summary>
-    private bool? FeatureSwitchValue(IMethodSymbol method) => KnownFeatureSwitch(method) ?? _m.SubstitutedSwitch(method) ?? _m.ForwardingFeatureSwitch(method, 0);
+    private bool? FeatureSwitchValue(IMethodSymbol method) => KnownFeatureSwitch(method) ?? CoreIntrinsicConstant(method) ?? DisabledEventSourceIsEnabled(method) ?? _m.SubstitutedSwitch(method) ?? _m.FeatureSwitchDefinitionValue(method) ?? _m.ForwardingFeatureSwitch(method, 0);
+
+    /// <summary>
+    /// EventSource.IsEnabled() (each overload) when the program turns event sources off (EventSourceSupport=false, the file-based and PublishAot
+    /// default): false, as CoreLib's ILLink.Substitutions.xml stubs it for ILCompiler. The framework guards its own events with it
+    /// (`if (CDSCollectionETWBCLProvider.Log.IsEnabled()) ...` in ConcurrentBag), so what only an event writes is not lowered. (The receiver
+    /// is still evaluated; the call, which reads two fields, is not made.)
+    /// </summary>
+    private bool? DisabledEventSourceIsEnabled(IMethodSymbol method) =>
+        method is { Name: "IsEnabled", IsStatic: false, ContainingType: { Name: "EventSource" } owner }
+        && Frontend.UpstreamSlice.RealNamespace(owner.ContainingNamespace?.ToDisplayString() ?? "") == "System.Diagnostics.Tracing"
+        && _m.RuntimeConfig.Any(c => c.Key == "System.Diagnostics.Tracing.EventSource.IsSupported" && c.Value == "false")
+            ? false : null;
+
+    /// <summary>
+    /// The corelib's compile-time constants about the program (CoreIntrinsics.HasNonStringResources, HasConverterResources): folded like a feature
+    /// switch, so the code a false one guards (ResourceManager's object creation, TypeDescriptor) is not lowered at all.
+    /// </summary>
+    private bool? CoreIntrinsicConstant(IMethodSymbol method) =>
+        method is { IsStatic: true, Parameters.IsEmpty: true, ContainingType.Name: "CoreIntrinsics" } && CoreLib.IsCoreLib(method)
+            ? method.Name switch
+            {
+                "HasNonStringResources" => _m.HasNonStringResources(),
+                "HasConverterResources" => _m.HasConverterResources(),
+                _ => null,
+            }
+            : null;
 
     internal static bool? KnownFeatureSwitch(IMethodSymbol method) =>
         (method.ContainingType.ToDisplayString(), method.Name) switch
@@ -42,10 +68,11 @@ public sealed partial class FunctionCodeGen
             // csharpc has no hardware intrinsics yet: the framework's scalar fallbacks run (same results by
             // design). Ssse3.IsSupported, AdvSimd.Arm64.IsSupported, Vector128.IsHardwareAccelerated, ...
             (_, "get_IsSupported") when IsHardwareIntrinsicClass(method.ContainingType) => false,
-            // Vector128 is on LLVM vectors where the target has a 128-bit unit (FunctionCodeGen.Simd.cs); Vector64/256/512 and Vector<T> are not.
-            ("System.Runtime.Intrinsics.Vector128", "get_IsHardwareAccelerated") => Vector128Accelerated,
+            // Vector128 and Vector<T> (16 bytes, NativeAOT's default) are on LLVM vectors where the target has a 128-bit unit
+            // (FunctionCodeGen.Simd.cs); Vector64/256/512 are not.
+            ("System.Runtime.Intrinsics.Vector128" or "System.Numerics.Vector", "get_IsHardwareAccelerated") => Vector128Accelerated,
             ("System.Runtime.Intrinsics.Vector64" or "System.Runtime.Intrinsics.Vector256"
-                or "System.Runtime.Intrinsics.Vector512" or "System.Numerics.Vector", "get_IsHardwareAccelerated") => false,
+                or "System.Runtime.Intrinsics.Vector512", "get_IsHardwareAccelerated") => false,
             _ => null,
         };
 
@@ -71,11 +98,84 @@ public sealed partial class FunctionCodeGen
             case ILOpCode.Ldc_i4_1: return true;
             // csc's guard around a dynamic call site's creation: csharpc binds the site, there is nothing to create.
             case ILOpCode.Ldsfld when IlIsDynamicGuard(previous.Token): return true;
+            // `box T; isinst X; brtrue` once T is a known value type (Base64Helper's `decoder is Base64DecoderByte`): the branch it does not
+            // take is not lowered, so the code only the other instantiation reaches is not compiled.
+            case ILOpCode.Isinst when index - 2 >= block.First && IlBody.Instructions[index - 2].OpCode == ILOpCode.Box:
+                try { return BoxedIsInstance(S(ResolveIlType(IlBody.Instructions[index - 2].Token)), S(ResolveIlType(previous.Token))); }
+                catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { return null; }
             case ILOpCode.Call or ILOpCode.Callvirt:
-                try { return IlAssembly.ResolveMember(previous.Token, IlBody.Context) is IMethodSymbol m ? FeatureSwitchValue(m) : null; }
+                try
+                {
+                    if (IlAssembly.ResolveMember(previous.Token, IlBody.Context) is not IMethodSymbol m) return null;
+                    return IlTypeEqualityConstant(block, index - 1, m) ?? IlTypeQueryConstant(block, index - 1, m) ?? FeatureSwitchValue(m);
+                }
                 catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { return null; }
             default: return null;
         }
+    }
+
+    /// <summary>
+    /// `typeof(A) == typeof(B)` / `!=` (ldtoken, GetTypeFromHandle, ldtoken, GetTypeFromHandle, op_Equality) with both types known: in a generic
+    /// method lowered for one instantiation that is a constant, and the branch it guards is never lowered. This is what keeps
+    /// `if (typeof(T) == typeof(string)) ... else general-path` from compiling the general path (and everything it reaches) for T = string, as
+    /// ILCompiler's dead-branch elimination does; the framework's collections and formatting are full of it.
+    /// </summary>
+    private bool? IlTypeEqualityConstant(IlBlock block, int callIndex, IMethodSymbol equality)
+    {
+        if (equality is not { Name: "op_Equality" or "op_Inequality", ContainingType: { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } }
+            || callIndex - 4 < block.First) return null;
+        var instructions = IlBody.Instructions;
+        ITypeSymbol? TypeLoadedAt(int tokenIndex, int getIndex)
+        {
+            if (instructions[tokenIndex].OpCode != ILOpCode.Ldtoken || instructions[getIndex].OpCode != ILOpCode.Call) return null;
+            var handle = System.Reflection.Metadata.Ecma335.MetadataTokens.EntityHandle(instructions[tokenIndex].Token);
+            if (handle.Kind is not (HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification)) return null;
+            if (IlAssembly.ResolveMember(instructions[getIndex].Token, IlBody.Context) is not IMethodSymbol { Name: "GetTypeFromHandle", ContainingType.Name: "Type" }) return null;
+            return S(ResolveIlType(instructions[tokenIndex].Token));
+        }
+        if (TypeLoadedAt(callIndex - 4, callIndex - 3) is not { } left || TypeLoadedAt(callIndex - 2, callIndex - 1) is not { } right) return null;
+        if (left is ITypeParameterSymbol || right is ITypeParameterSymbol) return null;
+        var same = SymbolEqualityComparer.Default.Equals(left, right);
+        // Shared generic code: a marker stands for any reference type, so two different types that name one are only known to differ when
+        // one is a value type and the other a reference type.
+        if (!same && (_m.IsCanonDependent(left) || _m.IsCanonDependent(right)) && left.IsReferenceType == right.IsReferenceType) return null;
+        return equality.Name == "op_Equality" ? same : !same;
+    }
+
+    /// <summary>
+    /// Whether the GetTypeFromHandle call at <paramref name="getIndex"/> is one of the two in a `typeof(A) == typeof(B)` whose only use is a
+    /// branch folded at compile time (the equality's result is not kept anywhere else, so the Type objects need not exist).
+    /// </summary>
+    private bool IlTypeofFoldedAt(int getIndex)
+    {
+        if (_il?.CurrentBlock is not { } block) return false;
+        var instructions = IlBody.Instructions;
+        bool CallAt(int i) => i <= block.Last && instructions[i].OpCode == ILOpCode.Call;
+        // the left operand's call (ldtoken; call; ldtoken; call; op_Equality; br) or the right one's (... call; op_Equality; br)
+        var equalityIndex = CallAt(getIndex + 3) && instructions[getIndex + 1].OpCode == ILOpCode.Ldtoken && CallAt(getIndex + 2) ? getIndex + 3
+            : CallAt(getIndex + 1) && getIndex - 3 >= block.First && instructions[getIndex - 1].OpCode == ILOpCode.Ldtoken ? getIndex + 1 : -1;
+        if (equalityIndex < 0 || equalityIndex + 1 > block.Last) return false;
+        try
+        {
+            return IlAssembly.ResolveMember(instructions[equalityIndex].Token, IlBody.Context) is IMethodSymbol { Name: "op_Equality" or "op_Inequality", ContainingType.Name: "Type" }
+                && IlFoldedBranch(block, equalityIndex + 1) is not null;
+        }
+        catch (Exception e) when (e is IlException or BadImageFormatException or InvalidOperationException) { return false; }
+    }
+
+    /// <summary>`typeof(T).IsEnum` / `.IsValueType` (ldtoken, GetTypeFromHandle, callvirt) for a known T: a constant, like <see cref="IlTypeEqualityConstant"/>.</summary>
+    private bool? IlTypeQueryConstant(IlBlock block, int callIndex, IMethodSymbol query)
+    {
+        if (query is not { Name: "get_IsEnum" or "get_IsValueType", ContainingType: { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } }
+            || callIndex - 2 < block.First) return null;
+        var instructions = IlBody.Instructions;
+        if (instructions[callIndex - 2].OpCode != ILOpCode.Ldtoken || instructions[callIndex - 1].OpCode != ILOpCode.Call) return null;
+        var handle = System.Reflection.Metadata.Ecma335.MetadataTokens.EntityHandle(instructions[callIndex - 2].Token);
+        if (handle.Kind is not (HandleKind.TypeDefinition or HandleKind.TypeReference or HandleKind.TypeSpecification)) return null;
+        if (IlAssembly.ResolveMember(instructions[callIndex - 1].Token, IlBody.Context) is not IMethodSymbol { Name: "GetTypeFromHandle", ContainingType.Name: "Type" }) return null;
+        var type = S(ResolveIlType(instructions[callIndex - 2].Token));
+        if (type is ITypeParameterSymbol) return null;
+        return query.Name == "get_IsEnum" ? type.TypeKind == TypeKind.Enum : type.IsValueType;
     }
 
     /// <summary>

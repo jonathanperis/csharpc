@@ -1,0 +1,17 @@
+Int32        enum=False value=True class=False interface=False array=False primitive=True sealed=True abstract=False generic=False nested=False public=True szarray=False
+Color        enum=True value=True class=False interface=False array=False primitive=False sealed=True abstract=False generic=False nested=True public=False szarray=False
+String       enum=False value=False class=True interface=False array=False primitive=False sealed=True abstract=False generic=False nested=False public=True szarray=False
+IShape       enum=False value=False class=False interface=True array=False primitive=False sealed=False abstract=True generic=False nested=True public=False szarray=False
+Sealed       enum=False value=False class=True interface=False array=False primitive=False sealed=True abstract=False generic=False nested=True public=False szarray=False
+Abstract     enum=False value=False class=True interface=False array=False primitive=False sealed=False abstract=True generic=False nested=True public=False szarray=False
+Point        enum=False value=True class=False interface=False array=False primitive=False sealed=True abstract=False generic=False nested=True public=False szarray=False
+Int32[]      enum=False value=False class=True interface=False array=True primitive=False sealed=True abstract=False generic=False nested=False public=True szarray=True
+List`1       enum=False value=False class=True interface=False array=False primitive=False sealed=False abstract=False generic=True nested=False public=True szarray=False
+Inner        enum=False value=False class=True interface=False array=False primitive=False sealed=False abstract=False generic=False nested=True public=False szarray=False
+Double       enum=False value=True class=False interface=False array=False primitive=True sealed=True abstract=False generic=False nested=False public=True szarray=False
+Decimal      enum=False value=True class=False interface=False array=False primitive=False sealed=True abstract=False generic=False nested=False public=True szarray=False
+-2
+3
+10
+True False False
+Green 1.5 42

@@ -16,7 +16,10 @@
 #include <stdlib.h>
 #include <string.h>
 
-typedef struct { const csrt_MethodTable* mt; const csrt_MethodTable* target; } TypeObject;
+// `info`: the type's metadata, cached on first use (info_of). A Type object stands for one type for good, and the lookup by method
+// table was most of Type.IsInstanceOfType and Type.BaseType in componentmodel_throughput (#349). The first two fields are what
+// csrt.c's ArrayTypeObject and the compiler read.
+typedef struct { const csrt_MethodTable* mt; const csrt_MethodTable* target; const struct csrt_TypeInfo* info; } TypeObject;
 
 static csrt_String* type_to_string(void* o);
 static void* type_virtual_unsupported(void);
@@ -60,6 +63,12 @@ TypeObject* csrt_type_from_mt(const csrt_MethodTable* mt) {
         h = (h + 1) & (TYPE_CACHE_SIZE - 1);
     }
     abort();  // more than 4096 distinct types asked for at runtime
+}
+
+/// `t == typeof(X)` without looking X's Type object up: Type objects are canonical per method table, so t is that object exactly
+/// when it is a runtime Type whose target is X's method table (a Type subclass of the program's is never equal to it).
+bool csrt_type_is_mt(const TypeObject* t, const csrt_MethodTable* mt) {
+    return t && t->mt == &csrt_Type_MT.header && t->target == mt;
 }
 
 TypeObject* csrt_type_of_object(void* obj) {
@@ -301,8 +310,13 @@ static const csrt_TypeInfo* info_for(const csrt_MethodTable* mt) {
 /// The metadata of a Type object (NULL after throwing); registers the program's table on first use.
 static const csrt_TypeInfo* info_of(TypeObject* t, const csrt_TypeInfoTable* table) {
     if (!t) { csrt_throw_null_reference(); return NULL; }
+    const csrt_TypeInfo* cached = __atomic_load_n(&t->info, __ATOMIC_ACQUIRE);
+    if (__builtin_expect(cached != NULL, 1)) return cached;
     if (!__atomic_load_n(&s_table, __ATOMIC_ACQUIRE)) __atomic_store_n(&s_table, table, __ATOMIC_RELEASE);
-    return info_for(t->target);
+    const csrt_TypeInfo* info = info_for(t->target);
+    // Every thread computes the same pointer, so a race only stores it twice.
+    if (info) __atomic_store_n(&t->info, info, __ATOMIC_RELEASE);
+    return info;
 }
 
 static TypeObject* type_or_null(const csrt_MethodTable* mt) { return mt ? csrt_type_from_mt(mt) : NULL; }
@@ -311,6 +325,24 @@ static TypeObject* type_or_null(const csrt_MethodTable* mt) { return mt ? csrt_t
 bool csrt_type_flag(TypeObject* t, const csrt_TypeInfoTable* table, uint64_t mask) {
     const csrt_TypeInfo* info = info_of(t, table);
     return info && (info->flags & mask) != 0;
+}
+
+/// Type.Attributes (System.Reflection.TypeAttributes) from the flags the compiler records: the visibility, interface/abstract/sealed, and the
+/// sequential layout of structs. Bits csharpc does not track (BeforeFieldInit, Serializable, SpecialName, string format) are 0.
+int32_t csrt_type_attributes(TypeObject* t, const csrt_TypeInfoTable* table) {
+    const csrt_TypeInfo* info = info_of(t, table);
+    if (!info) return 0;
+    uint64_t f = info->flags;
+    int32_t a = 0;
+    if (f & CSRT_TI_NESTED) {
+        a = (f & CSRT_TI_NESTED_PUBLIC) ? 2 : (f & CSRT_TI_NESTED_PRIVATE) ? 3 : (f & CSRT_TI_NESTED_FAMILY) ? 4 : (f & CSRT_TI_NESTED_ASSEMBLY) ? 5
+          : (f & CSRT_TI_NESTED_FAM_AND_ASSEM) ? 6 : (f & CSRT_TI_NESTED_FAM_OR_ASSEM) ? 7 : 3;
+    } else if (f & CSRT_TI_PUBLIC) a = 1;
+    if (f & CSRT_TI_INTERFACE) a |= 0x20 | 0x80;
+    if (f & CSRT_TI_ABSTRACT) a |= 0x80;
+    if (f & CSRT_TI_SEALED) a |= 0x100;
+    if ((f & CSRT_TI_VALUE_TYPE) && !(f & CSRT_TI_ENUM)) a |= 0x8;
+    return a;
 }
 
 /// NULL (after throwing) when the base type and interfaces of `info` are not described.
@@ -557,6 +589,8 @@ bool csrt_type_is_assignable_to(TypeObject* from, TypeObject* to, const csrt_Typ
 
 /// Type.IsInstanceOfType(o): false for null.
 bool csrt_type_is_instance_of(TypeObject* t, void* obj, const csrt_TypeInfoTable* table) {
+    // An object of exactly this type: no metadata needed.
+    if (t && obj && ((csrt_Object*)obj)->mt == t->target) return true;
     const csrt_TypeInfo* target = info_of(t, table);
     if (!target || !obj) return false;
     const csrt_TypeInfo* source = info_for(((csrt_Object*)obj)->mt);

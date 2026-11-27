@@ -6,6 +6,7 @@
 #   tests/programs.sh --regen      record expected output with real .NET (`dotnet run Program.cs`)
 #   tests/programs.sh --bench      also time csharpc -O2 vs .NET JIT (Release) per program
 #   tests/programs.sh interp       only programs whose name contains "interp"
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

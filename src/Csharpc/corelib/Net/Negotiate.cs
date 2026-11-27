@@ -2,6 +2,9 @@
 // which csharpc doesn't bind yet. HttpClient's handler reaches these types when a server answers 401 with a
 // "Negotiate" or "NTLM" challenge and the request carries credentials for that scheme: creating the context
 // is an explicit NotSupportedException (Basic and Digest are managed code and work).
+// Linux compiles System.Security.Cryptography and System.Net.Security from the framework's IL over the OpenSSL and GSS contracts
+// (Crypto/CryptoNative*.cs, Net/NetSecurityNative.cs; docs/il-first/System.Net.Security.md); the other targets keep this copy (#449).
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_MACOS || CSHARPC_TARGET_WASI
 #nullable disable
 using System;
 using System.Net;
@@ -65,3 +68,4 @@ namespace CsharpcCoreLib
             new NotSupportedException("csharpc: NTLM and Negotiate (Kerberos) authentication (System.Net.Security.NegotiateAuthentication) are not supported yet.");
     }
 }
+#endif

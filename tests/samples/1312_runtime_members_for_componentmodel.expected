@@ -1,0 +1,29 @@
+Mode: Public interface=False abstract=False sealed=True
+IThing: Public interface=True abstract=True sealed=False
+Base: Public interface=False abstract=True sealed=False
+Leaf: Public interface=False abstract=False sealed=True
+Plain: NotPublic interface=False abstract=False sealed=True
+Shown: NestedPublic interface=False abstract=False sealed=False
+Hidden: NestedPrivate interface=False abstract=False sealed=False
+format G: On
+format D: 5
+format X: 00000005
+format flags: Top, Left
+format F: Top, Left
+format bad format: FormatException: Format string can be only "G", "g", "X", "x", "F", "f", "D" or "d".
+format long format: FormatException: Format string can be only "G", "g", "X", "x", "F", "f", "D" or "d".
+format wrong underlying: ArgumentException: Enum underlying type and the object must be same type or object. Type passed in was 'System.Byte'; the enum underlying type was 'System.Int32'.
+format wrong enum: ArgumentException: Object must be the same type as the enum. The type passed in was 'Edges'; the enum type was 'Mode'.
+format not an enum: ArgumentException: Type provided must be an Enum. (Parameter 'enumType')
+format null value: ArgumentNullException: Value cannot be null. (Parameter 'value')
+adapter: 1,2,3 count=3 fixed=True index=1 contains=False
+reversed: 3,2,1 range=2,1
+adapter add: NotSupportedException: Collection was of a fixed size.
+adapter null: ArgumentNullException: Value cannot be null. (Parameter 'list')
+adapter over a list: z,a,b,c
+point attributes: TypeForwardedFromAttribute,TypeConverterAttribute,SerializableAttribute
+point converter: PointConverter
+int converter: Int32Converter
+enum converter: EnumConverter
+is com object: False
+is com object null: ArgumentNullException: Value cannot be null. (Parameter 'o')

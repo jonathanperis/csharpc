@@ -51,6 +51,23 @@ public sealed class TypeSubstitution
                 s._map[parameters[i]] = arguments[i];
     }
 
+    /// <summary>
+    /// The bindings a lambda or local function can see: those of the type parameters of the methods and types around its
+    /// declaration. A static local function declared in Main and called from a lambda inside a generic local function does
+    /// not vary with that function's T, and its body is lowered only once, by Main (#257).
+    /// </summary>
+    public TypeSubstitution ForNested(IMethodSymbol nested)
+    {
+        if (IsIdentity) return this;
+        var scopes = new HashSet<ISymbol>(SymbolEqualityComparer.Default);
+        for (var scope = nested.OriginalDefinition.ContainingSymbol; scope is not null; scope = scope.ContainingSymbol)
+            scopes.Add(scope.OriginalDefinition);
+        var s = new TypeSubstitution(_compilation);
+        foreach (var (k, v) in _map)
+            if (k.ContainingSymbol is { } owner && scopes.Contains(owner.OriginalDefinition)) s._map[k] = v;
+        return s._map.Count == _map.Count ? this : s._map.Count == 0 ? Identity : s;
+    }
+
     /// <summary>This substitution extended with more bindings (e.g. a generic local function's own type parameters).</summary>
     public TypeSubstitution With(IReadOnlyList<ITypeParameterSymbol> parameters, IReadOnlyList<ITypeSymbol> arguments, Compilation compilation)
     {

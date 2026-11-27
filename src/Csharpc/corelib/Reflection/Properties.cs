@@ -121,7 +121,16 @@ namespace CsharpcCoreLib
         public override IList<CustomAttributeData> GetCustomAttributesData() =>
             ReflectionRuntime.AttributeData(ReflectionRecords.PropertyAttributes(_record), ReflectionRecords.PropertyAttributeCount(_record));
 
-        public override string ToString() => ReflectionRuntime.FormatTypeName(PropertyType) + " " + Name;
+        // .NET's RuntimePropertyInfo.FormatNameAndSig: an indexer lists its index parameter types, "Int32 Item [Int32, System.String]" (#159).
+        public override string ToString()
+        {
+            string text = ReflectionRuntime.FormatTypeName(PropertyType) + " " + Name;
+            ParameterInfo[] index = GetIndexParameters();
+            if (index.Length == 0) return text;
+            var parts = new string[index.Length];
+            for (int i = 0; i < index.Length; i++) parts[i] = ReflectionRuntime.FormatTypeName(index[i].ParameterType);
+            return text + " [" + string.Join(", ", parts) + "]";
+        }
     }
 
     internal static unsafe class PropertyReflection

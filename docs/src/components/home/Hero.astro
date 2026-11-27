@@ -1,0 +1,39 @@
+---
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+
+<section class="hero" aria-labelledby="hero-title">
+  <div class="hero-content">
+    <p class="eyebrow">LLVM FRONT-END // C# 14 // .NET 11</p>
+    <h1 id="hero-title">C# TO NATIVE<br />THROUGH LLVM.</h1>
+    <p class="tagline">
+      csharpc compiles C# source, and .NET libraries shipped as IL, straight to small, fast, hardened native executables:
+      what clang is to C and rustc to Rust. Use it on its own, or as the AOT layer behind <code>PublishAot</code>.
+    </p>
+
+    <div class="proof-rail" aria-label="The rules csharpc is held to">
+      <span><strong>[oracle]</strong> byte-identical to real .NET</span>
+      <span><strong>[order]</strong> security &gt; speed &gt; size</span>
+      <span><strong>[target]</strong> NativeAOT parity</span>
+    </div>
+
+    <div class="cta-group">
+      <a href={`${base}/docs/`} class="btn-fire">READ THE DOCS</a>
+      <a href={`${base}/codebase/`} class="btn-secondary">MAP THE CODEBASE</a>
+      <a href="https://github.com/jonathanperis/csharpc" class="btn-inline" target="_blank" rel="noopener noreferrer">VIEW SOURCE</a>
+    </div>
+  </div>
+
+  <div class="terminal-panel" aria-label="A csharpc compile session">
+    <div class="terminal-content">
+      <div class="term-line">&gt; csharpc hello.cs -o hello</div>
+      <div class="term-line">&gt; ./hello&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Hello from C# compiled by LLVM!</div>
+      <div class="term-line">&gt; pipeline&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; roslyn -&gt; cfg -&gt; llvm ir -&gt; lto -&gt; clang link</div>
+      <div class="term-line">&gt; runtime&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; csrt // gc // threads // unwinding // no jit</div>
+      <div class="term-line">&gt; hardening&nbsp;&nbsp;&nbsp;&nbsp; relro // nx stack // stack-clash // fortify=3</div>
+      <div class="term-line">&gt; targets&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; linux x64/arm64 // macos arm64 // windows x64 // wasm32-wasi</div>
+      <div class="term-line">&gt; rule&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; not supported yet = diagnostic, never a guess</div>
+      <div class="term-line">&gt; <span class="cursor"></span></div>
+    </div>
+  </div>
+</section>

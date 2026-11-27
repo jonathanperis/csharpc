@@ -1,0 +1,22 @@
+# The generic-math interfaces' static default members, CoreLib's bodies for a type that doesn't implement them itself (#405): INumberBase's
+# UTF-8 Parse/TryParse/TryParsePartial over the type's UTF-16 ones (Decimal32/64/128), Create*, MultiplyAddEstimate; the checked operators
+# that default to the unchecked ones (`checked(-x)` on BFloat16); INumber's Clamp/Min/Max/Sign family, IFloatingPoint's rounding, and the
+# others. The reference pack declares them without IL; the slicer hosts them as generic methods over the interface's type parameters
+# (tools/il-first/slicer: `host:` on a generic interface) and FunctionCodeGen.BuiltinInterfaceMembers.cs HostedDefaultInterfaceMember calls
+# them where Roslyn finds no implementation of its own. Built-in types keep their own paths.
+host:System.Numerics.INumberBase`1::TryParse,Parse,TryParsePartial,CreateChecked,CreateSaturating,CreateTruncating,MultiplyAddEstimate
+host:System.Numerics.INumber`1::Clamp,ClampNative,CopySign,Max,MaxNative,MaxNumber,Min,MinNative,MinNumber,Sign
+host:System.Numerics.IAdditionOperators`3::op_CheckedAddition
+host:System.Numerics.ISubtractionOperators`3::op_CheckedSubtraction
+host:System.Numerics.IMultiplyOperators`3::op_CheckedMultiply
+host:System.Numerics.IDivisionOperators`3::op_CheckedDivision
+host:System.Numerics.IUnaryNegationOperators`2::op_CheckedUnaryNegation
+host:System.Numerics.IIncrementOperators`1::op_CheckedIncrement
+host:System.Numerics.IDecrementOperators`1::op_CheckedDecrement
+host:System.Numerics.IBinaryInteger`1::DivRem,Divide,LeadingZeroCount,Log10,ReadBigEndian,ReadLittleEndian,Remainder,RotateLeft,RotateRight
+host:System.Numerics.IBinaryNumber`1::get_AllBitsSet
+host:System.Numerics.IFloatingPoint`1::Ceiling,ConvertToInteger,ConvertToIntegerNative,Floor,Round,Truncate
+host:System.Numerics.IFloatingPointIeee754`1::Lerp,ReciprocalEstimate,ReciprocalSqrtEstimate
+host:System.Numerics.IExponentialFunctions`1::Exp10M1,Exp2M1,ExpM1
+host:System.Numerics.ILogarithmicFunctions`1::Log10P1,Log2P1,LogP1
+host:System.Numerics.ITrigonometricFunctions`1::DegreesToRadians,RadiansToDegrees

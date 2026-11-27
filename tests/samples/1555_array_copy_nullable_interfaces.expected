@@ -1,0 +1,11 @@
+int?->object: 1,
+int?->ValueType: 1,
+int?->IComparable: ArrayTypeMismatchException
+int?->IFormattable: ArrayTypeMismatchException
+int?->IEquatable<int>: ArrayTypeMismatchException
+object->int?: 1,
+ValueType->int?: 1
+IComparable->int?: ArrayTypeMismatchException
+IFormattable->int?: ArrayTypeMismatchException
+int->IComparable: 3
+IComparable->int: 3

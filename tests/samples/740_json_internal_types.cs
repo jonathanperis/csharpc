@@ -1,4 +1,4 @@
-#:property PublishAot=false
+#:property JsonSerializerIsReflectionEnabledByDefault=true
 // Reflection-based System.Text.Json over internal types and members (the default accessibility of a
 // program's classes), private [JsonInclude] members, derived values passed as their base, a type given
 // as typeof / GetType(), and roots inside generic code. Through IL (`csharpc app.dll`) the metadata is

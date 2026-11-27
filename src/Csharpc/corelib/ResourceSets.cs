@@ -92,7 +92,9 @@ namespace CsharpcCoreLib
 
         internal object Resolve(string key, string value)
         {
-            if (!ResourceManagerImpl.IsNonString(value)) return value;
+            // (CoreIntrinsics.HasNonStringResources is a compile-time constant that folds the branch: a program none of whose resources is a stored
+            // non-string value does not link ResourceManager's object creation)
+            if (!CoreIntrinsics.HasNonStringResources() || !ResourceManagerImpl.IsNonString(value)) return value;
             lock (_resolved)
                 if (_resolved.TryGetValue(key, out object known)) return known;
             object created = ResourceManagerImpl.ObjectOf(_baseName, key, value);
@@ -140,7 +142,7 @@ namespace CsharpcCoreLib
 
             public object Key => Current.Key;
             // The reader's enumerator creates the value anew each time and doesn't fill the set's cache.
-            public object Value => ResourceManagerImpl.IsNonString(Current.Value) ? ResourceManagerImpl.ObjectOf(_set._baseName, Current.Key, Current.Value) : Current.Value;
+            public object Value => CoreIntrinsics.HasNonStringResources() && ResourceManagerImpl.IsNonString(Current.Value) ? ResourceManagerImpl.ObjectOf(_set._baseName, Current.Key, Current.Value) : Current.Value;
             public DictionaryEntry Entry => new DictionaryEntry(Key, Value);
             object IEnumerator.Current => Entry;
 
