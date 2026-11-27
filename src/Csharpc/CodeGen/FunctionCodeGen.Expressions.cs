@@ -273,17 +273,21 @@ public sealed partial class FunctionCodeGen
         {
             // Evaluate the receiver once, then call get + set on it.
             var property = S(p.Property);
-            var self = property.IsStatic ? default : Receiver(p.Instance!, property.GetMethod!);
+            // An override with one accessor reads or writes through the nearest overridden property's other one (virtually).
+            var getter = GetterOf(property) ?? throw CompileError.Unsupported($"reading set-only property '{property.Name}'", p);
+            var setter = property.SetMethod ?? (property.IsOverride ? SetterOf(property) : null)
+                ?? throw CompileError.Unsupported("compound assignment to a get-only property", p);
+            var self = property.IsStatic ? default : Receiver(p.Instance!, getter);
             // Indexer arguments are evaluated once, then shared by the get and set calls (c[i++] += v).
             var savedArgs = _argumentCache;
             if (!p.Arguments.IsEmpty)
             {
                 _argumentCache = new Dictionary<IArgumentOperation, LLVMValueRef>(ReferenceEqualityComparer.Instance);
-                foreach (var argument in p.Arguments) _argumentCache[argument] = EmitArgument(argument, property.GetMethod!);
+                foreach (var argument in p.Arguments) _argumentCache[argument] = EmitArgument(argument, getter);
             }
-            var old = CallAccessor(p, property.GetMethod!, self, []);
+            var old = CallAccessor(p, getter, self, []);
             var (newValue, result) = modify(old);
-            CallAccessor(p, property.SetMethod ?? throw CompileError.Unsupported("compound assignment to a get-only property", p), self, [newValue]);
+            CallAccessor(p, setter, self, [newValue]);
             _argumentCache = savedArgs;
             return result;
         }
