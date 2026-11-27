@@ -1,5 +1,10 @@
 False [dir with space/p.xml] [dir with space/p.xml]
 relative [a b/c]
+False [dir with space\p.xml] [dir with space\p.xml]
+a b: False False False
+a#b: False False False
+a/b: True True True
+a\b: False False False
 True True file
 True
 True
