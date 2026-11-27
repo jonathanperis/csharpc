@@ -146,9 +146,10 @@ namespace CsharpcCoreLib
         private static void CheckRelative(string s)
         {
             // '#' starts a fragment: .NET keeps it as it is, but calls such a reference not well formed.
-            // Spaces too: .NET keeps them as they are in OriginalString and ToString() of a relative reference (a path such as
-            // ".../eM Client.app/Contents/...", which XmlResolver then makes absolute with Path.GetFullPath).
-            if (s.Length != 0 && (s.Trim().Length == 0 || !IsPlain(s.Replace('#', '/').Replace(' ', '/'), 0, true))) throw Unsupported("this relative URI");
+            // Spaces and backslashes too: .NET keeps them as they are in OriginalString and ToString() of a relative reference
+            // (a path such as ".../eM Client.app/Contents/..." or Windows' "dir with space\p.xml", which XmlResolver then makes
+            // absolute with Path.GetFullPath). Resolving such a reference against a base stays unsupported.
+            if (s.Length != 0 && (s.Trim().Length == 0 || !IsPlain(s.Replace('#', '/').Replace(' ', '/').Replace('\\', '/'), 0, true))) throw Unsupported("this relative URI");
         }
 
         /// <summary>
