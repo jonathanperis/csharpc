@@ -80,6 +80,10 @@ public sealed partial class FunctionCodeGen
         if (TryValueEqualityCall(inv, target) is { } equalityResult) return equalityResult;
         // Span enumerators are ref structs with no state to dispose (the foreach finally calls IDisposable.Dispose).
         if (target.Name == "Dispose" && TypeMapper.IsSpanEnumerator(TypeOf(inv.Instance))) return default;
+        // foreach over an array cast in its header (`(IEnumerable<T>)array`): its enumerator is the stack index of
+        // ArrayGetEnumerator, and the finally's `((IDisposable)e).Dispose()` reaches it through a conversion. An array's enumerator
+        // disposes nothing, as SZGenericArrayEnumerator's Dispose in .NET; an interface call on the stack slot read garbage (#516).
+        if (IsArrayEnumeratorDispose(inv)) return default;
         if (!target.IsStatic && inv.Instance is { } receiver)
         {
             var receiverType = TypeOf(receiver);
@@ -1692,4 +1696,16 @@ public sealed partial class FunctionCodeGen
     private static string NotCompiledHint(ITypeSymbol type) =>
         type.ContainingAssembly is { } asm && Frontend.FrameworkIl.NotCompiledFromIl.TryGetValue(asm.Name, out var why)
             ? $" ({asm.Name} is not compiled from IL: {why})" : "";
+
+    /// <summary>
+    /// `Dispose()` on the stack enumerator of a foreach over an array, also through implicit conversions (the finally's
+    /// `((IDisposable)e).Dispose()` when the array is cast in the foreach header, #516): it does nothing. Shared with the finally
+    /// elision (IsNoOpFinally), which must agree with what is emitted.
+    /// </summary>
+    internal bool IsArrayEnumeratorDispose(IInvocationOperation inv)
+    {
+        if (inv is not { TargetMethod.Name: "Dispose", Arguments.IsEmpty: true, Instance: { } enumerator }) return false;
+        while (enumerator is IConversionOperation { Conversion.IsImplicit: true } c) enumerator = c.Operand;
+        return TryArrayEnumerator(enumerator, out _);
+    }
 }
