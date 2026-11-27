@@ -22,6 +22,7 @@ namespace CsharpcCoreLib
         [DllImport("__Internal")] public static extern int csrt_get_last_system_error();
         [DllImport("__Internal")] public static extern void csrt_set_last_system_error(int error);
         [DllImport("__Internal")] public static extern void* csrt_pinvoke_load_library(byte* name, byte throwOnError);
+        [DllImport("__Internal")] public static extern void* csrt_pinvoke_load_library_from(byte* name, byte throwOnError, byte appFirst);
         [DllImport("__Internal")] public static extern void* csrt_native_library_get_export(void* handle, byte* entry, byte throwOnError);
         [DllImport("__Internal")] public static extern void* csrt_pinvoke_resolve(byte* library, byte* entry);
 
@@ -194,9 +195,40 @@ namespace CsharpcCoreLib
         public static void Copy(void* source, void* destination, nuint byteCount) => Libc.memmove(destination, source, byteCount);
     }
 
+    /// <summary>
+    /// COM: a csharpc program creates no COM objects (no runtime-callable wrappers, no ComWrappers instances, as Type.IsCOMObject
+    /// answers), so the questions System.ComponentModel asks of an object have their negative answers, as on any platform without COM.
+    /// </summary>
+    [ShadowMembers("System.Runtime.InteropServices.ComWrappers")]
+    internal static class ComWrappersMembers
+    {
+        public static bool TryGetComInstance(object obj, out IntPtr unknown)
+        {
+            ArgumentNullException.ThrowIfNull(obj);
+            unknown = IntPtr.Zero;
+            return false;
+        }
+
+        public static bool TryGetObject(IntPtr unknown, out object obj)
+        {
+            if (unknown == IntPtr.Zero) throw new ArgumentNullException("unknown");
+            obj = null;
+            return false;
+        }
+    }
+
     [Shadows("System.Runtime.InteropServices.Marshal")]
     internal static unsafe class MarshalImpl
     {
+        public static int Release(IntPtr pUnk) =>
+            throw new PlatformNotSupportedException("COM interop is not supported by csharpc: no COM object exists in a csharpc program.");
+
+        public static bool IsComObject(object o)
+        {
+            ArgumentNullException.ThrowIfNull(o); // no COM objects exist (see ComWrappersMembers)
+            return false;
+        }
+
         public static int GetLastPInvokeError() => Libc.csrt_get_last_pinvoke_error();
         public static void SetLastPInvokeError(int error) => Libc.csrt_set_last_pinvoke_error(error);
         public static int GetLastWin32Error() => Libc.csrt_get_last_pinvoke_error();
@@ -290,8 +322,14 @@ namespace CsharpcCoreLib
         public static string PtrToStringAnsi(IntPtr ptr, int len) => ptr == IntPtr.Zero ? null : WindowsMarshal.FromAnsi((byte*)ptr, len);
         public static string PtrToStringAuto(IntPtr ptr) => PtrToStringUni(ptr);
 #else
-        public static string GetPInvokeErrorMessage(int error) => Utf8.FromNative(strerror(error));
-        [DllImport("libc")] private static extern byte* strerror(int error);
+        // Interop.Sys.StrError: libSystem.Native's StrErrorR into a 1 KiB buffer (thread-safe strerror_r, and the PAL's texts for the
+        // name-lookup and socket errors that have no errno: "Name or service not known", "Unknown socket error").
+        public static string GetPInvokeErrorMessage(int error)
+        {
+            byte* buffer = stackalloc byte[1024];
+            byte* message = CsharpcCoreLib.SystemNative.StrErrorR(error, buffer, 1024);
+            return Utf8.FromNative(message == null ? buffer : message);
+        }
 
         public static IntPtr AllocHGlobal(int cb) => (IntPtr)Libc.Alloc((nuint)cb);
         public static IntPtr AllocHGlobal(IntPtr cb) => (IntPtr)Libc.Alloc((nuint)(nint)cb);
@@ -567,6 +605,20 @@ namespace CsharpcCoreLib
         {
             byte* name = Utf8.ToNative(libraryPath);
             void* handle = Libc.csrt_pinvoke_load_library(name, 1);
+            Libc.free(name);
+            return (IntPtr)handle;
+        }
+
+        // NativeLibrary.Load(name, assembly, searchPath) (#99): the DllImport search (the program's directory, then the system's), as
+        // csharpc's [DllImport]s get, unless searchPath leaves out AssemblyDirectory; every assembly is compiled in, so the assembly
+        // only has to be there. DllNotFoundException if absent.
+        public static IntPtr Load(string libraryName, System.Reflection.Assembly assembly, System.Runtime.InteropServices.DllImportSearchPath? searchPath)
+        {
+            if (libraryName == null) throw new ArgumentNullException("libraryName");
+            if (assembly == null) throw new ArgumentNullException("assembly");
+            byte* name = Utf8.ToNative(libraryName);
+            bool appFirst = searchPath is not { } paths || (paths & System.Runtime.InteropServices.DllImportSearchPath.AssemblyDirectory) != 0;
+            void* handle = Libc.csrt_pinvoke_load_library_from(name, 1, appFirst ? (byte)1 : (byte)0);
             Libc.free(name);
             return (IntPtr)handle;
         }

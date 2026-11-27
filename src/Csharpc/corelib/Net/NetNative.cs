@@ -1,7 +1,7 @@
-// Sockets over the OS's BSD socket API: libc on Linux and macOS, Winsock (ws2_32) on Windows.
-// Constants, struct sockaddr layouts and error numbers are per OS; the compiler parses the corelib
-// with CSHARPC_TARGET_LINUX/MACOS/WINDOWS from the target triple, never the host's. WASI (wasm32) has no
-// sockets in preview 1: the operations throw PlatformNotSupportedException there.
+// Sockets over Winsock (ws2_32): the Windows corelib's socket layer (#441).
+// Windows only: on Linux and macOS these types are the framework's IL over the libSystem.Native socket contract
+// (corelib/Net/SystemNative.Net.cs, docs/il-first/System.Net.Sockets.md); Windows keeps them until the IOCP engine exists.
+#if CSHARPC_TARGET_WINDOWS
 #nullable disable
 using System;
 using System.Net;
@@ -16,30 +16,12 @@ namespace CsharpcCoreLib
         public const int IPPROTO_TCP = 6, IPPROTO_UDP = 17, IPPROTO_IPV6 = 41, TCP_NODELAY = 1;
         public const int SHUT_RD = 0, SHUT_WR = 1, SHUT_RDWR = 2;
         public const int AF_INET = 2;
-#if CSHARPC_TARGET_WINDOWS
         public const int AF_INET6 = 23;
         public const int SOL_SOCKET = 0xFFFF, SO_REUSEADDR = 4, SO_RCVTIMEO = 0x1006, SO_SNDTIMEO = 0x1005, SO_ERROR = 0x1007;
         public const int IPV6_V6ONLY = 27;
         public const int SendFlags = 0;
         public const int SO_KEEPALIVE = 8, SO_SNDBUF = 0x1001, SO_RCVBUF = 0x1002, TCP_KEEPIDLE = 3, TCP_KEEPINTVL = 17, TCP_KEEPCNT = 16;
-#elif CSHARPC_TARGET_MACOS
-        public const int AF_INET6 = 30;
-        public const int SOL_SOCKET = 0xFFFF, SO_REUSEADDR = 4, SO_RCVTIMEO = 0x1006, SO_SNDTIMEO = 0x1005, SO_ERROR = 0x1007;
-        public const int SO_NOSIGPIPE = 0x1022;
-        public const int IPV6_V6ONLY = 27;
-        public const int SendFlags = 0;  // SIGPIPE is suppressed per socket (SO_NOSIGPIPE)
-        public const int SO_KEEPALIVE = 8, SO_SNDBUF = 0x1001, SO_RCVBUF = 0x1002, TCP_KEEPIDLE = 0x10 /* TCP_KEEPALIVE */, TCP_KEEPINTVL = 0x101, TCP_KEEPCNT = 0x102;
-        public const int SO_REUSEPORT = 0x200;
-#else
-        public const int AF_INET6 = 10;
-        public const int SOL_SOCKET = 1, SO_REUSEADDR = 2, SO_RCVTIMEO = 20, SO_SNDTIMEO = 21, SO_ERROR = 4;
-        public const int IPV6_V6ONLY = 26;
-        public const int SendFlags = 0x4000;  // MSG_NOSIGNAL: a peer that went away is an error, not SIGPIPE
-        public const int SO_KEEPALIVE = 9, SO_SNDBUF = 7, SO_RCVBUF = 8, TCP_KEEPIDLE = 4, TCP_KEEPINTVL = 5, TCP_KEEPCNT = 6;
-        public const int SO_REUSEPORT = 15;
-#endif
 
-#if CSHARPC_TARGET_WINDOWS
         public const long InvalidSocket = -1;  // INVALID_SOCKET (~0) as a signed handle
         [DllImport("ws2_32")] private static extern int WSAStartup(ushort version, byte* data);
         [DllImport("ws2_32")] public static extern int WSAGetLastError();
@@ -76,75 +58,11 @@ namespace CsharpcCoreLib
             }
         }
         private static int LastError() => WSAGetLastError();
-#elif CSHARPC_TARGET_WASI
-        // WASI preview 1 can't create, bind, connect or resolve sockets: every socket operation throws
-        // PlatformNotSupportedException, as unsupported platform features do in .NET.
-        public const long InvalidSocket = -1;
-        private static Exception NotSupported() => new PlatformNotSupportedException();
-        private static int socket(int family, int type, int protocol) => throw NotSupported();
-        private static int closesocket(int s) => throw NotSupported();
-        private static int bind(int s, byte* address, int length) => throw NotSupported();
-        private static int listen(int s, int backlog) => throw NotSupported();
-        private static int accept(int s, byte* address, int* length) => throw NotSupported();
-        private static int connect(int s, byte* address, int length) => throw NotSupported();
-        private static nint send(int s, byte* buffer, nuint length, int flags) => throw NotSupported();
-        private static nint recv(int s, byte* buffer, nuint length, int flags) => throw NotSupported();
-        private static nint sendto(int s, byte* buffer, nuint length, int flags, byte* address, int addressLength) => throw NotSupported();
-        private static nint recvfrom(int s, byte* buffer, nuint length, int flags, byte* address, int* addressLength) => throw NotSupported();
-        private static int shutdown(int s, int how) => throw NotSupported();
-        private static int setsockopt(int s, int level, int name, byte* value, int length) => throw NotSupported();
-        private static int getsockopt(int s, int level, int name, byte* value, int* length) => throw NotSupported();
-        private static int getsockname(int s, byte* address, int* length) => throw NotSupported();
-        private static int getpeername(int s, byte* address, int* length) => throw NotSupported();
-        private static int getaddrinfo(byte* node, byte* service, byte* hints, byte** result) => throw NotSupported();
-        private static void freeaddrinfo(byte* info) => throw NotSupported();
-        private static int gethostname(byte* name, nuint length) => throw NotSupported();
-        private static void Startup() => throw NotSupported();
-        private static int LastError() => 0;
-#else
-        public const long InvalidSocket = -1;
-        [DllImport("libc", SetLastError = true)] private static extern int socket(int family, int type, int protocol);
-        [DllImport("libc", SetLastError = true, EntryPoint = "close")] private static extern int closesocket(int s);
-        [DllImport("libc", SetLastError = true)] private static extern int bind(int s, byte* address, int length);
-        [DllImport("libc", SetLastError = true)] private static extern int listen(int s, int backlog);
-        [DllImport("libc", SetLastError = true)] private static extern int accept(int s, byte* address, int* length);
-        [DllImport("libc", SetLastError = true)] private static extern int connect(int s, byte* address, int length);
-        [DllImport("libc", SetLastError = true)] private static extern nint send(int s, byte* buffer, nuint length, int flags);
-        [DllImport("libc", SetLastError = true)] private static extern nint recv(int s, byte* buffer, nuint length, int flags);
-        [DllImport("libc", SetLastError = true)] private static extern nint sendto(int s, byte* buffer, nuint length, int flags, byte* address, int addressLength);
-        [DllImport("libc", SetLastError = true)] private static extern nint recvfrom(int s, byte* buffer, nuint length, int flags, byte* address, int* addressLength);
-        [DllImport("libc", SetLastError = true)] private static extern int shutdown(int s, int how);
-        [DllImport("libc", SetLastError = true)] private static extern int setsockopt(int s, int level, int name, byte* value, int length);
-        [DllImport("libc", SetLastError = true)] private static extern int getsockopt(int s, int level, int name, byte* value, int* length);
-        [DllImport("libc", SetLastError = true)] private static extern int getsockname(int s, byte* address, int* length);
-        [DllImport("libc", SetLastError = true)] private static extern int getpeername(int s, byte* address, int* length);
-        [DllImport("libc")] private static extern int getaddrinfo(byte* node, byte* service, byte* hints, byte** result);
-        [DllImport("libc")] private static extern void freeaddrinfo(byte* info);
-        [DllImport("libc")] private static extern int gethostname(byte* name, nuint length);
-        [DllImport("libc", SetLastError = true)] private static extern int fcntl(int fd, int command, int argument);
-        [DllImport("libc", SetLastError = true)] private static extern int poll(long* fds, nuint count, int timeout);
-#if CSHARPC_TARGET_LINUX
-        [DllImport("libc", SetLastError = true)] private static extern int accept4(int s, byte* address, int* length, int flags);
-#endif
-        private static void Startup() { }
-        private static int LastError() => Marshal.GetLastPInvokeError();
-#endif
 
         // ---- non-blocking operations (corelib/Net/SocketEngine.cs): the result, or -1 and the error ----
         public const int MSG_PEEK = 2;
-#if CSHARPC_TARGET_MACOS
-        public const int EAGAIN = 35, EINPROGRESS = 36;
-        public const int SO_LINGER = 0x1080; // SO_LINGER_SEC: the timeout in seconds, as .NET sets it
-#elif CSHARPC_TARGET_WINDOWS
         public const int EAGAIN = 10035, EINPROGRESS = 10036;
         public const int SO_LINGER = 0x80;
-#elif CSHARPC_TARGET_WASI
-        public const int EAGAIN = 6, EINPROGRESS = 26;  // WASI's errno numbering
-        public const int SO_LINGER = 13;
-#else
-        public const int EAGAIN = 11, EINPROGRESS = 115;
-        public const int SO_LINGER = 13;
-#endif
 
         public static bool IsWouldBlock(int error) => error == EAGAIN;
 
@@ -175,77 +93,13 @@ namespace CsharpcCoreLib
         {
             while (true)
             {
-#if CSHARPC_TARGET_LINUX
-                long client = accept4(H(s), null, null, 0x800 /* SOCK_NONBLOCK */ | 0x80000 /* SOCK_CLOEXEC */);
-#else
                 long client = accept(H(s), null, null);
-#endif
                 if (client != InvalidSocket) { error = 0; return client; }
                 error = LastError();
                 if (!IsInterrupted(error)) return InvalidSocket;
             }
         }
 
-#if !CSHARPC_TARGET_WINDOWS && !CSHARPC_TARGET_WASI
-        public static void SetNonBlocking(long s)
-        {
-#if CSHARPC_TARGET_MACOS
-            const int O_NONBLOCK = 0x4;
-#else
-            const int O_NONBLOCK = 0x800;
-#endif
-            int flags = fcntl(H(s), 3 /* F_GETFL */, 0);
-            if (flags < 0 || fcntl(H(s), 4 /* F_SETFL */, flags | O_NONBLOCK) < 0) throw Error(LastError());
-        }
-
-        /// <summary>Waits until the socket is readable (or writable); false when the timeout (ms, -1: none) expires.</summary>
-        public static bool Wait(long s, bool write, int timeout)
-        {
-            // struct pollfd { int fd; short events; short revents; }: POLLIN 1, POLLOUT 4.
-            long pollfd = (uint)H(s) | ((long)(write ? 4 : 1) << 32);
-            while (true)
-            {
-                int n = poll(&pollfd, 1, timeout);
-                if (n > 0) return true;
-                if (n == 0) return false;
-                int error = LastError();
-                if (!IsInterrupted(error)) throw Error(error);
-            }
-        }
-
-        // poll(2) events (the same values on Linux and macOS).
-        public const int POLLIN = 1, POLLPRI = 2, POLLOUT = 4, POLLERR = 8, POLLHUP = 16;
-
-        /// <summary>Socket.Blocking: O_NONBLOCK cleared (true) or set (false).</summary>
-        public static void SetBlockingMode(long s, bool blocking)
-        {
-#if CSHARPC_TARGET_MACOS
-            const int O_NONBLOCK = 0x4;
-#else
-            const int O_NONBLOCK = 0x800;
-#endif
-            int flags = fcntl(H(s), 3 /* F_GETFL */, 0);
-            if (flags < 0 || fcntl(H(s), 4 /* F_SETFL */, blocking ? flags & ~O_NONBLOCK : flags | O_NONBLOCK) < 0) throw Error(LastError());
-        }
-
-        /// <summary>
-        /// poll() over <paramref name="count"/> (fd, events) pairs; each pair's revents comes back in
-        /// <paramref name="revents"/>. The timeout is in milliseconds (-1: none).
-        /// </summary>
-        public static void Poll(long* handles, int* events, int* revents, int count, int timeout)
-        {
-            long* fds = stackalloc long[count];
-            for (int i = 0; i < count; i++) fds[i] = (uint)H(handles[i]) | ((long)(ushort)events[i] << 32);
-            while (true)
-            {
-                int n = poll(fds, (nuint)count, timeout);
-                if (n >= 0) break;
-                int error = LastError();
-                if (!IsInterrupted(error)) throw Error(error);
-            }
-            for (int i = 0; i < count; i++) revents[i] = (ushort)(fds[i] >> 48);
-        }
-#elif CSHARPC_TARGET_WINDOWS
         // Winsock: Socket.Blocking through ioctlsocket(FIONBIO), and readiness through select(), as .NET's
         // Windows sockets do (Socket.Select and Poll are Winsock's select). WSAPoll isn't used: it doesn't
         // report a connect that failed (the exceptfds of select do).
@@ -308,7 +162,6 @@ namespace CsharpcCoreLib
             for (nint i = 0; i < set[0]; i++) if (set[1 + i] == handle) return true;
             return false;
         }
-#endif
 
         /// <summary>connect() without waiting for it: 0, or the error (EINPROGRESS: under way on a non-blocking socket).</summary>
         public static int TryConnect(long s, EndPoint endPoint)
@@ -338,20 +191,12 @@ namespace CsharpcCoreLib
             Startup();
             long s = socket(family, type, protocol);
             if (s == InvalidSocket) throw Error(LastError());
-#if CSHARPC_TARGET_MACOS
-            int one = 1;
-            setsockopt((int)s, SOL_SOCKET, SO_NOSIGPIPE, (byte*)&one, 4);
-#endif
             return s;
         }
 
         public static void Close(long s) { if (s != InvalidSocket) closesocket(H(s)); }
 
-#if CSHARPC_TARGET_WINDOWS
         private static nint H(long s) => (nint)s;
-#else
-        private static int H(long s) => (int)s;
-#endif
 
         public static void Bind(long s, EndPoint endPoint)
         {
@@ -433,11 +278,7 @@ namespace CsharpcCoreLib
             return (int)n;
         }
 
-#if CSHARPC_TARGET_WINDOWS
         private static int Count(int count) => count;
-#else
-        private static nuint Count(int count) => (nuint)count;
-#endif
 
         public static void Shutdown(long s, int how) { if (shutdown(H(s), how) != 0) throw Error(LastError()); }
 
@@ -456,14 +297,7 @@ namespace CsharpcCoreLib
         /// <summary>SO_RCVTIMEO/SO_SNDTIMEO: milliseconds (DWORD) on Windows, struct timeval elsewhere.</summary>
         public static void SetTimeout(long s, int name, int milliseconds)
         {
-#if CSHARPC_TARGET_WINDOWS
             SetInt(s, SOL_SOCKET, name, milliseconds);
-#else
-            long* tv = stackalloc long[2];
-            tv[0] = milliseconds / 1000;
-            tv[1] = (milliseconds % 1000) * 1000;
-            if (setsockopt(H(s), SOL_SOCKET, name, (byte*)tv, 16) != 0) throw Error(LastError());
-#endif
         }
 
         public static EndPoint LocalEndPoint(long s)
@@ -507,11 +341,7 @@ namespace CsharpcCoreLib
             // struct addrinfo: ai_family @4, ai_addr @24 (Linux) / @32 (macOS, Windows: ai_canonname comes first), ai_next @40.
             for (byte* ai = result; ai != null; ai = (byte*)*(nint*)(ai + 40))
             {
-#if CSHARPC_TARGET_LINUX
-                byte* addr = (byte*)*(nint*)(ai + 24);
-#else
                 byte* addr = (byte*)*(nint*)(ai + 32);
-#endif
                 if (addr == null) continue;
                 var endPoint = Decode(addr) as IPEndPoint;
                 if (endPoint != null && !Contains(list, endPoint.Address)) list.Add(endPoint.Address);
@@ -520,16 +350,7 @@ namespace CsharpcCoreLib
             return list.ToArray();
         }
 
-#if CSHARPC_TARGET_WINDOWS
         private static string GaiMessage(int error) => WindowsMarshal.ErrorMessage(error);
-#else
-#if CSHARPC_TARGET_WASI
-        private static string GaiMessage(int error) => throw NotSupported();
-#else
-        [DllImport("libc")] private static extern byte* gai_strerror(int error);
-        private static string GaiMessage(int error) => Utf8.FromNative(gai_strerror(error));
-#endif
-#endif
 
         private static bool Contains(System.Collections.Generic.List<IPAddress> list, IPAddress address)
         {
@@ -577,13 +398,8 @@ namespace CsharpcCoreLib
             return new IPEndPoint(new IPAddress(v4), port);
         }
 
-#if CSHARPC_TARGET_MACOS
-        private static void SetFamily(byte* address, int family, int length) { address[0] = (byte)length; address[1] = (byte)family; }
-        private static int GetFamily(byte* address) => address[1];
-#else
         private static void SetFamily(byte* address, int family, int length) => *(ushort*)address = (ushort)family;
         private static int GetFamily(byte* address) => *(ushort*)address;
-#endif
 
         // ---- errors ---------------------------------------------------------------------------
         public static SocketException Error(int nativeError, EndPoint endPoint = null)
@@ -591,241 +407,13 @@ namespace CsharpcCoreLib
             return (SocketException)(object)new SocketExceptionImpl(ToSocketError(nativeError), nativeError, endPoint);
         }
 
-#if CSHARPC_TARGET_WINDOWS
         private const int TimedOutNative = 10060;
-#elif CSHARPC_TARGET_MACOS
-        private const int TimedOutNative = 60;
-#elif CSHARPC_TARGET_WASI
-        private const int TimedOutNative = 73;
-#else
-        private const int TimedOutNative = 110;
-#endif
 
-#if CSHARPC_TARGET_WINDOWS
         // Winsock error numbers are SocketError's values.
         public static SocketError ToSocketError(int error) => (SocketError)error;
         private static bool IsInterrupted(int error) => false;
         public static string Message(int nativeError) => WindowsMarshal.ErrorMessage(nativeError);
-#elif CSHARPC_TARGET_WASI
-        // WASI numbers errno its own way (preview 1's alphabetical enum, wasi-libc's errno.h): with Linux's
-        // numbers, new SocketException(SocketError.ConnectionRefused) took errno 111, which isn't WASI's, and
-        // printed wasi-libc's text for it instead of "Connection refused" (ECONNREFUSED is 14).
-        private static bool IsInterrupted(int error) => error == 27;  // EINTR
-        public static string Message(int nativeError) => UnixMessage(nativeError);
 
-        /// <summary>errno -> SocketError, as .NET's SocketErrorPal on Unix, in WASI's numbering.</summary>
-        public static SocketError ToSocketError(int error)
-        {
-            switch (error)
-            {
-                case 0: return SocketError.Success;
-                case 2: return SocketError.AccessDenied;                 // EACCES
-                case 3: return SocketError.AddressAlreadyInUse;          // EADDRINUSE
-                case 4: return SocketError.AddressNotAvailable;          // EADDRNOTAVAIL
-                case 5: return SocketError.AddressFamilyNotSupported;    // EAFNOSUPPORT
-                case 6: return SocketError.WouldBlock;                   // EAGAIN
-                case 7: return SocketError.AlreadyInProgress;            // EALREADY
-                case 8: return SocketError.OperationAborted;             // EBADF: the socket was closed
-                case 11: return SocketError.OperationAborted;            // ECANCELED
-                case 13: return SocketError.ConnectionAborted;           // ECONNABORTED
-                case 14: return SocketError.ConnectionRefused;           // ECONNREFUSED
-                case 15: return SocketError.ConnectionReset;             // ECONNRESET
-                case 17: return SocketError.DestinationAddressRequired;  // EDESTADDRREQ
-                case 21: return SocketError.Fault;                       // EFAULT
-                case 23: return SocketError.HostUnreachable;             // EHOSTUNREACH
-                case 26: return SocketError.InProgress;                  // EINPROGRESS
-                case 27: return SocketError.Interrupted;                 // EINTR
-                case 28: return SocketError.InvalidArgument;             // EINVAL
-                case 30: return SocketError.IsConnected;                 // EISCONN
-                case 33: return SocketError.TooManyOpenSockets;          // EMFILE
-                case 35: return SocketError.MessageSize;                 // EMSGSIZE
-                case 38: return SocketError.NetworkDown;                 // ENETDOWN
-                case 39: return SocketError.NetworkReset;                // ENETRESET
-                case 40: return SocketError.NetworkUnreachable;          // ENETUNREACH
-                case 41: return SocketError.TooManyOpenSockets;          // ENFILE
-                case 42: return SocketError.NoBufferSpaceAvailable;      // ENOBUFS
-                case 50: return SocketError.ProtocolOption;              // ENOPROTOOPT
-                case 53: return SocketError.NotConnected;                // ENOTCONN
-                case 57: return SocketError.NotSocket;                   // ENOTSOCK
-                case 58: return SocketError.OperationNotSupported;       // ENOTSUP (= EOPNOTSUPP)
-                case 64: return SocketError.Shutdown;                    // EPIPE
-                case 65: return SocketError.ProtocolNotSupported;        // EPROTO
-                case 66: return SocketError.ProtocolNotSupported;        // EPROTONOSUPPORT
-                case 67: return SocketError.ProtocolType;                // EPROTOTYPE
-                case 73: return SocketError.TimedOut;                    // ETIMEDOUT
-                default: return SocketError.SocketError;
-            }
-        }
-#else
-        private static bool IsInterrupted(int error) => error == 4;  // EINTR
-        public static string Message(int nativeError) => UnixMessage(nativeError);
-
-        /// <summary>errno -> SocketError, as .NET's SocketErrorPal on Unix.</summary>
-        public static SocketError ToSocketError(int error)
-        {
-            switch (error)
-            {
-                case 0: return SocketError.Success;
-                case 4: return SocketError.Interrupted;
-                case 9: return SocketError.OperationAborted;   // EBADF: the socket was closed
-                case 13: return SocketError.AccessDenied;
-                case 14: return SocketError.Fault;
-                case 22: return SocketError.InvalidArgument;
-                case 23: return SocketError.TooManyOpenSockets;  // ENFILE
-                case 24: return SocketError.TooManyOpenSockets;
-                case 32: return SocketError.Shutdown;          // EPIPE
-#if CSHARPC_TARGET_MACOS
-                case 35: return SocketError.WouldBlock;
-                case 36: return SocketError.InProgress;
-                case 37: return SocketError.AlreadyInProgress;
-                case 38: return SocketError.NotSocket;
-                case 39: return SocketError.DestinationAddressRequired;
-                case 40: return SocketError.MessageSize;
-                case 41: return SocketError.ProtocolType;
-                case 42: return SocketError.ProtocolOption;
-                case 43: return SocketError.ProtocolNotSupported;
-                case 44: return SocketError.SocketNotSupported;
-                case 45: return SocketError.OperationNotSupported;
-                case 46: return SocketError.ProtocolFamilyNotSupported;
-                case 47: return SocketError.AddressFamilyNotSupported;
-                case 48: return SocketError.AddressAlreadyInUse;
-                case 49: return SocketError.AddressNotAvailable;
-                case 50: return SocketError.NetworkDown;
-                case 51: return SocketError.NetworkUnreachable;
-                case 52: return SocketError.NetworkReset;
-                case 53: return SocketError.ConnectionAborted;
-                case 54: return SocketError.ConnectionReset;
-                case 55: return SocketError.NoBufferSpaceAvailable;
-                case 56: return SocketError.IsConnected;
-                case 57: return SocketError.NotConnected;
-                case 58: return SocketError.Disconnecting;
-                case 60: return SocketError.TimedOut;
-                case 61: return SocketError.ConnectionRefused;
-                case 64: return SocketError.HostDown;
-                case 65: return SocketError.HostUnreachable;
-                case 89: return SocketError.OperationAborted;  // ECANCELED
-#else
-                case 11: return SocketError.WouldBlock;
-                case 71: return SocketError.ProtocolNotSupported;
-                case 88: return SocketError.NotSocket;
-                case 89: return SocketError.DestinationAddressRequired;
-                case 90: return SocketError.MessageSize;
-                case 91: return SocketError.ProtocolType;
-                case 92: return SocketError.ProtocolOption;
-                case 93: return SocketError.ProtocolNotSupported;
-                case 94: return SocketError.SocketNotSupported;
-                case 95: return SocketError.OperationNotSupported;
-                case 96: return SocketError.ProtocolFamilyNotSupported;
-                case 97: return SocketError.AddressFamilyNotSupported;
-                case 98: return SocketError.AddressAlreadyInUse;
-                case 99: return SocketError.AddressNotAvailable;
-                case 100: return SocketError.NetworkDown;
-                case 101: return SocketError.NetworkUnreachable;
-                case 102: return SocketError.NetworkReset;
-                case 103: return SocketError.ConnectionAborted;
-                case 104: return SocketError.ConnectionReset;
-                case 105: return SocketError.NoBufferSpaceAvailable;
-                case 106: return SocketError.IsConnected;
-                case 107: return SocketError.NotConnected;
-                case 108: return SocketError.Disconnecting;
-                case 110: return SocketError.TimedOut;
-                case 111: return SocketError.ConnectionRefused;
-                case 112: return SocketError.HostDown;
-                case 113: return SocketError.HostUnreachable;
-                case 114: return SocketError.AlreadyInProgress;
-                case 115: return SocketError.InProgress;
-                case 125: return SocketError.OperationAborted;  // ECANCELED
-#endif
-                default: return SocketError.SocketError;
-            }
-        }
-#endif
-
-#if !CSHARPC_TARGET_WINDOWS
-        // .NET's PAL numbers for the two SocketErrors without an errno (EHOSTNOTFOUND, ESOCKETERROR = 0x20001,
-        // 0x20002), negated by its conversion to the platform's numbering: new SocketException(HostNotFound)
-        // has NativeErrorCode -131073.
-        private const int HostNotFoundNative = -0x20001, SocketErrorNative = -0x20002;
-
-        private static string UnixMessage(int nativeError)
-        {
-            // .NET's StrErrorR: the two PAL-only errors have texts of their own.
-            if (nativeError == SocketErrorNative) return "Unknown socket error";
-#if CSHARPC_TARGET_WASI
-            if (nativeError == HostNotFoundNative) return "Name does not resolve";  // musl's gai_strerror(EAI_NONAME); WASI has no resolver
-#elif CSHARPC_TARGET_MACOS
-            if (nativeError == HostNotFoundNative) return GaiMessage(8);   // EAI_NONAME
-#else
-            if (nativeError == HostNotFoundNative) return GaiMessage(-2);  // EAI_NONAME
-#endif
-            return Utf8.FromNative(Posix.strerror(nativeError));
-        }
-
-#if CSHARPC_TARGET_MACOS
-        private static int Errno(int linux, int macos, int wasi) => macos;
-#elif CSHARPC_TARGET_WASI
-        private static int Errno(int linux, int macos, int wasi) => wasi;
-#else
-        private static int Errno(int linux, int macos, int wasi) => linux;
-#endif
-
-        /// <summary>
-        /// SocketError -> errno, as .NET's SocketErrorPal.GetNativeErrorForSocketError on Unix (new
-        /// SocketException(int)): not the inverse of ToSocketError where several errnos share a SocketError
-        /// (IOPending is EINPROGRESS, OperationAborted ECANCELED, TooManyOpenSockets ENFILE). A SocketError
-        /// without an errno keeps its own value (strerror then says "Unknown error N"), as does one whose
-        /// errno WASI lacks (-1 below).
-        /// </summary>
-        public static int NativeErrorFor(SocketError error)
-        {
-            int native;
-            switch (error)
-            {
-                case SocketError.Success: return 0;
-                case SocketError.HostNotFound: return HostNotFoundNative;
-                case SocketError.SocketError: return SocketErrorNative;
-                case SocketError.AccessDenied: native = Errno(13, 13, 2); break;                 // EACCES
-                case SocketError.AddressAlreadyInUse: native = Errno(98, 48, 3); break;          // EADDRINUSE
-                case SocketError.AddressFamilyNotSupported: native = Errno(97, 47, 5); break;    // EAFNOSUPPORT
-                case SocketError.AddressNotAvailable: native = Errno(99, 49, 4); break;          // EADDRNOTAVAIL
-                case SocketError.AlreadyInProgress: native = Errno(114, 37, 7); break;           // EALREADY
-                case SocketError.ConnectionAborted: native = Errno(103, 53, 13); break;          // ECONNABORTED
-                case SocketError.ConnectionRefused: native = Errno(111, 61, 14); break;          // ECONNREFUSED
-                case SocketError.ConnectionReset: native = Errno(104, 54, 15); break;            // ECONNRESET
-                case SocketError.DestinationAddressRequired: native = Errno(89, 39, 17); break;  // EDESTADDRREQ
-                case SocketError.Disconnecting: native = Errno(108, 58, -1); break;              // ESHUTDOWN
-                case SocketError.Fault: native = Errno(14, 14, 21); break;                       // EFAULT
-                case SocketError.HostDown: native = Errno(112, 64, -1); break;                   // EHOSTDOWN
-                case SocketError.HostUnreachable: native = Errno(113, 65, 23); break;            // EHOSTUNREACH
-                case SocketError.InProgress:
-                case SocketError.IOPending: native = Errno(115, 36, 26); break;                  // EINPROGRESS
-                case SocketError.Interrupted: native = Errno(4, 4, 27); break;                   // EINTR
-                case SocketError.InvalidArgument: native = Errno(22, 22, 28); break;             // EINVAL
-                case SocketError.IsConnected: native = Errno(106, 56, 30); break;                // EISCONN
-                case SocketError.MessageSize: native = Errno(90, 40, 35); break;                 // EMSGSIZE
-                case SocketError.NetworkDown: native = Errno(100, 50, 38); break;                // ENETDOWN
-                case SocketError.NetworkReset: native = Errno(102, 52, 39); break;               // ENETRESET
-                case SocketError.NetworkUnreachable: native = Errno(101, 51, 40); break;         // ENETUNREACH
-                case SocketError.NoBufferSpaceAvailable: native = Errno(105, 55, 42); break;     // ENOBUFS
-                case SocketError.NoData: native = Errno(61, 96, -1); break;                      // ENODATA
-                case SocketError.NotConnected: native = Errno(107, 57, 53); break;               // ENOTCONN
-                case SocketError.NotSocket: native = Errno(88, 38, 57); break;                   // ENOTSOCK
-                case SocketError.OperationAborted: native = Errno(125, 89, 11); break;           // ECANCELED
-                case SocketError.OperationNotSupported: native = Errno(95, 45, 58); break;       // ENOTSUP
-                case SocketError.ProtocolFamilyNotSupported: native = Errno(96, 46, -1); break;  // EPFNOSUPPORT
-                case SocketError.ProtocolNotSupported: native = Errno(93, 43, 66); break;        // EPROTONOSUPPORT
-                case SocketError.ProtocolOption: native = Errno(92, 42, 50); break;              // ENOPROTOOPT
-                case SocketError.ProtocolType: native = Errno(91, 41, 67); break;                // EPROTOTYPE
-                case SocketError.Shutdown: native = Errno(32, 32, 64); break;                    // EPIPE
-                case SocketError.SocketNotSupported: native = Errno(94, 44, -1); break;          // ESOCKTNOSUPPORT
-                case SocketError.TimedOut: native = Errno(110, 60, 73); break;                   // ETIMEDOUT
-                case SocketError.TooManyOpenSockets: native = Errno(23, 23, 41); break;          // ENFILE
-                case SocketError.TryAgain:
-                case SocketError.WouldBlock: native = Errno(11, 35, 6); break;                   // EAGAIN
-                default: return (int)error;
-            }
-            return native < 0 ? (int)error : native;
-        }
-#endif
     }
 }
+#endif

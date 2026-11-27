@@ -125,6 +125,7 @@ public sealed partial class FunctionCodeGen
         if (!_m.IsUserType(type))
         {
             if (creation.Constructor is null or { Parameters.IsEmpty: true }) return LlvmContext.Null(llvmType); // new TimeSpan() etc.
+            if (TrySimdCreation(creation, type) is { } vector) return vector;
             if (BclValueTypes.TryGet(creation.Constructor, out var bcl)) return CallBcl(bcl, creation.Constructor, null, creation.Arguments, creation);
             if (Intrinsics.TryGetConstructor(creation.Constructor, out var intrinsic)) return intrinsic(this, creation); // new ValueTask<T>(...)
             throw CompileError.Unsupported($"creating instances of library struct '{type}'", creation);
@@ -215,7 +216,7 @@ public sealed partial class FunctionCodeGen
                 _b.CondBr(_b.ICmp(LLVMIntPredicate.EQ, mt, MethodTableFor(underlying, c)), matches, done);
                 _b.PositionAtEnd(matches);
             }
-            var payload = CallRuntime("csrt_unbox_exact", L.Ptr, [L.Ptr, L.Ptr], obj, MethodTableFor(underlying, c));
+            var payload = CallRuntime("csrt_unbox_exact", L.Ptr, [L.Ptr, L.Ptr], obj, TypeTestMethodTable(underlying) ?? MethodTableFor(underlying, c));
             _b.Store(MakeNullable(to, L.True, LoadValue(payload, underlying)), result);
             _b.Br(done);
             _b.PositionAtEnd(done);
@@ -354,6 +355,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef NullablePatternTest(LLVMValueRef value, ITypeSymbol inputType, IPatternOperation pattern)
     {
         var underlying = TypeMapper.NullableUnderlying(inputType);
+        bool IsUnderlyingOrSelf(ITypeSymbol? matched) => matched is null || SymbolEqualityComparer.Default.Equals(S(matched), underlying) || SymbolEqualityComparer.Default.Equals(S(matched), inputType);
         var has = NullableHas(value);
         switch (pattern)
         {
@@ -364,11 +366,13 @@ public sealed partial class FunctionCodeGen
             case IDeclarationPatternOperation { MatchesNull: true, DeclaredSymbol: ILocalSymbol whole }:
                 StoreValue(ToStorage(Coerce(value, inputType, whole.Type), whole.Type), LocalSlot(whole));
                 return L.True;
-            case IDeclarationPatternOperation declaration:
+            // `x is int n` / `x is int` on an int?: the value is there. A pattern of another type (`v is IFormattable f` in generic code with T = int?)
+            // tests and converts the payload like any value of the underlying type (default).
+            case IDeclarationPatternOperation declaration when IsUnderlyingOrSelf(declaration.MatchedType):
                 if (declaration.DeclaredSymbol is ILocalSymbol local)
                     StoreValue(ToStorage(Coerce(NullablePayload(value, underlying), underlying, local.Type), local.Type), LocalSlot(local));
                 return has;
-            case ITypePatternOperation:
+            case ITypePatternOperation typePattern when IsUnderlyingOrSelf(typePattern.MatchedType):
                 return has;
             case INegatedPatternOperation negated:
                 return _b.Not(NullablePatternTest(value, inputType, negated.Pattern));
@@ -456,7 +460,7 @@ public sealed partial class FunctionCodeGen
     }
 
     private sealed record TupleTargetPlan(IOperation Target, LLVMValueRef Address, List<TupleTargetPlan>? Nested, PropertyTarget? Property = null,
-        CovariantStore? Covariant = null);
+        CovariantStore? Covariant = null, PropertyCapture? CapturedProperty = null);
 
     /// <summary>A property (or indexer) deconstruction target: receiver and indexer arguments, already evaluated.</summary>
     private sealed record PropertyTarget(IPropertyReferenceOperation Reference, IPropertySymbol Property, LLVMValueRef Self,
@@ -477,6 +481,10 @@ public sealed partial class FunctionCodeGen
     private TupleTargetPlan PlanTarget(IOperation e)
     {
         if (e is IDiscardOperation) return new TupleTargetPlan(e, default, null);
+        // A property Roslyn captured before the right side's control flow (`(a[i].Prop, x) = (c ? 1 : 2, y)`): its receiver and
+        // arguments were evaluated at the capture; the store goes through its setter (#386).
+        if (e is IFlowCaptureReferenceOperation r && _cfg!.PropertyCaptures.TryGetValue(r.Id, out var captured))
+            return new TupleTargetPlan(e, default, null, CapturedProperty: captured);
         if (e is IPropertyReferenceOperation { Property.RefKind: RefKind.None } p)
         {
             var property = S(p.Property);
@@ -511,6 +519,11 @@ public sealed partial class FunctionCodeGen
             if (pt.Arguments is not null) _argumentCache = pt.Arguments;
             CallAccessor(pt.Reference, pt.Property.SetMethod!, pt.Self, [Coerce(value, valueType, pt.Property.Type)]);
             _argumentCache = saved;
+            return;
+        }
+        if (target.CapturedProperty is { } cp)
+        {
+            SetCapturedProperty(cp, Coerce(value, valueType, cp.Property.Type));
             return;
         }
         if (target.Address.Handle == 0) return;

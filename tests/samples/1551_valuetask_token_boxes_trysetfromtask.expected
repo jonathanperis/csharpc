@@ -1,0 +1,17 @@
+True False True System.Threading.Tasks.ValueTask System.Threading.Tasks.ValueTask
+True False
+True False True
+True True True False System.Threading.CancellationToken True
+can be canceled: True
+True True True True
+True True False
+True False
+False True 0 False
+True True True True
+result: True 42 again: False
+completed: True RanToCompletion
+faulted: True Faulted x
+canceled: True Canceled
+token kept: True
+ArgumentException: The provided task must have already completed. (Parameter 'completedTask')
+ArgumentNullException: Value cannot be null. (Parameter 'completedTask')

@@ -3,6 +3,8 @@
 // managed implementation gives the same bytes. Roslyn hashes source text, file identities and PE
 // content with them; HMAC over them is Crypto/Pbkdf2.cs. SHA-384/512 share one 64-bit engine; MD5 is RFC 1321.
 // SHA-3 is Crypto/Sha3.cs.
+// On Linux the framework's IL serves these types over the OpenSSL contract (Crypto/CryptoNative*.cs, docs/il-first/System.Security.Cryptography.md).
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_MACOS || CSHARPC_TARGET_WASI
 #nullable disable
 using System;
 using System.IO;
@@ -807,3 +809,4 @@ namespace CsharpcCoreLib
         public void Dispose() { _disposed = true; }
     }
 }
+#endif

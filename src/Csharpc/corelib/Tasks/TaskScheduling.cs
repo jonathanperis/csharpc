@@ -586,6 +586,21 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Threading.Tasks.ValueTask")]
     internal static class ValueTaskMembers
     {
+        // Equals / GetHashCode (#96; a ValueTask is its task object, null for default): equal when they hold the same object, as .NET's
+        // (which also compares the IValueTaskSource token csharpc's ValueTask never has); default hashes to 0. Not AsTask, which makes
+        // default Task.CompletedTask. Equals(ValueTask) also fills a boxed ValueTask's IEquatable<ValueTask> slot.
+        [ShadowInstance]
+        public static bool Equals(ValueTask task, ValueTask other) => ReferenceEquals(CoreIntrinsics.ValueTaskObject(task), CoreIntrinsics.ValueTaskObject(other));
+
+        [ShadowInstance]
+        public static bool Equals(ValueTask task, object other) => other is ValueTask v && Equals(task, v);
+
+        [ShadowInstance]
+        public static int GetHashCode(ValueTask task) => CoreIntrinsics.ValueTaskObject(task)?.GetHashCode() ?? 0;
+
+        public static bool op_Equality(ValueTask left, ValueTask right) => Equals(left, right);
+        public static bool op_Inequality(ValueTask left, ValueTask right) => !Equals(left, right);
+
         public static ValueTask FromCanceled(CancellationToken cancellationToken) => new ValueTask(Task.FromCanceled(cancellationToken));
         public static ValueTask<TResult> FromCanceled<TResult>(CancellationToken cancellationToken) => new ValueTask<TResult>(Task.FromCanceled<TResult>(cancellationToken));
         // ValueTask<TResult> is a struct (ValueTaskOfT.cs): the result inline, as .NET's ValueTask.FromResult.

@@ -1,0 +1,2 @@
+# BitArray (ADR 0023, #372; docs/il-first/System.Collections.BitArray.md).
+System.Collections.BitArray

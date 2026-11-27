@@ -86,19 +86,15 @@ public static class RoslynFrontend
 
         var name = settings.AssemblyName ?? (settings.Files.Count > 0 ? Path.GetFileNameWithoutExtension(settings.Files[0]) : "program");
         var compilation = CSharpCompilation.Create(name, trees, [.. FrameworkReferences(settings), .. settings.IlReferences, .. CoreLibFacadeFor(settings)], options);
-        // Reflection-based System.Text.Json calls get compile-time metadata from synthesized contexts.
-        List<Diagnostic> jsonDiagnostics = [];
-        compilation = JsonReflectionContexts.Add(compilation, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath))],
-            settings.JsonReflectionEnabled, jsonDiagnostics, out _, settings.IlSet, settings.JsonFromIl ? settings.ProgramIl : null);
-        // ResourceManager.GetObject of preserialized TypeConverter strings (System.Drawing.Point from a .resx), TypeDescriptor.GetConverter(typeof(X)).
-        if (settings.ProgramIl is null) compilation = ResourceConverters.Add(compilation, settings.ResourceTypes, [.. trees.Where(t => !IsCoreLibTree(t) && t.FilePath is not ("<global-usings>.g.cs" or AssemblyInfoTreePath))],
+        // ResourceManager.GetObject of preserialized TypeConverter strings (System.Drawing.Point from a .resx).
+        if (settings.ProgramIl is null) compilation = ResourceConverters.Add(compilation, settings.ResourceTypes,
             compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions);
-        // The same for an IL program: its resources' types, and its ldtokens next to a GetConverter call (internals visible, as for JSON).
-        if (settings.ProgramIl is { } converterProgram && settings.ConvertersFromIl && settings.IlSet is { } converterSet)
+        // The same for an IL program: its resources' types (internals visible).
+        if (settings.ProgramIl is not null && settings.ConvertersFromIl && settings.IlSet is { } converterSet)
         {
             var symbols = compilation.WithOptions(compilation.Options.WithMetadataImportOptions(MetadataImportOptions.All));
             converterSet.Bind(symbols);
-            compilation = ResourceConverters.AddFromIl(compilation, symbols, settings.ResourceTypes, converterProgram,
+            compilation = ResourceConverters.AddFromIl(compilation, symbols, settings.ResourceTypes,
                 compilation.SyntaxTrees.FirstOrDefault()?.Options as CSharpParseOptions ?? parseOptions);
         }
         // Dynamic call sites in IL bind at a position of their own (IlDynamicBinding).
@@ -129,15 +125,13 @@ public static class RoslynFrontend
                 }
             }
             compilation = compilation.AddSyntaxTrees(generated);
-            var contexts = SourceGenerators.RunSynthesizedJsonContexts(compilation, settings.Generators, out var contextDiagnostics);
-            compilation = compilation.AddSyntaxTrees(contexts);
-            GeneratorDiagnostics = [.. builds.Ordered.SelectMany(b => b.GeneratorDiagnostics), .. contextDiagnostics, .. jsonDiagnostics];
+            GeneratorDiagnostics = [.. builds.Ordered.SelectMany(b => b.GeneratorDiagnostics)];
             return compilation;
         }
         // Source generators: the project's (SDK, packages), or for single files the ones the SDK runs implicitly
         // ([LibraryImport], [GeneratedRegex], [JsonSerializable]).
         compilation = SourceGenerators.Run(compilation, compilation.SyntaxTrees.Where(t => !IsCoreLibTree(t)), settings.Generators, out var generatorDiagnostics);
-        GeneratorDiagnostics = [.. generatorDiagnostics.Where(d => !FromSynthesizedJsonContext(d)), .. jsonDiagnostics];
+        GeneratorDiagnostics = [.. generatorDiagnostics];
         return compilation;
     }
 
@@ -287,12 +281,14 @@ public static class RoslynFrontend
         if (settings.IlReferences.Count == 0) return all;
         var replaced = settings.IlReferences.OfType<PortableExecutableReference>()
             .Select(r => Path.GetFileNameWithoutExtension(r.FilePath)).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return all.Where(r => r is not PortableExecutableReference pe || !replaced.Contains(Path.GetFileNameWithoutExtension(pe.FilePath)));
+        // An implementation that also forwards types to CoreLib (System.Collections) brings a renamed copy of its twin for those (TwinReference.cs).
+        return all.Where(r => r is not PortableExecutableReference pe || !replaced.Contains(Path.GetFileNameWithoutExtension(pe.FilePath)))
+            .Concat(TwinReference.For(settings.IlReferences, ReferenceAssemblies()));
     }
 
     /// <summary>The System.Private.* facades (CoreLibFacade.cs) for implementation assemblies IL references name.</summary>
     private static IEnumerable<MetadataReference> CoreLibFacadeFor(FrontendSettings settings) =>
-        settings.IlReferences.Count > 0 ? CoreLibFacade.For(settings.IlReferences, ReferenceAssemblies()) : [];
+        settings.IlReferences.Count > 0 ? CoreLibFacade.For(settings.IlReferences, FrameworkReferences(settings).ToList()) : [];
 
     private static readonly Dictionary<string, ImmutableArray<MetadataReference>> s_frameworkReferences = new(StringComparer.OrdinalIgnoreCase);
 
@@ -307,13 +303,6 @@ public static class RoslynFrontend
                 [.. Directory.EnumerateFiles(dir, "*.dll").Order().Select(p => (MetadataReference)MetadataReference.CreateFromFile(p))];
         }
     }
-
-    /// <summary>
-    /// The JSON generator's findings about the contexts csharpc synthesizes: .NET's reflection-based
-    /// serializer reports nothing at compile time for the same types, so neither does csharpc.
-    /// </summary>
-    private static bool FromSynthesizedJsonContext(Diagnostic d) =>
-        d.Location.SourceTree is { } tree && (JsonReflectionContexts.IsSynthesizedTree(tree) || JsonReflectionContexts.IsSynthesizedContextFile(tree.FilePath));
 
     /// <summary>Diagnostics reported by source generators during the last Analyze call.</summary>
     public static IReadOnlyList<Diagnostic> GeneratorDiagnostics { get; private set; } = [];
@@ -450,11 +439,6 @@ public sealed record FrontendSettings
     public string? AssemblyInfo { get; init; }
     /// <summary>Type whose Main is the entry point (&lt;StartupObject&gt;); null = the only one.</summary>
     public string? MainTypeName { get; init; }
-    /// <summary>
-    /// JsonSerializerIsReflectionEnabledByDefault as the SDK computes it for a project; null for
-    /// single files (file-based apps, decided from their `#:property` directives).
-    /// </summary>
-    public bool? JsonReflectionEnabled { get; init; }
     /// <summary>The root project and the projects it references, when there are several.</summary>
     public IReadOnlyList<ProjectUnit> Projects { get; init; } = [];
     /// <summary>Assemblies without sources, compiled from IL (Frontend/Il, docs/adr/0010-il-frontend.md).</summary>
@@ -462,8 +446,6 @@ public sealed record FrontendSettings
     /// <summary>The loaded IL assemblies (null: none) and, for `csharpc app.dll`, the program's own.</summary>
     public Il.IlAssemblySet? IlSet { get; init; }
     public Il.IlAssembly? ProgramIl { get; init; }
-    /// <summary>Reflection-based JSON metadata is generated from <see cref="ProgramIl"/>'s bodies (its internals are visible to the compilation).</summary>
-    public bool JsonFromIl { get; init; }
     /// <summary>Paths of the assemblies to compile from IL (-r, project &lt;Reference&gt; items).</summary>
     public IReadOnlyList<string> IlReferencePaths { get; init; } = [];
     /// <summary>

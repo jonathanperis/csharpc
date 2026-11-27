@@ -1,0 +1,7 @@
+Kerberos HTTP/csharpc.invalid: package=Kerberos server=False authenticated=False target=HTTP/csharpc.invalid
+  first token: status=UnknownCredentials blob=null authenticated=False
+Kerberos HTTP/csharpc.invalid@NO.SUCH.REALM: package=Kerberos server=False authenticated=False target=HTTP/csharpc.invalid@NO.SUCH.REALM
+  first token: status=UnknownCredentials blob=null authenticated=False
+Negotiate HTTP/csharpc.invalid: package=Negotiate server=False authenticated=False target=HTTP/csharpc.invalid
+  first token: status=UnknownCredentials blob=null authenticated=False
+server malformed token: status=UnknownCredentials blob=null authenticated=False server=True

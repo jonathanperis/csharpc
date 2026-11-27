@@ -1,0 +1,20 @@
+TryFormat(7,empty)|TryFormat(7,X)|IFormattable(7,null)|TryFormat(7,empty)|
+TryFormat(7,empty) and 3.5
+TryFormat(7,empty)|TryFormat(7,F)|TryFormat(7,empty)|TryFormat(7,G)|TryFormat(7,empty)
+IFormattable(7,null)/42
+fs TryFormat(7,P)
+IFormattable
+only IFormattable
+0: 12 IFormattable
+0: 24
+200: 212 IFormattable
+200: 224
+300: 312 IFormattable
+300: 324
+600: 900 LLLLLLLLLLLL
+600: 912
+1500: 1800 LLLLLLLLLLLL
+1500: 1812
+The given key 'TryFormat(7,empty)' was not present in the dictionary.
+An item with the same key has already been added. Key: TryFormat(7,empty)
+An item with the same key has already been added. Key: TryFormat(7,empty)

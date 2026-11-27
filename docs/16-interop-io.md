@@ -232,12 +232,13 @@ to a method expecting one) is the corelib object and dispatches virtually.
 ## System.Net (sockets)
 
 `src/Csharpc/corelib/Net/` implements the basic networking types in C# over the OS's BSD socket API
-(libc on Linux and macOS, Winsock/`ws2_32` on Windows): `IPAddress`/`IPEndPoint` (parsing and
-formatting follow .NET: inet_aton-style IPv4 input such as `127.1` or `0x7f.1`, RFC 5952 IPv6
-output with embedded IPv4 for mapped addresses), `Socket` (TCP and UDP; `new
+(libc on Linux and macOS, Winsock/`ws2_32` on Windows): `Socket` (TCP and UDP; `new
 Socket(SocketType, ProtocolType)` and `new TcpClient()` are dual-mode IPv6 sockets, so IPv4 peers
 appear as `::ffff:a.b.c.d`, as in .NET), `NetworkStream`, `TcpListener`, `TcpClient`, `UdpClient`
-and `Dns.GetHostAddresses`/`GetHostName` (getaddrinfo). Constants, `sockaddr` layouts (macOS has a
+and `Dns.GetHostAddresses`/`GetHostName` (getaddrinfo). `IPAddress`, `IPEndPoint`, `IPNetwork` and `SocketAddress`
+are System.Net.Primitives' own code, compiled from the framework's IL (ADR 0023, #326); its two internal classes that
+call libSystem.Native are served by the corelib over the same `sockaddr` layout (`corelib/Net/SocketAddressPal.cs`:
+`SocketAddressPal`, and `InterfaceInfoPal`, whose `if_nametoindex` resolves a scope such as `fe80::1%eth0`). Constants, `sockaddr` layouts (macOS has a
 length byte first) and errno values are per target OS. Errors are `SocketException`s with .NET's
 `SocketErrorCode` (Winsock numbering, mapped from errno), the native error as `ErrorCode`/
 `NativeErrorCode`, the OS's message text, and — for failed connects — the endpoint appended, as .NET

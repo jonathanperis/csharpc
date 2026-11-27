@@ -308,7 +308,7 @@ namespace CsharpcCoreLib
             if (publicKey == null) return null;
             if (publicKey.Length == 0) return new byte[0];
             if (!IsValidPublicKey(publicKey)) throw new SecurityException("Invalid assembly public key.");
-            byte[] hash = SHA1Impl.HashData(publicKey);
+            byte[] hash = Sha1ForNonSecretPurposes.HashData(publicKey);
             byte[] token = new byte[8];
             for (int i = 0; i < token.Length; i++) token[i] = hash[hash.Length - 1 - i];
             return token;

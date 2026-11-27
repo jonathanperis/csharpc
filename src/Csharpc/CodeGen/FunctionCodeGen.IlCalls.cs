@@ -31,6 +31,12 @@ public sealed partial class FunctionCodeGen
             throw new IlException($"'dynamic' in compiled code (the call site of Microsoft.CSharp.RuntimeBinder.Binder.{method.Name}): csharpc binds the call sites csc creates, and this one isn't one of them");
         var args = new IlEntry[method.Parameters.Length];
         for (var i = args.Length - 1; i >= 0; i--) args[i] = stack.Count > 0 ? stack.Pop() : throw new IlException("evaluation stack underflow");
+        // A [ShadowInstance] static standing for an instance method of a value type takes the receiver by value, while the IL
+        // pushed its address (`ldloca; call instance UInt128::get_Lower()`): load it, or an i128/primitive receiver would get the
+        // address converted to an integer.
+        if (method.IsStatic && args.Length > 0 && args[0].Kind == IlKind.ByRef && CoreLib.IsInstanceShadow(method)
+            && method.Parameters[0] is { RefKind: RefKind.None } self && S(self.Type) is { IsValueType: true } selfType)
+            args[0] = IlPush(LoadValue(IlAddress(args[0]), selfType), selfType);
         IlEntry? receiver = null;
         if (op != ILOpCode.Newobj && !method.IsStatic)
             receiver = stack.Count > 0 ? stack.Pop() : throw new IlException("evaluation stack underflow");
@@ -64,6 +70,16 @@ public sealed partial class FunctionCodeGen
         if (method.MethodKind == MethodKind.Constructor)
         {
             IlConstructorCall(method, receiver!, args);
+            return;
+        }
+        // `box T; callvirt IFace::M` once T is known (the framework's AppendFormattedWithTempSpace<T>: ((ISpanFormattable)value).TryFormat): the
+        // target is T's implementation, called as `constrained. T callvirt` would, not a look-up of the boxed value's interface table.
+        if (op == ILOpCode.Callvirt && constrained is null && receiver is { Kind: IlKind.Ref, Unboxed: { Type: { } boxedType } boxedEntry } && !boxedEntry.Value.IsNull
+            && method.ContainingType.TypeKind == TypeKind.Interface && S(boxedType) is { IsValueType: true } boxedValue && !TypeMapper.IsNullable(boxedValue)
+            && ImplementsInterface(boxedValue, (INamedTypeSymbol)S(method.ContainingType)))
+        {
+            var home = Spill(IlTyped(boxedEntry, boxedValue));
+            if (IlInvoke(method, new IlEntry(IlKind.ByRef, home, boxedValue), args, isVirtual: true, boxedValue) is { } direct) stack.Push(direct);
             return;
         }
         if (IlInvoke(method, receiver, args, isVirtual: op == ILOpCode.Callvirt, constrained) is { } result) stack.Push(result);
@@ -176,9 +192,15 @@ public sealed partial class FunctionCodeGen
             && S(method.ContainingType) is INamedTypeSymbol arrayInterface)
             _m.RequestArrayInterface(arrayInterface);
         if (args is [{ Constant: string typeName }, ..] && IsGetTypeByName(method)) _m.NoteTypeByName(typeName);
-        if (receiver is { Symbol: ITypeSymbol reflected }) NoteReflectedType(method, S(reflected), args is [{ Constant: string name }, ..] ? name : null);
+        var reflectedKnown = false;
+        if (receiver is { Symbol: ITypeSymbol reflected }) { reflectedKnown = true; NoteReflectedType(method, S(reflected), args is [{ Constant: string name }, ..] ? name : null); }
         else if (receiver is { FromLocal: not null } && method.ContainingType is { Name: "Type" or "TypeInfo" })
-            foreach (var known in IlKnownTypeofValues(receiver)) NoteReflectedType(method, S(known), args is [{ Constant: string name }, ..] ? name : null);
+            foreach (var known in IlKnownTypeofValues(receiver)) { reflectedKnown = true; NoteReflectedType(method, S(known), args is [{ Constant: string name }, ..] ? name : null); }
+        // `Type t = cond ? typeof(A<>) : typeof(B<>); t.MakeGenericType(...)`: the value went through a merge, so every open generic
+        // definition the method names with typeof is a candidate.
+        if (!reflectedKnown && method.Name == "MakeGenericType" && method.ContainingType is { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } })
+            foreach (var candidate in IlTypeofOperandsOfMethod().Where(t => t is INamedTypeSymbol { IsGenericType: true } open && (open.IsUnboundGenericType || open.IsDefinition)))
+                NoteReflectedType(method, S(candidate), null);
 
         // Library operators and conversions (decimal + decimal, (long)BigInteger ...): the source path's operator lowering.
         if (method.MethodKind is MethodKind.UserDefinedOperator or MethodKind.Conversion && method.IsStatic && !_m.IsUserMethod(mapped)
@@ -319,7 +341,9 @@ public sealed partial class FunctionCodeGen
         }
         if (values.Length != 1) return null;
         var (v, t) = (values[0], types[0]);
-        LLVMValueRef One() => t.SpecialType == SpecialType.System_Decimal ? Constant(1m, t) : Constant(1, t);
+        // 1 of the operand's type: 1.0 for float/double (`x++` on T = double through IL, #425), not an integer constant.
+        LLVMValueRef One() => t.SpecialType == SpecialType.System_Decimal ? Constant(1m, t)
+            : v.Type.IsFloatingPoint ? LlvmContext.ConstReal(v.Type, 1) : Constant(1, t);
         LLVMValueRef? result = name switch
         {
             "op_UnaryPlus" => v,
@@ -336,6 +360,17 @@ public sealed partial class FunctionCodeGen
         return result is { } r ? IlPush(r, method.ReturnType) : null;
     }
 
+    /// <summary>
+    /// Whether a value type implements an interface, deciding a framework slice's struct (Guid : IEquatable&lt;its own Guid&gt;) on the real
+    /// types as well: the interface the IL names carries the real type (IEquatable&lt;System.Guid&gt;).
+    /// </summary>
+    private bool ImplementsInterface(ITypeSymbol valueType, INamedTypeSymbol itf)
+    {
+        if (valueType.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(i, itf))) return true;
+        var real = _m.CoreLib.Unmap(itf);
+        return valueType.AllInterfaces.Any(i => SymbolEqualityComparer.Default.Equals(_m.CoreLib.Unmap(i), real));
+    }
+
     private IlEntry IlNewObject(IMethodSymbol constructor, IlEntry[] args)
     {
         var il = _il!;
@@ -344,7 +379,7 @@ public sealed partial class FunctionCodeGen
         var creation = new IlObjectCreationOperation(il.Syntax, constructor, IlArguments(constructor.Parameters, args));
         var value = EmitValue(creation);
         var entry = IlPush(value, type);
-        return entry.Kind == IlKind.Ref ? entry with { NonNull = true } : entry;
+        return entry.Kind == IlKind.Ref ? entry with { NonNull = true, ExactClass = type.TypeKind == TypeKind.Class ? type : null } : entry;
     }
 
     /// <summary>`ldftn M` / `ldvirtftn M` + `newobj D::.ctor(object, native int)`: a delegate bound to M.</summary>
@@ -389,6 +424,37 @@ public sealed partial class FunctionCodeGen
         EmitValue(new IlInvocationOperation(il.Syntax, constructor, instance, isVirtual: false, IlArguments(constructor.Parameters, args), null));
     }
 
+    /// <summary>
+    /// Type.GetTypeCode of a type known at compile time, as the run time's (corelib Reflection/Members.cs GetTypeCode) and .NET's: an enum's is its
+    /// underlying type's, a primitive's its own, DateTime/Decimal/String theirs, any other value type Object. Null (the run-time call) for a type
+    /// parameter and for reference types other than string: DBNull has a TypeCode of its own and is a corelib shadow here, so its symbol does not
+    /// say System.DBNull.
+    /// </summary>
+    private static TypeCode? IlKnownTypeCode(ITypeSymbol type)
+    {
+        if (type is ITypeParameterSymbol) return null;
+        if (type is INamedTypeSymbol { TypeKind: TypeKind.Enum, EnumUnderlyingType: { } underlying }) type = underlying;
+        return type.SpecialType switch
+        {
+            SpecialType.System_Boolean => TypeCode.Boolean,
+            SpecialType.System_Char => TypeCode.Char,
+            SpecialType.System_SByte => TypeCode.SByte,
+            SpecialType.System_Byte => TypeCode.Byte,
+            SpecialType.System_Int16 => TypeCode.Int16,
+            SpecialType.System_UInt16 => TypeCode.UInt16,
+            SpecialType.System_Int32 => TypeCode.Int32,
+            SpecialType.System_UInt32 => TypeCode.UInt32,
+            SpecialType.System_Int64 => TypeCode.Int64,
+            SpecialType.System_UInt64 => TypeCode.UInt64,
+            SpecialType.System_Single => TypeCode.Single,
+            SpecialType.System_Double => TypeCode.Double,
+            SpecialType.System_Decimal => TypeCode.Decimal,
+            SpecialType.System_DateTime => TypeCode.DateTime,
+            SpecialType.System_String => TypeCode.String,
+            _ => type.IsValueType ? TypeCode.Object : null,
+        };
+    }
+
     /// <summary>Calls whose meaning is an IL idiom rather than a library member (ldtoken consumers...); null if not one.</summary>
     private IlEntry? IlSpecialCall(IMethodSymbol method, IlEntry? receiver, IlEntry[] args)
     {
@@ -398,6 +464,8 @@ public sealed partial class FunctionCodeGen
         if (IlCreateInstanceForAnotherGenericParameter(method, args) is { } created) return created;
         if (ownerName == "System.Runtime.CompilerServices.Unsafe" && IlUnsafeCall(method, args) is { } unsafeResult) return unsafeResult;
         if (ownerName == "System.Runtime.CompilerServices.AsyncHelpers" && IlRuntimeAsyncCall(method, args) is { } awaited) return awaited;
+        // EventSource.IsEnabled() with event sources turned off: false, without the call (its receiver has been evaluated).
+        if (receiver is not null && DisabledEventSourceIsEnabled(method) is { } disabled) return I4(disabled ? 1 : 0) with { Constant = disabled ? 1 : 0 };
         if (args.Length == 0 && receiver is null && FeatureSwitchValue(method) is { } feature)
         {
             // A guard whose value is fixed but whose getter still checks something (QUIC: stops the program where
@@ -405,14 +473,31 @@ public sealed partial class FunctionCodeGen
             if (IsCheckedFeatureGuard(method)) EmitValue(new IlInvocationOperation(_il!.Syntax, method, null, isVirtual: false, [], null));
             return I4(feature ? 1 : 0) with { Constant = feature ? 1 : 0 };
         }
-        // Vector<T>.Count: framework IL reads it next to its Vector.IsHardwareAccelerated test (false: the
-        // scalar path runs, with the same results). 16 bytes, NativeAOT's default for x64 and arm64.
+        // Vector<T>.Count: framework IL reads it next to its Vector.IsHardwareAccelerated test. 16 bytes, NativeAOT's default
+        // for x64 and arm64 (Vector<T> is Vector128<T> here, FunctionCodeGen.Simd.cs).
         if (method is { Name: "get_Count", Parameters.IsEmpty: true } && receiver is null
             && owner is { Name: "Vector", Arity: 1, ContainingNamespace: { Name: "Numerics", ContainingNamespace.Name: "System" } })
         {
             int count = 16 / Math.Max(1, (int)_m.Types.Target.SizeOf(T.Storage(S(owner.TypeArguments[0]))));
             return I4(count) with { Constant = count };
         }
+        // Vector<T>.IsSupported: framework IL tests it in the same condition as Vector.IsHardwareAccelerated, and lowering the
+        // method needs the getter to fold. True for the numeric primitives, as in .NET.
+        if (method is { Name: "get_IsSupported", Parameters.IsEmpty: true } && receiver is null
+            && owner is { Name: "Vector", Arity: 1, ContainingNamespace: { Name: "Numerics", ContainingNamespace.Name: "System" } })
+        {
+            bool supported = S(owner.TypeArguments[0]).SpecialType is SpecialType.System_Byte or SpecialType.System_SByte or SpecialType.System_Int16
+                or SpecialType.System_UInt16 or SpecialType.System_Int32 or SpecialType.System_UInt32 or SpecialType.System_Int64
+                or SpecialType.System_UInt64 or SpecialType.System_IntPtr or SpecialType.System_UIntPtr or SpecialType.System_Single
+                or SpecialType.System_Double;
+            return I4(supported ? 1 : 0) with { Constant = supported ? 1 : 0 };
+        }
+        // Type.GetTypeCode(typeof(X)) for a known X: a constant, as ILCompiler folds it. ConcurrentDictionary's IsWriteAtomic switches on it
+        // for TValue; as a call it reached the run-time reflection tables, and through them every boxed BCL value's formatting (+240 KB, #399).
+        if (method is { Name: "GetTypeCode", Parameters.Length: 1 } && receiver is null
+            && owner is { Name: "Type", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } }
+            && args[0] is { Kind: IlKind.Ref, Symbol: ITypeSymbol typeofArgument } && IlKnownTypeCode(S(typeofArgument)) is { } typeCode)
+            return I4((int)typeCode) with { Constant = (int)typeCode };
         // `fixed (char* p = s)`: a reference to the first char (the terminator of an empty string), as in .NET;
         // the compiler tests for null before the call.
         // Span<T>/ReadOnlySpan<T>.GetPinnableReference (`fixed (T* p = span)`): the data pointer, or a null
@@ -439,8 +524,16 @@ public sealed partial class FunctionCodeGen
                 var (v, f) = (IlTyped(value, e), IlTyped(flag, e));
                 return IlPush(_b.ICmp(LLVMIntPredicate.EQ, _b.BinOp(LLVMOpcode.And, v, f), f), Special(SpecialType.System_Boolean));
             }
+            // `typeof(A) == typeof(B)` guarding a branch folded at compile time (IlTypeEqualityConstant): neither Type object is
+            // materialized, so a struct named only there does not get the method table (and the slots) its boxes would carry (#420).
+            case ("System.Type", "GetTypeFromHandle") when args is [{ Kind: IlKind.Token, Symbol: ITypeSymbol }] && IlTypeofFoldedAt(_ilIndex):
+                return new IlEntry(IlKind.Ref, LlvmContext.Null(L.Ptr), method.ReturnType);
+            case ("System.Type", "op_Equality" or "op_Inequality") when _il?.CurrentBlock is { } current && IlTypeEqualityConstant(current, _ilIndex, method) is { } equal
+                && IlTypeofFoldedAt(_ilIndex - 1):
+                return I4(equal ? 1 : 0);
             case ("System.Type", "GetTypeFromHandle") when args is [{ Kind: IlKind.Token, Symbol: ITypeSymbol type }]:
-                return new IlEntry(IlKind.Ref, TypeObject(S(type), IlAt()), method.ReturnType) { NonNull = true, Symbol = S(type) };
+                // (in shared generic code typeof(T) is a run-time value: nothing may resolve reflection against the marker)
+                return new IlEntry(IlKind.Ref, TypeObject(S(type), IlAt()), method.ReturnType) { NonNull = true, Symbol = _m.IsCanonDependent(S(type)) ? null : S(type) };
             // typeof(X).GetTypeInfo() is the Type object itself: X stays known for the reflection that follows.
             case ("System.Reflection.IntrospectionExtensions", "GetTypeInfo") when args is [{ Kind: IlKind.Ref, NonNull: true, Symbol: ITypeSymbol known } typeObject]:
                 return new IlEntry(IlKind.Ref, IlRef(typeObject), method.ReturnType) { NonNull = true, Symbol = known };

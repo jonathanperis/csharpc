@@ -1,0 +1,3 @@
+# ArrayList (ADR 0023, #372; docs/il-first/System.Collections.ArrayList.md). Its IL calls the untyped Array.IndexOf/LastIndexOf/Sort, which
+# corelib/ArrayExtras.cs provides for an element type known only at run time.
+System.Collections.ArrayList

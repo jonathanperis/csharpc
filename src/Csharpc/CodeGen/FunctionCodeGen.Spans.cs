@@ -580,6 +580,9 @@ public sealed partial class FunctionCodeGen
                 return _b.Load(SpanType, trimmed);
             }
         }
+        // Any other overload (AsSpan(T[], Range), TrimEnd(Span<T>, T), which System.Runtime.Numerics' IL calls): MemoryExtensions' own IL,
+        // when the slice hosts it (the `host:` roots of src/Csharpc/upstream-types).
+        if (HostedBuiltinMember(method, null) is { } hosted) return EmitUserCall(hosted, default, true, inv.Arguments, isVirtual: false);
         throw CompileError.MissingIntrinsic(method, inv);
     }
 
