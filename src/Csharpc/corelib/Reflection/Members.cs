@@ -1782,10 +1782,12 @@ namespace CsharpcCoreLib
             if (args.Length == 0 && type.IsValueType && GetConstructor(type, bindingAttr, null, Type.EmptyTypes, null) == null)
                 throw new NotSupportedException("Activator.CreateInstance of value type '" + type + "' is not supported by csharpc yet.");
             ConstructorInfo match = null;
+            bool sameArity = false;
             foreach (ConstructorInfo ctor in GetConstructors(type, bindingAttr))
             {
                 ParameterInfo[] parameters = ctor.GetParameters();
                 if (parameters.Length != args.Length) continue;
+                sameArity = true;
                 bool fits = true;
                 for (int i = 0; i < parameters.Length && fits; i++)
                 {
@@ -1797,7 +1799,12 @@ namespace CsharpcCoreLib
                     throw new NotSupportedException("Activator.CreateInstance on '" + type + "' with arguments several constructors accept is not supported by csharpc yet.");
                 match = ctor;
             }
-            if (match == null) throw new MissingMethodException("Constructor on type '" + type.FullName + "' not found.");
+            // .NET filters the constructors by arity, then asks the default binder: when some have the arity but none bind, the
+            // binder's "Member not found." is the inner exception; when none has it, there is no inner one.
+            if (match == null)
+                throw sameArity
+                    ? new MissingMethodException("Constructor on type '" + type.FullName + "' not found.", new MissingMethodException("Member not found."))
+                    : new MissingMethodException("Constructor on type '" + type.FullName + "' not found.");
             return match.Invoke(args);
         }
 

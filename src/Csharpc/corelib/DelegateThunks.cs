@@ -61,6 +61,9 @@ namespace CsharpcCoreLib
                 + " (Marshal.GetFunctionPointerForDelegate), and a collected delegate frees its thunk.");
         }
 
+        /// <summary>A delegate passed to a P/Invoke: its thunk, or null for null (ModuleCodeGen.PInvoke.cs).</summary>
+        public static IntPtr GetPointerOrNull(Delegate d, IntPtr table) => d == null ? IntPtr.Zero : GetPointer(d, table);
+
         public static IntPtr GetPointerUntyped(Delegate d)
         {
             if (d == null) throw new ArgumentNullException("d");
