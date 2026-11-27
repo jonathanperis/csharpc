@@ -1,0 +1,6 @@
+# Text encoders and escapers served from CoreLib's IL (#103): URL-safe Base64, UTF-16 validation, HTML/URL encoding (WebUtility,
+# which replaced the corelib's UrlDecode-only shadow) and XML escaping (SecurityElement).
+System.Buffers.Text.Base64Url
+System.Text.Unicode.Utf16
+System.Net.WebUtility
+System.Security.SecurityElement

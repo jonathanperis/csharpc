@@ -1,0 +1,5 @@
+linux-x86_64 exceptions 37888
+linux-aarch64 exceptions 37888
+macos-arm64 exceptions 73728
+windows-x86_64 exceptions 50176
+wasi-wasm32 exceptions 53248

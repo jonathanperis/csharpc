@@ -295,3 +295,50 @@ macos 1270_x509_load_pkcs12_collection    live: the exception for a missing PFX 
 windows 1270_x509_load_pkcs12_collection  live: the exception for a missing PFX file is the platform loader's (CryptoAPI on Windows), recorded on real .NET there; the sample leaves that line out
 macos 1271_default_credentials_placeholder  known gap: System.Net.Http's system-proxy support (CFNetwork: Marshal.GetFunctionPointerForDelegate) isn't implemented, so HttpClient is an explicit compile error on macOS
 windows 1271_default_credentials_placeholder  known gap: System.Net.Http's system-proxy support (HttpWindowsProxy: WinINet, WindowsIdentity, EventWaitHandle) isn't implemented, so HttpClient is an explicit compile error on Windows
+linux 1328_convert_to_integer_native   live: ConvertToIntegerNative of NaN and out-of-range values is the CPU's instruction (x64 cvttsd2si: the minimum value; Arm64 fcvtzs: saturation), and Linux runs on both
+macos 1328_convert_to_integer_native   live: ConvertToIntegerNative of NaN and out-of-range values is the CPU's instruction (Arm64 fcvtzs saturates, NaN as 0), not the x64 recording's
+wasi 1328_convert_to_integer_native    WebAssembly has no native conversion instruction .NET defines for ConvertToIntegerNative, so the out-of-range half isn't comparable there
+wasi 1339_ieee_types_culture_formatting     needs a named culture (de-DE): WebAssembly runs in globalization-invariant mode, where they are a CultureNotFoundException
+wasi 1334_monitor_wait_pulse_semantics   needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 1337_manualreseteventslim_semantics   needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 1338_spinwait_countdown_barrier   needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi   1420_icu_first_use_from_threads      needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+macos 1391_filesystem_native_contract  live: FileStream.Lock/Unlock are a PlatformNotSupportedException on macOS, and its file system reports its own preallocation and modes
+windows 1391_filesystem_native_contract  live: Windows has no Unix modes, symbolic links need privileges, and its error texts and lock semantics are Win32's
+wasi 1391_filesystem_native_contract   WASI has no permission bits (.NET throws PlatformNotSupportedException from SetUnixFileMode) and wasmtime refuses symbolic links that leave the preopened directory
+wasi 1440_string_members_from_il     .NET on WASI is globalization-invariant: CultureInfo("tr-TR") throws CultureNotFoundException and culture-aware comparisons are ordinal
+wasi 1442_char_members_from_il       .NET on WASI is globalization-invariant: CultureInfo("tr-TR") throws CultureNotFoundException and current-culture casing uses the invariant-mode tables
+wasi 666_bigint_small_conversions     BigInteger's limbs are nuint (System.Runtime.Numerics' IL): 2^40 is one limb on 64-bit (checked conversion: "Arithmetic operation resulted in an overflow.") and two on wasm32 (Int32's "Value was either too large or too small" message)
+wasi 1443_biginteger_from_il          BigInteger's limbs are nuint: `>>>` of a negative value shifts its two's complement over whole limbs, 3 x 64 bits on 64-bit and 5 x 32 bits on wasm32, so the result differs
+wasi 1396_constrained_hosted_number_members  needs a named culture: WebAssembly runs in globalization-invariant mode, where "de-DE" is a CultureNotFoundException
+macos 1490_crypto_hmac_kdf_from_il  known gap: crypto is served from the framework's IL on Linux only; macOS keeps csharpc's copies, which lack these types (#449)
+windows 1490_crypto_hmac_kdf_from_il  known gap: crypto is served from the framework's IL on Linux only; Windows keeps csharpc's copies, which lack these types (#449)
+wasi 1490_crypto_hmac_kdf_from_il  known gap: no OpenSSL on WebAssembly (WASI); csharpc's copies lack these types (#449)
+macos 1491_crypto_symmetric_from_il  known gap: crypto is served from the framework's IL on Linux only; macOS keeps csharpc's copies, which lack these types (#449)
+windows 1491_crypto_symmetric_from_il  known gap: crypto is served from the framework's IL on Linux only; Windows keeps csharpc's copies, which lack these types (#449)
+wasi 1491_crypto_symmetric_from_il  known gap: no OpenSSL on WebAssembly (WASI); csharpc's copies lack these types (#449)
+macos 1442_char_members_from_il  live: ToUpperInvariant/ToLowerInvariant case through the OS ICU (Apple libicucore on macOS), whose Unicode version differs from the Linux ICU the .expected was recorded with
+wasi 1470_eventcounters_listener  known gap: EventCounter payloads come from CounterGroup's background polling thread; WASI preview 1 has no threads, so no payload is published (the listener times out)
+macos 1492_ecc_explicit_parameters  known gap: X.509, RSA, ECC and TLS are served from the framework's IL on Linux only; macOS keeps csharpc's copies, which lack these members (#449)
+windows 1492_ecc_explicit_parameters  known gap: X.509, RSA, ECC and TLS are served from the framework's IL on Linux only; Windows keeps csharpc's copies, which lack these members (#449)
+wasi 1492_ecc_explicit_parameters  known gap: no OpenSSL or sockets for TLS on WebAssembly (WASI); csharpc's copies lack these members (#449)
+macos 1520_tls_certificate_request_ecdsa  known gap: X.509, RSA, ECC and TLS are served from the framework's IL on Linux only; macOS keeps csharpc's copies, which lack these members (#449)
+windows 1520_tls_certificate_request_ecdsa  known gap: X.509, RSA, ECC and TLS are served from the framework's IL on Linux only; Windows keeps csharpc's copies, which lack these members (#449)
+wasi 1520_tls_certificate_request_ecdsa  known gap: no OpenSSL or sockets for TLS on WebAssembly (WASI); csharpc's copies lack these members (#449)
+macos 1521_x509_rsa_oid_from_il  known gap: X.509, RSA, ECC and TLS are served from the framework's IL on Linux only; macOS keeps csharpc's copies, which lack these members (#449)
+windows 1521_x509_rsa_oid_from_il  known gap: X.509, RSA, ECC and TLS are served from the framework's IL on Linux only; Windows keeps csharpc's copies, which lack these members (#449)
+wasi 1521_x509_rsa_oid_from_il  known gap: no OpenSSL or sockets for TLS on WebAssembly (WASI); csharpc's copies lack these members (#449)
+macos 1522_negotiate_gss_from_il  known gap: X.509, RSA, ECC and TLS are served from the framework's IL on Linux only; macOS keeps csharpc's copies, which lack these members (#449)
+windows 1522_negotiate_gss_from_il  known gap: X.509, RSA, ECC and TLS are served from the framework's IL on Linux only; Windows keeps csharpc's copies, which lack these members (#449)
+wasi 1522_negotiate_gss_from_il  known gap: no OpenSSL or sockets for TLS on WebAssembly (WASI); csharpc's copies lack these members (#449)
+wasi 1532_monitor_thin_lock_table  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 1540_enum_negative_value_culture_sign  .NET on WASI is globalization-invariant: CultureInfo("sv-SE") throws CultureNotFoundException
+wasi 1550_threading_runtime_members  needs threads: Thread.Start throws PlatformNotSupportedException on WebAssembly
+wasi 1553_interop_gap_members     loads a shared library with NativeLibrary.Load: WASI has no dynamic libraries
+wasi 1559_driveinfo               WASI has no statfs/statvfs: DriveFormat and the drive sizes throw IOException (ENOTSUP)
+wasi 1346_nfloat_from_framework    NFloat is a float on 32-bit targets (wasm32), a double on 64-bit: its size and range differ from the 64-bit recording
+windows 1563_timezoneinfo_from_il  live: Windows takes the local zone from the system settings, not TZ; recorded there
+macos 1562_special_folders        live: macOS takes the user folders from NSFileManager (the real home, not $HOME), Linux from $HOME and XDG; recorded on each
+windows 1562_special_folders      known gap: Environment.GetFolderPath on Windows (the known folders) is not supported by csharpc yet; an explicit NotSupportedException
+wasi 1570_process_lookups         WASI has no processes to look up or start: Process.GetProcesses and Process.Start are explicit NotSupportedExceptions
+windows 1570_process_lookups      known gap: looking up and naming processes on Windows (GetProcessById, GetProcesses, Modules) is not supported by csharpc yet; an explicit NotSupportedException

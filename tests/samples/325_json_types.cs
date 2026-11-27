@@ -1,4 +1,4 @@
-#:property PublishAot=false
+#:property JsonSerializerIsReflectionEnabledByDefault=true
 // The serializer over a wide range of member types: collection interfaces and concrete
 // collections, sorted/linked collections, nested generics, DOM members, key/value
 // pairs, nullable structs, init-only and required members, object creation handling, and

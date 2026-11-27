@@ -6,7 +6,8 @@ namespace Csharpc.CodeGen;
 
 /// <summary>
 /// Classes deriving from System.Threading.Tasks.TaskCompletionSource(&lt;T&gt;) (System.Net.Http's connection
-/// waiters and write-queue entries, Kestrel's). A TaskCompletionSource is its task (src/runtime/async.c's
+/// waiters and write-queue entries, Kestrel's) or from Task(&lt;T&gt;) itself through its promise-style
+/// constructors (CoreLib's SemaphoreSlim.TaskNode : Task&lt;bool&gt;). A TaskCompletionSource is its task (src/runtime/async.c's
 /// csrt_Task, docs/10-async.md), so a derived class is laid out over that struct: the header, the result
 /// payload of T (at the fixed payload offset, where the compiler and csrt store results), then the
 /// derived class's own fields. Its method table chains to csrt_Task_MT, so every test that accepts a task
@@ -16,7 +17,9 @@ namespace Csharpc.CodeGen;
 public sealed partial class ModuleCodeGen
 {
     public static bool IsRuntimeTaskSource(ITypeSymbol? type) =>
-        type is INamedTypeSymbol { Name: "TaskCompletionSource", ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } };
+        type is INamedTypeSymbol { Name: "TaskCompletionSource" or "Task", ContainingNamespace: { Name: "Tasks", ContainingNamespace: { Name: "Threading", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } };
+
+    internal static bool IsRuntimeTask(ITypeSymbol? type) => type is INamedTypeSymbol { Name: "Task" } && IsRuntimeTaskSource(type);
 
     /// <summary>Size of TResult's storage in a task's payload (0 for the non-generic TaskCompletionSource).</summary>
     internal int TaskSourcePayloadSize(INamedTypeSymbol source) =>
@@ -46,15 +49,32 @@ public sealed partial class ModuleCodeGen
 
 public sealed partial class FunctionCodeGen
 {
-    /// <summary>`: base(...)` of a class deriving from TaskCompletionSource(&lt;T&gt;): the task options and state are ignored, as for `new TaskCompletionSource(...)`.</summary>
+    /// <summary>
+    /// `: base(...)` of a class deriving from TaskCompletionSource(&lt;T&gt;), or from Task(&lt;T&gt;) through a promise-style constructor
+    /// (state and creation options only, as CoreLib's own task subclasses use): the state and options are recorded as for
+    /// `new TaskCompletionSource(state, options)`. A Task constructor that takes a body would make the object a delegate task
+    /// started by the scheduler, which a runtime task created in place is not: an explicit diagnostic.
+    /// </summary>
     private LLVMValueRef EmitTaskSourceBaseConstructor(IMethodSymbol constructor, IInvocationOperation inv)
     {
+        var type = (INamedTypeSymbol)S(constructor.ContainingType);
+        if (ModuleCodeGen.IsRuntimeTask(type)
+            && constructor.Parameters.Any(p => p.Name is not ("state" or "creationOptions")))
+            throw CompileError.Unsupported($"deriving from '{type}' through its constructor '{constructor}' (only the promise-style ones)", inv);
         var self = EmitValue(inv.Instance!);
-        foreach (var argument in inv.Arguments) EmitArgument(argument);
-        var size = _m.TaskSourcePayloadSize(constructor.ContainingType);
+        LLVMValueRef? state = null, options = null;
+        foreach (var argument in inv.Arguments)
+        {
+            var value = EmitArgument(argument);
+            if (argument.Parameter!.Name == "state") state = value;
+            else if (argument.Parameter.Name == "creationOptions") options = value;
+        }
+        var size = _m.TaskSourcePayloadSize(type);
         // payload_size is the second int32 of the header, after the method table.
         var at = _b.InBoundsGep(L.I8, self, [L.ConstInt(L.I64, (long)T.PointerSize + 4)]);
         StoreValue(L.ConstInt(L.I32, size), at);
+        if (state is not null || options is not null)
+            CallCoreLib("TaskState", "Promise", self, state ?? LlvmContext.Null(L.Ptr), options ?? L.ConstInt(L.I32, 0));
         return default;
     }
 }

@@ -241,12 +241,39 @@ public sealed partial class ModuleCodeGen
         var done = b.AppendBlock(fn, "done");
         b.CondBr(b.ICmp(LLVMIntPredicate.EQ, formatted, LlvmContext.Null(Llvm.Ptr)), byName, done);
         b.PositionAtEnd(done);
-        b.Ret(formatted);
+        b.Ret(signed ? CultureNegative(b, formatted, asI64) : formatted);
         b.PositionAtEnd(byName);
         var general = EnumFormatter(enumType);
         b.Ret(b.Call(general.Type, general.Fn, [value]));
         return lowered;
     }
+    /// <summary>
+    /// The enum formatters in the C runtime (csrt_enum_format, csrt_enum_format_flags) return 1 for a negative number, which .NET writes
+    /// with the current culture's negative sign (#182): that one is formatted by the corelib's culture-aware Int64ToDecStr.
+    /// </summary>
+    internal LLVMValueRef CultureNegative(IrBuilder b, LLVMValueRef formatted, LLVMValueRef asI64)
+    {
+        var fn = Native.LLVMGetBasicBlockParent(b.InsertBlock);
+        var number = b.AppendBlock(fn, "negative.number");
+        var ready = b.AppendBlock(fn, "formatted");
+        var sentinel = b.Cast(LLVMOpcode.IntToPtr, Llvm.ConstInt(Llvm.I64, 1), Llvm.Ptr);
+        b.CondBr(b.ICmp(LLVMIntPredicate.EQ, formatted, sentinel), number, ready);
+        b.PositionAtEnd(number);
+        b.Ret(CultureInt64ToString(b, asI64));
+        b.PositionAtEnd(ready);
+        return formatted;
+    }
+
+    /// <summary>A signed integer as .NET's Int64.ToString() writes it, in the current culture (the corelib's Number.Int64ToDecStr).</summary>
+    internal LLVMValueRef CultureInt64ToString(IrBuilder b, LLVMValueRef asI64)
+    {
+        var owner = Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".Number")
+            ?? throw CompileError.Unsupported("corelib type 'Number' not found");
+        var method = owner.GetMembers("Int64ToDecStr").OfType<IMethodSymbol>().Single(m => m.IsStatic && m.Parameters.Length == 1);
+        var f = GetFunction(method);
+        return b.Call(f.Type, f.Fn, [asI64]);
+    }
+
     /// <summary>Enum.GetHashCode(): the underlying integer's GetHashCode (small types widen, 64-bit folds lo ^ hi).</summary>
     public LLVMValueRef EnumHash(IrBuilder b, LLVMValueRef value, INamedTypeSymbol enumType)
     {
@@ -256,49 +283,5 @@ public sealed partial class ModuleCodeGen
         if (width == 32) return value;
         var high = b.Cast(LLVMOpcode.Trunc, b.BinOp(LLVMOpcode.LShr, value, Llvm.ConstInt(Llvm.I64, 32)), Llvm.I32);
         return b.BinOp(LLVMOpcode.Xor, b.Cast(LLVMOpcode.Trunc, value, Llvm.I32), high);
-    }
-
-    private List<INamedTypeSymbol>? _jsonEnumTypes;
-
-    /// <summary>
-    /// The enums a run-time Type can name in System.Text.Json: every enum declared in the program, and
-    /// library enums the generated JSON metadata converts (GetEnumConverter&lt;E&gt;, JsonStringEnumConverter&lt;E&gt;).
-    /// </summary>
-    public List<INamedTypeSymbol> JsonEnumTypes()
-    {
-        if (_jsonEnumTypes is { } cached) return cached;
-        var result = new List<INamedTypeSymbol>();
-        var seen = new HashSet<INamedTypeSymbol>(SymbolEqualityComparer.Default);
-        void Visit(INamespaceOrTypeSymbol container)
-        {
-            foreach (var member in container.GetMembers())
-            {
-                if (member is INamespaceSymbol ns)
-                {
-                    if (ns.Name == CoreLib.Namespace && ns.ContainingNamespace.IsGlobalNamespace) continue;
-                    Visit(ns);
-                }
-                else if (member is INamedTypeSymbol type)
-                {
-                    if (type.TypeKind == TypeKind.Enum && seen.Add(type)) result.Add(type);
-                    if (!type.IsGenericType) Visit(type);
-                }
-            }
-        }
-        Visit(Compilation.Assembly.GlobalNamespace);
-        foreach (var tree in Compilation.SyntaxTrees)
-        {
-            if (!tree.FilePath.EndsWith(".g.cs", StringComparison.Ordinal)) continue;
-            var text = tree.GetText().ToString();
-            if (!text.Contains("GetEnumConverter<", StringComparison.Ordinal) && !text.Contains("EnumConverter<", StringComparison.Ordinal)) continue;
-            var model = Compilation.GetSemanticModel(tree);
-            foreach (var generic in tree.GetRoot().DescendantNodes().OfType<Microsoft.CodeAnalysis.CSharp.Syntax.GenericNameSyntax>())
-            {
-                if (generic.Identifier.ValueText is not ("GetEnumConverter" or "JsonStringEnumConverter" or "JsonNumberEnumConverter")) continue;
-                foreach (var arg in generic.TypeArgumentList.Arguments)
-                    if (model.GetTypeInfo(arg).Type is INamedTypeSymbol { TypeKind: TypeKind.Enum } e && seen.Add(e)) result.Add(e);
-            }
-        }
-        return _jsonEnumTypes = result;
     }
 }

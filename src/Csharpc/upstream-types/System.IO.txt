@@ -1,0 +1,41 @@
+# Streams and text readers/writers above the OS boundary (ADR 0023, #315; docs/il-first/System.IO.md).
+System.IO.Stream
+System.IO.MemoryStream
+System.IO.UnmanagedMemoryStream
+System.IO.BufferedStream
+System.IO.TextReader
+System.IO.TextWriter
+System.IO.StreamReader
+System.IO.StreamWriter
+System.IO.StringReader
+System.IO.StringWriter
+System.IO.BinaryReader
+System.IO.BinaryWriter
+System.CodeDom.Compiler.IndentedTextWriter
+# The file system (part 2): CoreLib's Unix IO calls libSystem.Native's C API, which is csharpc's C# contract over its libc layer
+# (corelib/IO/SystemNative.cs); the Windows slice calls kernel32 directly.
+System.IO.File
+System.IO.Directory
+System.IO.FileInfo
+System.IO.DirectoryInfo
+System.IO.FileSystemInfo
+System.IO.FileStream
+System.IO.FileStreamOptions
+System.IO.Path
+System.IO.RandomAccess
+Microsoft.Win32.SafeHandles.SafeFileHandle
+System.IO.Enumeration.FileSystemEnumerable`1
+System.IO.Enumeration.FileSystemEnumerator`1
+System.IO.Enumeration.FileSystemName
+System.IO.EnumerationOptions
+System.IO.Enumeration.FileSystemEntry
+System.Threading.ThreadPoolBoundHandle
+# The Windows CoreLib's overlapped I/O (RandomAccess on an asynchronous handle, FileStream's async operations): the OVERLAPPED struct and
+# the reusable overlapped of SafeFileHandle's value-task sources. The Unix CoreLib's file I/O never reaches them.
+windows:System.Threading.NativeOverlapped
+windows:System.Threading.PreAllocatedOverlapped
+unix:System.Runtime.InteropServices.Marshalling.SpanOfCharAsUtf8StringMarshaller
+# C's long / unsigned long in native signatures (macOS's setattrlist path of File.SetCreationTime): a struct over nint/nuint on Unix and
+# int/uint on Windows, as the target's C ABI has it.
+System.Runtime.InteropServices.CLong
+System.Runtime.InteropServices.CULong

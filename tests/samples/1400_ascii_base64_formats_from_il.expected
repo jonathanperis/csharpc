@@ -1,0 +1,38 @@
+ToUtf16 short: DestinationTooSmall 8 0
+ToUtf16 bad: InvalidData 1 0
+FromUtf16 bad: InvalidData 2 0
+valid True False True False
+eq True True False
+ToUpper: Done 16 0
+HELLO, WORLD 123
+trim [x y] 2..5 0..3
+enc Done 7 12 AAEC+vv8/Q==
+enc partial NeedMoreData 6 8
+dec Done 12 7 000102FAFBFCFD
+dec bad InvalidData 0 0
+dec small DestinationTooSmall 4 3
+inplace Done 8 AAEC+vs=
+inplace dec Done 5
+valid True 4 False True 6
+(uint)bytesLength ('4294967295') must be less than or equal to '1610612733'. (Parameter '(uint)bytesLength')
+{0,-5}|{1:X4}|{{x}}|{2} 3
+ab   |00FF|{x}|1.5
+1    |0002|{x}|3
+{ -> Input string was not in a correct format. Failure to parse near offset 1. Format item ends prematurely.
+{x} -> Input string was not in a correct format. Failure to parse near offset 1. Expected an ASCII digit.
+} -> Input string was not in a correct format. Failure to parse near offset 1. Format item ends prematurely.
+{0 -> Input string was not in a correct format. Failure to parse near offset 2. Format item ends prematurely.
+{0,} -> Input string was not in a correct format. Failure to parse near offset 3. Expected an ASCII digit.
+{0:{} -> Input string was not in a correct format. Failure to parse near offset 3. Format item ends prematurely.
+{999999} 1000000
+{99999999999} 1215752192
+{0,1000000} 1
+Index (zero based) must be greater than or equal to zero and less than the size of the argument list.
+[G] 71 255 False False [G]
+[D4] 68 4 True False [D4]
+[x99] 120 99 True False [x99]
+[N] 78 255 False False [N]
+[] 0 0 True True []
+False True True
+Precision cannot be larger than 99.
+Precision cannot be larger than 99. (Parameter 'precision')

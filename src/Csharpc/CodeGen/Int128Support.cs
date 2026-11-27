@@ -7,7 +7,7 @@ namespace Csharpc.CodeGen;
 /// <summary>
 /// System.Int128 / System.UInt128 as LLVM i128. Their operators and conversions are library methods
 /// (op_Addition, op_Explicit...); this maps them onto the same integer lowering as the primitives
-/// (wrapping arithmetic, checked division, masked shifts) and formats via runtime/parse.c.
+/// (wrapping arithmetic, checked division, masked shifts) and formats via the corelib.
 /// </summary>
 internal static class Int128Support
 {
@@ -56,6 +56,14 @@ internal static class Int128Support
             case "op_OnesComplement":
                 handler = (g, _, _, a, _) => g.Builder.Not(a[0]);
                 return true;
+            // checked(-x) / checked(x++) on Int128 and UInt128 (through T too, #425): OverflowException like .NET's operators.
+            case "op_CheckedUnaryNegation":
+                handler = (g, m, _, a, _) => g.CheckedArithmetic("sub", g.Module.Llvm.ConstInt(a[0].Type, 0), a[0], TypeMapper.IsSigned(m.ContainingType));
+                return true;
+            case "op_CheckedIncrement" or "op_CheckedDecrement":
+                handler = (g, m, _, a, _) => g.CheckedArithmetic(m.Name == "op_CheckedIncrement" ? "add" : "sub", a[0], g.Module.Llvm.ConstInt(a[0].Type, 1),
+                    TypeMapper.IsSigned(m.ContainingType));
+                return true;
             case "op_Increment" or "op_Decrement":
                 handler = (g, m, _, a, _) => g.Builder.BinOp(m.Name == "op_Increment" ? LLVMOpcode.Add : LLVMOpcode.Sub, a[0], g.Module.Llvm.ConstInt(a[0].Type, 1));
                 return true;
@@ -65,9 +73,6 @@ internal static class Int128Support
                 return true;
             case "ToString" when method.Parameters.IsEmpty:
                 handler = (g, m, s, _, _) => Format(g, s, TypeMapper.IsSigned(m.ContainingType));
-                return true;
-            case "ToString" when method.Parameters is [{ Type.Name: "IFormatProvider" }]:
-                handler = (g, m, s, a, _) => g.CallCoreLib(TypeMapper.IsSigned(m.ContainingType) ? "Int128Members" : "UInt128Members", "FormatWith", Load(g, s), a[0]);
                 return true;
             case "Equals" when method.Parameters.Length == 1 && Is128(method.Parameters[0].Type):
                 handler = (g, _, s, a, _) => g.Builder.ICmp(LLVMIntPredicate.EQ, Load(g, s), a[0]);

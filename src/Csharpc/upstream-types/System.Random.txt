@@ -1,0 +1,2 @@
+# Random (ADR 0023, #307; docs/il-first/System.Random.md).
+System.Random

@@ -9,8 +9,10 @@
 # program and real-world program with `dotnet run`, applies the same derivation, and reports every
 # test where real .NET disagrees: those belong in tests/platform-skips.txt (with the reason), or the
 # derivation is wrong. Tests already listed there are not run. Like the recordings, .NET runs with
-# the invariant culture as its current culture (tests/oracle-hook). Slow (one `dotnet run` per test); meant for CI and for porting
+# the invariant culture as its current culture (tests/oracle-hook). A test with a NAME.aot file runs as its PublishAot build:
+# NativeAOT is its oracle (tests/platform.sh). Slow (one `dotnet run` per test); meant for CI and for porting
 # to a new OS. Exits non-zero if any unlisted test differs.
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOTNET="${DOTNET:-dotnet}"
@@ -71,8 +73,14 @@ check_test() {
   local test_env hook="$ORACLE_HOOK"
   read -ra test_env <<< "$(platform_env "$dir" "${file%.cs}")"
   [[ ${#test_env[@]} -gt 0 ]] && hook=""
-  (cd "$dir" && env "${test_env[@]}" DOTNET_STARTUP_HOOKS="$hook" "$DOTNET" run "$file" -p:WarningLevel=0 -p:AllowUnsafeBlocks=true -p:StartupHookSupport=true 2>/dev/null < "$in") > "$OUT/$safe.raw"
-  local code=$?
+  local code
+  if platform_is_aot "$dir" "${file%.cs}"; then
+    # NativeAOT is this test's oracle (NAME.aot): its PublishAot build on this OS.
+    code="$(platform_aot_run "$dir" "${file%.cs}" "$in" "$OUT/$safe.raw" "${test_env[@]}")"
+  else
+    (cd "$dir" && env "${test_env[@]}" DOTNET_STARTUP_HOOKS="$hook" "$DOTNET" run "$file" -p:WarningLevel=0 -p:AllowUnsafeBlocks=true -p:StartupHookSupport=true 2>/dev/null < "$in") > "$OUT/$safe.raw"
+    code=$?
+  fi
   grep -U -a -v -E '^[^ ]+\([0-9]+,[0-9]+\): warning ' < "$OUT/$safe.raw" > "$OUT/$safe.out"
   platform_expected < "$expected" > "$OUT/$safe.want"
   if cmp -s "$OUT/$safe.want" "$OUT/$safe.out" && [[ "$code" == "$want_code" ]]; then
@@ -83,8 +91,8 @@ check_test() {
   fi
 }
 platform_oracle_hook || exit 1
-export -f check_one check_test platform_expected platform_exit_code platform_skip platform_env
-export OUT DOTNET HOST_OS TARGET_OS ROOT
+export -f check_one check_test platform_expected platform_exit_code platform_skip platform_env platform_is_aot platform_aot_run
+export OUT DOTNET HOST_OS TARGET_OS ROOT EXE_SUFFIX
 cut -f1 "$list" | wc -l | xargs echo "tests:"
 tr '\n' '\0' < "$list" | xargs -0 -P "$JOBS" -I{} bash -c 'check_one "$1"' _ {}
 while IFS=$'\t' read -r name _; do cat "$OUT/${name//\//_}.report"; done < "$list" > "$OUT/report"

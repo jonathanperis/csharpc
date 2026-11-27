@@ -1,0 +1,8 @@
+# CompositeFormat, StandardFormat, Ascii and Base64 (ADR 0023, #423; docs/il-first/System.Text.Ascii.md).
+System.Text.CompositeFormat
+System.Buffers.StandardFormat
+System.Text.Ascii
+System.Buffers.Text.Base64
+# A CoreLib-internal helper of a reference-pack type that Ascii's IL calls, hosted from its own IL: the 8-byte store of a vector's lower
+# half (the narrowing loops). Unsafe.OpportunisticMisalignment is the corelib's (RuntimeServices.cs).
+host:System.Runtime.Intrinsics.Vector128::StoreLowerUnsafe

@@ -229,21 +229,38 @@ public sealed partial class ModuleCodeGen
                 Errors.Add(CompileError.Unsupported($"type test against '{t.Target}' with delegate type '{late}' created after the test was closed", t.Target));
     }
 
-    /// <summary>The first case a closed dispatcher lacks (a full pass over the candidates, once per dispatcher).</summary>
+    /// <summary>
+    /// The first case a closed dispatcher lacks. Its last round settled every candidate before its cursors (DispatchCallee is a fact
+    /// of the symbols), so only the candidates appended since and the ones still without a method table then are checked (#209: a pass
+    /// over every candidate of every dispatcher was dispatchers × types).
+    /// </summary>
     private (INamedTypeSymbol Type, LLVMValueRef MethodTable, IMethodSymbol Callee)? UncoveredCase(GenericInterfaceDispatcher d)
     {
         var (classes, structs) = CandidatesOf(d.Target);
-        foreach (var type in classes.ToArray())
-            if (!d.Covered.Contains(type) && IsDispatchable(type, false, out var methodTable) && DispatchCallee(d.Target, type) is { } callee) return (type, methodTable, callee);
-        foreach (var type in structs.ToArray())
-            if (!d.Covered.Contains(type) && IsDispatchable(type, true, out var methodTable) && DispatchCallee(d.Target, type) is { } callee) return (type, methodTable, callee);
-        return null;
+        return Find(classes, d.ClassCursor, d.ClassPending, false) ?? Find(structs, d.StructCursor, d.StructPending, true);
+
+        (INamedTypeSymbol Type, LLVMValueRef MethodTable, IMethodSymbol Callee)? Find(List<INamedTypeSymbol> list, int cursor, List<int> pending, bool isStruct)
+        {
+            foreach (var i in pending.Concat(Enumerable.Range(cursor, Math.Max(0, list.Count - cursor))).ToArray())
+            {
+                var type = list[i];
+                if (!d.Covered.Contains(type) && IsDispatchable(type, isStruct, out var methodTable) && DispatchCallee(d.Target, type) is { } callee)
+                    return (type, methodTable, callee);
+            }
+            return null;
+        }
     }
 
     private readonly Dictionary<INamedTypeSymbol, List<INamedTypeSymbol>> _classesByInterface = new(SymbolEqualityComparer.Default);
     private readonly Dictionary<INamedTypeSymbol, List<INamedTypeSymbol>> _structsByInterface = new(SymbolEqualityComparer.Default);
     private readonly List<INamedTypeSymbol> _classSequence = [];
     private readonly HashSet<INamedTypeSymbol> _indexedImplementers = new(SymbolEqualityComparer.Default);
+    // What IndexImplementers has seen (#209: it ran over every layout once per dispatcher per round). _layouts and _structs only lose
+    // an entry when its layout fails to build (BuildOrForget, a compile error). A Dictionary that never had a removal enumerates in
+    // insertion order, so the entries past the counts seen are the new ones; once one has had a removal, a later entry can take the
+    // freed slot in the middle, so from then on every call scans everything (the compilation is failing anyway).
+    private int _indexedLayoutCount, _indexedStructCount;
+    private int _layoutRemovals;
 
     /// <summary>
     /// Files the concrete classes and structs with a layout, in the order their layouts appeared, in one list and under
@@ -251,18 +268,22 @@ public sealed partial class ModuleCodeGen
     /// </summary>
     private void IndexImplementers()
     {
+        bool rescan = _layoutRemovals != 0;
+        if (!rescan && _layouts.Count == _indexedLayoutCount && _structs.Count == _indexedStructCount) return;
         using var timer = Stats.Time("generic interface dispatchers/index");
-        foreach (var (type, _) in _layouts)
+        foreach (var (type, _) in rescan ? _layouts : _layouts.Skip(_indexedLayoutCount))
         {
-            if (type is not { TypeKind: TypeKind.Class, IsAbstract: false } || !_indexedImplementers.Add(type)) continue;
+            // (a canonical form is a layout, not a class objects can have: the dispatchers see its exact instantiations)
+            if (type is not { TypeKind: TypeKind.Class, IsAbstract: false } || IsCanonDependent(type) || !_indexedImplementers.Add(type)) continue;
             _classSequence.Add(type);
             foreach (var itf in type.AllInterfaces) AddImplementer(_classesByInterface, itf, type);
         }
-        foreach (var (type, _) in _structs)
+        foreach (var (type, _) in rescan ? _structs : _structs.Skip(_indexedStructCount))
         {
             if (!_indexedImplementers.Add(type)) continue;
             foreach (var itf in type.AllInterfaces) AddImplementer(_structsByInterface, itf, type);
         }
+        (_indexedLayoutCount, _indexedStructCount) = (_layouts.Count, _structs.Count);
     }
 
     private static void AddImplementer(Dictionary<INamedTypeSymbol, List<INamedTypeSymbol>> index, INamedTypeSymbol itf, INamedTypeSymbol type)

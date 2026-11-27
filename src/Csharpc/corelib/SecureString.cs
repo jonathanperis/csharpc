@@ -132,6 +132,11 @@ namespace CsharpcCoreLib
     [ShadowMembers("System.Runtime.InteropServices.Marshal")]
     internal static unsafe class MarshalSecureStringMembers
     {
+        // GetHRForException (#99): the exception's HResult (0 for null), as .NET on Unix; WriteInt16's char overloads write the char's code.
+        public static int GetHRForException(Exception e) => e?.HResult ?? 0;
+        public static void WriteInt16(IntPtr ptr, char val) => Marshal.WriteInt16(ptr, (short)val);
+        public static void WriteInt16(IntPtr ptr, int ofs, char val) => Marshal.WriteInt16(ptr, ofs, (short)val);
+
         private static string PlainOf(SecureString s)
         {
             if (s == null) throw new ArgumentNullException("s");

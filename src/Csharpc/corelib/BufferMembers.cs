@@ -29,7 +29,7 @@ namespace CsharpcCoreLib
 
         /// <summary>CoreLib's internal Buffer.Memmove&lt;T&gt;(ref T destination, ref T source, nuint elementCount): overlapping ranges are allowed (issue #191 part B).</summary>
         public static void Memmove<T>(ref T destination, ref T source, nuint elementCount) =>
-            System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpan(ref source, (int)elementCount).CopyTo(System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref destination, (int)elementCount));
+            System.Runtime.InteropServices.MemoryMarshal.CreateReadOnlySpan(ref source, checked((int)elementCount)).CopyTo(System.Runtime.InteropServices.MemoryMarshal.CreateSpan(ref destination, checked((int)elementCount)));
 
         // Buffer.MemoryCopy: the ranges may overlap; a destination smaller than the byte count is refused.
         public static void MemoryCopy(void* source, void* destination, long destinationSizeInBytes, long sourceBytesToCopy)
@@ -46,7 +46,9 @@ namespace CsharpcCoreLib
 
         private static void Memmove(void* destination, void* source, ulong byteCount)
         {
-            if (byteCount != 0) Libc.memmove(destination, source, (nuint)byteCount);
+            // (Unsafe.CopyBlockUnaligned lowers to an inline move for short copies; it takes a uint count)
+            if (byteCount <= uint.MaxValue) System.Runtime.CompilerServices.Unsafe.CopyBlockUnaligned(destination, source, (uint)byteCount);
+            else Libc.memmove(destination, source, (nuint)byteCount);
         }
 
         public static int ByteLength(Array array)

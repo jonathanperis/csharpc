@@ -47,7 +47,7 @@ public static class ParallelOptimize
     /// When it splits, the module is disposed.
     /// </summary>
     public static List<string>? TryRun(LlvmModule module, TypeDataDetach.Detached detached, string pipeline, TargetMachine target,
-        string objectPathBase, Action<string>? log)
+        string objectPathBase, Action<string>? log, bool heapToStack = false)
     {
         if (Disabled) return null;
         var m = module.Ref;
@@ -201,6 +201,7 @@ public static class ParallelOptimize
         log?.Invoke($"bitcode image {image.Size >> 20} MB, rss {Rss()} MB");
         module.Dispose();
         log?.Invoke($"program module freed, rss {Rss()} MB");
+        if (MemoryBudget.ReturnFreedMemory()) log?.Invoke($"freed memory returned to the system, rss {Rss()} MB");
         threads = MemoryBudget.Workers(threads, image.Size, log);
         var objects = Enumerable.Range(0, count).Select(i => $"{objectPathBase}.{i}.o").ToList();
         var nextPartition = -1;
@@ -208,7 +209,7 @@ public static class ParallelOptimize
         void Work()
         {
             for (int i; (i = Interlocked.Increment(ref nextPartition)) < count && failures.IsEmpty;)
-                try { RunPartition(image, i, plans[i], detachedNames, pipeline, target, objects[i], log); }
+                try { RunPartition(image, i, plans[i], detachedNames, pipeline, target, objects[i], log, heapToStack); }
                 catch (Exception e) { failures.Enqueue(e); }
         }
         // The optimizer and the backend recurse deeply: helper threads get the main thread's stack size.
@@ -242,18 +243,31 @@ public static class ParallelOptimize
     private static long Rss() => Environment.WorkingSet >> 20;
 
     private static void RunPartition(BitcodeImage image, int partition, PartitionPlan plan,
-        (List<(string Name, LLVMLinkage Linkage)> Globals, List<string> PreviousUsed) detached, string pipeline, TargetMachine target, string path, Action<string>? log)
+        (List<(string Name, LLVMLinkage Linkage)> Globals, List<string> PreviousUsed) detached, string pipeline, TargetMachine target, string path, Action<string>? log,
+        bool heapToStack)
     {
         var context = LLVMContextCreate();
         try
         {
-            var m = image.Parse(context, "parallel optimization");
-            log?.Invoke($"partition {partition} parsed, rss {Rss()} MB");
+            using var machine = target.CreateSibling();
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            LLVMModuleRef m;
+            lock (MemoryBudget.ParseGate)
+            {
+                m = image.Parse(context, "parallel optimization");
+                log?.Invoke($"partition {partition} parsed in {clock.ElapsedMilliseconds} ms, rss {Rss()} MB");
+                clock.Restart();
+                try { Prune(m, partition, plan, machine); }
+                catch { LLVMDisposeModule(m); throw; }
+                MemoryBudget.ReturnFreedMemory();
+                log?.Invoke($"partition {partition} pruned in {clock.ElapsedMilliseconds} ms, rss {Rss()} MB");
+            }
             try
             {
-                using var machine = target.CreateSibling();
-                Prune(m, partition, plan, machine);
+                // Per partition: the wrapper is private to each one, so it survives elim-avail-extern where csrt_alloc is only imported.
+                var stackAllocation = heapToStack && Csharpc.CodeGen.HeapToStack.Prepare(m);
                 LlvmModule.RunPasses(m, pipeline, machine);
+                if (stackAllocation) log?.Invoke($"partition {partition}: {Csharpc.CodeGen.HeapToStack.Run(m, machine)} allocation(s) on the stack");
                 Csharpc.CodeGen.ConcurrentBarrierElision.Run(m, machine);
                 if (partition == 0) Reattach(m, LLVMPointerTypeInContext(context, 0), detached);
                 LlvmModule.RunPasses(m, "globaldce", machine);

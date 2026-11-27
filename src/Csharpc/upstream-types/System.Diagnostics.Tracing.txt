@@ -1,0 +1,19 @@
+# EventSource, EventListener, the counters and the self-describing Write<T> path (ADR 0023, #423; docs/il-first/System.Diagnostics.Tracing.md).
+System.Diagnostics.Tracing.EventSource
+System.Diagnostics.Tracing.EventListener
+System.Diagnostics.Tracing.EventWrittenEventArgs
+System.Diagnostics.Tracing.EventCommandEventArgs
+System.Diagnostics.Tracing.EventSourceCreatedEventArgs
+System.Diagnostics.Tracing.EventSourceOptions
+System.Diagnostics.Tracing.EventSourceException
+System.Diagnostics.Tracing.EventAttribute
+System.Diagnostics.Tracing.EventSourceAttribute
+System.Diagnostics.Tracing.NonEventAttribute
+System.Diagnostics.Tracing.EventDataAttribute
+System.Diagnostics.Tracing.EventFieldAttribute
+System.Diagnostics.Tracing.EventIgnoreAttribute
+System.Diagnostics.Tracing.DiagnosticCounter
+System.Diagnostics.Tracing.PollingCounter
+System.Diagnostics.Tracing.IncrementingPollingCounter
+System.Diagnostics.Tracing.EventCounter
+System.Diagnostics.Tracing.IncrementingEventCounter

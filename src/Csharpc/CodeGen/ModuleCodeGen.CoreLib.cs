@@ -63,6 +63,7 @@ public sealed partial class ModuleCodeGen
 
     public void RequestArrayInterface(INamedTypeSymbol itf)
     {
+        if (IsCanonDependent(itf)) return; // requested for each exact instantiation when its dictionary is filled
         foreach (var i in (IEnumerable<INamedTypeSymbol>)[itf, .. itf.AllInterfaces])
             if ((i.IsGenericType ? !TypeSubstitution.IsOpen(i) : IsNonGenericArrayInterface(i))
                 && _arrayInterfaces.Add(i))
@@ -100,11 +101,48 @@ public sealed partial class ModuleCodeGen
         if (SymbolEqualityComparer.Default.Equals(element, u)) return true;
         // Array covariance: string[] is an IList<object>.
         if (element.IsReferenceType && u.IsReferenceType)
+        {
+            // (#93) Roslyn's conversion classification costs more than every other step here, once per (array, interface) pair. For a
+            // target whose only implicit reference conversions are identity and inheritance (a class, a non-generic or invariant
+            // interface), the answer is whether it is the element, one of its base types or interfaces, or object: a set lookup.
+            if (IsInheritanceOnlyTarget(u) && ReferenceSupertypes(element) is { } supertypes)
+                return supertypes.Contains(u);
             return Compilation.ClassifyCommonConversion(element, u) is { IsImplicit: true, IsReference: true };
+        }
         // The CLR's array-element compatibility (ECMA-335 I.8.7.1): enums reduce to their underlying
         // type and signed/unsigned integers of one size are interchangeable, so a Day[] (enum : int)
         // is an IEnumerable<int> and an int[] an IList<uint>.
         return ReducedElementType(element) is { } re && re == ReducedElementType(u);
+    }
+
+    /// <summary>
+    /// A type every implicit reference conversion to which is an identity or inheritance one: a class (classes are never variant), or an
+    /// interface without variant type parameters. Not a variant interface (IEnumerable&lt;object&gt; takes IEnumerable&lt;string&gt;), an
+    /// array (covariance), a delegate (variance) or a type parameter.
+    /// </summary>
+    private static bool IsInheritanceOnlyTarget(ITypeSymbol u) => u is INamedTypeSymbol named && named.TypeKind switch
+    {
+        TypeKind.Class => true,
+        TypeKind.Interface => !named.IsGenericType || named.OriginalDefinition.TypeParameters.All(p => p.Variance == VarianceKind.None),
+        _ => false,
+    };
+
+    private readonly Dictionary<ITypeSymbol, HashSet<ITypeSymbol>?> _referenceSupertypes = new(SymbolEqualityComparer.Default);
+
+    /// <summary>
+    /// The element, its base types, all its interfaces and object: the types an inheritance-only target can be for an implicit reference
+    /// conversion from it. Null for an element whose conversions go further (a type parameter), which keeps the general test.
+    /// </summary>
+    private HashSet<ITypeSymbol>? ReferenceSupertypes(ITypeSymbol element)
+    {
+        if (_referenceSupertypes.TryGetValue(element, out var set)) return set;
+        // An array element converts by array covariance too (string[] is an IList<object>, which string[]'s own interface list does not
+        // name): only a named type keeps to inheritance.
+        if (element is not INamedTypeSymbol) return _referenceSupertypes[element] = null;
+        set = new HashSet<ITypeSymbol>(SymbolEqualityComparer.Default) { element, Compilation.GetSpecialType(SpecialType.System_Object) };
+        for (var t = element.BaseType; t is not null; t = t.BaseType) set.Add(t);
+        foreach (var i in element.AllInterfaces) set.Add(i);
+        return _referenceSupertypes[element] = set;
     }
 
     private static string? ReducedElementType(ITypeSymbol type)
@@ -284,6 +322,7 @@ public sealed partial class ModuleCodeGen
         public required IMethodSymbol?[] Helpers { get; init; }
         public required string Name { get; init; }
         public required string? Instantiation { get; init; }
+        public required INamedTypeSymbol Interface { get; init; }
         public HashSet<int> Requested { get; } = [];
     }
 
@@ -296,7 +335,7 @@ public sealed partial class ModuleCodeGen
         var helpers = InterfaceSlots(itf).Select(helper).ToArray();
         var type = LlvmContext.Array(Llvm.Ptr, (ulong)helpers.Length);
         var table = new PendingBuiltinSlotTable { Global = Module.AddGlobal(name, type, constant: true, linkage: linkage), Helpers = helpers, Name = name,
-            Instantiation = InterfaceDispatchKey(itf) };
+            Instantiation = InterfaceDispatchKey(itf), Interface = itf };
         _builtinSlotTables.Add(table);
         var definition = itf.OriginalDefinition;
         if (!_builtinSlotTablesByInterface.TryGetValue(definition, out var tables)) _builtinSlotTablesByInterface[definition] = tables = [];
@@ -333,10 +372,20 @@ public sealed partial class ModuleCodeGen
         return requested;
     }
 
+    private readonly Dictionary<INamedTypeSymbol, LLVMValueRef> _missingBuiltinSlots = new(SymbolEqualityComparer.Default);
+
+    private LLVMValueRef MissingBuiltinSlot(INamedTypeSymbol itf)
+    {
+        if (_missingBuiltinSlots.TryGetValue(itf, out var stub)) return stub;
+        return _missingBuiltinSlots[itf] = UnsupportedStub($"csharpc.missingslot.{_missingBuiltinSlots.Count}", Llvm.FunctionType(Llvm.Void, []),
+            $"not supported by csharpc yet: calling a member of '{itf.ToDisplayString()}' on a string or an array through the interface");
+    }
+
     private void SetBuiltinSlotTableInitializer(PendingBuiltinSlotTable table)
     {
         var pruned = Runtime("csrt_pruned_virtual", Llvm.Void).Fn;
-        var slots = table.Helpers.Select((h, i) => h is null ? LlvmContext.Null(Llvm.Ptr)
+        // A member the corelib has no helper for: a call through it ends the program with an explicit diagnostic, never a jump to null.
+        var slots = table.Helpers.Select((h, i) => h is null ? MissingBuiltinSlot(table.Interface)
             : table.Requested.Contains(i) ? GetFunction(h).Fn : pruned).ToArray();
         Native.LLVMSetInitializer(table.Global, LlvmContext.ConstArray(Llvm.Ptr, slots));
     }

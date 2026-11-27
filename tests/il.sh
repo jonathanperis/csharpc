@@ -17,6 +17,7 @@
 # `dotnet run` prints (and exit with the same code). One app is also compiled from loose files with -r.
 #
 # Usage: tests/il.sh [name-filter]
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -189,7 +190,10 @@ if [[ -z "$FILTER" || "framework-il" == *"$FILTER"* ]]; then
   }
   metadata="$WORK/il/IlMetadataApp/Program.cs"
   expect_failure "--framework-il none" "'System.Reflection.PortableExecutable.PEReader" "$metadata" --framework-il none
-  expect_failure "--framework-il System.ComponentModel" "--framework-il: 'System.ComponentModel' can't be compiled from IL: csharpc implements its type" "$metadata" --framework-il System.ComponentModel
+  # (System.Uri stays csharpc's until #442; System.Runtime.Numerics, BigInteger and Complex, comes from the framework's IL since #423)
+  expect_failure "--framework-il System.Private.Uri" "--framework-il: 'System.Private.Uri' can't be compiled from IL: csharpc implements its type" "$metadata" --framework-il System.Private.Uri
+  if "$DOTNET" "$CSHARPC_DLL" "$metadata" --framework-il System.Runtime.Numerics -O0 -o "$WORK/fwil" > "$WORK/log" 2>&1; then echo "PASS --framework-il System.Runtime.Numerics (from IL)"; pass=$((pass+1))
+  else echo "FAIL --framework-il System.Runtime.Numerics: no longer compiles from IL"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
   # (native shims on Unix, its csharpc intrinsics on Windows, where it calls kernel32 directly)
   expect_failure "--framework-il System.Console" "--framework-il: 'System.Console' can't be compiled from IL" "$metadata" --framework-il System.Console
   expect_failure "--framework-il NoSuchAssembly" "--framework-il: 'NoSuchAssembly' is not an assembly of the shared framework" "$metadata" --framework-il NoSuchAssembly

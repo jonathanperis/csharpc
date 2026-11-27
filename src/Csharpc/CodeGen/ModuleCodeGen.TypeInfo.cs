@@ -58,8 +58,20 @@ public sealed partial class ModuleCodeGen
 
     internal void RegisterTypeMethodTable(LLVMValueRef mt, object type)
     {
-        if (_typeMtSeen.Add(mt.Handle)) _typeMts.Add((mt, type));
+        if (!_canonMethodTable.IsNull && mt.Handle == _canonMethodTable.Handle) return; // a canonical form is not a type
+        if (_typeMtSeen.Add(mt.Handle)) { _typeMts.Add((mt, type)); _typeOfMt[mt.Handle] = type; }
     }
+
+    private readonly Dictionary<nint, object> _typeOfMt = [];
+
+    /// <summary>
+    /// The flags the table would record for this method table's type (the same <see cref="TypeFlags"/>), or null when
+    /// the method table describes no known closed type. Lets `typeof(T).IsEnum` in generic code fold to a constant
+    /// after monomorphization instead of pulling the whole table into the program (#466).
+    /// </summary>
+    internal ulong? KnownTypeFlags(LLVMValueRef mt) =>
+        _typeOfMt.TryGetValue(mt.Handle, out var described) && described is ITypeSymbol type && !TypeSubstitution.IsOpen(type)
+            ? TypeFlags(RealType(type)) : null;
 
     private LLVMTypeRef TypeTableHeader => Llvm.Struct(Llvm.I64, Llvm.Ptr);
 
@@ -393,7 +405,7 @@ public sealed partial class ModuleCodeGen
     private sealed record HiddenInterface(string FullName, string Namespace, string Name, IReadOnlyList<ITypeSymbol> Arguments,
         string Assembly, IReadOnlyList<int> Variances)
     {
-        public string Key { get; } = FullName + "[" + string.Join(",", Arguments.Select(a => a.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat))) + "]";
+        public string Key { get; } = FullName + "[" + string.Join(",", Arguments.Select(IdentityKey)) + "]";
     }
 
     /// <summary>Interface identity across symbols and HiddenInterfaces.</summary>
@@ -575,7 +587,7 @@ public sealed partial class ModuleCodeGen
     private static readonly (string Table, string Type)[] s_boxedRuntimeTypes =
     [
         ("csrt_Boxed_Decimal_MT", "System.Decimal"), ("csrt_Boxed_TimeSpan_MT", "System.TimeSpan"),
-        ("csrt_Boxed_DateTime_MT", "System.DateTime"), ("csrt_Boxed_BigInteger_MT", "System.Numerics.BigInteger"),
+        ("csrt_Boxed_DateTime_MT", "System.DateTime"),
         ("csrt_Boxed_Int128_MT", "System.Int128"), ("csrt_Boxed_UInt128_MT", "System.UInt128"),
     ];
 
@@ -587,7 +599,7 @@ public sealed partial class ModuleCodeGen
     {
         var parameters = ChainArguments(owner);
         var parameter = (ITypeParameterSymbol)parameters[position];
-        var key = "typeparam:" + owner.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat) + ":" + position;
+        var key = "typeparam:" + IdentityKey(owner) + ":" + position;
         if (_arrayMethodTables.TryGetValue(key, out var existing)) return existing;
         var init = Llvm.ConstStruct(ExternalGlobal("csrt_Object_MT"), CString(parameter.Name), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0),
             LlvmContext.Null(Llvm.Ptr), Llvm.ConstInt(Llvm.I32, 0), Llvm.ConstInt(Llvm.I32, 0));
@@ -720,7 +732,7 @@ public sealed partial class ModuleCodeGen
             ConstructedGeneric = 1 << 20, GenericParameter = 1 << 21, ContainsGenericParameters = 1 << 22, Pointer = 1 << 23,
             SZArray = 1 << 24, VariableBoundArray = 1 << 25, TypeDefinition = 1 << 26, ByRefLike = 1 << 27, Nullable = 1 << 28,
             HasElementType = 1 << 29;
-        public const ulong ReferenceType = 1UL << 32, NoHierarchy = 1UL << 33,
+        public const ulong ReferenceType = 1UL << 32, NoHierarchy = 1UL << 33, Serializable = 1UL << 34,
             ArrayInterface = 1UL << 35, NoInterfaces = 1UL << 36, InterfacesInexact = 1UL << 37;
         public const int ElementClassShift = 40;
     }
@@ -738,6 +750,7 @@ public sealed partial class ModuleCodeGen
         ["IsGenericTypeParameter"] = TI.GenericParameter, ["ContainsGenericParameters"] = TI.ContainsGenericParameters,
         ["IsPointer"] = TI.Pointer, ["IsSZArray"] = TI.SZArray, ["IsVariableBoundArray"] = TI.VariableBoundArray,
         ["IsTypeDefinition"] = TI.TypeDefinition, ["IsByRefLike"] = TI.ByRefLike, ["HasElementType"] = TI.HasElementType,
+        ["IsSerializable"] = TI.Serializable,
     };
 
     private ulong TypeFlags(ITypeSymbol type)
@@ -745,7 +758,7 @@ public sealed partial class ModuleCodeGen
         switch (type)
         {
             case IArrayTypeSymbol array:
-                return TI.Class | TI.Public | TI.Sealed | TI.Array | TI.HasElementType | TI.ReferenceType
+                return TI.Class | TI.Public | TI.Sealed | TI.Array | TI.HasElementType | TI.ReferenceType | TI.Serializable
                     | (array.IsSZArray ? TI.SZArray : TI.VariableBoundArray) | (IsVisible(array.ElementType) ? TI.Visible : 0);
             case IPointerTypeSymbol pointer:
                 return TI.Class | TI.Public | TI.Pointer | TI.HasElementType | (IsVisible(pointer.PointedAtType) ? TI.Visible : 0);
@@ -785,6 +798,7 @@ public sealed partial class ModuleCodeGen
                 if (named.IsRefLikeType) f |= TI.ByRefLike;
                 if (named.OriginalDefinition.SpecialType == SpecialType.System_Nullable_T) f |= TI.Nullable;
                 if (named.IsReferenceType) f |= TI.ReferenceType;
+                if (IsSerializable(named)) f |= TI.Serializable;
                 if (!IsDef(named) && s_arrayInterfaces.Contains(Mangler.MetadataName(named.OriginalDefinition))) f |= TI.ArrayInterface;
                 f |= (ulong)ElementClass(named) << TI.ElementClassShift;
                 return f;
@@ -793,6 +807,28 @@ public sealed partial class ModuleCodeGen
                 return 0;
         }
     }
+
+    /// <summary>
+    /// Type.IsSerializable (#104), as .NET's: the [Serializable] flag of the type's metadata, or a type that is or derives from System.Enum or
+    /// System.Delegate (every enum and delegate type, which .NET counts as serializable whatever their flags say).
+    /// </summary>
+    private bool IsSerializable(INamedTypeSymbol type)
+    {
+        if (type.IsSerializable) return true;
+        // A framework type bound from a reference assembly: the implementation's flag (Frontend.FrameworkAttributes.IsSerializable).
+        var definition = type.OriginalDefinition;
+        if (definition.DeclaringSyntaxReferences.IsEmpty && definition.ContainingAssembly is { } assembly && Il.OwnerOf(definition) is null
+            && Frontend.FrameworkAttributes.IsSerializable(assembly.Name, MetadataFullName(definition)))
+            return true;
+        for (ITypeSymbol? t = type; t is not null; t = t.BaseType)
+            if (t.SpecialType is SpecialType.System_Enum or SpecialType.System_Delegate) return true;
+        return false;
+    }
+
+    /// <summary>"Ns.Outer+Inner`1": a type's full name as metadata stores it.</summary>
+    private static string MetadataFullName(INamedTypeSymbol type) =>
+        type.ContainingType is { } outer ? MetadataFullName(outer) + "+" + type.MetadataName
+            : type.ContainingNamespace is { IsGlobalNamespace: false } ns ? ns.ToDisplayString() + "." + type.MetadataName : type.MetadataName;
 
     /// <summary>Primitives that share array storage: int[] and uint[] (and enums over int) are castable to each other.</summary>
     private static int ElementClass(ITypeSymbol type) =>
@@ -808,9 +844,7 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>Type.IsVisible: public all the way out, and so are the type arguments.</summary>
     /// <summary>
-    /// A nested type's accessibility: the program's own private nested types are bound as internal when its
-    /// reflection-based JSON metadata is generated (JsonReflectionContexts.WithPrivateNestedTypesInternal), so
-    /// those read the real one from the assembly.
+    /// A nested type's accessibility, read from the assembly's own metadata (the binding compilation may see a private nested type as internal).
     /// </summary>
     private Accessibility NestedAccessibility(INamedTypeSymbol type)
     {
@@ -911,8 +945,12 @@ public sealed partial class ModuleCodeGen
                 return FullNameOf(pointer.PointedAtType, ref unknown) is { } p ? p + "*" : null;
             case INamedTypeSymbol named:
             {
-                if (CoreLib.IsCoreLib(named.OriginalDefinition)) unknown = true;  // corelib-internal: no .NET counterpart
                 var definition = Mangler.MetadataName(named.OriginalDefinition);
+                // A type of a framework slice (ADR 0023) the reference pack doesn't name, such as a private nested type
+                // (SemaphoreSlim+TaskNode): the slice copies CoreLib's types under a namespace prefix, so the name is .NET's without it.
+                // Any other corelib-internal type has no .NET counterpart.
+                // (Mangler.MetadataName already gives the name without the prefix.)
+                if (CoreLib.IsCoreLib(named.OriginalDefinition) && !IsSliceType(named.OriginalDefinition)) unknown = true;
                 var arguments = ChainArguments(named);
                 if (arguments.Count == 0 || IsDef(named)) return definition;
                 if (arguments.Any(TypeSubstitution.IsOpen)) return null;
@@ -929,6 +967,12 @@ public sealed partial class ModuleCodeGen
             default:
                 return null;
         }
+    }
+
+    private static bool IsSliceType(INamedTypeSymbol type)
+    {
+        while (type.ContainingType is { } outer) type = outer;
+        return type.ContainingNamespace.ToDisplayString().StartsWith(Frontend.UpstreamSlice.Prefix + ".", StringComparison.Ordinal);
     }
 
     private static string ArraySuffix(IArrayTypeSymbol array) =>
