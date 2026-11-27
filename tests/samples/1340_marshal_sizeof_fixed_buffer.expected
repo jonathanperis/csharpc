@@ -1,0 +1,8 @@
+Checkpoint 112 112 10 90 92
+Ints 20 20 4 16
+Wide 14 14 2 12
+Narrow 12 14 1 11
+Longs 32 32 8 24
+Bools 12 8 4 8
+Outer 24 4
+typeof 112

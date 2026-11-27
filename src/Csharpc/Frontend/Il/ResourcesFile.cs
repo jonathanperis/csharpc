@@ -108,8 +108,15 @@ public static class ResourcesFile
             14 => reader.ReadDecimal().ToString(invariant),
             15 or 16 => reader.ReadInt64().ToString(invariant), // DateTime / TimeSpan: their ticks
             32 or 33 => Convert.ToBase64String(reader.ReadBytes(reader.ReadInt32())), // byte[] and Stream: the bytes
-            // a preserialized user type: format 3 is "the type converter's string" (the text from the .resx)
-            >= StartOfUserTypes => format == 3 ? reader.ReadString() : null,
+            // a preserialized user type: format 3 is "the type converter's string" (the text from the .resx); formats 2 (the type
+            // converter's byte array) and 4 (the bytes of the stream for its constructor) are a 7-bit length and the bytes, as
+            // DeserializingResourceReader reads them (#300), kept as base64
+            >= StartOfUserTypes => format switch
+            {
+                3 => reader.ReadString(),
+                2 or 4 => Convert.ToBase64String(reader.ReadBytes(Read7BitEncodedInt(reader))),
+                _ => null,
+            },
             _ => null,
         };
     }

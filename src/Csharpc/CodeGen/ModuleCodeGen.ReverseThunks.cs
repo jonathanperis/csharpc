@@ -33,6 +33,9 @@ public sealed partial class ModuleCodeGen
         if (_reverseThunkTables.TryGetValue(type, out var existing)) return existing;
         var invoke = type.DelegateInvokeMethod!;
         var shape = MarshalledSignature(invoke, type, at);
+        // A struct by value needs the C ABI's classification: each slot's thunk takes the managed struct, and an adapter with
+        // the native signature ([UnmanagedCallersOnly]'s, ModuleCodeGen.NativeCalls.cs) rebuilds it and is what native code calls.
+        var abi = HasStructByValue(invoke) ? NativeShapeOf(invoke) : null;
         var entry = Llvm.Ptr;
         var tableType = Llvm.Struct(Types.NativeInt, LlvmContext.Array(entry, ReverseThunkSlots), LlvmContext.Array(entry, ReverseThunkSlots));
         var name = "csharpc.reversethunks." + Mangler.MetadataName(type);
@@ -46,8 +49,12 @@ public sealed partial class ModuleCodeGen
             {
                 var slot = i;
                 var thunk = SyntheticFunction($"{name}.thunk{i}", fnType, (g, syntax) => g.EmitReverseThunk(type, shape, table, slot, syntax));
-                AddNativeAbiAttributes(thunk, shape);
-                thunks.Add(thunk);
+                if (abi is null)
+                {
+                    AddNativeAbiAttributes(thunk, shape);
+                    thunks.Add(thunk);
+                }
+                else thunks.Add(CAbiAdapter(abi, invoke, thunk, fnType, $"{name}.cabi{i}"));
             }
             var zeros = Enumerable.Repeat(LlvmContext.Null(entry), ReverseThunkSlots).ToArray();
             Native.LLVMSetInitializer(table, Llvm.ConstStruct(Llvm.ConstInt(Types.NativeInt, ReverseThunkSlots),
@@ -68,6 +75,7 @@ public sealed partial class ModuleCodeGen
         if (_nativeInvokeThunks.TryGetValue(type, out var existing)) return existing;
         var invoke = type.DelegateInvokeMethod!;
         var shape = MarshalledSignature(invoke, type, at);
+        if (HasStructByValue(invoke)) return _nativeInvokeThunks[type] = StructNativeInvokeThunk(type, invoke);
         // The managed side calls delegates as fn(target, managed args...): the managed parameter types, not the C ones.
         List<LLVMTypeRef> managed = [Llvm.Ptr];
         foreach (var p in invoke.Parameters) managed.Add(p.RefKind == RefKind.None ? Types.Value(p.Type) : Llvm.Ptr);
@@ -101,7 +109,7 @@ public sealed partial class ModuleCodeGen
             }
             else
             {
-                if (!IsBlittable(p.Type) || p.Type is INamedTypeSymbol { TypeKind: TypeKind.Struct } ps && !IsPrimitiveLike(ps))
+                if (!IsBlittable(p.Type))
                     throw CompileError.Unsupported($"delegate '{type}' marshalled to native code: parameter '{p.Name}' of type '{p.Type}'", at);
                 native.Add(Types.Value(p.Type));
                 bools.Add(false);
@@ -114,11 +122,101 @@ public sealed partial class ModuleCodeGen
         else if (invoke.ReturnType.SpecialType == SpecialType.System_Boolean) { ret = Llvm.I32; boolReturn = true; }
         else
         {
-            if (!IsBlittable(invoke.ReturnType) || invoke.ReturnType is INamedTypeSymbol { TypeKind: TypeKind.Struct } rs && !IsPrimitiveLike(rs))
+            if (!IsBlittable(invoke.ReturnType))
                 throw CompileError.Unsupported($"delegate '{type}' marshalled to native code: return type '{invoke.ReturnType}'", at);
             ret = Types.Value(invoke.ReturnType);
         }
         return new MarshalledShape([.. native], ret, [.. bools], boolReturn, invoke);
+    }
+
+    private static bool HasStructByValue(IMethodSymbol invoke) =>
+        IsStructByValue(invoke.ReturnType) || invoke.Parameters.Any(p => p.RefKind == RefKind.None && IsStructByValue(p.Type));
+
+    /// <summary>
+    /// The native-ABI function in front of a slot's thunk whose signature has a struct by value: it rebuilds the structs from
+    /// their registers (or byval copies), calls the thunk with them, and returns the result the C way (registers or sret),
+    /// as an [UnmanagedCallersOnly] method's entry thunk does. BOOLs stay 4-byte ints, which the slot's thunk takes.
+    /// </summary>
+    private LLVMValueRef CAbiAdapter(NativeShape abi, IMethodSymbol invoke, LLVMValueRef inner, LLVMTypeRef innerType, string name)
+    {
+        var adapter = Module.AddFunction(name, NativeFunctionType(abi));
+        Native.LLVMSetLinkage(adapter, LLVMLinkage.Internal);
+        foreach (var (index, attribute) in NativeAttributes(abi, invoke)) Native.LLVMAddAttributeAtIndex(adapter, index, attribute);
+        using var b = new IrBuilder(Llvm);
+        b.PositionAtEnd(b.AppendBlock(adapter, "entry"));
+        var next = abi.Sret ? 1u : 0u;
+        List<LLVMValueRef> args = [];
+        foreach (var p in abi.Parameters)
+        {
+            switch (p.Kind)
+            {
+                case ParamKind.Direct or ParamKind.ByRef or ParamKind.Bool:
+                    args.Add(adapter.Param(next));
+                    break;
+                case ParamKind.Struct:
+                {
+                    var coerced = CoercedStruct(p.NativeTypes);
+                    var slot = b.Alloca(LargerOf(p.StructType, coerced), "abi");
+                    for (var k = 0; k < p.NativeTypes.Length; k++) b.Store(adapter.Param(next + (uint)k), b.StructGep(coerced, slot, (uint)k));
+                    args.Add(b.Load(p.StructType, slot));
+                    break;
+                }
+                case ParamKind.StructByVal:
+                    args.Add(b.Load(p.StructType, adapter.Param(next)));
+                    break;
+                default:
+                    throw CompileError.Unsupported($"'{p.Type}' in the signature of a delegate marshalled to native code", invoke);
+            }
+            next += (uint)p.NativeTypes.Length;
+        }
+        var result = b.Call(innerType, inner, [.. args]);
+        switch (abi.ReturnKind)
+        {
+            case ParamKind.Direct when invoke.ReturnsVoid:
+                b.RetVoid();
+                break;
+            case ParamKind.Direct or ParamKind.Bool:
+                b.Ret(result);
+                break;
+            case ParamKind.Struct:
+            {
+                var slot = b.Alloca(LargerOf(abi.ReturnStruct, abi.NativeReturn), "ret");
+                b.Store(result, slot);
+                b.Ret(b.Load(abi.NativeReturn, slot));
+                break;
+            }
+            case ParamKind.StructByVal:
+                b.Store(result, adapter.Param(0));
+                b.RetVoid();
+                break;
+            default:
+                throw CompileError.Unsupported($"'{invoke.ReturnType}' returned by a delegate marshalled to native code", invoke);
+        }
+        return adapter;
+    }
+
+    /// <summary>
+    /// `R thunk(ptr box, managed args...)` of a delegate wrapping a native function pointer whose signature has a struct by
+    /// value: the unmanaged function pointer call stub (NativeCallStub) does the C ABI.
+    /// </summary>
+    private LLVMValueRef StructNativeInvokeThunk(INamedTypeSymbol type, IMethodSymbol invoke)
+    {
+        var stub = NativeCallStub(invoke) ?? throw new InvalidOperationException("a struct signature always has a call stub");
+        List<LLVMTypeRef> managed = [Llvm.Ptr];
+        foreach (var p in invoke.Parameters) managed.Add(p.RefKind == RefKind.None ? Types.Value(p.Type) : Llvm.Ptr);
+        var fnType = Llvm.FunctionType(invoke.ReturnsVoid ? Llvm.Void : Types.Value(invoke.ReturnType), [.. managed]);
+        var thunk = Module.AddFunction("csharpc.nativeinvoke." + Mangler.MetadataName(type), fnType);
+        Native.LLVMSetLinkage(thunk, LLVMLinkage.Internal);
+        using var b = new IrBuilder(Llvm);
+        b.PositionAtEnd(b.AppendBlock(thunk, "entry"));
+        // The box holds the native pointer after its method-table word (see EmitNativeInvokeThunk).
+        var native = b.Load(Llvm.Ptr, b.InBoundsGep(Llvm.I8, thunk.Param(0), [Llvm.ConstInt(Llvm.I64, 8)]), "native");
+        List<LLVMValueRef> args = [native];
+        for (var i = 0; i < invoke.Parameters.Length; i++) args.Add(thunk.Param((uint)i + 1));
+        var result = b.Call(stub.Type, stub.Fn, [.. args]);
+        if (invoke.ReturnsVoid) b.RetVoid();
+        else b.Ret(result);
+        return thunk;
     }
 
     /// <summary>Sub-int arguments and results are extended by the caller (zeroext/signext), as clang declares them.</summary>

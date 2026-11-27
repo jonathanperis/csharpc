@@ -39,7 +39,7 @@ public sealed partial class ModuleCodeGen
 
     /// <summary>
     /// Which kinds of stored values the program's string resources include (corelib/Resources.cs): any non-string value ("\uFFFF\u0001type..."),
-    /// and any DeserializingResourceReader creates with a TypeConverter ("...\u00023\u0001text"). Constants for the corelib: without the first,
+    /// and any DeserializingResourceReader creates with a TypeConverter or a (Stream) constructor ("...\u00023\u0001text", formats 2 and 4 too). Constants for the corelib: without the first,
     /// ResourceManager's object creation (date, time-span, Guid parsing, the TypeConverters) is dead code, and without the second TypeDescriptor
     /// is, so a program that only constructs a ResourceManager (an EventSource's manifest builder takes one) does not link them.
     /// </summary>
@@ -54,7 +54,9 @@ public sealed partial class ModuleCodeGen
             if (v.StartsWith("\uFFFF\u0001", StringComparison.Ordinal))
             {
                 nonString = true;
-                if (v.Contains("\u00023\u0001", StringComparison.Ordinal)) { converter = true; break; }
+                // Formats 2 (the converter's byte array) and 4 (a stream for the constructor, #300) need the same machinery as 3.
+                if (v.Contains("\u00023\u0001", StringComparison.Ordinal) || v.Contains("\u00022\u0001", StringComparison.Ordinal)
+                    || v.Contains("\u00024\u0001", StringComparison.Ordinal)) { converter = true; break; }
             }
         return (nonString, converter);
     }

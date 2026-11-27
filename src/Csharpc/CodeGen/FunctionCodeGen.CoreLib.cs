@@ -67,13 +67,15 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef GetCapturedProperty(PropertyCapture pc)
     {
-        var getter = pc.Property.GetMethod ?? throw CompileError.Unsupported($"reading set-only property '{pc.Property.Name}'", pc.Property);
+        var getter = GetterOf(pc.Property) ?? throw CompileError.Unsupported($"reading set-only property '{pc.Property.Name}'", pc.Property);
         return CallAccessorDirect(getter, CapturedAccessorArgs(pc, getter, []));
     }
 
     private LLVMValueRef SetCapturedProperty(PropertyCapture pc, LLVMValueRef value)
     {
-        if (pc.Property.SetMethod is not { } setter)
+        // A getter-only override writes through the nearest overridden property's setter (as SetProperty does).
+        var setter = pc.Property.SetMethod ?? (pc.Property.IsOverride ? SetterOf(pc.Property) : null);
+        if (setter is null)
         {
             // Get-only auto-property assigned in a constructor: write its backing field.
             var field = BackingField(pc.Property);
@@ -170,6 +172,8 @@ public sealed partial class FunctionCodeGen
             "TryFaultAsyncTask" => CallRuntime("csrt_task_try_fault_async", L.I1, [L.Ptr, L.Ptr], args[0], args[1]),
             "CompareStringsWith" => CallRuntime("csrt_string_compare_with", L.I32, [L.Ptr, L.Ptr, L.I32], args[0], args[1], args[2]),
             "ResourceObjectHook" => ProgramHook("ResourceObject", target, args),
+            "ResourceObjectFromBytesHook" => ProgramHook("ResourceObjectFromBytes", target, args),
+            "ResourceObjectFromStreamHook" => ProgramHook("ResourceObjectFromStream", target, args),
             "HasConverterResources" => _m.HasConverterResources() ? L.True : L.False,
             "HasNonStringResources" => _m.HasNonStringResources() ? L.True : L.False,
             "NestedTypeTable" => _b.Call(_m.NestedTypesFunction().Type, _m.NestedTypesFunction().Fn, [args[0], args[1]]),

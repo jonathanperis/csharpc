@@ -42,7 +42,7 @@ public sealed partial class ModuleCodeGen
 
     public static bool IsPInvoke(IMethodSymbol method) => method.OriginalDefinition.GetDllImportData() is not null;
 
-    private enum ParamKind { Direct, Bool, Char, String, Array, ByRef, Struct, StructByVal }
+    private enum ParamKind { Direct, Bool, Char, String, Array, ByRef, Struct, StructByVal, SafeHandle, Delegate }
 
     /// <summary>
     /// Native string encodings (csrt_pinvoke_string_to/from_native): Ansi is the system ANSI code page
@@ -199,8 +199,17 @@ public sealed partial class ModuleCodeGen
         }
 
         // ---- marshal arguments ----
+        // SafeHandles first, in parameter order, before anything is allocated or add-ref'ed: a null or closed handle throws
+        // .NET's exception (ArgumentNullException "pHandle", ObjectDisposedException) and nothing needs undoing.
+        for (var i = 0; i < parameters.Count; i++)
+            if (parameters[i].Kind == ParamKind.SafeHandle)
+            {
+                var check = SafeHandleMarshalling("Check");
+                b.Call(check.Type, check.Fn, [stub.Param((uint)i)]);
+            }
         List<LLVMValueRef> args = [];
         List<LLVMValueRef> temps = [];
+        List<LLVMValueRef> addRefed = [];
         LLVMValueRef sretSlot = default;
         if (sret)
         {
@@ -228,6 +237,26 @@ public sealed partial class ModuleCodeGen
                     var nativeString = b.Call(toNative.Type, toNative.Fn, [value, Llvm.ConstInt(Llvm.I32, p.StringEncoding)]);
                     temps.Add(nativeString);
                     args.Add(nativeString);
+                    break;
+                }
+                case ParamKind.SafeHandle:
+                {
+                    // As .NET's marshaller: DangerousAddRef for the call, the handle's value, DangerousRelease after it.
+                    var addRef = SafeHandleMarshalling("AddRef");
+                    args.Add(b.Call(addRef.Type, addRef.Fn, [value]));
+                    addRefed.Add(value);
+                    break;
+                }
+                case ParamKind.Delegate:
+                {
+                    // One of the delegate type's reverse thunks, the pointer Marshal.GetFunctionPointerForDelegate hands out; null
+                    // stays null. The argument keeps the delegate alive for the call, as .NET's marshaller does; a callback kept
+                    // past the call is the caller's to keep alive, as in .NET.
+                    var thunks = Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".DelegateThunks")!
+                        .GetMembers("GetPointerOrNull").OfType<IMethodSymbol>().Single();
+                    var getPointer = GetFunction(thunks);
+                    var table = b.Cast(LLVMOpcode.PtrToInt, ReverseThunkTable((INamedTypeSymbol)p.Type, null!), Types.NativeInt);
+                    args.Add(b.Cast(LLVMOpcode.IntToPtr, b.Call(getPointer.Type, getPointer.Fn, [value, table]), Llvm.Ptr));
                     break;
                 }
                 case ParamKind.Array:
@@ -314,6 +343,11 @@ public sealed partial class ModuleCodeGen
         {
             var free = Runtime("csrt_pinvoke_free", Llvm.Void, Llvm.Ptr);
             b.Call(free.Type, free.Fn, [temp]);
+        }
+        foreach (var handle in addRefed)
+        {
+            var release = SafeHandleMarshalling("Release");
+            b.Call(release.Type, release.Fn, [handle]);
         }
         if (msgSendKind >= 0)
         {
@@ -435,8 +469,14 @@ public sealed partial class ModuleCodeGen
                     ? new NativeParam(ParamKind.Struct, type, eightbytes, StructType: llvmType)
                     : new NativeParam(ParamKind.StructByVal, type, [Llvm.Ptr], StructType: llvmType);
             }
+            // A SafeHandle by value: its handle value, add-ref'ed for the call (returning one or passing it by ref stays unsupported).
+            case INamedTypeSymbol { TypeKind: TypeKind.Class } handleType when IsSafeHandle(handleType):
+                return new NativeParam(ParamKind.SafeHandle, type, [Types.NativeInt]);
+            // A delegate is passed as a native-callable pointer to it (ModuleCodeGen.ReverseThunks.cs).
+            case INamedTypeSymbol { TypeKind: TypeKind.Delegate } marshalled when CanMarshalDelegate(marshalled):
+                return new NativeParam(ParamKind.Delegate, type, [Llvm.Ptr]);
             case INamedTypeSymbol { TypeKind: TypeKind.Delegate }:
-                throw CompileError.Unsupported("delegate P/Invoke parameters (use [UnmanagedCallersOnly] + function pointers)", p);
+                throw CompileError.Unsupported("generic delegate P/Invoke parameters (use [UnmanagedCallersOnly] + function pointers)", p);
             default:
                 if (type.IsReferenceType && type.SpecialType != SpecialType.None)
                     throw CompileError.Unsupported($"P/Invoke parameter of type '{type}'", p);
@@ -539,6 +579,16 @@ public sealed partial class ModuleCodeGen
     private bool IsByteOffsetStruct(INamedTypeSymbol s) =>
         IsUserType(s) && (GetStructLayout(s).ByteOffset is not null
             || InstanceFields(s).Any(f => f.Type is INamedTypeSymbol { TypeKind: TypeKind.Struct } inner && !IsPrimitiveLike(inner) && IsByteOffsetStruct(inner)));
+
+    private static bool IsSafeHandle(INamedTypeSymbol type)
+    {
+        for (INamedTypeSymbol? t = type; t is not null; t = t.BaseType)
+            if (t is { Name: "SafeHandle", ContainingNamespace: { Name: "InteropServices", ContainingNamespace: { Name: "Runtime", ContainingNamespace: { Name: "System", ContainingNamespace.IsGlobalNamespace: true } } } }) return true;
+        return false;
+    }
+
+    private LoweredFunction SafeHandleMarshalling(string name) =>
+        GetFunction(Compilation.GetTypeByMetadataName(CoreLib.Namespace + ".SafeHandleMarshalling")!.GetMembers(name).OfType<IMethodSymbol>().Single());
 
     private bool IsBlittable(ITypeSymbol type) => type switch
     {
