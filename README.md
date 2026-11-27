@@ -83,7 +83,7 @@ Not supported, by design (the same limits NativeAOT has): run-time code generati
 outside the closed world. Reflection works on the members `[DynamicallyAccessedMembers]` keeps, as in
 NativeAOT ([ADR 0018](docs/adr/0018-reflection-metadata.md)). `dynamic` is bound at compile time
 ([ADR 0019](docs/adr/0019-dynamic.md)) and expression trees are interpreted, as under NativeAOT. Not supported yet: parts of
-the BCL (the open lists are in the [roadmap](docs/06-roadmap.md)); TLS on macOS and Windows goes through OpenSSL.
+the BCL (the open lists are in the [roadmap](docs/06-roadmap.md)); TLS on Windows goes through OpenSSL (macOS uses .NET's own code over Security.framework, as NativeAOT does).
 Libraries that ship only IL
 (`-r X.dll`, `<Reference>`, NuGet packages) are compiled from their IL by the IL front-end
 ([ADR 0010](docs/adr/0010-il-frontend.md)), as far as the BCL surface they use is implemented; so is a
