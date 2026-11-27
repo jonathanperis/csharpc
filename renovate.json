@@ -40,9 +40,10 @@
       "automerge": false
     },
     {
-      "description": "CI stays on Ubuntu 24.04: csharpc targets LLVM 18-20 through the LLVM C API, and newer Ubuntu releases ship a newer LLVM. Revisit together with the LLVM version.",
+      "description": "CI and the container image stay on Ubuntu 24.04: csharpc targets LLVM 18-20 through the LLVM C API, and newer Ubuntu releases ship a newer LLVM (the Dockerfile installs clang-18/lld-18 from apt). Revisit together with the LLVM version.",
       "matchManagers": [
-        "github-actions"
+        "github-actions",
+        "dockerfile"
       ],
       "matchDepNames": [
         "ubuntu"
