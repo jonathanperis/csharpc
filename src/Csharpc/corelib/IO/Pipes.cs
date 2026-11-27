@@ -1,5 +1,7 @@
-// System.IO.Pipes: not implemented by csharpc yet. The types exist so code that mentions them compiles
-// (Kestrel's named-pipe transport, type tests); creating a pipe throws NotSupportedException.
+#if CSHARPC_TARGET_WINDOWS
+// System.IO.Pipes on Windows: not implemented by csharpc yet. The types exist so code that mentions them compiles
+// (Kestrel's named-pipe transport, type tests); creating a pipe throws NotSupportedException. On Linux and macOS the
+// framework's own System.IO.Pipes is compiled from IL over the libSystem.Native contract (#102).
 #nullable disable
 using System;
 using System.IO;
@@ -50,3 +52,4 @@ namespace CsharpcCoreLib
         public void Disconnect() => throw NotSupported();
     }
 }
+#endif
