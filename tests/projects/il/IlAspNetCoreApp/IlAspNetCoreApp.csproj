@@ -6,5 +6,8 @@
     <TargetFramework>net11.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <!-- Stated explicitly so `dotnet run` and csharpc agree: csharpc follows NativeAOT, where reflection-based JSON is off unless the
+         program opts in; a project that says nothing gets that under csharpc and reflection on under the JIT. -->
+    <JsonSerializerIsReflectionEnabledByDefault>false</JsonSerializerIsReflectionEnabledByDefault>
   </PropertyGroup>
 </Project>

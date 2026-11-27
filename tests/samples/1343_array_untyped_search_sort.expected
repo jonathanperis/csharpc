@@ -1,0 +1,65 @@
+objects IndexOf two: 1
+objects IndexOf null: 2
+objects IndexOf 1L: 6
+objects IndexOf (int)1 from 1: -1
+objects LastIndexOf two: 4
+objects LastIndexOf null 4: 2
+objects LastIndexOf null 4 2: -1
+strings IndexOf b 2 3: 3
+strings LastIndexOf a: 4
+ints IndexOf 5 1 3: 2
+ints IndexOf 5L: -1
+ints IndexOf null: -1
+ints LastIndexOf 5 3: 2
+doubles IndexOf NaN: 1
+doubles IndexOf -0.0: 0
+doubles LastIndexOf 0.0: 2
+colors IndexOf Blue: 1
+colors LastIndexOf Blue: 3
+colors IndexOf 2: -1
+pairs IndexOf: 2
+empty LastIndexOf: ArgumentOutOfRangeException Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'startIndex')
+IndexOf null array: ArgumentNullException Value cannot be null. (Parameter 'array')
+IndexOf start -1: ArgumentOutOfRangeException Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'startIndex')
+IndexOf start 6: ArgumentOutOfRangeException Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'startIndex')
+IndexOf start 5 count 0: -1
+IndexOf count -1: ArgumentOutOfRangeException Count must be positive and count must refer to a location within the string/array/collection. (Parameter 'count')
+IndexOf count 6: ArgumentOutOfRangeException Count must be positive and count must refer to a location within the string/array/collection. (Parameter 'count')
+IndexOf 2D: RankException Only single dimension arrays are supported here.
+LastIndexOf start 5: ArgumentOutOfRangeException Index was out of range. Must be non-negative and less than the size of the collection. (Parameter 'startIndex')
+LastIndexOf count -1: ArgumentOutOfRangeException Count must be positive and count must refer to a location within the string/array/collection. (Parameter 'count')
+LastIndexOf count 4 at 2: ArgumentOutOfRangeException endIndex cannot be greater than startIndex. (Parameter 'endIndex')
+Sort 1..4: 5,1,2,3,4,0
+Sort reverse: 5,4,3,2,1,0
+Sort by length (unstable order of equal keys): a,e,g,bb,dd,ccc,fff
+int[] untyped ranged sort: 9,8,7,6,5
+Sort length 6 at 1: ArgumentException Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.
+Sort index -1: ArgumentOutOfRangeException Non-negative number required. (Parameter 'index')
+Sort length -1: ArgumentOutOfRangeException Non-negative number required. (Parameter 'length')
+Sort throwing comparer: InvalidOperationException Failed to compare two elements in the array.
+Sort one element throwing comparer: sorted
+Sort 2D: RankException Only single dimension arrays are supported here.
+Sort 2D IComparer: RankException Only single dimension arrays are supported here.
+BinarySearch 2D: RankException Only single dimension arrays are supported here.
+Sort mixed types: InvalidOperationException Failed to compare two elements in the array.
+ArrayList IndexOf apple: 1
+ArrayList IndexOf apple 2: 4
+ArrayList IndexOf apple 2 2: -1
+ArrayList LastIndexOf apple: 4
+ArrayList LastIndexOf null 3 2: 2
+ArrayList Contains 7: True
+ArrayList IndexOf 9: -1
+ArrayList IndexOf out of range: ArgumentOutOfRangeException Index was out of range. Must be non-negative and less than or equal to the size of the collection. (Parameter 'startIndex')
+ArrayList sorted: apple,apple,fig,pear
+ArrayList ranged reverse: apple,fig,apple,pear
+ArrayList BinarySearch fig: 2
+ArrayList BinarySearch grape: -4
+ArrayList Sort mixed: InvalidOperationException Failed to compare two elements in the array.
+Adapter IndexOf y: 1
+Adapter LastIndexOf y: 3
+Adapter sorted: x,y,y,z
+Adapter reversed 0..1: y,x,y,z
+FixedSize sorted: 1,2,3
+FixedSize Add: NotSupportedException Collection was of a fixed size.
+ReadOnly Sort: NotSupportedException Collection is read-only.
+GetRange IndexOf 30: 1

@@ -39,13 +39,15 @@ internal static class CoreLibFacade
         {
             foreach (var name in names)
             {
-                if (s_facades.TryGetValue(name, out var cached)) { result.Add(cached); continue; }
+                // The facade forwards to the assemblies it is given, which differ when an implementation replaced a twin (TwinReference).
+                var paths = referencePack.OfType<PortableExecutableReference>().Select(r => r.FilePath).OfType<string>().ToList();
+                var key = name + "|" + string.Join("|", paths.Select(Path.GetFileName));
+                if (s_facades.TryGetValue(key, out var cached)) { result.Add(cached); continue; }
                 if (!File.Exists(Path.Combine(dir, name + ".dll"))) continue;
                 // The reference pack first; then the corelib, for public CoreLib types the pack doesn't have
                 // (System.Diagnostics.DebugProvider) that the corelib defines under the same name.
-                var paths = referencePack.OfType<PortableExecutableReference>().Select(r => r.FilePath).OfType<string>().ToList();
                 if (CoreLibAssembly.Current is { } corelib) paths.Add(corelib.Path);
-                result.Add(s_facades[name] = Build(name, Path.Combine(dir, name + ".dll"), paths));
+                result.Add(s_facades[key] = Build(name, Path.Combine(dir, name + ".dll"), paths));
             }
         }
         return result;

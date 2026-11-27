@@ -1,0 +1,4 @@
+# Collection<T>, ReadOnlyCollection<T>, ReadOnlyDictionary<TKey,TValue> (ADR 0023, #367; docs/il-first/System.Collections.ObjectModel.md).
+System.Collections.ObjectModel.Collection`1
+System.Collections.ObjectModel.ReadOnlyCollection`1
+System.Collections.ObjectModel.ReadOnlyDictionary`2

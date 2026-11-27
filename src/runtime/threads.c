@@ -149,11 +149,13 @@ typedef struct csrt_Thread {
     _Atomic int32_t state;
     bool background;
     bool parameterized;
+    int32_t priority_xor_normal; // Thread.Priority ^ ThreadPriority.Normal (2): the zero-initialised object reads Normal
     bool pool;               // a pool worker (always background)
     void* flow;              // the starting thread's execution-context flow (csrt_tl_flow), captured by Start
     atomic_bool interrupted; // Thread.Interrupt pending (consumed by the next interruptible wait)
-    pthread_cond_t* wait_cond;    // the interruptible wait in progress (under s_interrupt_lock), or NULL
+    pthread_cond_t* wait_cond;    // the interruptible wait in progress (under wait_guard), or NULL
     pthread_mutex_t* wait_mutex;
+    atomic_int wait_guard;        // 1 while wait_cond/wait_mutex are being changed or kicked
 } csrt_Thread;
 
 const csrt_BuiltinMethodTable csrt_Thread_MT = {
@@ -187,8 +189,38 @@ static int s_foreground;                       // started, unfinished foreground
 // without blocking, broadcasts the condition. It never blocks on that mutex (the interrupter may
 // own the monitor the target waits on), so waits also re-check the flag every INTERRUPT_POLL_MS.
 // ---------------------------------------------------------------------------------------------
+// A contended Enter (Monitor or System.Threading.Lock) spins this many pauses before it parks, as .NET's locks spin before they
+// block: a lock held for a few hundred cycles (SemaphoreSlim's count, BlockingCollection's hand-offs) is taken without the
+// futex sleep and wake a park costs (#350).
+#define CONTENDED_SPINS 64
+
+static inline void spin_pause(void) {
+#if defined(__x86_64__) || defined(__i386__)
+    __builtin_ia32_pause();
+#elif defined(__aarch64__)
+    __asm__ __volatile__("yield");
+#endif
+}
+
+/// Thread.SpinWait(iterations): that many processor pauses (none on WASI's one thread, where nothing else can change what the
+/// caller waits for). The framework's SpinWait spins min(2^count, Thread.OptimalMaxSpinWaitsPerSpinIteration) of them per SpinOnce.
+void csrt_thread_spin_wait(int32_t iterations) {
+#ifndef __wasi__
+    for (int32_t i = 0; i < iterations; i++) spin_pause();
+#else
+    (void)iterations;
+#endif
+}
+
 #define INTERRUPT_POLL_MS 50
-static pthread_mutex_t s_interrupt_lock = PTHREAD_MUTEX_INITIALIZER;
+
+// The interruptible wait a thread is in (wait_cond / wait_mutex) is guarded by a flag of that thread's own: registering it is
+// two uncontended exchanges on every Monitor.Wait and wait-handle wait, where a process-wide mutex made every waiting thread
+// contend with every other one (#350). The interrupter holds it while it kicks the wait.
+static inline void wait_guard_lock(csrt_Thread* t) {
+    while (atomic_exchange_explicit(&t->wait_guard, 1, memory_order_acquire)) spin_pause();
+}
+static inline void wait_guard_unlock(csrt_Thread* t) { atomic_store_explicit(&t->wait_guard, 0, memory_order_release); }
 
 static bool consume_interrupt(csrt_Thread* t) { return t && atomic_exchange(&t->interrupted, false); }
 
@@ -221,10 +253,10 @@ static int interruptible_wait_core(pthread_cond_t* cond, pthread_mutex_t* mutex,
     if (!t && !single) return deadline ? pthread_cond_timedwait(cond, mutex, deadline) : pthread_cond_wait(cond, mutex);
     if (t && consume_interrupt(t)) return EINTR;
     if (t && kick) {
-        pthread_mutex_lock(&s_interrupt_lock);
+        wait_guard_lock(t);
         t->wait_cond = cond;
         t->wait_mutex = mutex;
-        pthread_mutex_unlock(&s_interrupt_lock);
+        wait_guard_unlock(t);
     }
     int rc;
     for (;;) {
@@ -238,13 +270,19 @@ static int interruptible_wait_core(pthread_cond_t* cond, pthread_mutex_t* mutex,
         if (single) { rc = 0; break; }
     }
     if (t && kick) {
-        pthread_mutex_lock(&s_interrupt_lock);
+        wait_guard_lock(t);
         t->wait_cond = NULL;
         t->wait_mutex = NULL;
-        pthread_mutex_unlock(&s_interrupt_lock);
+        wait_guard_unlock(t);
     }
     if (t && rc == EINTR) atomic_store(&t->interrupted, false);
     return rc;
+}
+
+/// A wait that was pulsed and interrupted at once returns as pulsed; the interrupt that interruptible_wait_core consumed stays
+/// pending for the thread's next blocking call, as in .NET, instead of being lost (#350).
+static void keep_interrupt_if(int rc) {
+    if (rc == EINTR && tl_current) atomic_store(&tl_current->interrupted, true);
 }
 
 CSRT_THROWS static void throw_interrupted(void) {
@@ -254,12 +292,12 @@ CSRT_THROWS static void throw_interrupted(void) {
 void csrt_thread_interrupt(csrt_Thread* t) {
     if (!t) csrt_throw_null_reference();
     atomic_store(&t->interrupted, true);
-    pthread_mutex_lock(&s_interrupt_lock);
+    wait_guard_lock(t);
     if (t->wait_cond && pthread_mutex_trylock(t->wait_mutex) == 0) {
         pthread_cond_broadcast(t->wait_cond);
         pthread_mutex_unlock(t->wait_mutex);
     }
-    pthread_mutex_unlock(&s_interrupt_lock);
+    wait_guard_unlock(t);
 }
 
 /// Thread.Sleep on a thread that can be interrupted: a wait on a condition nobody signals.
@@ -358,7 +396,7 @@ static void spawn(csrt_Thread* t) {
     }
 }
 
-static void thread_start(csrt_Thread* t, void* parameter, bool has_parameter) {
+static void thread_start(csrt_Thread* t, void* parameter, bool has_parameter, bool flow) {
     if (!t) csrt_throw_null_reference();
 #ifdef __wasi__
     // Like .NET's single-threaded WebAssembly builds (docs/adr/0011-wasm32.md).
@@ -376,12 +414,15 @@ static void thread_start(csrt_Thread* t, void* parameter, bool has_parameter) {
     if (!t->background) s_foreground++;
     pthread_mutex_unlock(&s_join_lock);
     CSRT_STORE_REF(t->parameter, parameter);
-    CSRT_STORE_REF(t->flow, csrt_flow_capture());  // like .NET's ExecutionContext capture in Thread.Start
+    // Thread.Start captures the ExecutionContext like .NET; UnsafeStart runs the thread on the default context.
+    CSRT_STORE_REF(t->flow, flow ? csrt_flow_capture() : NULL);
     spawn(t);
 }
 
-void csrt_thread_start(csrt_Thread* t) { thread_start(t, NULL, false); }
-void csrt_thread_start_with(csrt_Thread* t, void* parameter) { thread_start(t, parameter, true); }
+void csrt_thread_start(csrt_Thread* t) { thread_start(t, NULL, false, true); }
+void csrt_thread_start_with(csrt_Thread* t, void* parameter) { thread_start(t, parameter, true, true); }
+void csrt_thread_unsafe_start(csrt_Thread* t) { thread_start(t, NULL, false, false); }
+void csrt_thread_unsafe_start_with(csrt_Thread* t, void* parameter) { thread_start(t, parameter, true, false); }
 
 bool csrt_thread_join_timeout(csrt_Thread* t, int32_t ms) {
     if (!t) csrt_throw_null_reference();
@@ -418,6 +459,23 @@ bool csrt_thread_is_alive(csrt_Thread* t) {
 }
 
 int32_t csrt_thread_id(csrt_Thread* t) { if (!t) csrt_throw_null_reference(); return t->id; }
+
+// Thread.Priority (#97): kept per thread and reported back, as .NET on Linux (which leaves the OS priority alone without privileges);
+// .NET's errors: a value outside the enum first, then a thread that has finished.
+static void priority_check_alive(csrt_Thread* t) {
+    if (atomic_load(&t->state) == THREAD_STOPPED) throw_msg(&mt_thread_state, "Thread is dead; priority cannot be accessed.");
+}
+int32_t csrt_thread_get_priority(csrt_Thread* t) {
+    if (!t) csrt_throw_null_reference();
+    priority_check_alive(t);
+    return t->priority_xor_normal ^ 2;
+}
+void csrt_thread_set_priority(csrt_Thread* t, int32_t priority) {
+    if (!t) csrt_throw_null_reference();
+    if ((uint32_t)priority > 4) throw_msg(&mt_argument_out_of_range, "Value of flags is invalid.");
+    priority_check_alive(t);
+    t->priority_xor_normal = priority ^ 2;
+}
 csrt_String* csrt_thread_get_name(csrt_Thread* t) { if (!t) csrt_throw_null_reference(); return t->name; }
 /// The OS-level name of the calling thread (what top, perf and debuggers show), as .NET sets it on
 /// Linux: the first 15 characters (the kernel's limit), non-ASCII as '?'.
@@ -463,43 +521,48 @@ void csrt_threads_wait_foreground(void) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Monitors (`lock`, Monitor.*, System.Threading.Lock). The GC never moves objects, so a side
-// table keyed by address works; an entry lives while some thread holds, enters or waits for it.
+// Monitors (`lock`, Monitor.*, System.Threading.Lock). The GC never moves objects, so a side table keyed by address works.
 //
-// Every field of an entry is guarded by its bucket's lock, which is also the mutex its condition
-// variables wait with: an uncontended Enter/Exit pair is one short critical section each, with no
-// allocation (released entries go to the bucket's spare list, their condition variables still
-// initialized). Kestrel and System.IO.Pipelines take a lock on every read, write and flush, so this
-// is on the request path; the previous design (a pthread mutex per entry, calloc'd on every Enter and
-// freed on every Exit, four bucket-lock round trips) cost more than the work it protected.
+// A thin lock in the table (#350): an entry stays for as long as its object lives, so Enter and Exit find it without the
+// bucket lock and take or release the monitor with one atomic operation on its owner field, as NativeAOT's thin lock does in
+// the object header. The bucket lock is taken only to add an entry, to put a thread to sleep (contended Enter, Wait) and to
+// wake one (Exit with sleepers, Pulse); it is also the mutex the entry's condition variables wait with. Entries are never
+// unlinked, so a chain can be walked while another thread adds to it; the collector turns the entries of objects that died
+// into tombstones (csrt_monitors_prune, with the world stopped), which the next entry added to that bucket reuses. A thread
+// that uses an entry holds a reference to its object, so the object, and the entry, outlive that use. The previous design
+// took the bucket lock twice per lock/unlock pair and freed the entry when the last holder left: `lock` cost 26-30 ns
+// uncontended where NativeAOT's costs 9-10, and BlockingCollection's producers and consumers made 1.2 M futex calls where
+// NativeAOT made 1.2 k.
 // ---------------------------------------------------------------------------------------------
 // A thread in Monitor.Wait, queued in arrival order: Pulse releases the first one, PulseAll all of them,
 // as .NET's waiting queue does. The released flag is the condition a waiter re-checks, so a wakeup
 // that a timed-out wait of the condition variable swallows (glibc may hand a signal to a waiter whose
-// timeout expires at the same moment) or a spurious one never loses or invents a pulse.
+// timeout expires at the same moment) or a spurious one never loses or invents a pulse. Each waiter
+// sleeps on a condition variable of its own, so Pulse wakes the one thread it releases; with one
+// variable per monitor, every Pulse was a broadcast that woke all the waiters to find one released (#350).
 typedef struct MonitorWaiter {
     struct MonitorWaiter* next;
     bool released;
+    pthread_cond_t cond;
 } MonitorWaiter;
 
 typedef struct Monitor {
-    void* obj;
-    pthread_t owner;
-    int recursion;            // 0: free
-    int interest;             // threads owning, entering or waiting: the entry lives while > 0
-    int entering;             // threads blocked in Enter (or reacquiring after Wait) on `released`
+    void* obj;                // atomic: the object, or NULL for a tombstone (published with release, read with acquire)
+    int32_t owner;            // atomic: the owning thread's lock id, 0 when free
+    int32_t recursion;        // the owner's count
+    int32_t entering;         // atomic: threads asleep (or about to be) in Enter or reacquiring after Wait, on `released`
+    int32_t interest;         // threads parked on a System.Threading.Lock here (bucket lock)
     pthread_cond_t released;  // the owner left
-    pthread_cond_t cond;      // Monitor.Wait / Pulse (broadcast; each waiter checks its own flag)
     pthread_cond_t lock_released;  // a System.Threading.Lock with waiters parked here was released
-    MonitorWaiter* waiters;   // waiting threads, oldest first (guarded by the bucket lock)
-    struct Monitor* next;
+    MonitorWaiter* waiters;   // waiting threads, oldest first (bucket lock)
+    MonitorWaiter* lock_waiters;  // threads in Lock.Wait on a System.Threading.Lock (its own condition, not Monitor.Wait's)
+    struct Monitor* next;     // set before the entry is published, never changed afterwards
 } Monitor;
 
 #define MONITOR_BUCKETS 256
 typedef struct {
     _Alignas(64) pthread_mutex_t lock;  // one cache line per bucket: unrelated locks don't share it
-    Monitor* head;
-    Monitor* spare;
+    Monitor* head;                      // atomic: entries are pushed here (bucket lock) and read without it
 } MonitorBucket;
 // A zeroed pthread mutex is an initialized one with glibc, Windows' SRW locks and WASI's emulation, so
 // the table lives in .bss and needs no initialization pass; macOS's initializer isn't all zeros.
@@ -518,113 +581,150 @@ static inline MonitorBucket* bucket_of(void* obj) {
     return &s_monitors[((uintptr_t)obj >> 4) * 0x9E3779B97F4A7C15ull >> 56];
 }
 
-/// A new entry for obj: a spare one, or a fresh one the first time a bucket needs it.
-__attribute__((noinline)) static Monitor* monitor_new(MonitorBucket* b, void* obj) {
-    Monitor* m = b->spare;
-    if (m) b->spare = m->next;
-    else {
+// A small number per thread (0 = none yet): the owner field of monitors and of System.Threading.Lock objects.
+static _Thread_local __attribute__((tls_model("local-exec"))) int32_t tl_lock_id;
+static int32_t s_lock_ids;
+
+static inline int32_t lock_id(void) {
+    int32_t id = tl_lock_id;
+    if (__builtin_expect(id == 0, 0)) id = tl_lock_id = __atomic_add_fetch(&s_lock_ids, 1, __ATOMIC_RELAXED);
+    return id;
+}
+
+/// The entry of obj, found without the bucket lock; NULL when there is none yet.
+static inline Monitor* monitor_lookup(MonitorBucket* b, void* obj) {
+    for (Monitor* m = __atomic_load_n(&b->head, __ATOMIC_ACQUIRE); m; m = m->next)
+        if (__atomic_load_n(&m->obj, __ATOMIC_ACQUIRE) == obj) return m;
+    return NULL;
+}
+
+/// The entry of obj, added if there is none (bucket locked): a tombstone of the bucket is reused, else a new one is pushed.
+static Monitor* monitor_find(MonitorBucket* b, void* obj, bool create) {
+    Monitor* tomb = NULL;
+    for (Monitor* m = b->head; m; m = m->next) {
+        void* o = __atomic_load_n(&m->obj, __ATOMIC_RELAXED);
+        if (o == obj) return m;
+        if (!o && !tomb) tomb = m;
+    }
+    if (!create) return NULL;
+    Monitor* m = tomb;
+    if (!m) {
         m = calloc(1, sizeof *m);
         if (!m) abort();
 #ifdef __APPLE__
         // Zeroed condition variables are initialized ones elsewhere (glibc, Windows, WASI), as the mutexes.
         pthread_cond_init(&m->released, NULL);
-        pthread_cond_init(&m->cond, NULL);
         pthread_cond_init(&m->lock_released, NULL);
 #endif
     }
-    m->obj = obj;
-    m->recursion = m->interest = m->entering = 0;
-    m->waiters = NULL;
-    m->next = b->head;
-    b->head = m;
+    m->recursion = m->interest = 0;
+    __atomic_store_n(&m->owner, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&m->entering, 0, __ATOMIC_RELAXED);
+    m->waiters = m->lock_waiters = NULL;
+    __atomic_store_n(&m->obj, obj, __ATOMIC_RELEASE);
+    if (!tomb) {
+        m->next = b->head;
+        __atomic_store_n(&b->head, m, __ATOMIC_RELEASE);
+    }
     return m;
 }
 
-static Monitor* monitor_find(MonitorBucket* b, void* obj, bool create) {
-    Monitor* m = b->head;
-    while (m && m->obj != obj) m = m->next;
-    return m || !create ? m : monitor_new(b, obj);
-}
-
-/// Drops one thread's interest; the last one moves the entry to the spare list.
-__attribute__((noinline)) static void monitor_release_interest(MonitorBucket* b, Monitor* m) {
-    if (--m->interest > 0) return;
-    for (Monitor** p = &b->head; *p; p = &(*p)->next)
-        if (*p == m) { *p = m->next; break; }
-    m->obj = NULL;
-    m->waiters = NULL;
-    m->next = b->spare;
-    b->spare = m;
-}
-
-static inline bool monitor_owned_by_self(const Monitor* m) {
-    return m && m->recursion > 0 && pthread_equal(m->owner, pthread_self());
-}
-
-
-/// Enter / TryEnter when another thread owns the monitor: wait for it (unlocks the bucket).
-static bool monitor_acquire_contended(MonitorBucket* b, Monitor* m, int32_t ms) {
-    if (ms == 0) {
-        monitor_release_interest(b, m);
-        pthread_mutex_unlock(&b->lock);
-        return false;
-    }
-    if (m->recursion > 0) {
-        struct timespec deadline;
-        if (ms > 0) deadline_after(&deadline, ms);
-        m->entering++;
-        while (m->recursion > 0) {
-            if (ms < 0) pthread_cond_wait(&m->released, &b->lock);
-            else if (pthread_cond_timedwait(&m->released, &b->lock, &deadline) == ETIMEDOUT && m->recursion > 0) {
-                m->entering--;
-                monitor_release_interest(b, m);
-                pthread_mutex_unlock(&b->lock);
-                return false;
-            }
-        }
-        m->entering--;
-    }
-    m->owner = pthread_self();
-    m->recursion = 1;
+/// The entry of obj, adding it (under the bucket lock) the first time obj is locked.
+static inline Monitor* monitor_get(MonitorBucket* b, void* obj) {
+    Monitor* m = monitor_lookup(b, obj);
+    if (__builtin_expect(m != NULL, 1)) return m;
+    pthread_mutex_lock(&b->lock);
+    m = monitor_find(b, obj, true);
     pthread_mutex_unlock(&b->lock);
-    return true;
+    return m;
+}
+
+/// A System.Threading.Lock parked on this entry no longer needs it (bucket locked). The entry stays: the collector reclaims it.
+static void monitor_release_interest(MonitorBucket* b, Monitor* m) {
+    (void)b;
+    m->interest--;
+}
+
+/// With the world stopped, after marking: the entries of objects that died become tombstones (csrt_gc_object_alive is the
+/// collector's marked test). An entry still in use (owned, slept on, waited on, or parked on by a Lock) belongs to a live object anyway.
+bool csrt_gc_object_alive(uintptr_t obj);  // gc.c
+void csrt_monitors_prune(void) {
+    for (int i = 0; i < MONITOR_BUCKETS; i++)
+        for (Monitor* m = s_monitors[i].head; m; m = m->next) {
+            void* o = m->obj;
+            if (!o || csrt_gc_object_alive((uintptr_t)o)) continue;
+            if (m->owner || m->entering || m->interest || m->waiters || m->lock_waiters) continue;
+            __atomic_store_n(&m->obj, NULL, __ATOMIC_RELAXED);
+        }
+}
+
+static inline bool monitor_try_take(Monitor* m, int32_t self) {
+    int32_t expected = 0;
+    return __atomic_compare_exchange_n(&m->owner, &expected, self, false, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
+}
+
+/// Enter / TryEnter when another thread owns the monitor: spin a little, then sleep on `released` until the owner leaves.
+__attribute__((noinline)) static bool monitor_acquire_contended(MonitorBucket* b, Monitor* m, int32_t self, int32_t ms) {
+    if (ms == 0) return false;
+    for (int i = 0; i < CONTENDED_SPINS; i++) {
+        spin_pause();
+        if (__atomic_load_n(&m->owner, __ATOMIC_RELAXED) == 0 && monitor_try_take(m, self)) return true;
+    }
+    struct timespec deadline;
+    if (ms > 0) deadline_after(&deadline, ms);
+    pthread_mutex_lock(&b->lock);
+    // Counted before the last attempt (both sequentially consistent): an Exit that frees the monitor after that attempt fails
+    // sees the sleeper and signals, and it can't signal before this thread sleeps, since that needs the bucket lock.
+    __atomic_add_fetch(&m->entering, 1, __ATOMIC_SEQ_CST);
+    bool acquired = false;
+    for (;;) {
+        if (monitor_try_take(m, self)) { acquired = true; break; }
+        if (ms < 0) pthread_cond_wait(&m->released, &b->lock);
+        else if (pthread_cond_timedwait(&m->released, &b->lock, &deadline) == ETIMEDOUT) {
+            acquired = monitor_try_take(m, self);
+            break;
+        }
+    }
+    __atomic_sub_fetch(&m->entering, 1, __ATOMIC_SEQ_CST);
+    pthread_mutex_unlock(&b->lock);
+    return acquired;
 }
 
 /// Enter (ms < 0), TryEnter (ms == 0) or TryEnter with a timeout. The caller checked obj.
-static bool monitor_acquire(void* obj, int32_t ms) {
+static inline bool monitor_acquire(void* obj, int32_t ms) {
     MonitorBucket* b = bucket_of(obj);
-    pthread_mutex_lock(&b->lock);
-    Monitor* m = monitor_find(b, obj, true);
-    if (m->recursion > 0) {
-        if (!pthread_equal(m->owner, pthread_self())) {
-            m->interest++;
-            return monitor_acquire_contended(b, m, ms);
-        }
-        m->recursion++;
-    } else {
-        m->interest++;
-        m->owner = pthread_self();
-        m->recursion = 1;
-    }
-    pthread_mutex_unlock(&b->lock);
+    Monitor* m = monitor_get(b, obj);
+    int32_t self = lock_id();
+    if (__builtin_expect(monitor_try_take(m, self), 1)) { m->recursion = 1; return true; }
+    if (__atomic_load_n(&m->owner, __ATOMIC_RELAXED) == self) { m->recursion++; return true; }
+    if (!monitor_acquire_contended(b, m, self, ms)) return false;
+    m->recursion = 1;
     return true;
 }
 
-/// Exit: false (nothing changed) when the calling thread doesn't own the monitor.
-static bool monitor_exit(void* obj) {
-    MonitorBucket* b = bucket_of(obj);
+__attribute__((noinline)) static void monitor_wake(MonitorBucket* b, Monitor* m) {
     pthread_mutex_lock(&b->lock);
-    Monitor* m = monitor_find(b, obj, false);
-    if (!monitor_owned_by_self(m)) {
-        pthread_mutex_unlock(&b->lock);
-        return false;
-    }
-    if (m->recursion == 1) {
-        m->recursion = 0;
-        if (m->entering) pthread_cond_signal(&m->released);
-        monitor_release_interest(b, m);
-    } else m->recursion--;
+    pthread_cond_signal(&m->released);
     pthread_mutex_unlock(&b->lock);
+}
+
+/// Releases the monitor m that the calling thread owns completely (recursion already dropped), waking a sleeper if there is one.
+static inline void monitor_release(MonitorBucket* b, Monitor* m) {
+    __atomic_store_n(&m->owner, 0, __ATOMIC_SEQ_CST);
+    if (__atomic_load_n(&m->entering, __ATOMIC_SEQ_CST) > 0) monitor_wake(b, m);
+}
+
+static inline Monitor* monitor_owned(MonitorBucket* b, void* obj) {
+    Monitor* m = monitor_lookup(b, obj);
+    return m && __atomic_load_n(&m->owner, __ATOMIC_RELAXED) == lock_id() ? m : NULL;
+}
+
+/// Exit: false (nothing changed) when the calling thread doesn't own the monitor.
+static inline bool monitor_exit(void* obj) {
+    MonitorBucket* b = bucket_of(obj);
+    Monitor* m = monitor_owned(b, obj);
+    if (!m) return false;
+    if (--m->recursion == 0) monitor_release(b, m);
     return true;
 }
 
@@ -645,28 +745,22 @@ bool csrt_monitor_try_enter(void* obj, int32_t ms) {
 
 void csrt_monitor_exit(void* obj) {
     check_obj(obj);
-    if (!monitor_exit(obj)) throw_msg(&mt_sync_lock, k_unsynchronized);
+    // .NET 11's Monitor.Exit says this (its monitors are Lock objects); Wait and Pulse keep the older message.
+    if (!monitor_exit(obj)) throw_msg(&mt_sync_lock, "The calling thread does not hold the lock.");
 }
 
 bool csrt_monitor_is_entered(void* obj) {
     check_obj(obj);
-    MonitorBucket* b = bucket_of(obj);
-    pthread_mutex_lock(&b->lock);
-    bool result = monitor_owned_by_self(monitor_find(b, obj, false));
-    pthread_mutex_unlock(&b->lock);
-    return result;
+    return monitor_owned(bucket_of(obj), obj) != NULL;
 }
 
 /// The calling thread's monitor of obj, with its bucket locked; throws (unlocked) if it isn't the owner.
 static Monitor* owned_monitor_locked(void* obj, MonitorBucket** bucket) {
     check_obj(obj);
     MonitorBucket* b = bucket_of(obj);
+    Monitor* m = monitor_owned(b, obj);
+    if (!m) throw_msg(&mt_sync_lock, k_unsynchronized);
     pthread_mutex_lock(&b->lock);
-    Monitor* m = monitor_find(b, obj, false);
-    if (!monitor_owned_by_self(m)) {
-        pthread_mutex_unlock(&b->lock);
-        throw_msg(&mt_sync_lock, k_unsynchronized);
-    }
     *bucket = b;
     return m;
 }
@@ -681,33 +775,38 @@ static void remove_waiter(Monitor* m, MonitorWaiter* w) {
 bool csrt_monitor_wait(void* obj, int32_t ms) {
     MonitorBucket* b;
     Monitor* m = owned_monitor_locked(obj, &b);
-    int recursion = m->recursion;
-    // The owner's interest carries over to the waiting thread: the entry stays. Releasing ownership
-    // first lets a blocked Enter run and Pulse this waiter; the bucket lock is held until the wait,
-    // so the waiter is queued before any Pulse can run.
-    m->recursion = 0;
-    if (m->entering) pthread_cond_signal(&m->released);
+    int32_t self = lock_id();
+    int32_t recursion = m->recursion;
+    // Queued before the monitor is released, under the bucket lock until the wait: a Pulse needs the monitor and then the bucket
+    // lock, so it can't run before this waiter sleeps. A sleeper in Enter is woken directly (monitor_wake would take the bucket
+    // lock again).
     struct timespec d;
     if (ms >= 0) deadline_after(&d, ms);
-    MonitorWaiter self = { NULL, false };
+    MonitorWaiter self_waiter = { NULL, false };
+    pthread_cond_init(&self_waiter.cond, NULL);
     MonitorWaiter** tail = &m->waiters;
     while (*tail) tail = &(*tail)->next;
-    *tail = &self;
+    *tail = &self_waiter;
+    m->recursion = 0;
+    __atomic_store_n(&m->owner, 0, __ATOMIC_SEQ_CST);
+    if (__atomic_load_n(&m->entering, __ATOMIC_SEQ_CST) > 0) pthread_cond_signal(&m->released);
     int rc = 0;
-    while (!self.released) {
+    while (!self_waiter.released) {
         // Each return of the condition wait (pulse, interrupt kick, poll slice, spurious) re-checks the
         // flag. The bucket lock is the mutex the condition waits with.
-        rc = interruptible_wait_core(&m->cond, &b->lock, ms < 0 ? NULL : &d, true, true);
-        if (self.released) { rc = 0; break; }
-        if (rc == EINTR || rc == ETIMEDOUT) { remove_waiter(m, &self); break; }
+        rc = interruptible_wait_core(&self_waiter.cond, &b->lock, ms < 0 ? NULL : &d, true, true);
+        if (self_waiter.released) { keep_interrupt_if(rc); rc = 0; break; }
+        if (rc == EINTR || rc == ETIMEDOUT) { remove_waiter(m, &self_waiter); break; }
     }
     // Reacquire before returning or throwing, as .NET's Wait does. Enter itself is not interruptible.
-    m->entering++;
-    while (m->recursion > 0) pthread_cond_wait(&m->released, &b->lock);
-    m->entering--;
-    m->owner = pthread_self();
+    __atomic_add_fetch(&m->entering, 1, __ATOMIC_SEQ_CST);
+    while (!monitor_try_take(m, self)) pthread_cond_wait(&m->released, &b->lock);
+    __atomic_sub_fetch(&m->entering, 1, __ATOMIC_SEQ_CST);
     m->recursion = recursion;
     pthread_mutex_unlock(&b->lock);
+    // No one signals it any more: Pulse dequeued this waiter (or the wait removed itself) under the bucket lock, and the
+    // interrupt registration ended inside the wait.
+    pthread_cond_destroy(&self_waiter.cond);
     if (rc == EINTR) throw_interrupted();
     return rc != ETIMEDOUT;
 }
@@ -719,7 +818,7 @@ void csrt_monitor_pulse(void* obj) {
         MonitorWaiter* w = m->waiters;
         m->waiters = w->next;
         w->released = true;
-        pthread_cond_broadcast(&m->cond);
+        pthread_cond_signal(&w->cond);
     }
     pthread_mutex_unlock(&b->lock);
 }
@@ -727,9 +826,11 @@ void csrt_monitor_pulse(void* obj) {
 void csrt_monitor_pulse_all(void* obj) {
     MonitorBucket* b;
     Monitor* m = owned_monitor_locked(obj, &b);
-    for (MonitorWaiter* w = m->waiters; w; w = w->next) w->released = true;
+    for (MonitorWaiter* w = m->waiters; w; w = w->next) {
+        w->released = true;
+        pthread_cond_signal(&w->cond);
+    }
     m->waiters = NULL;
-    pthread_cond_broadcast(&m->cond);
     pthread_mutex_unlock(&b->lock);
 }
 
@@ -756,15 +857,6 @@ const csrt_BuiltinMethodTable csrt_Lock_MT = {
 
 void* csrt_lock_new(void) { return csrt_alloc(&csrt_Lock_MT.header, sizeof(LockObject)); }
 
-static _Thread_local __attribute__((tls_model("local-exec"))) int32_t tl_lock_id;
-static int32_t s_lock_ids;
-
-static inline int32_t lock_id(void) {
-    int32_t id = tl_lock_id;
-    if (__builtin_expect(id == 0, 0)) id = tl_lock_id = __atomic_add_fetch(&s_lock_ids, 1, __ATOMIC_RELAXED);
-    return id;
-}
-
 static inline bool lock_try_acquire(LockObject* l, int32_t self) {
     int32_t expected = 0;
     return __atomic_compare_exchange_n(&l->owner, &expected, self, false, __ATOMIC_SEQ_CST, __ATOMIC_RELAXED);
@@ -772,12 +864,8 @@ static inline bool lock_try_acquire(LockObject* l, int32_t self) {
 
 __attribute__((noinline)) static bool lock_enter_contended(LockObject* l, int32_t self, int32_t ms) {
     if (ms == 0) return false;
-    for (int i = 0; i < 64; i++) {
-#if defined(__x86_64__) || defined(__i386__)
-        __builtin_ia32_pause();
-#elif defined(__aarch64__)
-        __asm__ __volatile__("yield");
-#endif
+    for (int i = 0; i < CONTENDED_SPINS; i++) {
+        spin_pause();
         if (__atomic_load_n(&l->owner, __ATOMIC_RELAXED) == 0 && lock_try_acquire(l, self)) goto acquired;
     }
     {
@@ -835,6 +923,73 @@ void csrt_lock_exit(void* lock) {
     if (__atomic_load_n(&l->waiters, __ATOMIC_SEQ_CST) > 0) lock_wake(l);
 }
 
+// Lock.Wait / Pulse / PulseAll: CoreLib-internal condition operations of System.Threading.Lock that the framework's
+// ManualResetEventSlim waits with (#414). As Monitor.Wait: the waiter queues on the Lock's monitor-table entry (its own list,
+// so Monitor.Wait on the same object stays separate), releases the Lock completely (even held recursively), sleeps on a
+// condition variable of its own until a Pulse dequeues it, the timeout passes or Thread.Interrupt ends the wait, and takes
+// the Lock back with its recursion before returning or throwing.
+bool csrt_lock_wait(void* lock, int32_t ms) {
+    if (!lock) csrt_throw_null_reference();
+    LockObject* l = lock;
+    int32_t self_id = lock_id();
+    if (__atomic_load_n(&l->owner, __ATOMIC_RELAXED) != self_id) throw_msg(&mt_sync_lock, "The calling thread does not hold the lock.");
+    MonitorBucket* b = bucket_of(l);
+    pthread_mutex_lock(&b->lock);
+    Monitor* m = monitor_find(b, l, true);
+    m->interest++;
+    MonitorWaiter self = { NULL, false };
+    pthread_cond_init(&self.cond, NULL);
+    MonitorWaiter** tail = &m->lock_waiters;
+    while (*tail) tail = &(*tail)->next;
+    *tail = &self;
+    // Release the Lock while the bucket is held: a Pulse needs the Lock and then the bucket, so it can't run before this
+    // waiter sleeps. A thread parked in Enter is woken directly (lock_wake would take the bucket lock again).
+    int32_t recursion = l->recursion;
+    l->recursion = 0;
+    __atomic_store_n(&l->owner, 0, __ATOMIC_SEQ_CST);
+    if (__atomic_load_n(&l->waiters, __ATOMIC_SEQ_CST) > 0) pthread_cond_signal(&m->lock_released);
+    struct timespec d;
+    if (ms >= 0) deadline_after(&d, ms);
+    int rc = 0;
+    while (!self.released) {
+        rc = interruptible_wait_core(&self.cond, &b->lock, ms < 0 ? NULL : &d, true, true);
+        if (self.released) { keep_interrupt_if(rc); rc = 0; break; }
+        if (rc == EINTR || rc == ETIMEDOUT) {
+            for (MonitorWaiter** p = &m->lock_waiters; *p; p = &(*p)->next)
+                if (*p == &self) { *p = self.next; break; }
+            break;
+        }
+    }
+    monitor_release_interest(b, m);
+    pthread_mutex_unlock(&b->lock);
+    pthread_cond_destroy(&self.cond);
+    // Reacquire (not interruptible, as Monitor.Wait's) with the recursion the caller had.
+    lock_enter(l, -1);
+    l->recursion = recursion;
+    if (rc == EINTR) throw_interrupted();
+    return rc != ETIMEDOUT;
+}
+
+static void lock_pulse(void* lock, bool all) {
+    if (!lock) csrt_throw_null_reference();
+    LockObject* l = lock;
+    if (__atomic_load_n(&l->owner, __ATOMIC_RELAXED) != lock_id()) throw_msg(&mt_sync_lock, "The calling thread does not hold the lock.");
+    MonitorBucket* b = bucket_of(l);
+    pthread_mutex_lock(&b->lock);
+    Monitor* m = monitor_find(b, l, false);
+    while (m && m->lock_waiters) {
+        MonitorWaiter* w = m->lock_waiters;
+        m->lock_waiters = w->next;
+        w->released = true;
+        pthread_cond_signal(&w->cond);
+        if (!all) break;
+    }
+    pthread_mutex_unlock(&b->lock);
+}
+
+void csrt_lock_pulse(void* lock) { lock_pulse(lock, false); }
+void csrt_lock_pulse_all(void* lock) { lock_pulse(lock, true); }
+
 void csrt_lock_enter(void* lock) { lock_enter(lock, -1); }
 bool csrt_lock_try_enter(void* lock, int32_t ms) { return lock_enter(lock, ms); }
 void* csrt_lock_enter_scope(void* lock) { lock_enter(lock, -1); return lock; }
@@ -890,6 +1045,19 @@ void csrt_event_dispose(csrt_Event* e);
           (void*)csrt_event_dispose } };
 EVENT_MT_DISPOSE(csrt_Semaphore_MT, "System.Threading.Semaphore")
 EVENT_MT_DISPOSE(csrt_Mutex_MT, "System.Threading.Mutex")
+
+// Type tests against WaitHandle and EventWaitHandle (#97): the events, mutexes and semaphores are runtime objects whose tables
+// have no base chain, so the test is "one of these tables" (EventWaitHandle: the two events). The name-only tables let a failed
+// cast report .NET's InvalidCastException through csrt_castclass.
+const csrt_MethodTable csrt_WaitHandle_MT = { NULL, "System.Threading.WaitHandle", 0, 0, NULL, 0, 0 };
+const csrt_MethodTable csrt_EventWaitHandle_MT = { NULL, "System.Threading.EventWaitHandle", 0, 0, NULL, 0, 0 };
+void* csrt_isinst_wait_handle(void* obj, bool events_only) {
+    if (!obj) return NULL;
+    const csrt_MethodTable* mt = *(const csrt_MethodTable* const*)obj;
+    if (mt == &csrt_ManualResetEvent_MT.header || mt == &csrt_AutoResetEvent_MT.header) return obj;
+    if (!events_only && (mt == &csrt_Mutex_MT.header || mt == &csrt_Semaphore_MT.header)) return obj;
+    return NULL;
+}
 
 static CSRT_THROWS void throw_object_disposed(void) {
     static const csrt_MethodTable mt = { NULL, "System.ObjectDisposedException", 0, 0, NULL, 0, 0 };

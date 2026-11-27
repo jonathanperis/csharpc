@@ -1,0 +1,27 @@
+0: ==int True int== True !=string True string!= True ==False
+1: ==int False int== False !=string False string!= False ==False
+2: ==int False int== False !=string True string!= True ==False
+3: ==int False int== False !=string True string!= True ==False
+4: ==int False int== False !=string True string!= True ==False
+5: ==int False int== False !=string True string!= True ==True
+GetFormat NumberFormatInfo True, DateTimeFormatInfo True, string True
+Int32: 1 1 0 0 0 0 1 0 0 0 1 0 1 1 1 0 | is IShape False, IComparable True, IFormattable True, IEnumerable False, IDisposable False
+String: 1 0 1 0 0 0 1 0 1 0 0 0 0 0 1 0 | is IShape False, IComparable True, IFormattable False, IEnumerable True, IDisposable False
+Circle: 1 0 0 1 1 1 0 0 0 0 0 0 0 0 0 0 | is IShape True, IComparable False, IFormattable False, IEnumerable False, IDisposable False
+Shape: 1 0 0 1 0 1 0 0 0 0 0 0 0 0 0 0 | is IShape True, IComparable False, IFormattable False, IEnumerable False, IDisposable False
+Point: 1 0 0 0 0 0 0 1 0 0 1 0 0 0 0 0 | is IShape False, IComparable False, IFormattable False, IEnumerable False, IDisposable False
+null: 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 | is IShape False, IComparable False, IFormattable False, IEnumerable False, IDisposable False
+Int32[]: 1 0 0 0 0 0 0 0 1 1 0 0 0 0 0 1 | is IShape False, IComparable False, IFormattable False, IEnumerable True, IDisposable False
+List`1: 1 0 0 0 0 0 0 0 1 1 0 0 0 0 0 0 | is IShape False, IComparable False, IFormattable False, IEnumerable True, IDisposable False
+Double: 1 0 0 0 0 0 1 0 0 0 1 0 0 1 1 0 | is IShape False, IComparable True, IFormattable True, IEnumerable False, IDisposable False
+DayOfWeek: 1 0 0 0 0 0 1 0 0 0 1 1 0 1 1 0 | is IShape False, IComparable True, IFormattable True, IEnumerable False, IDisposable False
+Int32: 1 1 0 0 0 0 1 0 0 0 1 0 1 1 1 0 | is IShape False, IComparable True, IFormattable True, IEnumerable False, IDisposable False
+Circle base Shape
+Shape base Object
+Object base null
+Int32 base ValueType
+IShape base null
+Int32[] base Array
+DayOfWeek base Enum
+String base Object
+null Type: NullReferenceException

@@ -1,0 +1,152 @@
+---
+import { getCollection, render } from 'astro:content';
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import '../../styles/docs.css';
+import { navigation, readingOrder, titleOf } from '../../lib/nav';
+
+export async function getStaticPaths() {
+  const docs = await getCollection('docs');
+  return docs.map((entry) => ({ params: { slug: entry.id === 'index' ? undefined : entry.id }, props: { entry } }));
+}
+
+const { entry } = Astro.props;
+const { Content } = await render(entry);
+const groups = await navigation();
+const order = await readingOrder();
+const at = order.findIndex((d) => d.id === entry.id);
+const prev = at > 0 ? order[at - 1] : undefined;
+const next = at >= 0 && at < order.length - 1 ? order[at + 1] : undefined;
+const group = groups.find((g) => g.items.some((d) => d.id === entry.id));
+const source = entry.filePath?.replace(/^\.\//, '') ?? `${entry.id}.md`;
+const isRoot = entry.id === 'index';
+const title = isRoot ? 'csharpc | Docs' : `${titleOf(entry)} | csharpc`;
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+---
+
+<BaseLayout title={title}>
+  <div class="docs-shell">
+    <div class="mobile-header">
+      <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="sidebar" aria-expanded="false">
+        <span></span>
+        <span></span>
+        <span></span>
+      </button>
+      <div class="repo-title">csharpc</div>
+    </div>
+
+    <div class="overlay" id="overlay"></div>
+
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <a class="repo-title" href={`${base}/docs/`}>csharpc</a>
+        <p class="repo-description">C# to native through Roslyn and LLVM. Byte-identical to real .NET.</p>
+        <input type="text" id="searchInput" class="search-box" placeholder="Filter docs..." aria-label="Filter docs" />
+      </div>
+      <div class="sidebar-nav-container">
+        {groups.map((g) => (
+          <div class="sidebar-category-group" data-category>
+            <div class="sidebar-category">{g.label}</div>
+            <ul>
+              {g.items.map((d) => (
+                <li>
+                  <a class:list={['nav-item', { active: d.id === entry.id }]} href={d.href} aria-current={d.id === entry.id ? 'page' : undefined}>
+                    <span>{d.short}</span>
+                    <small>{d.id === 'index' ? 'overview' : d.id.split('/').pop()}</small>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+      <div class="sidebar-footer">
+        <a href={`${base}/`}>Back home</a>
+        <a href={`${base}/codebase/`}>Codebase map</a>
+        <a href="https://github.com/jonathanperis/csharpc" target="_blank" rel="noopener noreferrer">GitHub</a>
+      </div>
+    </aside>
+
+    <div class="content-wrapper">
+      <main class="content" id="mainContent">
+        {isRoot && (
+          <>
+            <section class="docs-command-center" aria-labelledby="docs-command-title">
+              <p class="docs-kicker">DESIGN NOTES // ADRS // IL NOTES</p>
+              <h1 id="docs-command-title">HOW CSHARPC TURNS C# INTO ONE NATIVE FILE.</h1>
+              <p>
+                The same Markdown files that live in the repository's <code>docs/</code> folder: the architecture, the runtime,
+                each feature area, how everything is tested against real .NET, and every architecture decision.
+              </p>
+              <div class="docs-action-row">
+                <a href={`${base}/docs/02-architecture/`}>open architecture</a>
+                <a href={`${base}/codebase/`}>map the codebase</a>
+                <a href="https://github.com/jonathanperis/csharpc" target="_blank" rel="noopener noreferrer">source ↗</a>
+              </div>
+            </section>
+            <nav class="docs-overview" aria-label="Docs overview">
+              {groups.map((g, index) => (
+                <a href={g.items[0]?.href}>
+                  <span>{String(index + 1).padStart(2, '0')}</span>
+                  <strong>{g.label}</strong>
+                  <small>{g.items.length} {g.items.length === 1 ? 'document' : 'documents'}: {g.items.slice(0, 3).map((d) => d.short).join(', ')}{g.items.length > 3 ? ', …' : ''}</small>
+                </a>
+              ))}
+            </nav>
+          </>
+        )}
+
+        <section class="doc-section">
+          <div class="doc-section-meta">
+            <span>{group?.label ?? 'docs'}</span>
+            <a href={`https://github.com/jonathanperis/csharpc/blob/main/docs/${source}`} target="_blank" rel="noopener noreferrer">docs/{source} ↗</a>
+          </div>
+          <Content />
+        </section>
+
+        <nav class="doc-pager" aria-label="Previous and next document">
+          {prev && <a href={prev.href}><small>previous</small>{prev.short}</a>}
+          {next && <a class="next" href={next.href}><small>next</small>{next.short}</a>}
+        </nav>
+      </main>
+    </div>
+  </div>
+
+  <script is:inline>
+    document.addEventListener('DOMContentLoaded', () => {
+      const menuToggle = document.getElementById('menuToggle');
+      const sidebar = document.getElementById('sidebar');
+      const overlay = document.getElementById('overlay');
+
+      function toggleMenu() {
+        const isOpen = sidebar.classList.toggle('open');
+        overlay.classList.toggle('open');
+        if (menuToggle) menuToggle.setAttribute('aria-expanded', String(isOpen));
+      }
+
+      if (menuToggle) menuToggle.addEventListener('click', toggleMenu);
+      if (overlay) overlay.addEventListener('click', toggleMenu);
+
+      // Bring the current document into view inside the sidebar's own scroller only (scrollIntoView would also scroll the page).
+      const list = sidebar.querySelector('.sidebar-nav-container');
+      const active = sidebar.querySelector('.nav-item.active');
+      if (list && active) list.scrollTop = active.offsetTop - list.offsetTop - list.clientHeight / 2;
+
+      // The sidebar filter: hides documents whose title or file name does not match, and empty groups.
+      const searchInput = document.getElementById('searchInput');
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+          const query = e.target.value.toLowerCase();
+          document.querySelectorAll('[data-category]').forEach((group) => {
+            let any = false;
+            group.querySelectorAll('li').forEach((li) => {
+              const match = !query || (li.textContent || '').toLowerCase().includes(query);
+              li.style.display = match ? '' : 'none';
+              any ||= match;
+            });
+            group.style.display = any ? '' : 'none';
+          });
+        });
+      }
+    });
+  </script>
+</BaseLayout>

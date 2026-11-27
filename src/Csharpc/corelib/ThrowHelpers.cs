@@ -6,6 +6,7 @@
 using System;
 using System.Collections.Generic;
 using System.Numerics;
+using System.Runtime.CompilerServices;
 
 namespace CsharpcCoreLib
 {
@@ -66,12 +67,19 @@ namespace CsharpcCoreLib
             if (T.IsZero(value)) Throw(value, paramName, paramName + " ('" + Text(value) + "') must be a non-zero value.");
         }
 
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static void ThrowIfNegative<T>(T value, string paramName) where T : INumberBase<T>
         {
+            if (T.IsNegative(value)) ThrowNegative(value, paramName);
+        }
+
+        // The throw out of line (.NET's ThrowNegative), so the test inlines into hot callers such as Random.Next.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static void ThrowNegative<T>(T value, string paramName)
+        {
             // A negative value is never null: Throw's ActualValue case.
-            if (T.IsNegative(value))
-                throw CoreIntrinsics.LibraryFrames(new ArgumentOutOfRangeException(paramName, value, paramName + " ('" + Text(value) + "') must be a non-negative value."),
-                    "System.ArgumentOutOfRangeException.ThrowNegative[T](T value, String paramName)\nSystem.ArgumentOutOfRangeException.ThrowIfNegative[T](T value, String paramName)");
+            throw CoreIntrinsics.LibraryFrames(new ArgumentOutOfRangeException(paramName, value, paramName + " ('" + Text(value) + "') must be a non-negative value."),
+                "System.ArgumentOutOfRangeException.ThrowNegative[T](T value, String paramName)\nSystem.ArgumentOutOfRangeException.ThrowIfNegative[T](T value, String paramName)");
         }
 
         public static void ThrowIfNegativeOrZero<T>(T value, string paramName) where T : INumberBase<T>
@@ -130,6 +138,23 @@ namespace CsharpcCoreLib
 #else
             throw new BadImageFormatException("An attempt was made to load a program with an incorrect format.\n (0x8007000B)");
 #endif
+    }
+
+    /// <summary>
+    /// double/float.ConvertToIntegerNative (FunctionCodeGen.NativeConversions.cs): of NaN or of a value outside a primitive integer type's
+    /// range, where csharpc has no instruction whose result .NET's matches, an explicit error instead of a guessed result; for a
+    /// non-primitive integer type, CoreLib's own path.
+    /// </summary>
+    internal static class NativeIntegerConversionChecks
+    {
+        public static TInteger SaturatingDouble<TInteger>(double value) where TInteger : System.Numerics.IBinaryInteger<TInteger> =>
+            TInteger.CreateSaturating(value);
+        public static TInteger SaturatingSingle<TInteger>(float value) where TInteger : System.Numerics.IBinaryInteger<TInteger> =>
+            TInteger.CreateSaturating(value);
+        public static void ThrowDouble() =>
+            throw new NotSupportedException("double.ConvertToIntegerNative of NaN or of a value outside the integer type's range is not supported by csharpc yet (the result is the platform instruction's).");
+        public static void ThrowSingle() =>
+            throw new NotSupportedException("float.ConvertToIntegerNative of NaN or of a value outside the integer type's range is not supported by csharpc yet (the result is the platform instruction's).");
     }
 
     [ShadowMembers("System.ObjectDisposedException")]

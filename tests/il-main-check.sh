@@ -5,6 +5,7 @@
 # outside the list fails or a listed one passes at every optimization level it ran at.
 #
 # Usage: tests/il-main-check.sh <run.sh log> <known-failures file> [label]
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 log="$1" known_file="$2" label="${3:-}"
 

@@ -1,7 +1,9 @@
 # ADR 0023 — Framework IL first: hand-implement the runtime-coupled core, compile the rest of the framework from its IL
 
 - **Status:** Accepted as policy (2026-11-08, owner decision); the per-library decisions below are measured. System.Text.RegularExpressions
-  is flipped (#206, owner: "flip now, accept the size"); no other default has changed yet. Issues #187 (policy) and #189 (this ADR).
+  is flipped (#206, owner: "flip now, accept the size"), System.Linq too (#267); no other default has changed yet. Issues #187 (policy) and #189 (this ADR).
+  The order of further CoreLib flips and the NativeAOT column of the table below are set by
+  [ADR 0025](0025-optimizer-before-flips.md) (compiler milestone first, NativeAOT as the yardstick).
 
 ## Context
 
@@ -62,8 +64,10 @@ A library flips by dropping its shadow (above). A *type* of System.Private.CoreL
 taken the same way: the reference pack and the implementation both define it, and its internals (fields, internal helpers) are not in the reference
 pack. The mechanism (docs/21-ownership.md Part B, issues #191, #221 to #224, #252, #256):
 
-1. `src/Csharpc/upstream-types.txt` lists the CoreLib types served from the framework's IL. A type is added in the PR that deletes its shadow.
-2. After every build of the compiler (`CsharpcUpstreamSlice` in `Csharpc.csproj`, incremental: it runs again only when the list, the slicer or the
+1. `src/Csharpc/upstream-types/` lists the CoreLib types served from the framework's IL, one file per library or flip
+   (`System.Collections.Generic.Dictionary.txt` holds ``Dictionary`2``, ``HashSet`1`` and `CollectionsMarshal`), so flips running in parallel never edit
+   the same file. A type is added in the PR that deletes its shadow, in a new file named like the flip's `docs/il-first/<library>.md`.
+2. After every build of the compiler (`CsharpcUpstreamSlice` in `Csharpc.csproj`, incremental: it runs again only when a list, the slicer or the
    framework's CoreLib changed) `tools/il-first/slicer` cuts what those types need out of the shared framework's `System.Private.CoreLib.dll`
    (the one the SDK that builds csharpc ships) into `CsharpcUpstream.dll` and writes `CsharpcUpstream.map`. Every type reached that the reference
    pack does not declare moves into the slice under `CsharpcCoreLib.Upstream.*`; references to types that stay outside re-point at the reference pack
@@ -84,11 +88,33 @@ sums are the numbers to read. -O2, x86-64 Linux, stripped binaries, .NET 11 RC2 
 recordings made on real .NET; "speed" is a throughput program (`tools/il-first/bench/`, a checksum compared with real .NET), since the
 samples are tiny and start-up dominated.
 
-| Library (switch) | Correctness (samples from IL) | Binary size, IL / shadow | Compile cpu, IL / shadow | Speed, IL / shadow (time) | Lines removed on a flip | Decision |
-|---|---|---|---|---|---|---|
-| System.Text.Json + System.Text.Encodings.Web (`System.Text.Json,System.Text.Encodings.Web`) | 24 of 37 at -O0 (26 of 26 chosen at -O2 too; was 17): writer, reader, document, encoders, converters, polymorphism, references; the rest stop at the closed-world `MakeGenericType` and framework attribute lists (round 2 below) | 1.89x over 6 samples (236 to 794 KB for the smallest, 622 to 874 for a writer program); 3.0x for the throughput program (286 to 872 KB) | 1.60x | 0.43x on the throughput program (675 to 293 ms: 2.3x faster); 0.60x over the 6 samples | 16 584 (`corelib/Json` without `ArrayBufferWriter.cs`, which is CoreLib surface); 948 more in `Frontend/JsonReflectionContexts*` once the serializer is IL | **No-go today, go when the serializer blockers are closed.** IL wins speed and exactness; size is the price (round 2 row below). |
-| System.Text.RegularExpressions | 20 of 22 before the flip (the 2 failures were `[GeneratedRegex]`: csharpc's own generator called into the shadow `Regex`); after linking the SDK's generator every regex sample passes, `[GeneratedRegex]` ones included, plus a new NonBacktracking sample (1290) | 3.35x over 8 samples in the A/B (13.9 against 4.1 MB). Final, stripped -O2 x86-64: 1.43x (744 912 against 520 248 B) for `new Regex(pattern)` programs, 3.6x to 3.8x (1.90 to 2.01 MB against 0.53 MB) once a constructor or static method takes `RegexOptions`, which reaches the NonBacktracking engine (`SymbolicRegexRunnerFactory`, found with `CSHARPC_WHY_LOWERED`); a program using `[GeneratedRegex]` shrinks (415 504 against 548 792 B: the generated matcher replaces the interpreter) | 2.24x in the A/B; final: 0.85x to 2.1x per sample (153 against 75 CPU s for 290, 79 against 73 for 291, 68 against 80 for 305) | 0.71x on the throughput program (992 to 700 ms: 1.4x faster); start-up dominated samples tie | 17 174 (`corelib/Regex` 16 830, `Frontend/GeneratedRegex*.cs` 344); the flip PR's total against main is 17 406 deletions (135 insertions) with the ownership-map rows, the fuzzer's regex cases and docs | **Flipped (#206)**: correct and faster; the size cost is the NonBacktracking engine every options-taking `Regex` construction reaches (follow-up: a tighter closed world or constant propagation of `RegexOptions`). Budgets: `tests/size/regex.cs` 815 104 B and `regexoptions.cs` 1 929 216 B on linux-x86_64; programs that do not use Regex are byte-identical (hello 28 536, linq 164 552, collections 140 856, numbers 129 048, exceptions 36 920, typeinfo 43 792, async 156 096). |
-| `System.Collections.Generic.List<T>` and its enumerator (`src/Csharpc/upstream-types.txt`, a CoreLib type: the first type-level flip) | all 184 samples that use `List<T>` or `CollectionsMarshal` pass at -O2 with the shadow gone (CI runs the whole suite on five platforms); the framework's own `Insert`/`RemoveAt` use `Array.Copy` where the shadow moved elements one by one | 1.00x to 1.05x: collections 140 856 to 143 400 B (+1.8 %), linq 164 552 to 170 424 (+3.6 %), a List sort program 131 056 to 137 664 (+5.0 %), a large List program 178 800 to 186 992 (+4.6 %), regex +4.4 %, hello/numbers/exceptions/typeinfo/async unchanged | 1.0x (3.5 to 3.6 s for a small program, 5.9 to 5.2 s for a large one: noise) | instructions, 1 M operations: `Add` 14.3 M to 19.0 M (**+33 %**, the framework's `Add` calls the `NoInlining` `AddWithResize`, so size and version stay in memory: #259), `RemoveAll` +14 %, `Sort` +1 %, indexer, `foreach`, LINQ, `IndexOf`/`Contains` equal (after #258: `Array.IndexOf` uses the runtime's vectorized search), `Insert(0, x)` 800 M to 40 M (**20x faster**) | 598 in `corelib` (`List.cs` 595: `ListImpl`, its enumerator and the old `CollectionsMarshalImpl`; `LinqSpans` loses its `ListImpl` fast path; 55 added: `CollectionsMarshal` over the framework's `List<T>` through `[UnsafeAccessor]`), against 617 deleted and 183 added over `src` and `tests` | **Flipped**: the first CoreLib type served from `System.Private.CoreLib`'s IL, shipped as a build product (`CsharpcUpstream.dll` and its map, cut by `tools/il-first/slicer` after every build of the compiler; Mono.Cecil is a build-time tool dependency only). The owner accepted the `Add` and `RemoveAll` costs and about +5 % size; #259 closes the `Add` gap in the compiler. |
+The per-library table (columns: library (switch); correctness, samples from IL; binary size, IL / shadow; compile cpu, IL / shadow;
+speed, IL / shadow (time); lines removed on a flip; decision; NativeAOT on the same host, csharpc / NativeAOT, measured with
+`tools/il-first/measure-aot.sh` on the library's program from `tools/il-first/bench`: stripped size, compile cpu, run time (median of 7)
+and instructions) has one file per library or CoreLib type in
+[`docs/il-first/`](../il-first/): `docs/il-first/<library>.md` (an assembly name such as `System.Linq.md`, or the CoreLib type's full name
+such as `System.Text.StringBuilder.md`) holds that library's row under the table's header. A flip adds its own file and edits no
+other library's, so flips running in parallel do not conflict (ADR 0025, decision 6). `tools/il-first/table.sh` prints all the
+rows as one Markdown table.
+
+**Assemblies that define types and also forward CoreLib types (System.Collections, System.Collections.Concurrent)** needed one more piece of the IL
+front-end (#275). The implementation forwards `List<T>`, `Queue<T>`, `ConcurrentQueue<T>`... to System.Private.CoreLib, and binding against it in place of
+its reference-pack twin sent each forward through `CoreLibFacade` back to the twin's name, itself. The twin now stays as a renamed copy
+(`Frontend/TwinReference.cs`): the reference assembly's Assembly row is pointed at the tail of its own name string ("Collections"), so no heap grows, the
+types the implementation does not forward are made non-public in the copy, and the facade forwards the CoreLib types to the copy. One definition of
+`List<T>` for the program, the implementation and every other IL assembly. Nothing in it is library-specific; the list of assemblies that use it
+(`TwinReference.Supported`) is a validation list, as `MixedWithShadows` is.
+
+**The texts of an IL library's exceptions as literals (#272).** Each shared-framework library has an internal `SR` class whose getters read its embedded
+string resources (`internal static string Arg_X => GetResourceString("Arg_X");`). The framework-IL route used to compile every library's whole
+`FxResources.X.SR` table into the binary (for a `CollectionBase` program 440 KB of the 707 KB: ResourceManager, culture and formatting code, plus the
+strings; `System.ComponentModel.TypeConverter`'s table alone is 30 KB). A getter of exactly that IL shape (`ldstr key; (ldnull | ldstr default); call
+SR.GetResourceString; ret`) is now lowered as `ret "<the text>"` (`ModuleCodeGen.ResourceLiterals.cs`), so a program carries the texts of the getters it
+reaches (the slicer does the same for CoreLib: +12 KB instead of +120 KB), and the tables are compiled in only when a lowered method looks a text up by a key
+it computes (a call of `SR.GetResourceString` that is not such a getter). Measured, stripped -O2: `tests/size` regex 891 472 to 817 080 B,
+regexoptions 2 127 976 to 2 053 672 B (on the Dictionary/HashSet flip's main); the `CollectionBase` sample 707 to 269 KB (shadow 251), `ObservableCollection` 824 to 617 KB (shadow 253),
+`TypeConverter` 3 700 to 2 546 KB (shadow 679), `Collections` exceptions 232 to 175 KB (shadow 223). The texts are the neutral-culture ones, as
+before (csharpc is invariant); `ResourceManager` over the program's own resources is unchanged.
 
 A/B of 2026-11-09 (round 2, `tools/il-first/ab.sh --runs 3`, -O2, loaded 4-core VPS, stripped), 8 programs both routes pass byte-identical to real .NET: the writer, reader,
 document and node samples, two reflection-serializer samples (BCL-typed members, DateOnly/TimeOnly), the converters sample and the throughput program.

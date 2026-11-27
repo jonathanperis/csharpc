@@ -28,6 +28,8 @@ namespace CsharpcCoreLib
         public virtual string FullyQualifiedName => throw new NotSupportedException("Module.FullyQualifiedName is not supported by csharpc yet (the module has no file).");
         /// <summary>The manifest module's token (0x00000001), the only module an assembly of csharpc's has.</summary>
         public virtual int MetadataToken => 1;
+        /// <summary>Module.ModuleHandle: the handle of this module (#104), whose metadata members throw as on NativeAOT.</summary>
+        public ModuleHandleImpl ModuleHandle => new ModuleHandleImpl((Module)(object)this);
         public virtual bool IsResource() => false;
         /// <summary>
         /// The module's custom attributes: none are modelled (a source program's module carries none of csc's, and
@@ -614,5 +616,33 @@ namespace CsharpcCoreLib
 
         public static bool operator >(VersionImpl v1, VersionImpl v2) => v2 < v1;
         public static bool operator >=(VersionImpl v1, VersionImpl v2) => v2 <= v1;
+    }
+}
+
+namespace CsharpcCoreLib
+{
+    /// <summary>
+    /// System.ModuleHandle as NativeAOT has it (#104, dotnet/runtime's nativeaot ModuleHandle.cs): the module it wraps, compared by it;
+    /// there is no metadata stream, so MDStreamVersion and the token members throw PlatformNotSupportedException.
+    /// </summary>
+    [Shadows("System.ModuleHandle")]
+    public struct ModuleHandleImpl : IEquatable<ModuleHandleImpl>
+    {
+        private readonly System.Reflection.Module _ptr;
+        internal ModuleHandleImpl(System.Reflection.Module module) { _ptr = module; }
+
+        public static readonly ModuleHandleImpl EmptyHandle = default;
+        public int MDStreamVersion => throw new PlatformNotSupportedException();
+        public RuntimeTypeHandle GetRuntimeTypeHandleFromMetadataToken(int typeToken) => throw new PlatformNotSupportedException();
+        public RuntimeMethodHandle GetRuntimeMethodHandleFromMetadataToken(int methodToken) => throw new PlatformNotSupportedException();
+        public RuntimeFieldHandle GetRuntimeFieldHandleFromMetadataToken(int fieldToken) => throw new PlatformNotSupportedException();
+        public RuntimeTypeHandle ResolveTypeHandle(int typeToken) => throw new PlatformNotSupportedException();
+        public RuntimeMethodHandle ResolveMethodHandle(int methodToken) => throw new PlatformNotSupportedException();
+        public RuntimeFieldHandle ResolveFieldHandle(int fieldToken) => throw new PlatformNotSupportedException();
+        public override int GetHashCode() => _ptr != null ? _ptr.GetHashCode() : 0;
+        public override bool Equals(object obj) => obj is ModuleHandleImpl other && Equals(other);
+        public bool Equals(ModuleHandleImpl handle) => ReferenceEquals(handle._ptr, _ptr);
+        public static bool operator ==(ModuleHandleImpl left, ModuleHandleImpl right) => left.Equals(right);
+        public static bool operator !=(ModuleHandleImpl left, ModuleHandleImpl right) => !left.Equals(right);
     }
 }

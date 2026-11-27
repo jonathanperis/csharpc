@@ -62,7 +62,7 @@ public sealed partial class FunctionCodeGen
             IUnaryOperation { OperatorKind: UnaryOperatorKind.Hat } u => EmitHat(u),
             IUnaryOperation u => EmitUnary(u),
             IConversionOperation c => EmitConversion(c),
-            IInvocationOperation { TargetMethod.RefKind: not RefKind.None } i => LoadValue(EmitInvocation(i), i.Type!),
+            IInvocationOperation { TargetMethod.RefKind: not RefKind.None } i => LoadValue(EmitInvocation(i), TypeOf(i)!),
             IInvocationOperation i => EmitInvocation(i),
             IObjectCreationOperation o => EmitObjectCreation(o),
             ITypeParameterObjectCreationOperation o => EmitNewT(o),
@@ -305,8 +305,9 @@ public sealed partial class FunctionCodeGen
             });
         if (c.OperatorMethod is { } om && !IsBuiltInStringConcat(om) && !IsGenericMathOnPrimitive(om, c.Target))
         {
-            // `x op= y` with a user-defined static operator: x = op(x, y).
-            om = S(om);
+            // `x op= y` with a user-defined static operator: x = op(x, y). In generic code the operator is the interface's static abstract
+            // member (`T sum; sum += v` with T : INumber<T>): the constrained type's implementation once T is known, as EmitBinary does.
+            om = ResolveStaticInterfaceMember(S(om), c.ConstrainedToType) ?? S(om);
             if (!om.IsStatic || om.Parameters.Length != 2)
                 throw CompileError.Unsupported($"compound assignment with operator '{om}'", c);
             if (c.IsLifted && _m.IsUserMethod(om))
@@ -318,6 +319,11 @@ public sealed partial class FunctionCodeGen
             if (!_m.IsUserMethod(om))
                 return ReadModifyWrite(c.Target, old =>
                 {
+                    if (IsVector128Struct(om.ContainingType)) // acc += v on Vector128<T> / Vector<T>
+                    {
+                        var vector = EmitSimd(om, om.ContainingType.TypeArguments[0], default, [old, Coerce(EmitValue(c.Value), c.Value.Type, om.Parameters[1].Type)], c);
+                        return (vector, vector);
+                    }
                     if (!BclValueTypes.TryGet(om, out var handler)) throw CompileError.Unsupported($"compound assignment with operator '{om}'", c);
                     var r = handler(this, om, default, [Coerce(old, c.Target.Type, om.Parameters[0].Type),
                         Coerce(EmitValue(c.Value), c.Value.Type, om.Parameters[1].Type)], c);
@@ -380,6 +386,21 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitIncrementOrDecrement(IIncrementOrDecrementOperation op)
     {
+        // `x++` on `T : IIncrementOperators<T>` (#425): the static abstract operator, resolved once T is known, as for unary and
+        // binary operators. A user or library type calls its own operator; a primitive takes the built-in increment below.
+        var abstractOnPrimitive = false;
+        if (op.OperatorMethod is { IsStatic: true, ContainingType.TypeKind: TypeKind.Interface } abstractOp)
+        {
+            var concrete = S(op.ConstrainedToType ?? TypeOf(op.Target)!);
+            abstractOnPrimitive = concrete.SpecialType is not (SpecialType.None or SpecialType.System_Object);
+            var impl = abstractOnPrimitive ? null : ResolveStaticInterfaceMember(S(abstractOp), concrete) ?? OwnIncrementOperator(concrete, abstractOp.Name);
+            if (impl is not null)
+                return ReadModifyWrite(op.Target, old =>
+                {
+                    var updated = !_m.IsUserMethod(impl) && BclValueTypes.TryGet(impl, out var library) ? library(this, impl, default, [old], op) : DirectCall(impl, [old]);
+                    return (updated, op.IsPostfix ? old : updated);
+                });
+        }
         if (op.OperatorMethod is { } incrementMethod && !_m.IsUserMethod(incrementMethod)
             && BclValueTypes.TryGet(S(incrementMethod), out var libraryIncrement))
             return ReadModifyWrite(op.Target, old =>
@@ -393,7 +414,7 @@ public sealed partial class FunctionCodeGen
                 var updated = DirectCall(S(userIncrement), [old]); // static T operator ++(T)
                 return (updated, op.IsPostfix ? old : updated);
             });
-        if (op.OperatorMethod is not null) throw CompileError.Unsupported("user-defined ++/--", op);
+        if (op.OperatorMethod is not null && !abstractOnPrimitive) throw CompileError.Unsupported("user-defined ++/--", op);
         var type = TypeOf(op.Target)!;
         var increment = op.Kind == OperationKind.Increment;
         if (IsPointer(type))
@@ -430,6 +451,16 @@ public sealed partial class FunctionCodeGen
                     : _b.BinOp(increment ? LLVMOpcode.Add : LLVMOpcode.Sub, old, L.ConstInt(llvmType, 1));
             return (updated, op.IsPostfix ? old : updated);
         });
+    }
+
+    /// <summary>A library type's own `operator ++`/`--` (Int128, BigInteger, ...) for the interface member <paramref name="name"/>
+    /// (op_Increment, op_CheckedIncrement, op_Decrement, op_CheckedDecrement); a checked one falls back to the unchecked operator.</summary>
+    private static IMethodSymbol? OwnIncrementOperator(ITypeSymbol concrete, string name)
+    {
+        if (concrete is not INamedTypeSymbol named) return null;
+        IMethodSymbol? Find(string n) => named.GetMembers(n).OfType<IMethodSymbol>()
+            .FirstOrDefault(m => m.IsStatic && m.MethodKind == MethodKind.UserDefinedOperator && m.Parameters.Length == 1);
+        return Find(name) ?? (name.Contains("Checked", StringComparison.Ordinal) ? Find(name.Replace("Checked", "", StringComparison.Ordinal)) : null);
     }
 
     // ======================================================================================
@@ -630,7 +661,11 @@ public sealed partial class FunctionCodeGen
                 var count = Coerce(r, rt, width == 64 ? _m.Compilation.GetSpecialType(SpecialType.System_Int64) : _m.Compilation.GetSpecialType(SpecialType.System_Int32));
                 // Int128/UInt128: the int count widened to the operand.
                 if (count.Type.IntWidth < width) count = _b.Cast(LLVMOpcode.ZExt, count, l.Type);
-                count = _b.BinOp(LLVMOpcode.And, count, L.ConstInt(l.Type, width - 1));
+                // byte/sbyte/short/ushort operands reach here only through their generic-math shift operators (T : IShiftOperators<T, int, T>,
+                // CoreLib's Number.BinaryParser<T>), which mask the count to the type's width and shift in it: `(sbyte)(value << (count & 7))`.
+                if (count.Type.IntWidth > width)
+                    count = _b.Cast(LLVMOpcode.Trunc, _b.BinOp(LLVMOpcode.And, count, L.ConstInt(count.Type, width - 1)), l.Type);
+                else count = _b.BinOp(LLVMOpcode.And, count, L.ConstInt(l.Type, width - 1));
                 var op = kind switch
                 {
                     BinaryOperatorKind.LeftShift => LLVMOpcode.Shl,
@@ -677,6 +712,9 @@ public sealed partial class FunctionCodeGen
 
     private LLVMValueRef EmitUnary(IUnaryOperation op)
     {
+        // A type implementing a static abstract operator (`-x` with T a user or IL-served struct): as for binary operators.
+        if (op.OperatorMethod is { } staticOp && ResolveStaticInterfaceMember(S(staticOp), op.ConstrainedToType) is { } opImpl)
+            return EmitDirectCall(opImpl, [op.Operand]);
         if (op.OperatorMethod is { } om0 && !IsGenericMathOnPrimitive(om0, op.Operand))
         {
             var om = S(om0);
@@ -688,7 +726,7 @@ public sealed partial class FunctionCodeGen
         if (BclValueTypes.IsDecimal(TypeOf(op.Operand)))
             return op.OperatorKind == UnaryOperatorKind.Minus ? DecimalNegate(v) : v;
         if (op.IsChecked && op.OperatorKind == UnaryOperatorKind.Minus && v.Type.IsInteger)
-            return CheckedArithmetic("sub", L.ConstInt(v.Type, 0), v, TypeMapper.IsSigned(op.Operand.Type!));
+            return CheckedArithmetic("sub", L.ConstInt(v.Type, 0), v, TypeMapper.IsSigned(TypeOf(op.Operand)!)); // TypeOf: T substituted (checked(-x) with T = int)
         return op.OperatorKind switch
         {
             UnaryOperatorKind.Plus => v,
@@ -761,7 +799,7 @@ public sealed partial class FunctionCodeGen
         if (from.IsValueType && to.IsReferenceType) return Box(EmitValue(c.Operand), from, c);
         if (from.IsReferenceType && to.IsValueType)
         {
-            var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], EmitValue(c.Operand), MethodTableFor(to, c));
+            var payload = CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], EmitValue(c.Operand), TypeTestMethodTable(to) ?? MethodTableFor(to, c));
             return LoadValue(payload, to);
         }
 

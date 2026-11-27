@@ -1,0 +1,24 @@
+new: IsSet False, SpinCount>0 True, Wait(0) False, Wait(20) False
+Set: IsSet True, Wait(0) True, Wait() returns
+Reset: IsSet False, Wait(TimeSpan 10ms) False
+before Set: woken 0
+after Set: woken 3
+Wait(10000) ended by Set: True
+pre-canceled: OperationCanceledException
+canceled while waiting: OperationCanceledException, token matches True
+Wait(5, token) on unset: False
+interrupted in Wait
+handle unset: False
+handle set: True
+handle reset: False
+new(true): True, new(false, 7).SpinCount 7
+spinCount -1: spinCount ('-1') must be a non-negative value. (Parameter 'spinCount')
+Actual value was -1.
+spinCount 2048: spinCount ('2048') must be less than or equal to '2047'. (Parameter 'spinCount')
+Actual value was 2048.
+Wait(-2): millisecondsTimeout
+disposed IsSet: True
+disposed Wait: Cannot access a disposed object.
+Object name: 'System.Threading.ManualResetEventSlim'.
+disposed Reset: ObjectDisposedException
+second Dispose: no exception

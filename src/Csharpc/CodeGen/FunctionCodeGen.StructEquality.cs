@@ -45,7 +45,7 @@ public sealed partial class FunctionCodeGen
         t = _m.CoreLib.Map(t);
         if (depth > 16) return false;
         if (IsPrimitiveLike(t) || t.SpecialType is SpecialType.System_String or SpecialType.System_Decimal
-            || BclValueTypes.IsTicks(t) || BclValueTypes.IsBigInteger(t)) return true;
+            || BclValueTypes.IsTicks(t)) return true;
         if (t is INamedTypeSymbol { IsTupleType: true } tuple) return tuple.TupleElements.All(e => RunsNoUserCode(e.Type, hash, depth + 1));
         if (t.IsValueType && Coroutines.IsTaskHandleType(t))
             return hash || t.Name is "CancellationToken" or "TaskAwaiter" or "YieldAwaitable" or "YieldAwaiter"; // TaskHandleEquals
@@ -145,7 +145,7 @@ public sealed partial class FunctionCodeGen
         if (IsIntegral(t) || Int128Support.Is128(t) || t.TypeKind is TypeKind.Pointer or TypeKind.FunctionPointer)
             return _b.ICmp(LLVMIntPredicate.EQ, a, b);
         if (TypeMapper.IsFloatingPoint(t) || t.SpecialType is SpecialType.System_String or SpecialType.System_Decimal
-            || BclValueTypes.IsTicks(t) || BclValueTypes.IsBigInteger(t) || t.IsTupleType)
+            || BclValueTypes.IsTicks(t) || t.IsTupleType)
             return EqualsOf(t, a, b, null!);  // same as their Equals(object); tuples use EqualityComparer<Ti> per element
         if (TypeMapper.IsNullable(t))
         {

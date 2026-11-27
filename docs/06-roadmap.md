@@ -79,7 +79,7 @@ of the milestone below says where it is tracked.
 | Object/collection initializers, collection expressions (incl. spreads) | ✅ | |
 | Interpolation with alignment/format, composite formatting | ✅ | current culture or provider; `FormattableString` |
 | C# 14 extension members | ✅ | |
-| Query expressions / LINQ | ✅ | shadow corelib |
+| Query expressions / LINQ | ✅ | Roslyn's query lowering over the framework's `System.Linq` IL |
 | Expression trees | ✅ | System.Linq.Expressions from IL, interpreted as under NativeAOT; lambdas lowered as Roslyn does ([18](18-compatibility.md#expression-trees)) |
 
 ### Semantics and runtime
@@ -103,7 +103,7 @@ of the milestone below says where it is tracked.
 | `System.MathF`, `float`/`double` generic-math statics (`Sin`, `Hypot`, `Lerp`, `SinPi`, ...) | ✅ | all public `MathF` members and `IFloatingPointIeee754<T>` for `float`/`double`, bit for bit against .NET on the same libm ([12-corelib.md](12-corelib.md), samples 1226-1229; `ReciprocalEstimate` is the exact quotient) |
 | Parsing/formatting numbers | ✅ | standard + custom format strings |
 | `System.Collections.Generic` (`List`, `Dictionary`, `HashSet`, ...), concurrent collections, `BlockingCollection`, `Partitioner` | ✅ | shadow corelib in C# |
-| `System.Linq` | ✅ | shadow corelib in C# |
+| `System.Linq` | ✅ | the framework's IL (ADR 0023) |
 | `System.Text.RegularExpressions` | ✅ | the framework's IL (all engines, `[GeneratedRegex]` by the SDK's generator), [12-corelib.md](12-corelib.md#regular-expressions) |
 | `System.Text.Json` | ✅ | writer, reader, DOM, nodes, `JsonSchemaExporter`; serializer over source-generated metadata, reflection-style calls included ([12-corelib.md](12-corelib.md#systemtextjson)); gaps in #89, #100 |
 | `Task`, `TaskFactory`, `EventSource`/`EventListener` | ✅ | [10-async.md](10-async.md), [12-corelib.md](12-corelib.md) |
@@ -151,6 +151,13 @@ culture-sensitive formatting (any number, even a negative `int` written with `Co
 model and the ICU shim (~85 KiB; formatting dates ~210 KiB, all calendars included) and adds 3–4 s of compile time
 (mostly Roslyn binding the corelib's culture code), and loading ICU costs ~3.5–5 ms at first use, ~1.7 ms of it
 .NET's search for the newest `libicuuc.so.N` ([19-globalization.md](19-globalization.md)).
+
+Libraries now come from the framework's IL ([ADR 0023](adr/0023-framework-il-first.md)). Upstream IL assumes NativeAOT's
+optimizer (shared generic code for reference types, whole-program devirtualization, inlining hints), which csharpc lacks,
+so flips have cost speed, size and compile time (List.Add +33 %, StringBuilder appends up to 2x, the JSON reflection
+serializer 18x). [ADR 0025](adr/0025-optimizer-before-flips.md) therefore orders the work: finish the flips in flight, then
+a compiler milestone (shared generics, devirtualization, inlining, self-compile memory budget) measured against NativeAOT,
+then the remaining CoreLib flips (culture, numbers, DateTime, text).
 
 ## Milestones
 
@@ -504,3 +511,52 @@ project files and the same publish command.
   in `release.yml`; repo variable `NUGET_USER`; no GitHub environment). Archives and `dotnet tool install` carry the same
   binaries (libLLVM bundled; clang/lld remain a host prerequisite). Container:
   `ghcr.io/jonathanperis/csharpc`. See the README Install section.
+
+## Follow-ups
+
+The measured losses and open follow-ups of the original goal, moved here from the tracking issues #473–#477 (closed 2026-11-25) so
+that the issue list holds only bugs and decisions. Each item links the issue (closed) that keeps its numbers and analysis; re-measure
+before working on one (`tools/il-first/measure-aot.sh`), since earlier changes move them. A new loss or follow-up is added here.
+
+### Run time against NativeAOT (was #473)
+- Synchronization primitives 4.4x NativeAOT, `sync_throughput` (#428).
+- Ascii and Base64 from CoreLib IL 1.95x slower: the ISA paths are not taken (#434).
+- Tracing from IL: EventSource throughput 1.28x slower (#454).
+- BigInteger from IL 1.12x slower despite 26 % fewer instructions (#448).
+- Convert from CoreLib IL 1.10x slower despite fewer instructions (#435).
+- String helpers from CoreLib IL 0.90x–1.06x of NativeAOT despite 21 % fewer instructions (#446).
+- Crypto from IL on Linux: hashing throughput 1.05x, the per-call overhead of the OpenSSL contract (#452).
+- IL lowering: List.Add from the framework IL costs 33 % more instructions than the shadow (NoInlining AddWithResize blocks
+  promotion of size/version) (#259).
+- ComponentModel (`componentmodel_throughput`) 1.14x after #465 with fewer instructions (1.02 G vs 1.05 G): kernel time from
+  first-touch page faults (8 903 vs 2 601; sys 37 vs 16 ms) as the heap grows to the first collection at 32 MiB.
+
+### Size and compile cost (was #474)
+- Every program that prints a number carries CoreLib's culture start-up (~80 KB) (#431).
+- Struct method tables lower ToString/Equals/GetHashCode and dispatched interface slots for typeof-only structs (#420).
+- Fold EventSource.IsEnabled() when the program can have no EventListener: Barrier pulls in 190 KB (#429).
+- TLS/X.509 from IL on Linux: executables 1.5x–3.3x the copies' size, compile CPU 3.4x NativeAOT's (#456).
+- File system from the framework's IL: 1.31x slower (kernel time) and 2.67x larger than the deleted shadows; at parity with
+  NativeAOT (#438).
+- Hashtable from the framework's IL: SR.Format in Insert pulls in composite and number formatting (+30 % size, +3 % instructions) (#373).
+- Release bundle: ship only the framework assemblies the IL route can reach (the bundle grew from 59.9 to 92.7 MB) (#379).
+- Do not link the NonBacktracking regex engine when RegexOptions is a constant without NonBacktracking (#214).
+
+### Types still to serve from the framework's IL (was #475; ADR 0023/0024)
+- Crypto from the framework's IL on macOS, Windows and WASI; Linux is flipped (#449).
+- Windows: System.Net.Sockets from IL needs IOCP (ThreadPoolBoundHandle) in the runtime (#441).
+- System.Uri (System.Private.Uri behind System.Runtime) (#442).
+- TimeSpan formatting through CoreLib's TimeSpanFormat instead of the corelib's formatter (#447).
+- Vector2/3/4, Plane and Quaternion (#451); System.Half (#410); BFloat16 and Decimal32/64/128 (#405).
+- System.Diagnostics.Process (it would also give #102's other-process lookups).
+- Done since the tracker opened: Guid (#416); ManualResetEventSlim and SpinWait from CoreLib, Barrier from System.Threading (#414);
+  ArrayList and BitArray (#372).
+
+### Stack allocation (was #476; after #457, #461)
+- Small arrays that do not escape (#458).
+- Allocations inside try regions, as `invoke`s (#459).
+- wasm32, and under `--gc-nursery` / `--gc-concurrent` (#460).
+
+### Shared generics (was #477; ADR 0026)
+- Step 4: a hidden instantiating argument for generic structs, static and generic methods (#369).
+- Default-on audit: run-time type checks and observable identity in shared code (#422).

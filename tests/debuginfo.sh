@@ -4,6 +4,7 @@
 # through `this`, C# names in backtraces (also at -O2, through inlined frames). The same checks run on a
 # program and library compiled from their assemblies (the IL front-end), whose lines, parameters and locals
 # come from the portable PDBs (DebugApp's beside it, DebugLib's embedded).
+source "$(dirname "${BASH_SOURCE[0]}")/../tests/require-bash.sh"  # bash >= 4.4 (#198)
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DOTNET="${DOTNET:-dotnet}"

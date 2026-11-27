@@ -1,0 +1,10 @@
+# Time zones served from CoreLib's IL (#98): TimeZoneInfo reads the tzdata files (TZif) itself, its display names and Windows/IANA ids
+# come from ICU (the runtime's globalization shim, corelib/UpstreamGlobalization.cs), as .NET's on Unix. Replaced the corelib's
+# Local/Utc-offsets-only shadow. The legacy System.TimeZone (and its DaylightTime) comes along: TimeZoneInfo.ClearCachedData resets it.
+System.TimeZoneInfo
+System.TimeZoneInfo/AdjustmentRule
+System.TimeZoneInfo/TransitionTime
+System.TimeZoneNotFoundException
+System.InvalidTimeZoneException
+System.TimeZone
+System.Globalization.DaylightTime

@@ -23,8 +23,6 @@ public sealed record ProjectInfo
     /// System.Globalization.Invariant / PredefinedCulturesOnly, compiled into the program (null: not set).</summary>
     public bool? InvariantGlobalization { get; init; }
     public bool? PredefinedCulturesOnly { get; init; }
-    /// <summary>JsonSerializerIsReflectionEnabledByDefault (false in trimmed and AOT-published projects).</summary>
-    public bool JsonReflectionEnabled { get; init; } = true;
     /// <summary>The assembly's version as the SDK stamps it (FrontendSettings.AssemblyVersion).</summary>
     public string? AssemblyVersion { get; init; } = "1.0.0.0";
     /// <summary>The SDK-generated AssemblyInfo (`[assembly: ...]` lines of the AssemblyAttribute items), null when none.</summary>
@@ -70,7 +68,7 @@ public static class ProjectLoader
     [
         "AssemblyName", "OutputType", "DefineConstants", "LangVersion", "Nullable", "AllowUnsafeBlocks",
         "ImplicitUsings", "TargetFramework", "TargetFrameworks", "MSBuildProjectFullPath",
-        "StartupObject", "InvariantGlobalization", "PredefinedCulturesOnly", "JsonSerializerIsReflectionEnabledByDefault",
+        "StartupObject", "InvariantGlobalization", "PredefinedCulturesOnly", "JsonSerializerIsReflectionEnabledByDefault", "PublishAot",
         "AssemblyVersion", "Version", "GenerateAssemblyInfo", "GenerateAssemblyVersionAttribute", "SignAssembly",
         "Optimize", "DebugType", "DebugSymbols", "PathMap", "CopyDebugSymbolFilesFromPackages", "RuntimeIdentifier",
         "TargetFrameworkMoniker", "TargetFrameworkMonikerDisplayName", "GenerateTargetFrameworkAttribute",
@@ -164,9 +162,16 @@ public static class ProjectLoader
             foreach (var name in enabled) yield return new(name, overrides.Remove(name, out var v) ? v : "true");
             foreach (var name in disabled) yield return new(name, overrides.Remove(name, out var v) ? v : "false");
         }
-        else yield return new("System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization", overrides.Remove("System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization", out var binary) ? binary : "false");
+        else
+        {
+            yield return new("System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization", overrides.Remove("System.Runtime.Serialization.EnableUnsafeBinaryFormatterSerialization", out var binary) ? binary : "false");
+            // .NET leaves the JSON switch unset (reflection on) without PublishAot; said here, so csharpc's AOT default doesn't apply.
+            yield return new(JsonReflectionSwitch, overrides.Remove(JsonReflectionSwitch, out var json) ? json : "true");
+        }
         foreach (var (name, value) in overrides) yield return new(name, value);
     }
+
+    internal const string JsonReflectionSwitch = "System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault";
 
     /// <summary>MSBuild properties the SDK turns into runtimeconfig feature switches (RuntimeHostConfigurationOption).</summary>
     private static readonly (string Property, string Switch)[] s_featureSwitchProperties =
@@ -174,6 +179,7 @@ public static class ProjectLoader
         ("EventSourceSupport", "System.Diagnostics.Tracing.EventSource.IsSupported"),
         ("UseSystemResourceKeys", "System.Resources.UseSystemResourceKeys"),
         ("JsonSerializerIsReflectionEnabledByDefault", "System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault"),
+        ("UseSizeOptimizedLinq", "System.Linq.Enumerable.IsSizeOptimized"),
     ];
 
     /// <summary>
@@ -426,7 +432,6 @@ public static class ProjectLoader
             StartupObject = Prop("StartupObject"),
             InvariantGlobalization = Switch(Prop("InvariantGlobalization")),
             PredefinedCulturesOnly = Switch(Prop("PredefinedCulturesOnly")),
-            JsonReflectionEnabled = !string.Equals(Prop("JsonSerializerIsReflectionEnabledByDefault"), "false", StringComparison.OrdinalIgnoreCase),
             AssemblyVersion = AssemblyVersionOf(Prop),
             // csc gets /optimize from Optimize, and writes a PDB (which gives stack traces their
             // " in file:line N") for any DebugType but none; DebugSymbols (false in Release) only
@@ -489,6 +494,10 @@ public static class ProjectLoader
                 info.RuntimeConfig.RemoveAll(kv => kv.Key == name);
                 info.RuntimeConfig.Add(new(name, bool.TryParse(value, out var flag) ? (flag ? "true" : "false") : value));
             }
+        // <PublishAot>false</PublishAot>: what .NET evaluates for it leaves reflection-based JSON on, so csharpc's AOT default doesn't apply
+        // (Compiler.WithAotFeatureDefaults); a project that says nothing gets NativeAOT's.
+        if (string.Equals(Prop("PublishAot"), "false", StringComparison.OrdinalIgnoreCase) && !info.RuntimeConfig.Any(kv => kv.Key == JsonReflectionSwitch))
+            info.RuntimeConfig.Add(new(JsonReflectionSwitch, "true"));
 
         // NativeAOT's native-linking items (Microsoft.NETCore.Native.targets): library names whose P/Invokes are direct calls,
         // and what the linker gets. File items (a list, an archive) are relative to the project; NativeLibrary and LinkerArg
@@ -668,7 +677,6 @@ public static class ProjectLoader
             SharedFrameworks = [.. all.SelectMany(p => p.FrameworkReferences).Distinct(StringComparer.OrdinalIgnoreCase)],
             RuntimeConfig = root.RuntimeConfig,
             EmbeddedResources = [.. all.SelectMany(p => p.EmbeddedResources.Select(r => new ProgramResource(p.AssemblyName, r.Name, r.Path)))],
-            JsonReflectionEnabled = root.JsonReflectionEnabled,
             Symbols = root.Symbols,
             Generators = generators,
             Projects = all.Count > 1 ? [.. all.Select(p => new ProjectUnit

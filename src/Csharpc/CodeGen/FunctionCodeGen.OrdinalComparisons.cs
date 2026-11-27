@@ -25,8 +25,10 @@ public sealed partial class FunctionCodeGen
         if (comparison is not { Value.ConstantValue: { HasValue: true, Value: int value } } || !IsStringComparison(comparison.Parameter!.Type)) return null;
         var suffix = value switch { (int)StringComparison.Ordinal => "Ordinal", (int)StringComparison.OrdinalIgnoreCase => "OrdinalIgnoreCase", _ => null };
         if (suffix is null) return null;
+        // Only the corelib's deliberate variants: a private helper of the same name and shape may mean something else (StringExtras'
+        // EqualsOrdinalIgnoreCase compares a prefix of equal length, so span.Equals(x, OrdinalIgnoreCase) became a prefix test in corelib code, #443).
         IMethodSymbol? Variant(string name) => target.ContainingType.GetMembers(name).OfType<IMethodSymbol>().FirstOrDefault(m =>
-            m.IsStatic == target.IsStatic && !m.IsGenericMethod && m.Parameters.Length == target.Parameters.Length - 1
+            m.DeclaredAccessibility != Accessibility.Private && m.IsStatic == target.IsStatic && !m.IsGenericMethod && m.Parameters.Length == target.Parameters.Length - 1
             && CoreLib.IsInstanceShadow(m) == CoreLib.IsInstanceShadow(target)
             && SymbolEqualityComparer.Default.Equals(m.ReturnType, target.ReturnType)
             && m.Parameters.Zip(target.Parameters).All(p => p.First.RefKind == p.Second.RefKind

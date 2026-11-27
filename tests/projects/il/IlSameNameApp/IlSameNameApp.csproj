@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Two libraries, consumed as DLLs, each define Shared.Node: arrays, Task<T> and List<T> over the two are
+       different types (csharpc once keyed their method tables by the full name alone). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net11.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="IlSameNameA"><HintPath>../IlSameNameA/bin/Release/net11.0/IlSameNameA.dll</HintPath></Reference>
+    <Reference Include="IlSameNameB"><HintPath>../IlSameNameB/bin/Release/net11.0/IlSameNameB.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>

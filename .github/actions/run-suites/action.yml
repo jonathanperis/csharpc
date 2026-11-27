@@ -51,6 +51,18 @@ runs:
       shell: bash
       run: tests/toolchain.sh
 
+    # macOS's /bin/bash is 3.2: the scripts re-run themselves under Homebrew's bash (tests/require-bash.sh, #198).
+    - name: Test scripts under /bin/bash (macOS)
+      if: ${{ (success() || failure()) && inputs.os == 'macos' }}
+      shell: bash
+      run: /bin/bash --version | head -1 && /bin/bash tests/run.sh 01_hello
+
+    # string.GetHashCode is Marvin with a per-process random seed (hash flooding, #285); no recorded output can show it.
+    - name: String hash seed
+      if: ${{ (success() || failure()) && inputs.os != 'wasm' }}
+      shell: bash
+      run: tests/hashseed.sh
+
     - name: IL front-end (libraries consumed as DLLs and NuGet packages)
       if: ${{ (success() || failure()) && inputs.os != 'wasm' }}
       shell: bash

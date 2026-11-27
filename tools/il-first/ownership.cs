@@ -1,7 +1,7 @@
 // Ownership map of the corelib (issue #191, docs/21-ownership.md): for every file under src/Csharpc/corelib, what it
 // shadows, which shared-framework assembly defines each target, and whether it stays csharpc's or is upstream's.
 //
-//   tools/il-first/ownership.sh                 writes tools/il-first/ownership.tsv
+//   tools/il-first/ownership.sh                 writes tools/il-first/ownership.tsv (generated on demand, git-ignored)
 //   tools/il-first/ownership.sh --summary       prints the summary tables (Markdown) from the same data
 //   tools/il-first/ownership.sh --contract      prints the FCall / QCall / native-shim surface of the framework assemblies
 //   tools/il-first/ownership.sh --unmatched     CoreLib targets that fell through to the default rule (to refine the rules)
@@ -280,15 +280,15 @@ static class Rules
 
     static readonly Dictionary<string, Fam> AssemblyFamilies = new()
     {
-        ["System.Text.Json"] = Above("json", "System.Text.Json: IL wins on speed (A/B #187), costs size; delete only on the A/B decision", "AB187,NEWTYPES,REFLECT,SRCGEN"),
-        ["System.Text.Encodings.Web"] = Above("json", "System.Text.Encodings.Web: the shadow encoder differs from .NET (U+FFFD, #187)", "AB187"),
+        ["System.Text.Json"] = Above("json", "System.Text.Json: from IL (ADR 0023, #286)", "NONE"),
+        ["System.Text.Encodings.Web"] = Above("json", "System.Text.Encodings.Web: from IL (ADR 0023, #286)", "NONE"),
         ["System.Text.RegularExpressions"] = Above("regex", "System.Text.RegularExpressions: engine correct from IL (20/22 samples, #188); size is the cost", "AB187,SRCGEN,SIMD"),
         ["System.Linq"] = Above("linq", "System.Linq: managed upstream; hand-written iterator classes and span fast paths today", "SIMD,EQCMP"),
-        ["System.Memory"] = Above("memory", "System.Memory (ReadOnlySequence, SequenceReader, ArrayBufferWriter, MemoryPool): managed upstream; csharpc's Memory<T> does not record its array, MemoryManager or string", "MEMORY"),
+        ["System.Memory"] = Above("memory", "System.Memory: from IL (ADR 0023, #306)", "NONE"),
         ["System.Runtime.Numerics"] = Above("numerics", "System.Runtime.Numerics (BigInteger): managed upstream", "GENMATH"),
         ["System.Collections"] = Above("collections-asm", "System.Collections (Stack, LinkedList, SortedSet, PriorityQueue, OrderedDictionary...): managed upstream", "EQCMP"),
         ["System.Collections.Concurrent"] = Above("concurrent", "System.Collections.Concurrent: managed upstream over Interlocked/Monitor", "THREAD,EQCMP"),
-        ["System.Collections.NonGeneric"] = Above("collections-asm", "System.Collections.NonGeneric: mixed assembly already (CollectionBase shadow, the rest IL; ADR 0013)", "EQCMP"),
+        ["System.Collections.NonGeneric"] = Above("collections-asm", "System.Collections.NonGeneric: from IL (ADR 0023, #271)", "EQCMP"),
         ["System.ObjectModel"] = Above("collections-asm", "System.ObjectModel (ObservableCollection): managed upstream", "NONE"),
         ["System.ComponentModel"] = Above("componentmodel", "System.ComponentModel: managed upstream", "REFLECT"),
         ["System.ComponentModel.TypeConverter"] = Above("componentmodel", "System.ComponentModel.TypeConverter: managed upstream, reflection-heavy", "REFLECT,APPCTX"),
@@ -298,7 +298,7 @@ static class Rules
         ["System.Security.Cryptography"] = Above("crypto", "System.Security.Cryptography: managed algorithms plus the OpenSSL shim upstream; csharpc ports the managed layers over libcrypto", "OPENSSL,RES"),
         ["System.Net.Security"] = Above("net", "System.Net.Security (SslStream, TLS): managed upstream over libSystem.Net.Security.Native and OpenSSL", "OPENSSL,SYSNATIVE"),
         ["System.Net.Sockets"] = Above("net", "System.Net.Sockets: managed upstream over libSystem.Native (epoll, sockaddr shims)", "SYSNATIVE,THREAD"),
-        ["System.Net.Primitives"] = Above("net", "System.Net.Primitives: mixed assembly already (IPAddress/EndPoint shadows, the rest IL; ADR 0013)", "SYSNATIVE"),
+        ["System.Net.Primitives"] = Above("net", "System.Net.Primitives: from IL (ADR 0023, #326); SocketException and the sockaddr/interface-name shims stay with the socket engine", "SYSNATIVE"),
         ["System.Net.NetworkInformation"] = Above("net", "System.Net.NetworkInformation: managed upstream over libSystem.Native", "SYSNATIVE"),
         ["System.Net.NameResolution"] = Above("net", "System.Net.NameResolution: managed upstream over libSystem.Native", "SYSNATIVE"),
         ["System.Net.Quic"] = Above("net", "System.Net.Quic: msquic binding; csharpc has a throwing stub", "SYSNATIVE"),
@@ -317,13 +317,13 @@ static class Rules
     // Files read while building the table (the sample that verifies the rules; docs/21-ownership.md).
     public static readonly HashSet<string> Read = new(StringComparer.Ordinal)
     {
-        "ArrayExtras.cs", "Buffers/ReadOnlySequence.cs", "Collections.cs", "Concurrent/ConcurrentDictionary.cs", "Convert.cs", "Core.cs",
+        "ArrayExtras.cs", "Buffers/ReadOnlySequence.cs", "Queue.cs", "Concurrent/ConcurrentDictionary.cs", "Convert.cs", "Core.cs",
         "Crypto/AesNative.cs", "Dictionary.cs", "ExceptionData.cs", "FloatingPointMath.cs", "Globalization/CultureData.cs", "Globalization/IcuLocaleData.cs",
         "Globalization/Interop.Globalization.cs", "Guid.cs", "HashSet.cs", "IO/Posix.cs", "IO/Streams.cs", "List.cs", "Net/NetNative.cs",
         "Net/UriRelative.cs", "Number.Formatting.cs", "Regex/RegexCaseEquivalences.Data.cs", "Resources.cs", "Rune.cs", "StringBuilder.cs", "StringExtras.cs",
         "Tasks/AsyncGate.cs", "Tasks/TaskState.cs", "Text/Encoding.cs", "Text/Latin1BestFit.cs", "Threading/ReaderWriterLockSlim.cs", "Tracing/EventSource.cs",
-        "UnicodeData.g.cs", "AggregateExceptionSupport.cs", "ArrayInterfaces.cs", "BigIntegerOps.cs", "BigNum.cs", "DecimalOps.cs", "DelegateThunks.cs",
-        "Dynamic/DynamicObjects.cs", "EnumRuntime.cs", "LinqIterators.cs", "LinqSpans.cs", "SpanSearch.cs", "ValueBuilders.cs", "Random/CoreDebug.cs",
+        "UnicodeData.g.cs", "AggregateExceptionSupport.cs", "ArrayInterfaces.cs", "BigNum.cs", "DecimalOps.cs", "DelegateThunks.cs",
+        "Dynamic/DynamicObjects.cs", "EnumRuntime.cs", "SpanSearch.cs", "RuntimeSpans.cs", "ValueBuilders.cs", "Random/CoreDebug.cs",
     };
 
     static Dictionary<string, Fam> BuildOverrides()
@@ -343,7 +343,7 @@ static class Rules
         Add("DebugProvider.cs", F("debug-provider", ClPure, "delete", "port of System.Diagnostics.DebugProvider", "NONE"));
         Add("EnumRuntime.cs", F("enum-runtime", ClContract, "keep", "Enum.Parse/IsDefined with a run-time Type: needs the run-time enum member table (reflection metadata)", "REFLECT"));
         Add("Dynamic/DynamicObjects.cs", F("dynamic", ClGlue, "keep", "the calls the compile-time `dynamic` binder makes (ADR 0019); upstream's meta-object path builds expression trees", "NONE"));
-        Add("BigIntegerOps.cs", Above("numerics", "System.Numerics.BigInteger over uint[]: C# port of what was C; upstream's BigInteger is managed", "GENMATH"));
+        Add(Above("numerics", "System.Numerics.BigInteger over uint[]: C# port of what was C; upstream's BigInteger is managed", "GENMATH"));
         Add("BigNum.cs", F("numbers", ClPure, "delete", "fixed-capacity bignum for float formatting/parsing; upstream's Number.BigInteger replaces it", "NONE"));
         Add("BinaryIntegerSupport.cs", F("numbers", ClPure, "delete", "IBinaryInteger<T>.ReadBigEndian for the primitives: managed upstream", "GENMATH"));
         Add("DecimalOps.cs", F("numbers", ClPure, "delete", "decimal arithmetic (formerly decimal.c): upstream's DecCalc is managed", "LAYOUT,GENMATH"));
@@ -352,23 +352,17 @@ static class Rules
         Add("Number.Parsing.cs", Numbers);
         Add("Number.Parsing.Culture.cs", Numbers);
         Add("OrdinalCasing.cs", F("culture", ClPure, "delete", "OrdinalIgnoreCase comparison over the invariant simple case mapping: managed upstream (Ordinal, OrdinalCasing)", "ICU"));
-        Add("LinqIterators.cs", Above("linq", "hand-written iterators standing in for System.Linq's Iterator<T> classes", "SIMD,EQCMP"));
-        Add("LinqSpans.cs", Above("linq", "Enumerable span fast paths over src/runtime/span.c", "SIMD"));
         Add("SpanSearch.cs", Span);
+        Add("RuntimeSpans.cs", Span);
         Add("ThreadApartment.cs", F("thread", ClContract, "keep", "Thread.GetApartmentState & co.", "THREAD"));
         Add("ValueBuilders.cs", ported);
         Add("Random/CoreDebug.cs", ported);
-        Add("Random/Random.CompatImpl.cs", Random);
-        Add("Random/Random.ImplBase.cs", Random);
-        Add("Random/Random.Xoshiro256StarStarImpl.cs", Random);
-        Add("Random/Random.cs", Random);
         Add("Reflection/MemberLookup.cs", Reflection);
         Add("Reflection/ObjectArrayDelegates.cs", F("reflection", ClContract, "keep", "NativeAOT's DynamicDelegateAugments for System.Linq.Expressions (ModuleCodeGen.ObjectArrayDelegates.cs)", "REFLECT"));
-        Add("UnicodeData.g.cs", F("unicode-data", ClData, "keep", "generated Unicode category table (tools/unicode) behind Char.GetUnicodeCategory/IsLetter...; goes when Char and CharUnicodeInfo come from IL with their own embedded data", "NONE"));
+        Add("UnicodeData.g.cs", F("unicode-data", ClData, "keep", "generated invariant simple case tables (tools/unicode) behind OrdinalCasing; Char and String members come from IL (upstream-types/System.String.txt)", "NONE"));
         Add("Globalization/BidiData.g.cs", F("unicode-data", ClData, "keep", "generated bidi table (tools/unicode); replaced when CharUnicodeInfo comes from IL", "NONE"));
         Add("Globalization/GraphemeData.g.cs", F("unicode-data", ClData, "keep", "generated grapheme table (tools/unicode); replaced when StringInfo/GraphemeBreak come from IL", "NONE"));
         Add("Globalization/BidiData.cs", F("unicode-data", ClData, "keep", "bidi category lookup over the generated table", "NONE"));
-        Add("Json/UnicodeRanges.g.cs", F("json", ClData, "delete", "generated UnicodeRanges table for System.Text.Encodings.Web", "AB187"));
         Add("Text/Latin1BestFit.cs", F("encoding-data", ClData, "delete", "Latin1 encoder best-fit fallback and its table, ported verbatim from upstream", "NONE"));
         Add("Regex/RegexCaseEquivalences.Data.cs", F("regex", ClData, "delete", "generated casing-equivalence table of System.Text.RegularExpressions", "AB187"));
         Add("Regex/RegexCharClass.Tables.cs", F("regex", ClData, "delete", "generated Unicode category/block tables of System.Text.RegularExpressions", "AB187"));
@@ -409,10 +403,8 @@ static class Rules
         Add("Crypto/OpenSsl.cs", cryptoGlue);
         Add("Net/NetNative.cs", osGlue);
         Add("Net/SocketEngine.cs", osGlue);
+        Add("Net/SocketAddressPal.cs", osGlue);
         Add("Net/UriRelative.cs", Above("uri", "System.Uri's relative-URI half, ported from upstream", "ICU,RES"));
-        Add("Json/SerializerConvertersExtra.cs", Above("json", "System.Text.Json converters", "AB187,NEWTYPES,REFLECT,SRCGEN"));
-        Add("Json/SerializerObjects.cs", Above("json", "System.Text.Json object converters", "AB187,NEWTYPES,REFLECT,SRCGEN"));
-        Add("Random/Random.cs", Random);
         return d;
     }
 
