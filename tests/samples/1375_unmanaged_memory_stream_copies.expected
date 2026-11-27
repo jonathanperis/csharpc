@@ -1,0 +1,16 @@
+after write: position 251, length 300
+read   0: got   0, checksum 0
+read   1: got   1, checksum 714984
+read   7: got   7, checksum -282424557
+read  15: got  15, checksum 1078662647
+read  16: got  16, checksum -917353272
+read  31: got  31, checksum 23948223
+read  33: got  33, checksum 1769362552
+read  64: got  64, checksum -1987767520
+read  65: got  65, checksum -1484816120
+read 129: got 129, checksum -378816216
+read 249: got 249, checksum -1115091324
+span read: 40 bytes, first 205, last 222
+tail: 3 66
+NotSupportedException: Unable to expand length of this stream beyond its capacity.
+copied 295 bytes, byte 0 = 52

@@ -143,9 +143,10 @@ public sealed partial class FunctionCodeGen
     /// </summary>
     private LoweredFunction NestedFunctionInstance(ClosureFunction callee, IMethodSymbol symbol, IOperation at)
     {
-        if (!symbol.IsGenericMethod) return _m.GetNestedFunction(symbol, _subst);
+        var outer = _subst.ForNested(symbol);
+        if (!symbol.IsGenericMethod) return _m.GetNestedFunction(symbol, outer);
         if (TypeSubstitution.IsOpen(symbol)) throw CompileError.Unsupported($"open generic instantiation '{symbol}'", at);
-        var subst = _subst.With(symbol.OriginalDefinition.TypeParameters, symbol.TypeArguments, _m.Compilation);
+        var subst = outer.With(symbol.OriginalDefinition.TypeParameters, symbol.TypeArguments, _m.Compilation);
         _m.RequestNested(callee, symbol, subst);
         return _m.GetNestedFunction(symbol, subst);
     }
@@ -229,7 +230,7 @@ public sealed partial class FunctionCodeGen
                 if (dispatched) NullCheck(target);
                 else if (group.Instance is not IInstanceReferenceOperation) DelegateTargetCheck(target);
                 var isVirtual = dispatched && !method.IsSealed && !method.ContainingType.IsSealed;
-                fn = isVirtual ? LoadVirtualFunction(method, target) : _m.GetFunction(method).Fn;
+                fn = isVirtual ? LoadVirtualFunction(method, target) : _m.DelegateEntry(method, _m.GetFunction(method));
                 if (!isVirtual) described = method;
                 break;
             }

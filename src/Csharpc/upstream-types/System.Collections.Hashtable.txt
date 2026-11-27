@@ -1,0 +1,3 @@
+# Hashtable (ADR 0023, #373; docs/il-first/System.Collections.Hashtable.md). Its duplicate-key message goes through SR.Format, which the
+# csharpc profile serves with UpstreamSupport.Format once the slicer has proven every SR.Format text of the slice is {n} / {n:spec}.
+System.Collections.Hashtable

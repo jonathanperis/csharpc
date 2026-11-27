@@ -1,0 +1,3 @@
+Point: tags=Tag:point obsolete=ObsoleteAttribute defined=True serializable=False single=demo
+Person: tags=Tag:record,Tag:second obsolete= defined=True serializable=False single=none
+Holder: tags=Tag:nullable obsolete= defined=True serializable=False single=none

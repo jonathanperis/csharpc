@@ -1,9 +1,10 @@
 // Aes.Create()'s implementation: the managed SymmetricAlgorithm/UniversalCryptoTransform machinery ported
 // from .NET (SymmetricCrypto.cs: padding, the transforms, CryptoStream, the one-shot APIs) over the block
-// cipher of the OS's crypto library, as .NET uses it — OpenSSL's libcrypto on Linux (EVP, loaded on first
-// use like .NET's shim loads it), CommonCrypto on macOS (part of libSystem), CNG (bcrypt.dll) on Windows. The
-// cipher always runs without padding (UniversalCryptoTransform pads), as in .NET's OpenSslCipher/AppleCCCryptor/
+// cipher of the OS's crypto library, as .NET uses it — CommonCrypto on macOS (part of libSystem), CNG (bcrypt.dll)
+// on Windows. The cipher always runs without padding (UniversalCryptoTransform pads), as in .NET's AppleCCCryptor/
 // BasicSymmetricCipherBCrypt. WASI has no implementation yet: Aes.Create() isn't there, a compile-time error.
+// On Linux the framework's IL serves these types over the OpenSSL contract (Crypto/CryptoNative*.cs, docs/il-first/System.Security.Cryptography.md).
+#if CSHARPC_TARGET_WINDOWS || CSHARPC_TARGET_MACOS || CSHARPC_TARGET_WASI
 #nullable disable
 #if !CSHARPC_TARGET_WASI
 using System;
@@ -279,74 +280,6 @@ namespace CsharpcCoreLib
                 Libc.free(c);
             }
         }
-#else
-        // OpenSSL's EVP interface (libcrypto 3, as on the Linux distributions .NET 11 supports).
-        private static class Native
-        {
-            private const string Lib = "libcrypto.so.3";
-            [DllImport(Lib)] private static extern IntPtr EVP_CIPHER_CTX_new();
-            [DllImport(Lib)] private static extern void EVP_CIPHER_CTX_free(IntPtr ctx);
-            [DllImport(Lib)] private static extern int EVP_CipherInit_ex(IntPtr ctx, IntPtr type, IntPtr engine, byte* key, byte* iv, int enc);
-            [DllImport(Lib)] private static extern int EVP_CIPHER_CTX_set_padding(IntPtr ctx, int padding);
-            [DllImport(Lib)] private static extern int EVP_CipherUpdate(IntPtr ctx, byte* output, int* outputLength, byte* input, int inputLength);
-            [DllImport(Lib)] private static extern IntPtr EVP_aes_128_ecb();
-            [DllImport(Lib)] private static extern IntPtr EVP_aes_192_ecb();
-            [DllImport(Lib)] private static extern IntPtr EVP_aes_256_ecb();
-            [DllImport(Lib)] private static extern IntPtr EVP_aes_128_cbc();
-            [DllImport(Lib)] private static extern IntPtr EVP_aes_192_cbc();
-            [DllImport(Lib)] private static extern IntPtr EVP_aes_256_cbc();
-            [DllImport(Lib)] private static extern IntPtr EVP_aes_128_cfb8();
-            [DllImport(Lib)] private static extern IntPtr EVP_aes_192_cfb8();
-            [DllImport(Lib)] private static extern IntPtr EVP_aes_256_cfb8();
-            [DllImport(Lib)] private static extern IntPtr EVP_aes_128_cfb128();
-            [DllImport(Lib)] private static extern IntPtr EVP_aes_192_cfb128();
-            [DllImport(Lib)] private static extern IntPtr EVP_aes_256_cfb128();
-
-            private static IntPtr Algorithm(CipherMode mode, int keyBits, int feedbackBits) => (mode, keyBits, feedbackBits) switch
-            {
-                (CipherMode.ECB, 128, _) => EVP_aes_128_ecb(),
-                (CipherMode.ECB, 192, _) => EVP_aes_192_ecb(),
-                (CipherMode.ECB, 256, _) => EVP_aes_256_ecb(),
-                (CipherMode.CBC, 128, _) => EVP_aes_128_cbc(),
-                (CipherMode.CBC, 192, _) => EVP_aes_192_cbc(),
-                (CipherMode.CBC, 256, _) => EVP_aes_256_cbc(),
-                (CipherMode.CFB, 128, 8) => EVP_aes_128_cfb8(),
-                (CipherMode.CFB, 192, 8) => EVP_aes_192_cfb8(),
-                (CipherMode.CFB, 256, 8) => EVP_aes_256_cfb8(),
-                (CipherMode.CFB, 128, 128) => EVP_aes_128_cfb128(),
-                (CipherMode.CFB, 192, 128) => EVP_aes_192_cfb128(),
-                (CipherMode.CFB, 256, 128) => EVP_aes_256_cfb128(),
-                _ => throw new NotSupportedException(),
-            };
-
-            public static IntPtr Create(CipherMode mode, int feedbackBits, byte* key, int keyLength, byte* iv, bool encrypting)
-            {
-                IntPtr ctx = EVP_CIPHER_CTX_new();
-                if (ctx == IntPtr.Zero) throw Error();
-                if (EVP_CipherInit_ex(ctx, Algorithm(mode, keyLength * 8, feedbackBits), IntPtr.Zero, key, iv, encrypting ? 1 : 0) != 1
-                    || EVP_CIPHER_CTX_set_padding(ctx, 0) != 1)
-                {
-                    EVP_CIPHER_CTX_free(ctx);
-                    throw Error();
-                }
-                return ctx;
-            }
-
-            public static int Update(IntPtr ctx, byte* input, int inputLength, byte* output, int outputLength)
-            {
-                int written;
-                if (EVP_CipherUpdate(ctx, output, &written, input, inputLength) != 1) throw Error();
-                return written;
-            }
-
-            // Same key and direction (enc = -1), the IV back to its start value.
-            public static void Reset(IntPtr ctx, byte* iv)
-            {
-                if (EVP_CipherInit_ex(ctx, IntPtr.Zero, IntPtr.Zero, null, iv, -1) != 1) throw Error();
-            }
-
-            public static void Free(IntPtr ctx) => EVP_CIPHER_CTX_free(ctx);
-        }
 #endif
     }
 }
@@ -438,3 +371,4 @@ namespace CsharpcCoreLib
         }
     }
 }
+#endif

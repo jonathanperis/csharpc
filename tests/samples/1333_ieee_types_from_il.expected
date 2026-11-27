@@ -1,0 +1,855 @@
+== generic BFloat16
+constants: 0 1 -1 -0 NaN Infinity -Infinity 1E-40 3.39E+38 -3.39E+38
+classify BFloat16(0): 0 nan=False inf=False neg=False sub=False norm=False int=True
+Abs/Sign BFloat16(0): (0, 0)
+Min/Max/MinMagnitude/MaxMagnitude BFloat16(0): (0, 1, 0, -1)
+MinNumber/MaxNumber BFloat16(0): (0, 0)
++ - * / % BFloat16(0): (1, -1, 0, 0, 0)
+Round/Floor/Ceiling/Truncate BFloat16(0): (0, 0, 0, 0, 0)
+compare BFloat16(0): (True, True, -1, True)
+CopySign/Clamp BFloat16(0): (1, 0)
+to int/long/Int128 saturating BFloat16(0): (0, 0, 0)
+to double/float BFloat16(0): (0, 0)
+to int checked BFloat16(0): 0
+classify BFloat16(-0): -0 nan=False inf=False neg=True sub=False norm=False int=True
+Abs/Sign BFloat16(-0): (0, 0)
+Min/Max/MinMagnitude/MaxMagnitude BFloat16(-0): (-0, 1, -0, -1)
+MinNumber/MaxNumber BFloat16(-0): (-0, -0)
++ - * / % BFloat16(-0): (1, -1, -0, -0, -0)
+Round/Floor/Ceiling/Truncate BFloat16(-0): (-0, -0, -0, -0, -0)
+compare BFloat16(-0): (True, True, -1, True)
+CopySign/Clamp BFloat16(-0): (-1, -0)
+to int/long/Int128 saturating BFloat16(-0): (0, 0, 0)
+to double/float BFloat16(-0): (-0, -0)
+to int checked BFloat16(-0): 0
+classify BFloat16(1): 1 nan=False inf=False neg=False sub=False norm=True int=True
+Abs/Sign BFloat16(1): (1, 1)
+Min/Max/MinMagnitude/MaxMagnitude BFloat16(1): (1, 1, -1, 1)
+MinNumber/MaxNumber BFloat16(1): (1, 1)
++ - * / % BFloat16(1): (2, 0, 2, 0.334, 1)
+Round/Floor/Ceiling/Truncate BFloat16(1): (1, 1, 1, 1, 1)
+compare BFloat16(1): (False, False, 0, True)
+CopySign/Clamp BFloat16(1): (1, 1)
+to int/long/Int128 saturating BFloat16(1): (1, 1, 1)
+to double/float BFloat16(1): (1, 1)
+to int checked BFloat16(1): 1
+classify BFloat16(1.5): 1.5 nan=False inf=False neg=False sub=False norm=True int=False
+Abs/Sign BFloat16(1.5): (1.5, 1)
+Min/Max/MinMagnitude/MaxMagnitude BFloat16(1.5): (1, 1.5, -1, 1.5)
+MinNumber/MaxNumber BFloat16(1.5): (1.5, 1.5)
++ - * / % BFloat16(1.5): (2.5, 0.5, 3, 0.5, 1.5)
+Round/Floor/Ceiling/Truncate BFloat16(1.5): (2, 1, 2, 1, 2)
+compare BFloat16(1.5): (False, False, 1, True)
+CopySign/Clamp BFloat16(1.5): (1, 1)
+to int/long/Int128 saturating BFloat16(1.5): (1, 1, 1)
+to double/float BFloat16(1.5): (1.5, 1.5)
+to int checked BFloat16(1.5): 1
+classify BFloat16(-2.75): -2.75 nan=False inf=False neg=True sub=False norm=True int=False
+Abs/Sign BFloat16(-2.75): (2.75, -1)
+Min/Max/MinMagnitude/MaxMagnitude BFloat16(-2.75): (-2.75, 1, -1, -2.75)
+MinNumber/MaxNumber BFloat16(-2.75): (-2.75, -2.75)
++ - * / % BFloat16(-2.75): (-1.75, -3.75, -5.5, -0.918, -0.75)
+Round/Floor/Ceiling/Truncate BFloat16(-2.75): (-3, -3, -2, -2, -3)
+compare BFloat16(-2.75): (True, False, -1, True)
+CopySign/Clamp BFloat16(-2.75): (-1, -1)
+to int/long/Int128 saturating BFloat16(-2.75): (-2, -2, -2)
+to double/float BFloat16(-2.75): (-2.75, -2.75)
+to int checked BFloat16(-2.75): -2
+classify BFloat16(3.3E+38): 3.3E+38 nan=False inf=False neg=False sub=False norm=True int=True
+Abs/Sign BFloat16(3.3E+38): (3.3E+38, 1)
+Min/Max/MinMagnitude/MaxMagnitude BFloat16(3.3E+38): (1, 3.3E+38, -1, 3.3E+38)
+MinNumber/MaxNumber BFloat16(3.3E+38): (3.3E+38, 3.3E+38)
++ - * / % BFloat16(3.3E+38): (3.3E+38, 3.3E+38, Infinity, 1.097E+38, 0)
+Round/Floor/Ceiling/Truncate BFloat16(3.3E+38): (3.3E+38, 3.3E+38, 3.3E+38, 3.3E+38, 3.3E+38)
+compare BFloat16(3.3E+38): (False, False, 1, True)
+CopySign/Clamp BFloat16(3.3E+38): (1, 1)
+to int/long/Int128 saturating BFloat16(3.3E+38): (2147483647, 9223372036854775807, 170141183460469231731687303715884105727)
+to double/float BFloat16(3.3E+38): (3.2964854295465914E+38, 3.2964854E+38)
+to int checked BFloat16(3.3E+38): OverflowException Arithmetic operation resulted in an overflow.
+classify BFloat16(1E-40): 1E-40 nan=False inf=False neg=False sub=True norm=False int=False
+Abs/Sign BFloat16(1E-40): (1E-40, 1)
+Min/Max/MinMagnitude/MaxMagnitude BFloat16(1E-40): (1E-40, 1, 1E-40, -1)
+MinNumber/MaxNumber BFloat16(1E-40): (1E-40, 1E-40)
++ - * / % BFloat16(1E-40): (1, -1, 2E-40, 0, 1E-40)
+Round/Floor/Ceiling/Truncate BFloat16(1E-40): (0, 0, 1, 0, 0)
+compare BFloat16(1E-40): (True, False, -1, True)
+CopySign/Clamp BFloat16(1E-40): (1, 1E-40)
+to int/long/Int128 saturating BFloat16(1E-40): (0, 0, 0)
+to double/float BFloat16(1E-40): (9.183549615799121E-41, 9.1835E-41)
+to int checked BFloat16(1E-40): 0
+classify BFloat16(3.39E+38): 3.39E+38 nan=False inf=False neg=False sub=False norm=True int=True
+Abs/Sign BFloat16(3.39E+38): (3.39E+38, 1)
+Min/Max/MinMagnitude/MaxMagnitude BFloat16(3.39E+38): (1, 3.39E+38, -1, 3.39E+38)
+MinNumber/MaxNumber BFloat16(3.39E+38): (3.39E+38, 3.39E+38)
++ - * / % BFloat16(3.39E+38): (3.39E+38, 3.39E+38, Infinity, 1.13E+38, 0)
+Round/Floor/Ceiling/Truncate BFloat16(3.39E+38): (3.39E+38, 3.39E+38, 3.39E+38, 3.39E+38, 3.39E+38)
+compare BFloat16(3.39E+38): (False, False, 1, True)
+CopySign/Clamp BFloat16(3.39E+38): (1, 1)
+to int/long/Int128 saturating BFloat16(3.39E+38): (2147483647, 9223372036854775807, 170141183460469231731687303715884105727)
+to double/float BFloat16(3.39E+38): (3.3895313892515355E+38, 3.3895314E+38)
+to int checked BFloat16(3.39E+38): OverflowException Arithmetic operation resulted in an overflow.
+classify BFloat16(-3.39E+38): -3.39E+38 nan=False inf=False neg=True sub=False norm=True int=True
+Abs/Sign BFloat16(-3.39E+38): (3.39E+38, -1)
+Min/Max/MinMagnitude/MaxMagnitude BFloat16(-3.39E+38): (-3.39E+38, 1, -1, -3.39E+38)
+MinNumber/MaxNumber BFloat16(-3.39E+38): (-3.39E+38, -3.39E+38)
++ - * / % BFloat16(-3.39E+38): (-3.39E+38, -3.39E+38, -Infinity, -1.13E+38, -0)
+Round/Floor/Ceiling/Truncate BFloat16(-3.39E+38): (-3.39E+38, -3.39E+38, -3.39E+38, -3.39E+38, -3.39E+38)
+compare BFloat16(-3.39E+38): (True, False, -1, True)
+CopySign/Clamp BFloat16(-3.39E+38): (-1, -1)
+to int/long/Int128 saturating BFloat16(-3.39E+38): (-2147483648, -9223372036854775808, -170141183460469231731687303715884105728)
+to double/float BFloat16(-3.39E+38): (-3.3895313892515355E+38, -3.3895314E+38)
+to int checked BFloat16(-3.39E+38): OverflowException Arithmetic operation resulted in an overflow.
+classify BFloat16(NaN): NaN nan=True inf=False neg=True sub=False norm=False int=False
+Abs/Sign BFloat16(NaN): (NaN, 0)
+Min/Max/MinMagnitude/MaxMagnitude BFloat16(NaN): (NaN, NaN, NaN, NaN)
+MinNumber/MaxNumber BFloat16(NaN): (NaN, NaN)
++ - * / % BFloat16(NaN): (NaN, NaN, NaN, NaN, NaN)
+Round/Floor/Ceiling/Truncate BFloat16(NaN): (NaN, NaN, NaN, NaN, NaN)
+compare BFloat16(NaN): (False, False, -1, True)
+CopySign/Clamp BFloat16(NaN): (-1, NaN)
+to int/long/Int128 saturating BFloat16(NaN): (0, 0, 0)
+to double/float BFloat16(NaN): (NaN, NaN)
+to int checked BFloat16(NaN): OverflowException Arithmetic operation resulted in an overflow.
+classify BFloat16(Infinity): Infinity nan=False inf=True neg=False sub=False norm=False int=False
+Abs/Sign BFloat16(Infinity): (Infinity, 1)
+Min/Max/MinMagnitude/MaxMagnitude BFloat16(Infinity): (1, Infinity, -1, Infinity)
+MinNumber/MaxNumber BFloat16(Infinity): (Infinity, Infinity)
++ - * / % BFloat16(Infinity): (Infinity, Infinity, Infinity, Infinity, NaN)
+Round/Floor/Ceiling/Truncate BFloat16(Infinity): (Infinity, Infinity, Infinity, Infinity, Infinity)
+compare BFloat16(Infinity): (False, False, 1, True)
+CopySign/Clamp BFloat16(Infinity): (1, 1)
+to int/long/Int128 saturating BFloat16(Infinity): (2147483647, 9223372036854775807, 170141183460469231731687303715884105727)
+to double/float BFloat16(Infinity): (Infinity, Infinity)
+to int checked BFloat16(Infinity): OverflowException Arithmetic operation resulted in an overflow.
+classify BFloat16(-Infinity): -Infinity nan=False inf=True neg=True sub=False norm=False int=False
+Abs/Sign BFloat16(-Infinity): (Infinity, -1)
+Min/Max/MinMagnitude/MaxMagnitude BFloat16(-Infinity): (-Infinity, 1, -1, -Infinity)
+MinNumber/MaxNumber BFloat16(-Infinity): (-Infinity, -Infinity)
++ - * / % BFloat16(-Infinity): (-Infinity, -Infinity, -Infinity, -Infinity, NaN)
+Round/Floor/Ceiling/Truncate BFloat16(-Infinity): (-Infinity, -Infinity, -Infinity, -Infinity, -Infinity)
+compare BFloat16(-Infinity): (True, False, -1, True)
+CopySign/Clamp BFloat16(-Infinity): (-1, -1)
+to int/long/Int128 saturating BFloat16(-Infinity): (-2147483648, -9223372036854775808, -170141183460469231731687303715884105728)
+to double/float BFloat16(-Infinity): (-Infinity, -Infinity)
+to int checked BFloat16(-Infinity): OverflowException Arithmetic operation resulted in an overflow.
+classify BFloat16(1E-39): 1E-39 nan=False inf=False neg=False sub=True norm=False int=False
+Abs/Sign BFloat16(1E-39): (1E-39, 1)
+Min/Max/MinMagnitude/MaxMagnitude BFloat16(1E-39): (1E-39, 1, 1E-39, -1)
+MinNumber/MaxNumber BFloat16(1E-39): (1E-39, 1E-39)
++ - * / % BFloat16(1E-39): (1, -1, 2E-39, 4E-40, 1E-39)
+Round/Floor/Ceiling/Truncate BFloat16(1E-39): (0, 0, 1, 0, 0)
+compare BFloat16(1E-39): (True, False, -1, True)
+CopySign/Clamp BFloat16(1E-39): (1, 1E-39)
+to int/long/Int128 saturating BFloat16(1E-39): (0, 0, 0)
+to double/float BFloat16(1E-39): (1.0101904577379033E-39, 1.01019E-39)
+to int checked BFloat16(1E-39): 0
+from int/long/UInt128/double: (1.235E+04, 9.22E+18, Infinity, 0.1, -0)
+from Int128 saturating/checked: (-1.7E+38, 1.27E+30)
+from decimal: (1.5, 7.92E+28, -1E-28)
+== text BFloat16
+TryParse BFloat16 '0': 0
+TryParse utf8 BFloat16 '0': 0
+Parse BFloat16 '0': 0
+TryParse BFloat16 '-0': -0
+TryParse utf8 BFloat16 '-0': -0
+Parse BFloat16 '-0': -0
+TryParse BFloat16 '1.5': 1.5
+TryParse utf8 BFloat16 '1.5': 1.5
+Parse BFloat16 '1.5': 1.5
+TryParse BFloat16 '  42  ': 42
+TryParse utf8 BFloat16 '  42  ': 42
+Parse BFloat16 '  42  ': 42
+TryParse BFloat16 '1,234.5': 1230
+TryParse utf8 BFloat16 '1,234.5': 1230
+Parse BFloat16 '1,234.5': 1230
+TryParse BFloat16 '1e10': 1E+10
+TryParse utf8 BFloat16 '1e10': 1E+10
+Parse BFloat16 '1e10': 1E+10
+TryParse BFloat16 '-1E-5': -1E-05
+TryParse utf8 BFloat16 '-1E-5': -1E-05
+Parse BFloat16 '-1E-5': -1E-05
+TryParse BFloat16 'nan': NaN
+TryParse utf8 BFloat16 'nan': NaN
+Parse BFloat16 'nan': NaN
+TryParse BFloat16 'NaN': NaN
+TryParse utf8 BFloat16 'NaN': NaN
+Parse BFloat16 'NaN': NaN
+TryParse BFloat16 '-nan': NaN
+TryParse utf8 BFloat16 '-nan': NaN
+Parse BFloat16 '-nan': NaN
+TryParse BFloat16 'infinity': Infinity
+TryParse utf8 BFloat16 'infinity': Infinity
+Parse BFloat16 'infinity': Infinity
+TryParse BFloat16 '-Infinity': -Infinity
+TryParse utf8 BFloat16 '-Infinity': -Infinity
+Parse BFloat16 '-Infinity': -Infinity
+TryParse BFloat16 'INFINITY': Infinity
+TryParse utf8 BFloat16 'INFINITY': Infinity
+Parse BFloat16 'INFINITY': Infinity
+TryParse BFloat16 '∞': false
+TryParse utf8 BFloat16 '∞': false
+Parse BFloat16 '∞': FormatException The input string '∞' was not in a correct format.
+TryParse BFloat16 '0x10': false
+TryParse utf8 BFloat16 '0x10': false
+Parse BFloat16 '0x10': FormatException The input string '0x10' was not in a correct format.
+TryParse BFloat16 '': false
+TryParse utf8 BFloat16 '': false
+Parse BFloat16 '': FormatException The input string '' was not in a correct format.
+TryParse BFloat16 'abc': false
+TryParse utf8 BFloat16 'abc': false
+Parse BFloat16 'abc': FormatException The input string 'abc' was not in a correct format.
+TryParse BFloat16 '1.0000000000000000000000000000000001': 1
+TryParse utf8 BFloat16 '1.0000000000000000000000000000000001': 1
+Parse BFloat16 '1.0000000000000000000000000000000001': 1
+format BFloat16 '': 1230
+TryFormat utf8 BFloat16 '': 1230
+TryFormat small BFloat16 '': false
+format BFloat16 'G': 1230
+TryFormat utf8 BFloat16 'G': 1230
+TryFormat small BFloat16 'G': false
+format BFloat16 'G3': 1.23E+03
+TryFormat utf8 BFloat16 'G3': 1.23E+03
+TryFormat small BFloat16 'G3': false
+format BFloat16 'R': 1230
+TryFormat utf8 BFloat16 'R': 1230
+TryFormat small BFloat16 'R': false
+format BFloat16 'E': 1.232000E+003
+TryFormat utf8 BFloat16 'E': 1.232000E+003
+TryFormat small BFloat16 'E': false
+format BFloat16 'E2': 1.23E+003
+TryFormat utf8 BFloat16 'E2': 1.23E+003
+TryFormat small BFloat16 'E2': false
+format BFloat16 'F2': 1232.00
+TryFormat utf8 BFloat16 'F2': 1232.00
+TryFormat small BFloat16 'F2': false
+format BFloat16 'N2': 1,232.00
+TryFormat utf8 BFloat16 'N2': 1,232.00
+TryFormat small BFloat16 'N2': false
+format BFloat16 'P1': 123,200.0 %
+TryFormat utf8 BFloat16 'P1': 123,200.0 %
+TryFormat small BFloat16 'P1': false
+format BFloat16 '0.##': 1232
+TryFormat utf8 BFloat16 '0.##': 1232
+TryFormat small BFloat16 '0.##': false
+format BFloat16 '#,##0.000': 1,232.000
+TryFormat utf8 BFloat16 '#,##0.000': 1,232.000
+TryFormat small BFloat16 '#,##0.000': false
+format BFloat16 'C': ¤1,232.00
+TryFormat utf8 BFloat16 'C': ¤1,232.00
+TryFormat small BFloat16 'C': false
+== generic Decimal32
+constants: 0 1 -1 -0 NaN Infinity -Infinity 1E-101 9.999999E+96 -9.999999E+96
+classify Decimal32(0): 0 nan=False inf=False neg=False sub=False norm=False int=True
+Abs/Sign Decimal32(0): (0, 0)
+Min/Max/MinMagnitude/MaxMagnitude Decimal32(0): (0, 1, 0, -1)
+MinNumber/MaxNumber Decimal32(0): (0, 0)
++ - * / % Decimal32(0): (1, -1, 0, 0, 0)
+Round/Floor/Ceiling/Truncate Decimal32(0): (0, 0, 0, 0, 0)
+compare Decimal32(0): (True, True, -1, True)
+CopySign/Clamp Decimal32(0): (1, 0)
+to int/long/Int128 saturating Decimal32(0): (0, 0, 0)
+to double/float Decimal32(0): (0, 0)
+to int checked Decimal32(0): 0
+classify Decimal32(-0): -0 nan=False inf=False neg=True sub=False norm=False int=True
+Abs/Sign Decimal32(-0): (0, 0)
+Min/Max/MinMagnitude/MaxMagnitude Decimal32(-0): (-0, 1, -0, -1)
+MinNumber/MaxNumber Decimal32(-0): (-0, -0)
++ - * / % Decimal32(-0): (1, -1, -0, -0, -0)
+Round/Floor/Ceiling/Truncate Decimal32(-0): (-0, -0, -0, -0, -0)
+compare Decimal32(-0): (True, True, -1, True)
+CopySign/Clamp Decimal32(-0): (-1, -0)
+to int/long/Int128 saturating Decimal32(-0): (0, 0, 0)
+to double/float Decimal32(-0): (-0, -0)
+to int checked Decimal32(-0): 0
+classify Decimal32(1): 1 nan=False inf=False neg=False sub=False norm=True int=True
+Abs/Sign Decimal32(1): (1, 1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal32(1): (1, 1, -1, 1)
+MinNumber/MaxNumber Decimal32(1): (1, 1)
++ - * / % Decimal32(1): (2, 0, 2, 0.3333333, 1)
+Round/Floor/Ceiling/Truncate Decimal32(1): (1, 1, 1, 1, 1)
+compare Decimal32(1): (False, False, 0, True)
+CopySign/Clamp Decimal32(1): (1, 1)
+to int/long/Int128 saturating Decimal32(1): (1, 1, 1)
+to double/float Decimal32(1): (1, 1)
+to int checked Decimal32(1): 1
+classify Decimal32(2.50): 2.50 nan=False inf=False neg=False sub=False norm=True int=False
+Abs/Sign Decimal32(2.50): (2.50, 1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal32(2.50): (1, 2.50, -1, 2.50)
+MinNumber/MaxNumber Decimal32(2.50): (2.50, 2.50)
++ - * / % Decimal32(2.50): (3.50, 1.50, 5.00, 0.8333333, 0.50)
+Round/Floor/Ceiling/Truncate Decimal32(2.50): (2, 2, 3, 2, 3)
+compare Decimal32(2.50): (False, False, 1, True)
+CopySign/Clamp Decimal32(2.50): (1, 1)
+to int/long/Int128 saturating Decimal32(2.50): (2, 2, 2)
+to double/float Decimal32(2.50): (2.5, 2.5)
+to int checked Decimal32(2.50): 2
+classify Decimal32(-1234567): -1234567 nan=False inf=False neg=True sub=False norm=True int=True
+Abs/Sign Decimal32(-1234567): (1234567, -1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal32(-1234567): (-1234567, 1, -1, -1234567)
+MinNumber/MaxNumber Decimal32(-1234567): (-1234567, -1234567)
++ - * / % Decimal32(-1234567): (-1234566, -1234568, -2469134, -411522.3, -1)
+Round/Floor/Ceiling/Truncate Decimal32(-1234567): (-1234567, -1234567, -1234567, -1234567, -1234567)
+compare Decimal32(-1234567): (True, False, -1, True)
+CopySign/Clamp Decimal32(-1234567): (-1, -1)
+to int/long/Int128 saturating Decimal32(-1234567): (-1234567, -1234567, -1234567)
+to double/float Decimal32(-1234567): (-1234567, -1234567)
+to int checked Decimal32(-1234567): -1234567
+classify Decimal32(1E-101): 1E-101 nan=False inf=False neg=False sub=True norm=False int=False
+Abs/Sign Decimal32(1E-101): (1E-101, 1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal32(1E-101): (1E-101, 1, 1E-101, -1)
+MinNumber/MaxNumber Decimal32(1E-101): (1E-101, 1E-101)
++ - * / % Decimal32(1E-101): (1.000000, -1.000000, 2E-101, 0E-101, 1E-101)
+Round/Floor/Ceiling/Truncate Decimal32(1E-101): (0, 0, 1, 0, 0)
+compare Decimal32(1E-101): (True, False, -1, True)
+CopySign/Clamp Decimal32(1E-101): (1, 1E-101)
+to int/long/Int128 saturating Decimal32(1E-101): (0, 0, 0)
+to double/float Decimal32(1E-101): (1E-101, 0)
+to int checked Decimal32(1E-101): 0
+classify Decimal32(9.999999E+96): 9.999999E+96 nan=False inf=False neg=False sub=False norm=True int=True
+Abs/Sign Decimal32(9.999999E+96): (9.999999E+96, 1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal32(9.999999E+96): (1, 9.999999E+96, -1, 9.999999E+96)
+MinNumber/MaxNumber Decimal32(9.999999E+96): (9.999999E+96, 9.999999E+96)
++ - * / % Decimal32(9.999999E+96): (9.999999E+96, 9.999999E+96, Infinity, 3.333333E+96, 0)
+Round/Floor/Ceiling/Truncate Decimal32(9.999999E+96): (9.999999E+96, 9.999999E+96, 9.999999E+96, 9.999999E+96, 9.999999E+96)
+compare Decimal32(9.999999E+96): (False, False, 1, True)
+CopySign/Clamp Decimal32(9.999999E+96): (1, 1)
+to int/long/Int128 saturating Decimal32(9.999999E+96): (2147483647, 9223372036854775807, 170141183460469231731687303715884105727)
+to double/float Decimal32(9.999999E+96): (9.999999E+96, Infinity)
+to int checked Decimal32(9.999999E+96): OverflowException Arithmetic operation resulted in an overflow.
+classify Decimal32(NaN): NaN nan=True inf=False neg=True sub=False norm=False int=False
+Abs/Sign Decimal32(NaN): (NaN, 0)
+Min/Max/MinMagnitude/MaxMagnitude Decimal32(NaN): (NaN, NaN, NaN, NaN)
+MinNumber/MaxNumber Decimal32(NaN): (NaN, NaN)
++ - * / % Decimal32(NaN): (NaN, NaN, NaN, NaN, NaN)
+Round/Floor/Ceiling/Truncate Decimal32(NaN): (NaN, NaN, NaN, NaN, NaN)
+compare Decimal32(NaN): (False, False, -1, True)
+CopySign/Clamp Decimal32(NaN): (-1, NaN)
+to int/long/Int128 saturating Decimal32(NaN): (0, 0, 0)
+to double/float Decimal32(NaN): (NaN, NaN)
+to int checked Decimal32(NaN): OverflowException Arithmetic operation resulted in an overflow.
+classify Decimal32(Infinity): Infinity nan=False inf=True neg=False sub=False norm=False int=False
+Abs/Sign Decimal32(Infinity): (Infinity, 1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal32(Infinity): (1, Infinity, -1, Infinity)
+MinNumber/MaxNumber Decimal32(Infinity): (Infinity, Infinity)
++ - * / % Decimal32(Infinity): (Infinity, Infinity, Infinity, Infinity, NaN)
+Round/Floor/Ceiling/Truncate Decimal32(Infinity): (Infinity, Infinity, Infinity, Infinity, Infinity)
+compare Decimal32(Infinity): (False, False, 1, True)
+CopySign/Clamp Decimal32(Infinity): (1, 1)
+to int/long/Int128 saturating Decimal32(Infinity): (2147483647, 9223372036854775807, 170141183460469231731687303715884105727)
+to double/float Decimal32(Infinity): (Infinity, Infinity)
+to int checked Decimal32(Infinity): OverflowException Arithmetic operation resulted in an overflow.
+from int/long/UInt128/double: (12345, 9.223372E+18, 3.402824E+38, 0.1000000, -0)
+from Int128 saturating/checked: (-1.701412E+38, 1.267651E+30)
+from decimal: (1.5, 7.922816E+28, -1E-28)
+== text Decimal32
+TryParse Decimal32 '0': 0
+TryParse utf8 Decimal32 '0': 0
+Parse Decimal32 '0': 0
+TryParse Decimal32 '-0': -0
+TryParse utf8 Decimal32 '-0': -0
+Parse Decimal32 '-0': -0
+TryParse Decimal32 '1.5': 1.5
+TryParse utf8 Decimal32 '1.5': 1.5
+Parse Decimal32 '1.5': 1.5
+TryParse Decimal32 '  42  ': 42
+TryParse utf8 Decimal32 '  42  ': 42
+Parse Decimal32 '  42  ': 42
+TryParse Decimal32 '1,234.5': 1234.5
+TryParse utf8 Decimal32 '1,234.5': 1234.5
+Parse Decimal32 '1,234.5': 1234.5
+TryParse Decimal32 '1e10': 1E+10
+TryParse utf8 Decimal32 '1e10': 1E+10
+Parse Decimal32 '1e10': 1E+10
+TryParse Decimal32 '-1E-5': -1E-05
+TryParse utf8 Decimal32 '-1E-5': -1E-05
+Parse Decimal32 '-1E-5': -1E-05
+TryParse Decimal32 'nan': NaN
+TryParse utf8 Decimal32 'nan': NaN
+Parse Decimal32 'nan': NaN
+TryParse Decimal32 'NaN': NaN
+TryParse utf8 Decimal32 'NaN': NaN
+Parse Decimal32 'NaN': NaN
+TryParse Decimal32 '-nan': NaN
+TryParse utf8 Decimal32 '-nan': NaN
+Parse Decimal32 '-nan': NaN
+TryParse Decimal32 'infinity': Infinity
+TryParse utf8 Decimal32 'infinity': Infinity
+Parse Decimal32 'infinity': Infinity
+TryParse Decimal32 '-Infinity': -Infinity
+TryParse utf8 Decimal32 '-Infinity': -Infinity
+Parse Decimal32 '-Infinity': -Infinity
+TryParse Decimal32 'INFINITY': Infinity
+TryParse utf8 Decimal32 'INFINITY': Infinity
+Parse Decimal32 'INFINITY': Infinity
+TryParse Decimal32 '∞': false
+TryParse utf8 Decimal32 '∞': false
+Parse Decimal32 '∞': FormatException The input string '∞' was not in a correct format.
+TryParse Decimal32 '0x10': false
+TryParse utf8 Decimal32 '0x10': false
+Parse Decimal32 '0x10': FormatException The input string '0x10' was not in a correct format.
+TryParse Decimal32 '': false
+TryParse utf8 Decimal32 '': false
+Parse Decimal32 '': FormatException The input string '' was not in a correct format.
+TryParse Decimal32 'abc': false
+TryParse utf8 Decimal32 'abc': false
+Parse Decimal32 'abc': FormatException The input string 'abc' was not in a correct format.
+TryParse Decimal32 '1.0000000000000000000000000000000001': 1.000000
+TryParse utf8 Decimal32 '1.0000000000000000000000000000000001': 1.000000
+Parse Decimal32 '1.0000000000000000000000000000000001': 1.000000
+format Decimal32 '': 1234.568
+TryFormat utf8 Decimal32 '': 1234.568
+TryFormat small Decimal32 '': false
+format Decimal32 'G': 1234.568
+TryFormat utf8 Decimal32 'G': 1234.568
+TryFormat small Decimal32 'G': false
+format Decimal32 'G3': 1.23E+03
+TryFormat utf8 Decimal32 'G3': 1.23E+03
+TryFormat small Decimal32 'G3': false
+format Decimal32 'R': 1234.568
+TryFormat utf8 Decimal32 'R': 1234.568
+TryFormat small Decimal32 'R': false
+format Decimal32 'E': 1.234568E+003
+TryFormat utf8 Decimal32 'E': 1.234568E+003
+TryFormat small Decimal32 'E': false
+format Decimal32 'E2': 1.23E+003
+TryFormat utf8 Decimal32 'E2': 1.23E+003
+TryFormat small Decimal32 'E2': false
+format Decimal32 'F2': 1234.57
+TryFormat utf8 Decimal32 'F2': 1234.57
+TryFormat small Decimal32 'F2': false
+format Decimal32 'N2': 1,234.57
+TryFormat utf8 Decimal32 'N2': 1,234.57
+TryFormat small Decimal32 'N2': false
+format Decimal32 'P1': 123,456.8 %
+TryFormat utf8 Decimal32 'P1': 123,456.8 %
+TryFormat small Decimal32 'P1': false
+format Decimal32 '0.##': 1234.57
+TryFormat utf8 Decimal32 '0.##': 1234.57
+TryFormat small Decimal32 '0.##': false
+format Decimal32 '#,##0.000': 1,234.568
+TryFormat utf8 Decimal32 '#,##0.000': 1,234.568
+TryFormat small Decimal32 '#,##0.000': false
+format Decimal32 'C': ¤1,234.57
+TryFormat utf8 Decimal32 'C': ¤1,234.57
+TryFormat small Decimal32 'C': false
+== generic Decimal64
+constants: 0 1 -1 -0 NaN Infinity -Infinity 1E-398 9.999999999999999E+384 -9.999999999999999E+384
+classify Decimal64(0): 0 nan=False inf=False neg=False sub=False norm=False int=True
+Abs/Sign Decimal64(0): (0, 0)
+Min/Max/MinMagnitude/MaxMagnitude Decimal64(0): (0, 1, 0, -1)
+MinNumber/MaxNumber Decimal64(0): (0, 0)
++ - * / % Decimal64(0): (1, -1, 0, 0, 0)
+Round/Floor/Ceiling/Truncate Decimal64(0): (0, 0, 0, 0, 0)
+compare Decimal64(0): (True, True, -1, True)
+CopySign/Clamp Decimal64(0): (1, 0)
+to int/long/Int128 saturating Decimal64(0): (0, 0, 0)
+to double/float Decimal64(0): (0, 0)
+to int checked Decimal64(0): 0
+classify Decimal64(1): 1 nan=False inf=False neg=False sub=False norm=True int=True
+Abs/Sign Decimal64(1): (1, 1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal64(1): (1, 1, -1, 1)
+MinNumber/MaxNumber Decimal64(1): (1, 1)
++ - * / % Decimal64(1): (2, 0, 2, 0.3333333333333333, 1)
+Round/Floor/Ceiling/Truncate Decimal64(1): (1, 1, 1, 1, 1)
+compare Decimal64(1): (False, False, 0, True)
+CopySign/Clamp Decimal64(1): (1, 1)
+to int/long/Int128 saturating Decimal64(1): (1, 1, 1)
+to double/float Decimal64(1): (1, 1)
+to int checked Decimal64(1): 1
+classify Decimal64(0.1): 0.1 nan=False inf=False neg=False sub=False norm=True int=False
+Abs/Sign Decimal64(0.1): (0.1, 1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal64(0.1): (0.1, 1, 0.1, -1)
+MinNumber/MaxNumber Decimal64(0.1): (0.1, 0.1)
++ - * / % Decimal64(0.1): (1.1, -0.9, 0.2, 0.03333333333333333, 0.1)
+Round/Floor/Ceiling/Truncate Decimal64(0.1): (0, 0, 1, 0, 0)
+compare Decimal64(0.1): (True, False, -1, True)
+CopySign/Clamp Decimal64(0.1): (1, 0.1)
+to int/long/Int128 saturating Decimal64(0.1): (0, 0, 0)
+to double/float Decimal64(0.1): (0.1, 0.1)
+to int checked Decimal64(0.1): 0
+classify Decimal64(-9999999999999999): -9999999999999999 nan=False inf=False neg=True sub=False norm=True int=True
+Abs/Sign Decimal64(-9999999999999999): (9999999999999999, -1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal64(-9999999999999999): (-9999999999999999, 1, -1, -9999999999999999)
+MinNumber/MaxNumber Decimal64(-9999999999999999): (-9999999999999999, -9999999999999999)
++ - * / % Decimal64(-9999999999999999): (-9999999999999998, -1.000000000000000E+16, -2.000000000000000E+16, -3333333333333333, -1)
+Round/Floor/Ceiling/Truncate Decimal64(-9999999999999999): (-9999999999999999, -9999999999999999, -9999999999999999, -9999999999999999, -9999999999999999)
+compare Decimal64(-9999999999999999): (True, False, -1, True)
+CopySign/Clamp Decimal64(-9999999999999999): (-1, -1)
+to int/long/Int128 saturating Decimal64(-9999999999999999): (-2147483648, -9999999999999999, -9999999999999999)
+to double/float Decimal64(-9999999999999999): (-10000000000000000, -1E+16)
+to int checked Decimal64(-9999999999999999): OverflowException Arithmetic operation resulted in an overflow.
+classify Decimal64(1E-398): 1E-398 nan=False inf=False neg=False sub=True norm=False int=False
+Abs/Sign Decimal64(1E-398): (1E-398, 1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal64(1E-398): (1E-398, 1, 1E-398, -1)
+MinNumber/MaxNumber Decimal64(1E-398): (1E-398, 1E-398)
++ - * / % Decimal64(1E-398): (1.000000000000000, -1.000000000000000, 2E-398, 0E-398, 1E-398)
+Round/Floor/Ceiling/Truncate Decimal64(1E-398): (0, 0, 1, 0, 0)
+compare Decimal64(1E-398): (True, False, -1, True)
+CopySign/Clamp Decimal64(1E-398): (1, 1E-398)
+to int/long/Int128 saturating Decimal64(1E-398): (0, 0, 0)
+to double/float Decimal64(1E-398): (0, 0)
+to int checked Decimal64(1E-398): 0
+classify Decimal64(9.999999999999999E+384): 9.999999999999999E+384 nan=False inf=False neg=False sub=False norm=True int=True
+Abs/Sign Decimal64(9.999999999999999E+384): (9.999999999999999E+384, 1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal64(9.999999999999999E+384): (1, 9.999999999999999E+384, -1, 9.999999999999999E+384)
+MinNumber/MaxNumber Decimal64(9.999999999999999E+384): (9.999999999999999E+384, 9.999999999999999E+384)
++ - * / % Decimal64(9.999999999999999E+384): (9.999999999999999E+384, 9.999999999999999E+384, Infinity, 3.333333333333333E+384, 0)
+Round/Floor/Ceiling/Truncate Decimal64(9.999999999999999E+384): (9.999999999999999E+384, 9.999999999999999E+384, 9.999999999999999E+384, 9.999999999999999E+384, 9.999999999999999E+384)
+compare Decimal64(9.999999999999999E+384): (False, False, 1, True)
+CopySign/Clamp Decimal64(9.999999999999999E+384): (1, 1)
+to int/long/Int128 saturating Decimal64(9.999999999999999E+384): (2147483647, 9223372036854775807, 170141183460469231731687303715884105727)
+to double/float Decimal64(9.999999999999999E+384): (Infinity, Infinity)
+to int checked Decimal64(9.999999999999999E+384): OverflowException Arithmetic operation resulted in an overflow.
+classify Decimal64(-Infinity): -Infinity nan=False inf=True neg=True sub=False norm=False int=False
+Abs/Sign Decimal64(-Infinity): (Infinity, -1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal64(-Infinity): (-Infinity, 1, -1, -Infinity)
+MinNumber/MaxNumber Decimal64(-Infinity): (-Infinity, -Infinity)
++ - * / % Decimal64(-Infinity): (-Infinity, -Infinity, -Infinity, -Infinity, NaN)
+Round/Floor/Ceiling/Truncate Decimal64(-Infinity): (-Infinity, -Infinity, -Infinity, -Infinity, -Infinity)
+compare Decimal64(-Infinity): (True, False, -1, True)
+CopySign/Clamp Decimal64(-Infinity): (-1, -1)
+to int/long/Int128 saturating Decimal64(-Infinity): (-2147483648, -9223372036854775808, -170141183460469231731687303715884105728)
+to double/float Decimal64(-Infinity): (-Infinity, -Infinity)
+to int checked Decimal64(-Infinity): OverflowException Arithmetic operation resulted in an overflow.
+classify Decimal64(NaN): NaN nan=True inf=False neg=True sub=False norm=False int=False
+Abs/Sign Decimal64(NaN): (NaN, 0)
+Min/Max/MinMagnitude/MaxMagnitude Decimal64(NaN): (NaN, NaN, NaN, NaN)
+MinNumber/MaxNumber Decimal64(NaN): (NaN, NaN)
++ - * / % Decimal64(NaN): (NaN, NaN, NaN, NaN, NaN)
+Round/Floor/Ceiling/Truncate Decimal64(NaN): (NaN, NaN, NaN, NaN, NaN)
+compare Decimal64(NaN): (False, False, -1, True)
+CopySign/Clamp Decimal64(NaN): (-1, NaN)
+to int/long/Int128 saturating Decimal64(NaN): (0, 0, 0)
+to double/float Decimal64(NaN): (NaN, NaN)
+to int checked Decimal64(NaN): OverflowException Arithmetic operation resulted in an overflow.
+from int/long/UInt128/double: (12345, 9.223372036854776E+18, 3.402823669209385E+38, 0.1000000000000000, -0)
+from Int128 saturating/checked: (-1.701411834604692E+38, 1.267650600228229E+30)
+from decimal: (1.5, 7.922816251426434E+28, -1E-28)
+== text Decimal64
+TryParse Decimal64 '0': 0
+TryParse utf8 Decimal64 '0': 0
+Parse Decimal64 '0': 0
+TryParse Decimal64 '-0': -0
+TryParse utf8 Decimal64 '-0': -0
+Parse Decimal64 '-0': -0
+TryParse Decimal64 '1.5': 1.5
+TryParse utf8 Decimal64 '1.5': 1.5
+Parse Decimal64 '1.5': 1.5
+TryParse Decimal64 '  42  ': 42
+TryParse utf8 Decimal64 '  42  ': 42
+Parse Decimal64 '  42  ': 42
+TryParse Decimal64 '1,234.5': 1234.5
+TryParse utf8 Decimal64 '1,234.5': 1234.5
+Parse Decimal64 '1,234.5': 1234.5
+TryParse Decimal64 '1e10': 1E+10
+TryParse utf8 Decimal64 '1e10': 1E+10
+Parse Decimal64 '1e10': 1E+10
+TryParse Decimal64 '-1E-5': -1E-05
+TryParse utf8 Decimal64 '-1E-5': -1E-05
+Parse Decimal64 '-1E-5': -1E-05
+TryParse Decimal64 'nan': NaN
+TryParse utf8 Decimal64 'nan': NaN
+Parse Decimal64 'nan': NaN
+TryParse Decimal64 'NaN': NaN
+TryParse utf8 Decimal64 'NaN': NaN
+Parse Decimal64 'NaN': NaN
+TryParse Decimal64 '-nan': NaN
+TryParse utf8 Decimal64 '-nan': NaN
+Parse Decimal64 '-nan': NaN
+TryParse Decimal64 'infinity': Infinity
+TryParse utf8 Decimal64 'infinity': Infinity
+Parse Decimal64 'infinity': Infinity
+TryParse Decimal64 '-Infinity': -Infinity
+TryParse utf8 Decimal64 '-Infinity': -Infinity
+Parse Decimal64 '-Infinity': -Infinity
+TryParse Decimal64 'INFINITY': Infinity
+TryParse utf8 Decimal64 'INFINITY': Infinity
+Parse Decimal64 'INFINITY': Infinity
+TryParse Decimal64 '∞': false
+TryParse utf8 Decimal64 '∞': false
+Parse Decimal64 '∞': FormatException The input string '∞' was not in a correct format.
+TryParse Decimal64 '0x10': false
+TryParse utf8 Decimal64 '0x10': false
+Parse Decimal64 '0x10': FormatException The input string '0x10' was not in a correct format.
+TryParse Decimal64 '': false
+TryParse utf8 Decimal64 '': false
+Parse Decimal64 '': FormatException The input string '' was not in a correct format.
+TryParse Decimal64 'abc': false
+TryParse utf8 Decimal64 'abc': false
+Parse Decimal64 'abc': FormatException The input string 'abc' was not in a correct format.
+TryParse Decimal64 '1.0000000000000000000000000000000001': 1.000000000000000
+TryParse utf8 Decimal64 '1.0000000000000000000000000000000001': 1.000000000000000
+Parse Decimal64 '1.0000000000000000000000000000000001': 1.000000000000000
+format Decimal64 '': 1234.5678
+TryFormat utf8 Decimal64 '': 1234.5678
+TryFormat small Decimal64 '': false
+format Decimal64 'G': 1234.5678
+TryFormat utf8 Decimal64 'G': 1234.5678
+TryFormat small Decimal64 'G': false
+format Decimal64 'G3': 1.23E+03
+TryFormat utf8 Decimal64 'G3': 1.23E+03
+TryFormat small Decimal64 'G3': false
+format Decimal64 'R': 1234.5678
+TryFormat utf8 Decimal64 'R': 1234.5678
+TryFormat small Decimal64 'R': false
+format Decimal64 'E': 1.234568E+003
+TryFormat utf8 Decimal64 'E': 1.234568E+003
+TryFormat small Decimal64 'E': false
+format Decimal64 'E2': 1.23E+003
+TryFormat utf8 Decimal64 'E2': 1.23E+003
+TryFormat small Decimal64 'E2': false
+format Decimal64 'F2': 1234.57
+TryFormat utf8 Decimal64 'F2': 1234.57
+TryFormat small Decimal64 'F2': false
+format Decimal64 'N2': 1,234.57
+TryFormat utf8 Decimal64 'N2': 1,234.57
+TryFormat small Decimal64 'N2': false
+format Decimal64 'P1': 123,456.8 %
+TryFormat utf8 Decimal64 'P1': 123,456.8 %
+TryFormat small Decimal64 'P1': false
+format Decimal64 '0.##': 1234.57
+TryFormat utf8 Decimal64 '0.##': 1234.57
+TryFormat small Decimal64 '0.##': false
+format Decimal64 '#,##0.000': 1,234.568
+TryFormat utf8 Decimal64 '#,##0.000': 1,234.568
+TryFormat small Decimal64 '#,##0.000': false
+format Decimal64 'C': ¤1,234.57
+TryFormat utf8 Decimal64 'C': ¤1,234.57
+TryFormat small Decimal64 'C': false
+== generic Decimal128
+constants: 0 1 -1 -0 NaN Infinity -Infinity 1E-6176 9.999999999999999999999999999999999E+6144 -9.999999999999999999999999999999999E+6144
+classify Decimal128(0): 0 nan=False inf=False neg=False sub=False norm=False int=True
+Abs/Sign Decimal128(0): (0, 0)
+Min/Max/MinMagnitude/MaxMagnitude Decimal128(0): (0, 1, 0, -1)
+MinNumber/MaxNumber Decimal128(0): (0, 0)
++ - * / % Decimal128(0): (1, -1, 0, 0, 0)
+Round/Floor/Ceiling/Truncate Decimal128(0): (0, 0, 0, 0, 0)
+compare Decimal128(0): (True, True, -1, True)
+CopySign/Clamp Decimal128(0): (1, 0)
+to int/long/Int128 saturating Decimal128(0): (0, 0, 0)
+to double/float Decimal128(0): (0, 0)
+to int checked Decimal128(0): 0
+classify Decimal128(1): 1 nan=False inf=False neg=False sub=False norm=True int=True
+Abs/Sign Decimal128(1): (1, 1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal128(1): (1, 1, -1, 1)
+MinNumber/MaxNumber Decimal128(1): (1, 1)
++ - * / % Decimal128(1): (2, 0, 2, 0.3333333333333333333333333333333333, 1)
+Round/Floor/Ceiling/Truncate Decimal128(1): (1, 1, 1, 1, 1)
+compare Decimal128(1): (False, False, 0, True)
+CopySign/Clamp Decimal128(1): (1, 1)
+to int/long/Int128 saturating Decimal128(1): (1, 1, 1)
+to double/float Decimal128(1): (1, 1)
+to int checked Decimal128(1): 1
+classify Decimal128(1.000): 1.000 nan=False inf=False neg=False sub=False norm=True int=True
+Abs/Sign Decimal128(1.000): (1.000, 1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal128(1.000): (1, 1, -1, 1.000)
+MinNumber/MaxNumber Decimal128(1.000): (1.000, 1.000)
++ - * / % Decimal128(1.000): (2.000, 0.000, 2.000, 0.3333333333333333333333333333333333, 1.000)
+Round/Floor/Ceiling/Truncate Decimal128(1.000): (1, 1, 1, 1, 1)
+compare Decimal128(1.000): (False, False, 0, True)
+CopySign/Clamp Decimal128(1.000): (1, 1)
+to int/long/Int128 saturating Decimal128(1.000): (1, 1, 1)
+to double/float Decimal128(1.000): (1, 1)
+to int checked Decimal128(1.000): 1
+classify Decimal128(-1E-06): -1E-06 nan=False inf=False neg=True sub=False norm=True int=False
+Abs/Sign Decimal128(-1E-06): (1E-06, -1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal128(-1E-06): (-1E-06, 1, -1E-06, -1)
+MinNumber/MaxNumber Decimal128(-1E-06): (-1E-06, -1E-06)
++ - * / % Decimal128(-1E-06): (0.999999, -1.000001, -2E-06, -3.333333333333333333333333333333333E-07, -1E-06)
+Round/Floor/Ceiling/Truncate Decimal128(-1E-06): (-0, -1, -0, -0, -0)
+compare Decimal128(-1E-06): (True, False, -1, True)
+CopySign/Clamp Decimal128(-1E-06): (-1, -1E-06)
+to int/long/Int128 saturating Decimal128(-1E-06): (0, 0, 0)
+to double/float Decimal128(-1E-06): (-1E-06, -1E-06)
+to int checked Decimal128(-1E-06): 0
+classify Decimal128(1E-6176): 1E-6176 nan=False inf=False neg=False sub=True norm=False int=False
+Abs/Sign Decimal128(1E-6176): (1E-6176, 1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal128(1E-6176): (1E-6176, 1, 1E-6176, -1)
+MinNumber/MaxNumber Decimal128(1E-6176): (1E-6176, 1E-6176)
++ - * / % Decimal128(1E-6176): (1.000000000000000000000000000000000, -1.000000000000000000000000000000000, 2E-6176, 0E-6176, 1E-6176)
+Round/Floor/Ceiling/Truncate Decimal128(1E-6176): (0, 0, 1, 0, 0)
+compare Decimal128(1E-6176): (True, False, -1, True)
+CopySign/Clamp Decimal128(1E-6176): (1, 1E-6176)
+to int/long/Int128 saturating Decimal128(1E-6176): (0, 0, 0)
+to double/float Decimal128(1E-6176): (0, 0)
+to int checked Decimal128(1E-6176): 0
+classify Decimal128(9.999999999999999999999999999999999E+6144): 9.999999999999999999999999999999999E+6144 nan=False inf=False neg=False sub=False norm=True int=True
+Abs/Sign Decimal128(9.999999999999999999999999999999999E+6144): (9.999999999999999999999999999999999E+6144, 1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal128(9.999999999999999999999999999999999E+6144): (1, 9.999999999999999999999999999999999E+6144, -1, 9.999999999999999999999999999999999E+6144)
+MinNumber/MaxNumber Decimal128(9.999999999999999999999999999999999E+6144): (9.999999999999999999999999999999999E+6144, 9.999999999999999999999999999999999E+6144)
++ - * / % Decimal128(9.999999999999999999999999999999999E+6144): (9.999999999999999999999999999999999E+6144, 9.999999999999999999999999999999999E+6144, Infinity, 3.333333333333333333333333333333333E+6144, 0)
+Round/Floor/Ceiling/Truncate Decimal128(9.999999999999999999999999999999999E+6144): (9.999999999999999999999999999999999E+6144, 9.999999999999999999999999999999999E+6144, 9.999999999999999999999999999999999E+6144, 9.999999999999999999999999999999999E+6144, 9.999999999999999999999999999999999E+6144)
+compare Decimal128(9.999999999999999999999999999999999E+6144): (False, False, 1, True)
+CopySign/Clamp Decimal128(9.999999999999999999999999999999999E+6144): (1, 1)
+to int/long/Int128 saturating Decimal128(9.999999999999999999999999999999999E+6144): (2147483647, 9223372036854775807, 170141183460469231731687303715884105727)
+to double/float Decimal128(9.999999999999999999999999999999999E+6144): (Infinity, Infinity)
+to int checked Decimal128(9.999999999999999999999999999999999E+6144): OverflowException Arithmetic operation resulted in an overflow.
+classify Decimal128(-9.999999999999999999999999999999999E+6144): -9.999999999999999999999999999999999E+6144 nan=False inf=False neg=True sub=False norm=True int=True
+Abs/Sign Decimal128(-9.999999999999999999999999999999999E+6144): (9.999999999999999999999999999999999E+6144, -1)
+Min/Max/MinMagnitude/MaxMagnitude Decimal128(-9.999999999999999999999999999999999E+6144): (-9.999999999999999999999999999999999E+6144, 1, -1, -9.999999999999999999999999999999999E+6144)
+MinNumber/MaxNumber Decimal128(-9.999999999999999999999999999999999E+6144): (-9.999999999999999999999999999999999E+6144, -9.999999999999999999999999999999999E+6144)
++ - * / % Decimal128(-9.999999999999999999999999999999999E+6144): (-9.999999999999999999999999999999999E+6144, -9.999999999999999999999999999999999E+6144, -Infinity, -3.333333333333333333333333333333333E+6144, -0)
+Round/Floor/Ceiling/Truncate Decimal128(-9.999999999999999999999999999999999E+6144): (-9.999999999999999999999999999999999E+6144, -9.999999999999999999999999999999999E+6144, -9.999999999999999999999999999999999E+6144, -9.999999999999999999999999999999999E+6144, -9.999999999999999999999999999999999E+6144)
+compare Decimal128(-9.999999999999999999999999999999999E+6144): (True, False, -1, True)
+CopySign/Clamp Decimal128(-9.999999999999999999999999999999999E+6144): (-1, -1)
+to int/long/Int128 saturating Decimal128(-9.999999999999999999999999999999999E+6144): (-2147483648, -9223372036854775808, -170141183460469231731687303715884105728)
+to double/float Decimal128(-9.999999999999999999999999999999999E+6144): (-Infinity, -Infinity)
+to int checked Decimal128(-9.999999999999999999999999999999999E+6144): OverflowException Arithmetic operation resulted in an overflow.
+classify Decimal128(NaN): NaN nan=True inf=False neg=True sub=False norm=False int=False
+Abs/Sign Decimal128(NaN): (NaN, 0)
+Min/Max/MinMagnitude/MaxMagnitude Decimal128(NaN): (NaN, NaN, NaN, NaN)
+MinNumber/MaxNumber Decimal128(NaN): (NaN, NaN)
++ - * / % Decimal128(NaN): (NaN, NaN, NaN, NaN, NaN)
+Round/Floor/Ceiling/Truncate Decimal128(NaN): (NaN, NaN, NaN, NaN, NaN)
+compare Decimal128(NaN): (False, False, -1, True)
+CopySign/Clamp Decimal128(NaN): (-1, NaN)
+to int/long/Int128 saturating Decimal128(NaN): (0, 0, 0)
+to double/float Decimal128(NaN): (NaN, NaN)
+to int checked Decimal128(NaN): OverflowException Arithmetic operation resulted in an overflow.
+from int/long/UInt128/double: (12345, 9223372036854775807, 3.402823669209384634633746074317682E+38, 0.1000000000000000055511151231257827, -0)
+from Int128 saturating/checked: (-1.701411834604692317316873037158841E+38, 1267650600228229401496703205376)
+from decimal: (1.5, 79228162514264337593543950335, -1E-28)
+== text Decimal128
+TryParse Decimal128 '0': 0
+TryParse utf8 Decimal128 '0': 0
+Parse Decimal128 '0': 0
+TryParse Decimal128 '-0': -0
+TryParse utf8 Decimal128 '-0': -0
+Parse Decimal128 '-0': -0
+TryParse Decimal128 '1.5': 1.5
+TryParse utf8 Decimal128 '1.5': 1.5
+Parse Decimal128 '1.5': 1.5
+TryParse Decimal128 '  42  ': 42
+TryParse utf8 Decimal128 '  42  ': 42
+Parse Decimal128 '  42  ': 42
+TryParse Decimal128 '1,234.5': 1234.5
+TryParse utf8 Decimal128 '1,234.5': 1234.5
+Parse Decimal128 '1,234.5': 1234.5
+TryParse Decimal128 '1e10': 1E+10
+TryParse utf8 Decimal128 '1e10': 1E+10
+Parse Decimal128 '1e10': 1E+10
+TryParse Decimal128 '-1E-5': -1E-05
+TryParse utf8 Decimal128 '-1E-5': -1E-05
+Parse Decimal128 '-1E-5': -1E-05
+TryParse Decimal128 'nan': NaN
+TryParse utf8 Decimal128 'nan': NaN
+Parse Decimal128 'nan': NaN
+TryParse Decimal128 'NaN': NaN
+TryParse utf8 Decimal128 'NaN': NaN
+Parse Decimal128 'NaN': NaN
+TryParse Decimal128 '-nan': NaN
+TryParse utf8 Decimal128 '-nan': NaN
+Parse Decimal128 '-nan': NaN
+TryParse Decimal128 'infinity': Infinity
+TryParse utf8 Decimal128 'infinity': Infinity
+Parse Decimal128 'infinity': Infinity
+TryParse Decimal128 '-Infinity': -Infinity
+TryParse utf8 Decimal128 '-Infinity': -Infinity
+Parse Decimal128 '-Infinity': -Infinity
+TryParse Decimal128 'INFINITY': Infinity
+TryParse utf8 Decimal128 'INFINITY': Infinity
+Parse Decimal128 'INFINITY': Infinity
+TryParse Decimal128 '∞': false
+TryParse utf8 Decimal128 '∞': false
+Parse Decimal128 '∞': FormatException The input string '∞' was not in a correct format.
+TryParse Decimal128 '0x10': false
+TryParse utf8 Decimal128 '0x10': false
+Parse Decimal128 '0x10': FormatException The input string '0x10' was not in a correct format.
+TryParse Decimal128 '': false
+TryParse utf8 Decimal128 '': false
+Parse Decimal128 '': FormatException The input string '' was not in a correct format.
+TryParse Decimal128 'abc': false
+TryParse utf8 Decimal128 'abc': false
+Parse Decimal128 'abc': FormatException The input string 'abc' was not in a correct format.
+TryParse Decimal128 '1.0000000000000000000000000000000001': 1.000000000000000000000000000000000
+TryParse utf8 Decimal128 '1.0000000000000000000000000000000001': 1.000000000000000000000000000000000
+Parse Decimal128 '1.0000000000000000000000000000000001': 1.000000000000000000000000000000000
+format Decimal128 '': 1234.5678
+TryFormat utf8 Decimal128 '': 1234.5678
+TryFormat small Decimal128 '': false
+format Decimal128 'G': 1234.5678
+TryFormat utf8 Decimal128 'G': 1234.5678
+TryFormat small Decimal128 'G': false
+format Decimal128 'G3': 1.23E+03
+TryFormat utf8 Decimal128 'G3': 1.23E+03
+TryFormat small Decimal128 'G3': false
+format Decimal128 'R': 1234.5678
+TryFormat utf8 Decimal128 'R': 1234.5678
+TryFormat small Decimal128 'R': false
+format Decimal128 'E': 1.234568E+003
+TryFormat utf8 Decimal128 'E': 1.234568E+003
+TryFormat small Decimal128 'E': false
+format Decimal128 'E2': 1.23E+003
+TryFormat utf8 Decimal128 'E2': 1.23E+003
+TryFormat small Decimal128 'E2': false
+format Decimal128 'F2': 1234.57
+TryFormat utf8 Decimal128 'F2': 1234.57
+TryFormat small Decimal128 'F2': false
+format Decimal128 'N2': 1,234.57
+TryFormat utf8 Decimal128 'N2': 1,234.57
+TryFormat small Decimal128 'N2': false
+format Decimal128 'P1': 123,456.8 %
+TryFormat utf8 Decimal128 'P1': 123,456.8 %
+TryFormat small Decimal128 'P1': false
+format Decimal128 '0.##': 1234.57
+TryFormat utf8 Decimal128 '0.##': 1234.57
+TryFormat small Decimal128 '0.##': false
+format Decimal128 '#,##0.000': 1,234.568
+TryFormat utf8 Decimal128 '#,##0.000': 1,234.568
+TryFormat small Decimal128 '#,##0.000': false
+format Decimal128 'C': ¤1,234.57
+TryFormat utf8 Decimal128 'C': ¤1,234.57
+TryFormat small Decimal128 'C': false
+== decimal to BFloat16
+(BFloat16)0: 0 bits 00000000
+(BFloat16)0.0: -0 bits 80000000
+(BFloat16)1: 1 bits 3F800000
+(BFloat16)-1: -1 bits BF800000
+(BFloat16)0.1: 0.1 bits 3DCD0000
+(BFloat16)1.5: 1.5 bits 3FC00000
+(BFloat16)255.5: 256 bits 43800000
+(BFloat16)256.5: 256 bits 43800000
+(BFloat16)257.5: 258 bits 43810000
+(BFloat16)79228162514264337593543950335: 7.92E+28 bits 6F800000
+(BFloat16)-79228162514264337593543950335: -7.92E+28 bits EF800000
+(BFloat16)0.0000000000000000000000000001: 1E-28 bits 10FE0000
+(BFloat16)1242775742563838791597948929: 1.25E+27 bits 6C810000
+(BFloat16)1242775742563838791597948928: 1.24E+27 bits 6C800000
+(BFloat16)1242775742563838791597948927: 1.24E+27 bits 6C800000
+(decimal)BFloat16: OverflowException Value was either too large or too small for a Decimal.
+(decimal)BFloat16.NaN: OverflowException Value was either too large or too small for a Decimal.
+(Decimal128)decimal: (1.25, 79228162514264337593543950335, -1E-28)
+(decimal)Decimal128: OverflowException Value was either too large or too small for a Decimal.
+(decimal)Decimal64: 0.0000000000000000000000000000
+Int128/UInt128 round trip: (170141183460469231731687303715884100000, 340282366920938463463374607431768200000, -1.701411834604692E+38)
+== encodings
+Decimal32 32800000: 0 canonical=True zero=True nan=False inf=False ==0 True hash==0 True +1 1
+Decimal32 32800001: 1 canonical=True zero=False nan=False inf=False ==0 False hash==0 False +1 2
+Decimal32 B2800000: -0 canonical=True zero=True nan=False inf=False ==0 True hash==0 True +1 1
+Decimal32 6CBFFFFF: 0 canonical=False zero=True nan=False inf=False ==0 True hash==0 True +1 1
+Decimal32 6CB89680: 0 canonical=False zero=True nan=False inf=False ==0 True hash==0 True +1 1
+Decimal32 6CB8967F: 9999999 canonical=True zero=False nan=False inf=False ==0 False hash==0 False +1 1.000000E+07
+Decimal32 7C000000: NaN canonical=True zero=False nan=True inf=False ==0 False hash==0 False +1 NaN
+Decimal32 7C0FFFFF: NaN canonical=False zero=False nan=True inf=False ==0 False hash==0 False +1 NaN
+Decimal32 7C0F4240: NaN canonical=False zero=False nan=True inf=False ==0 False hash==0 False +1 NaN
+Decimal32 7E000001: NaN canonical=True zero=False nan=True inf=False ==0 False hash==0 False +1 NaN
+Decimal32 78000000: Infinity canonical=True zero=False nan=False inf=True ==0 False hash==0 False +1 Infinity
+Decimal32 78000001: Infinity canonical=False zero=False nan=False inf=True ==0 False hash==0 False +1 Infinity
+Decimal32 F9FFFFFF: -Infinity canonical=False zero=False nan=False inf=True ==0 False hash==0 False +1 -Infinity
+Decimal64 31C0000000000000: 0 canonical=True zero=True nan=False inf=False ==0 True hash==0 True +1 1
+Decimal64 31C0000000000001: 1 canonical=True zero=False nan=False inf=False ==0 False hash==0 False +1 2
+Decimal64 6C7FFFFFFFFFFFFF: 0E+01 canonical=False zero=True nan=False inf=False ==0 True hash==0 True +1 1
+Decimal64 6C7386F26FC0FFFF: 9999999999999999 canonical=True zero=False nan=False inf=False ==0 False hash==0 False +1 1.000000000000000E+16
+Decimal64 6C7386F26FC10000: 0 canonical=False zero=True nan=False inf=False ==0 True hash==0 True +1 1
+Decimal64 7C00000000000000: NaN canonical=True zero=False nan=True inf=False ==0 False hash==0 False +1 NaN
+Decimal64 7C03FFFFFFFFFFFF: NaN canonical=False zero=False nan=True inf=False ==0 False hash==0 False +1 NaN
+Decimal64 7800000000000001: Infinity canonical=False zero=False nan=False inf=True ==0 False hash==0 False +1 Infinity
+Decimal128 30400000000000000000000000000000: 0 canonical=True zero=True nan=False inf=False ==0 True hash==0 True +1 1
+Decimal128 30400000000000000000000000000001: 1 canonical=True zero=False nan=False inf=False ==0 False hash==0 False +1 2
+Decimal128 3041ED09BEAD87C0378D8E63FFFFFFFF: 9999999999999999999999999999999999 canonical=True zero=False nan=False inf=False ==0 False hash==0 False +1 1.000000000000000000000000000000000E+34
+Decimal128 3041ED09BEAD87C0378D8E6400000000: 0 canonical=False zero=True nan=False inf=False ==0 True hash==0 True +1 1
+Decimal128 6C000000000000000000000000000001: 0E-32 canonical=False zero=True nan=False inf=False ==0 True hash==0 True +1 1.00000000000000000000000000000000
+Decimal128 7C000000000000000000000000000000: NaN canonical=True zero=False nan=True inf=False ==0 False hash==0 False +1 NaN
+Decimal128 7C003FFFFFFFFFFFFFFFFFFFFFFFFFFF: NaN canonical=False zero=False nan=True inf=False ==0 False hash==0 False +1 NaN
+Decimal128 78000000000000000000000000000005: Infinity canonical=False zero=False nan=False inf=True ==0 False hash==0 False +1 Infinity
+BFloat16 bits: (00010000, 7F7F0000)

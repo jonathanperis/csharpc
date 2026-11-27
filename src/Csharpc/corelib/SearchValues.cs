@@ -83,6 +83,32 @@ namespace CsharpcCoreLib
 
         internal bool Has(int code) => (uint)code < (uint)Map.Length && Map[code];
 
+        // The internal virtual surface of System.Buffers.SearchValues<T> that MemoryExtensions' IL calls (values.IndexOfAny(span), ...):
+        // MemoryExtensions served from the framework's IL (tests/slicer.sh's MemoryExtensions slice) binds to these on this shadow.
+        // Not virtual here (a callvirt to them still binds): virtual slots would be lowered for every SearchValues<T>
+        // instantiation whether a program searches with it or not.
+        internal int IndexOfAny(ReadOnlySpan<T> span) => IndexOf(span, true);
+        internal int IndexOfAnyExcept(ReadOnlySpan<T> span) => IndexOf(span, false);
+        internal int LastIndexOfAny(ReadOnlySpan<T> span) => LastIndexOf(span, true);
+        internal int LastIndexOfAnyExcept(ReadOnlySpan<T> span) => LastIndexOf(span, false);
+        internal bool ContainsAny(ReadOnlySpan<T> span) => IndexOf(span, true) >= 0;
+        internal bool ContainsAnyExcept(ReadOnlySpan<T> span) => IndexOf(span, false) >= 0;
+        internal int IndexOfAnyMultiString(ReadOnlySpan<char> span) => ((StringSearchValues)(object)this).IndexOfAny(span);
+
+        private int IndexOf(ReadOnlySpan<T> span, bool member)
+        {
+            for (int i = 0; i < span.Length; i++)
+                if (Has(Code(span[i])) == member) return i;
+            return -1;
+        }
+
+        private int LastIndexOf(ReadOnlySpan<T> span, bool member)
+        {
+            for (int i = span.Length - 1; i >= 0; i--)
+                if (Has(Code(span[i])) == member) return i;
+            return -1;
+        }
+
         // Reinterpreted, not (char)(object)value: the cast through object boxed every character the HTTP
         // parser classified (the typeof test folds after monomorphization; the box didn't).
         internal static int Code(T value) => typeof(T) == typeof(char) ? Unsafe.As<T, char>(ref value) : Unsafe.As<T, byte>(ref value);

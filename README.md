@@ -357,6 +357,9 @@ run (`CI-Only:` on a `ci/**` branch, or Actions → CI (targeted)) does not coun
 
 ## Documentation
 
+The documentation is also published as a site, with a map of the codebase by responsibility:
+**[jonathanperis.dev/csharpc](https://jonathanperis.dev/csharpc/)**.
+
 | | |
 |---|---|
 | [00 Vision](docs/00-vision.md) · [01 Prior art](docs/01-prior-art.md) · [02 Architecture](docs/02-architecture.md) · [03 Lowering](docs/03-lowering.md) | how csharpc is built and why |

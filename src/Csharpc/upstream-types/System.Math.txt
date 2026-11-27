@@ -1,0 +1,11 @@
+# The floating-point members of float, double, Math and MathF that are C# in CoreLib (#423): the generic-math statics (float.Sin,
+# double.Hypot, RootN, the *Pi family, Lerp, the magnitude and native min/max, ScaleB, ILogB...), Math.Round with digits and
+# MidpointRounding, BitIncrement/BitDecrement, IEEERemainder, Log(a, b), Sign and their MathF twins, served from their own IL
+# in the types' host classes. The libm-backed members (Math.Sin, Math.Pow, Math.Sqrt...) stay csharpc's intrinsics, which the hosted
+# bodies call, and so are the JIT expansions whose IL calls itself (Math/MathF ReciprocalEstimate, ReciprocalSqrtEstimate and SinCos,
+# float/double MultiplyAddEstimate: the slicer refuses to copy such a body; ConvertToIntegerNative, whose IL calls itself for a
+# primitive TInteger: CodeGen/Intrinsics.cs, FunctionCodeGen.NativeConversions.cs).
+host:System.Single,System.Double::Abs,Acos,AcosPi,Acosh,Asin,AsinPi,Asinh,Atan,Atan2,Atan2Pi,AtanPi,Atanh,BitDecrement,BitIncrement,Cbrt,Clamp,ClampNative,ConvertToInteger,CopySign,Cos,CosPi,Cosh,DegreesToRadians,Exp,Exp10,Exp10M1,Exp2,Exp2M1,ExpM1,FusedMultiplyAdd,Hypot,ILogB,Ieee754Remainder,IsEvenInteger,IsInteger,IsNegative,IsNormal,IsOddInteger,IsPositive,IsRealNumber,IsSubnormal,Lerp,Log,Log10,Log10P1,Log2,Log2P1,LogP1,Max,MaxMagnitude,MaxMagnitudeNumber,MaxNative,MaxNumber,Min,MinMagnitude,MinMagnitudeNumber,MinNative,MinNumber,Pow,RadiansToDegrees,ReciprocalEstimate,ReciprocalSqrtEstimate,RootN,Round,ScaleB,Sign,Sin,SinCos,SinCosPi,SinPi,Sinh,Sqrt,Tan,TanPi,Tanh,Truncate
+host:System.Math,System.MathF::BitDecrement,BitIncrement,IEEERemainder,ILogB,Log,MaxMagnitude,MinMagnitude,Round,ScaleB,Sign
+# Their non-public instance helpers that Math.ILogB's IL reads (the exponent and significand bits).
+host:System.Single,System.Double::this.get_TrailingSignificand,this.get_BiasedExponent,this.get_Exponent,this.get_Significand

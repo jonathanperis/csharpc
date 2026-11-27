@@ -70,7 +70,7 @@ public sealed partial class FunctionCodeGen
                 return Handled; // the out argument was evaluated (declared); nothing to initialize
             case "Unbox" when ta.Length == 1 && arguments.Length == 1:
                 // ref T into the box: struct setters of source-generated metadata write through it.
-                return CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], Arg(0), MethodTableFor(S(ta[0]), inv));
+                return CallRuntime("csrt_unbox", L.Ptr, [L.Ptr, L.Ptr], Arg(0), TypeTestMethodTable(S(ta[0])) ?? MethodTableFor(S(ta[0]), inv));
             case "BitCast" when ta.Length == 2 && arguments.Length == 1:
             {
                 var (from, to) = (S(ta[0]), S(ta[1]));
@@ -148,11 +148,7 @@ public sealed partial class FunctionCodeGen
     private LLVMValueRef UnsafeByteOffset(LLVMValueRef origin, LLVMValueRef target, LLVMTypeRef type) =>
         _b.BinOp(LLVMOpcode.Sub, _b.Cast(LLVMOpcode.PtrToInt, target, type), _b.Cast(LLVMOpcode.PtrToInt, origin, type));
 
-    private void UnsafeCopyBlock(LLVMValueRef destination, LLVMValueRef source, LLVMValueRef bytes64)
-    {
-        var f = _m.Intrinsic("llvm.memmove.p0.p0.i64", L.Void, L.Ptr, L.Ptr, L.I64, L.I1);
-        _m.Facts.NoReferences(_b.Call(f.Type, f.Fn, [destination, source, bytes64, L.False]));
-    }
+    private void UnsafeCopyBlock(LLVMValueRef destination, LLVMValueRef source, LLVMValueRef bytes64) => MemMove(destination, source, bytes64, noReferences: true);
 
     private void UnsafeInitBlock(LLVMValueRef destination, LLVMValueRef value, LLVMValueRef bytes64)
     {

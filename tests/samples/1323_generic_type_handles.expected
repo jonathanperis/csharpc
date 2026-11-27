@@ -1,0 +1,173 @@
+== Pair<string, Customer>
+ada,bob,cy | Customer(Ada),Vip(Bob),Customer(Cy) | System.String[] | Node<Customer>(Customer(Cy));Node<Customer>(Vip(Bob));Node<Customer>(Customer(Ada));
+is key/value: True False False True False
+lists: True False False True
+arrays: True False True False False
+nodes: True False True False
+new: System.String[] Customer[] System.Collections.Generic.List`1[System.String] System.Collections.Generic.List`1[Customer]
+new: System.Collections.Generic.List`1[Customer][] Pair`2[Customer,System.String]
+ada
+cast key: ok
+cast value as key: InvalidCastException
+Customer(Zed)
+cast value: ok
+cast key as value: InvalidCastException
+True
+cast null: ok
+3
+cast keys: ok
+cast values as keys: InvalidCastException
+== Pair<Customer, string>
+Customer(Ada),Vip(Bob) | ada,bob | Customer[] | Node<String>(bob);Node<String>(ada);
+is key/value: True False False True False
+lists: True False False True
+arrays: True False False True True
+nodes: True True False False
+new: Customer[] System.String[] System.Collections.Generic.List`1[Customer] System.Collections.Generic.List`1[System.String]
+new: System.Collections.Generic.List`1[System.String][] Pair`2[System.String,Customer]
+Vip(Zed)
+cast key: ok
+cast value as key: InvalidCastException
+zed
+cast value: ok
+cast key as value: InvalidCastException
+True
+cast null: ok
+2
+cast keys: ok
+cast values as keys: InvalidCastException
+== Pair<string, string>
+k | v | System.String[] | Node<String>(v);
+is key/value: True True True True False
+lists: True True True True
+arrays: True False True False False
+nodes: True True False False
+new: System.String[] System.String[] System.Collections.Generic.List`1[System.String] System.Collections.Generic.List`1[System.String]
+new: System.Collections.Generic.List`1[System.String][] Pair`2[System.String,System.String]
+k
+cast key: ok
+v
+cast value as key: ok
+v
+cast value: ok
+k
+cast key as value: ok
+True
+cast null: ok
+1
+cast keys: ok
+1
+cast values as keys: ok
+== Pair<IShape, object>
+Circle,Square | 1,two | IShape[] | Node<Object>(two);Node<Object>(1);
+is key/value: True False True True False
+lists: True False False True
+arrays: True False False False False
+nodes: True False False True
+new: IShape[] System.Object[] System.Collections.Generic.List`1[IShape] System.Collections.Generic.List`1[System.Object]
+new: System.Collections.Generic.List`1[System.Object][] Pair`2[System.Object,IShape]
+Square
+cast key: ok
+cast value as key: InvalidCastException
+3
+cast value: ok
+Square
+cast key as value: ok
+True
+cast null: ok
+2
+cast keys: ok
+cast values as keys: InvalidCastException
+== Pair<int[], string[]>
+System.Int32[] | System.String[] | System.Int32[][] | Node<String[]>(System.String[]);
+is key/value: True False False True False
+lists: True False False True
+arrays: True False False False False
+nodes: True False False False
+new: System.Int32[][] System.String[][] System.Collections.Generic.List`1[System.Int32[]] System.Collections.Generic.List`1[System.String[]]
+new: System.Collections.Generic.List`1[System.String[]][] Pair`2[System.String[],System.Int32[]]
+System.Int32[]
+cast key: ok
+cast value as key: InvalidCastException
+System.String[]
+cast value: ok
+cast key as value: InvalidCastException
+True
+cast null: ok
+1
+cast keys: ok
+cast values as keys: InvalidCastException
+== Pair<int, string>
+1 | one | System.Int32[] | Node<String>(one);
+is key/value: True False False True False
+lists: True False False True
+arrays: True False False False False
+nodes: True True False False
+new: System.Int32[] System.String[] System.Collections.Generic.List`1[System.Int32] System.Collections.Generic.List`1[System.String]
+new: System.Collections.Generic.List`1[System.String][] Pair`2[System.String,System.Int32]
+1
+cast key: ok
+cast value as key: InvalidCastException
+one
+cast value: ok
+cast key as value: InvalidCastException
+cast null: NullReferenceException
+1
+cast keys: ok
+cast values as keys: InvalidCastException
+== Pair<string, int>
+one | 1 | System.String[] | Node<Int32>(1);
+is key/value: True False False True False
+lists: True False False True
+arrays: True False True False False
+nodes: True False False False
+new: System.String[] System.Int32[] System.Collections.Generic.List`1[System.String] System.Collections.Generic.List`1[System.Int32]
+new: System.Collections.Generic.List`1[System.Int32][] Pair`2[System.Int32,System.String]
+one
+cast key: ok
+cast value as key: InvalidCastException
+1
+cast value: ok
+cast key as value: InvalidCastException
+True
+cast null: ok
+1
+cast keys: ok
+cast values as keys: InvalidCastException
+== array covariance
+Slots<object>.Store string into string[]: ok
+Slots<object>.Store int into string[]: ArrayTypeMismatchException
+Slots<object>.Store null into string[]: ok
+Slots<object>.Store object into object[]: ok
+Slots<object>.Slot of string[]: ArrayTypeMismatchException
+Slots<object>.Slot of object[]: ok
+Slots<Customer>.Store Vip into Vip[]: ok
+Slots<Customer>.Store Customer into Vip[]: ArrayTypeMismatchException
+Slots<Customer>.Slot of Vip[]: ArrayTypeMismatchException
+Slots<string>.Store: ok
+s True Vip(v)
+System.Object[] Customer[] System.String[] 3
+== inheritance
+Node<String>() System.Collections.Generic.List`1[Customer] True False
+Node<Customer>() System.Collections.Generic.List`1[System.String] False True
+Node<String>() True False
+System.Collections.Generic.List`1[System.String] True False
+== nested
+Pair`2[System.String,Customer] True False False True
+Pair`2[Customer,System.String] False True True False
+== reflection over T
+X,Y | Name | False True
+== framework collections
+[a, 1],[b, 2] 2 a
+x,y a,b
+,p,q 2
+IList.Add string to List<string>: ok
+IList.Add int to List<string>: ArgumentException
+IList.Add null to List<string>: ok
+True False 1 2
+IList.Add Vip to List<Customer>: ok
+IList.Add string to List<Customer>: ArgumentException
+IList[0] = Customer: ok
+IList[0] = object: ArgumentException
+Customer(c) Customer[] System.String[] System.Collections.Generic.List`1[IShape]
+Customer[] System.String[] Vip(q) s

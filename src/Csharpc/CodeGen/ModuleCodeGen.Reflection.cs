@@ -184,6 +184,7 @@ public sealed partial class ModuleCodeGen
     /// <summary>Keeps metadata for the members of <paramref name="type"/> that <paramref name="kinds"/> names.</summary>
     internal void MarkDynamicallyAccessed(ITypeSymbol type, int kinds, string? name = null)
     {
+        if ((kinds & DamNestedTypes) != 0 && name is null && type is INamedTypeSymbol owner && !TypeSubstitution.IsOpen(owner)) MarkNestedTypes(owner, kinds);
         kinds &= DamConstructors | DamMethods | DamProperties | DamFields | DamEvents;
         if (s_traceDam) Console.Error.WriteLine($"[csharpc] keep {kinds:x} {(name is null ? "(all)" : name)} of {type}");
         if (kinds == 0 || type is ITypeParameterSymbol || type.TypeKind == TypeKind.Error) return;
@@ -239,6 +240,9 @@ public sealed partial class ModuleCodeGen
     /// <summary>A generic method or type instantiation: its annotated type parameters keep members of their arguments.</summary>
     internal void NoteDynamicallyAccessedInstantiation(ISymbol symbol)
     {
+        // A canonical form stands for instantiations, each noted itself (GetFunction notes the exact method before it redirects to the
+        // shared one, GetLayout every exact class): [DynamicallyAccessedMembers] on a marker would describe nothing real.
+        if (symbol is ITypeSymbol canonicalType ? IsCanonDependent(canonicalType) : symbol.ContainingType is { } owner0 && IsCanonDependent(owner0)) return;
         switch (symbol)
         {
             case IMethodSymbol { IsGenericMethod: true } method when !method.IsDefinition && !TypeSubstitution.IsOpen(method):
@@ -470,7 +474,7 @@ public sealed partial class ModuleCodeGen
     // can't know the exact list .NET returns, the entry says so (CSRT_RI_ATTRIBUTES_UNKNOWN) and the query
     // throws rather than answering with a different list.
 
-    private const uint RiAttributes = 16, RiAttributesUnknown = 128, RiNullableExplicit = 4096;
+    private const uint RiAttributes = 16, RiAttributesUnknown = 128, RiNullableExplicit = 4096, RiFieldsHidden = 8192;
     private bool _typeAttributesQueried;
     private int _typeAttributesScanned;
 
@@ -500,7 +504,8 @@ public sealed partial class ModuleCodeGen
                 case GenericParameter parameter:
                     key = parameter.Parameter;
                     attributes = Decoded(() => GenericParameterAttributeInstances(parameter.Parameter));
-                    explicitNullable = attributes is not null && parameter.Parameter.ContainingSymbol is INamedTypeSymbol parameterOwner && ExplicitInfoOfMember(parameter.Parameter) is not null && AnnotationsEnabled(parameterOwner);
+                    explicitNullable = attributes is not null && parameter.Parameter.ContainingSymbol is INamedTypeSymbol parameterOwner
+                        && ((ExplicitInfoOfMember(parameter.Parameter) is not null && AnnotationsEnabled(parameterOwner)) || IsFrameworkReferenceType(parameterOwner));
                     break;
                 default:
                     continue;
@@ -520,10 +525,23 @@ public sealed partial class ModuleCodeGen
         for (var i = 0; i < _reflectionOrder.Count; i++)
         {
             var entry = _reflectionOrder[i];
-            if ((entry.Described & (RiAttributes | RiAttributesUnknown)) != 0 || entry.Type is not INamedTypeSymbol named || !DescribesOwnAttributes(named) || CoreLib.IsCoreLib(named)) continue;
+            if ((entry.Described & (RiAttributes | RiAttributesUnknown)) != 0 || entry.Type is not INamedTypeSymbol named) continue;
+            if (named.IsAnonymousType)
+            {
+                // csc gives an anonymous type [CompilerGenerated] and [DebuggerDisplay]: csharpc lists only the first, so the program's own query is the
+                // explicit error and the framework's gets [CompilerGenerated] (System.Text.Json looks for its own attributes; TraceLogging's Write<T>
+                // takes a [CompilerGenerated] type as an anonymous payload).
+                SetTypeAttributes(entry, PseudoAttribute("System.Runtime.CompilerServices.CompilerGeneratedAttribute") is { } generated ? [generated] : [], synthesizedUnknown: true);
+                any = true;
+                continue;
+            }
+            // A type of the CoreLib slice (the framework's IL, CsharpcUpstream.dll) carries the attributes the slicer keeps ([EventData] on the event
+            // counters' payloads, which TraceLogging asks for): a partial list, so only the framework's own queries read it.
+            var slice = (named.ContainingNamespace?.ToDisplayString() ?? "").StartsWith(Frontend.UpstreamSlice.Prefix + ".", StringComparison.Ordinal);
+            if (!DescribesOwnAttributes(named) || CoreLib.IsCoreLib(named) && !slice) continue;
             var unknownSynthesized = false;
             var list = Decoded(() => { var l = TypeAttributeInstances(named.OriginalDefinition, out var unknown); unknownSynthesized = unknown; return l; });
-            SetTypeAttributes(entry, list, unknownSynthesized);
+            SetTypeAttributes(entry, list, unknownSynthesized || slice);
             any = true;
         }
         return any;
@@ -539,15 +557,46 @@ public sealed partial class ModuleCodeGen
     private static bool DescribesOwnAttributes(INamedTypeSymbol type) =>
         type.TypeKind is TypeKind.Class or TypeKind.Struct or TypeKind.Interface or TypeKind.Enum or TypeKind.Delegate && !type.IsAnonymousType && !type.IsTupleType;
 
+    /// <summary>
+    /// A Type argument of an attribute whose constructor parameter is [DynamicallyAccessedMembers] keeps the members that annotation names, as
+    /// NativeAOT roots them: `[TypeConverter(typeof(PointConverter))]` on a type keeps PointConverter's constructor for the TypeDescriptor
+    /// that creates it from the attribute's type name.
+    /// </summary>
+    private void KeepAttributeArguments(List<AttributeInstance> attributes)
+    {
+        foreach (var attribute in attributes)
+        {
+            // TypeConverterAttribute(string typeName): System.Drawing.Primitives names its converters this way ("System.Drawing.PointConverter,
+            // System.Drawing, ..."), which TypeDescriptor resolves by name and creates. The type is looked up by its name alone (the assembly
+            // part is the one the type was forwarded from) and kept as the Type overload keeps it.
+            if (attribute.Constructor.ContainingType is { Name: "TypeConverterAttribute", ContainingNamespace: { Name: "ComponentModel", ContainingNamespace.Name: "System" } }
+                && attribute.Fixed is [{ Value: string converterName }]
+                && Compilation.GetTypeByMetadataName(converterName.Split(',')[0].Trim()) is { } converter)
+                MarkDynamicallyAccessed(converter, DamConstructors);
+            var parameters = attribute.Constructor.OriginalDefinition.Parameters;
+            for (var i = 0; i < attribute.Fixed.Length && i < parameters.Length; i++)
+                if (attribute.Fixed[i].Value is ITypeSymbol type && DamKindsOf(parameters[i].GetAttributes()) is var kinds and not 0)
+                    MarkDynamicallyAccessed(type, kinds);
+        }
+    }
+
     private void SetTypeAttributes(ReflectionEntry entry, List<AttributeInstance>? attributes, bool synthesizedUnknown = false)
     {
         if (attributes is null) entry.Described |= RiAttributesUnknown;
         else
         {
+            // Only for the types reflection is expected to look into (the program's, those kept for [DynamicallyAccessedMembers]): every IL library
+            // type's attributes are described once the program asks for any, and rooting what their arguments name (each [DebuggerTypeProxy]'s
+            // proxy with all its members) made csharpc's own compile run out of memory.
+            if (entry.Type is INamedTypeSymbol described && (IsProgramType(described) || _damMarks.ContainsKey(described) || _damMarks.ContainsKey(described.OriginalDefinition)))
+                KeepAttributeArguments(attributes);
             // The declared attributes are exact; the list's count word says csc synthesizes more (Nullable, ...), which
             // makes the untyped queries and those for System attributes throw while a program's own attributes stay exact.
-            entry.Attributes = synthesizedUnknown ? Attributes(new AttributeSet(attributes, 0, true)) : Attributes(attributes);
+            // NullabilityInfoContext keeps reading the list as it did before the bit was written (#199 is about the program's own
+            // untyped queries): the nullable part of a type list is csharpc's model of csc's [NullableContext]/[Nullable].
+            entry.Attributes = synthesizedUnknown ? Attributes(new AttributeSet(attributes, 0, true, NullableExplicit: true)) : Attributes(attributes);
             entry.Described |= RiAttributes;
+            if (synthesizedUnknown && entry.Type is INamedTypeSymbol frameworkType && IsFrameworkReferenceType(frameworkType)) entry.Described |= RiAttributesUnknown | RiNullableExplicit;
             entry.InheritedAttributes = !synthesizedUnknown && entry.Type is INamedTypeSymbol { TypeKind: TypeKind.Class } named ? InheritedTypeAttributes(named, attributes) : null;
         }
     }
@@ -591,13 +640,27 @@ public sealed partial class ModuleCodeGen
         var il = definition.MetadataToken != 0 ? Il.OwnerOf(definition) : null;
         if (il is not null)
         {
-            // [Serializable] and [ComImport] are pseudo-attributes CoreCLR adds to the list.
-            if ((il.AttributesOf(definition) & (System.Reflection.TypeAttributes.Serializable | System.Reflection.TypeAttributes.Import)) != 0) return null;
-            return DecodeAttributes(il, il.TypeDefinitionOf(definition).GetCustomAttributes(), IlGenericContext.For(definition)).ToList();
+            // [ComImport] is a pseudo-attribute CoreCLR adds to the list that csharpc does not model. [Serializable] is one too, after the
+            // declared attributes (typeof(Point).GetCustomAttributes(): TypeForwardedFrom, TypeConverter, Serializable).
+            var flags = il.AttributesOf(definition);
+            if ((flags & System.Reflection.TypeAttributes.Import) != 0) return null;
+            var listed = DecodeAttributes(il, il.TypeDefinitionOf(definition).GetCustomAttributes(), IlGenericContext.For(definition)).ToList();
+            if ((flags & System.Reflection.TypeAttributes.Serializable) != 0)
+            {
+                var serializable = Compilation.GetTypeByMetadataName("System.SerializableAttribute")?.InstanceConstructors.FirstOrDefault(c => c.Parameters.IsEmpty);
+                if (serializable is null) return null;
+                listed.Add(new AttributeInstance(serializable, [], []));
+            }
+            return listed;
         }
         // Reference-assembly types (the BCL): Roslyn hides the attributes the compiler decodes, and reference
         // assemblies differ from the implementation .NET loads.
-        if (definition.MetadataToken != 0 || !definition.Locations.Any(l => l.IsInSource)) return null;
+        if (definition.MetadataToken != 0 || !definition.Locations.Any(l => l.IsInSource))
+        {
+            // A BCL type: its nullable attributes come from the implementation assembly, the rest of its list is unknown.
+            if (FrameworkTypeNullable(definition) is { } frameworkList) { synthesizedUnknown = true; return frameworkList; }
+            return null;
+        }
         // Source types: Roslyn's symbols omit the attributes the compiler synthesizes into metadata.
         synthesizedUnknown = SynthesizesTypeAttributes(definition);
         // [StructLayout] is the type's layout flag, not a listed attribute. [NullableContext] and [Nullable] come first.
@@ -630,7 +693,8 @@ public sealed partial class ModuleCodeGen
             var row = il.Reader.GetGenericParameter(handles[parameter.Ordinal]);
             return DecodeAttributes(il, row.GetCustomAttributes(), owner is INamedTypeSymbol t ? IlGenericContext.For(t) : IlGenericContext.For((IMethodSymbol)owner)).ToList();
         }
-        if (owner.MetadataToken != 0 || !owner.Locations.Any(l => l.IsInSource)) return null;
+        if (owner.MetadataToken != 0 || !owner.Locations.Any(l => l.IsInSource))
+            return owner is INamedTypeSymbol frameworkOwner && FrameworkGenericParameterNullable(frameworkOwner, parameter.Ordinal) is { } frameworkList ? frameworkList : null;
         // Source: [Nullable] where the parameter's value differs from the context (ModuleCodeGen.NullableAttributes.cs).
         if (NullableGenericParameterAttributes(parameter) is { } nullable)
             return [.. nullable, .. parameter.GetAttributes().Select(FromAttributeData).OfType<AttributeInstance>()];
@@ -652,6 +716,7 @@ public sealed partial class ModuleCodeGen
     private void Describe(ITypeSymbol type, int kinds, string? name)
     {
         if (type is not INamedTypeSymbol named || named.TypeKind is TypeKind.Error) return;
+        CheckNotCanonical(type, "reflection metadata");
         var real = RealType(named) as INamedTypeSymbol ?? named;
         if (!_reflectionEntries.TryGetValue(type, out var entry))
         {
@@ -776,7 +841,13 @@ public sealed partial class ModuleCodeGen
         for (INamedTypeSymbol? t = real; t is not null; t = t.BaseType)
         {
             if (t.SpecialType is SpecialType.System_Object or SpecialType.System_ValueType or SpecialType.System_Enum) break;
-            if (t.OriginalDefinition.MetadataToken != 0 && Il.OwnerOf(t.OriginalDefinition) is null) Unknown(RiNonPublicFields);
+            if (t.OriginalDefinition.MetadataToken != 0 && Il.OwnerOf(t.OriginalDefinition) is null)
+            {
+                Unknown(RiNonPublicFields);
+                // Only the framework's own IL may list what is there without the hidden fields (FrameworkGetFields).
+                entry.Described |= RiFieldsHidden;
+                entry.Complete |= RiFieldsHidden;
+            }
             var own = SymbolEqualityComparer.Default.Equals(t, real);
             if (own && t.TypeKind == TypeKind.Enum && (added & RiPublicFields) != 0 && (name is null || name == "value__"))
             {
@@ -1341,7 +1412,7 @@ public sealed partial class ModuleCodeGen
         if (il is null || ilParameters is null)
         {
             // Reference-assembly methods (the BCL): Roslyn hides the attributes the compiler decodes, so the list is not known.
-            if (!method.OriginalDefinition.Locations.Any(l => l.IsInSource)) return new AttributeSet([], 0, true);
+            if (!method.OriginalDefinition.Locations.Any(l => l.IsInSource)) return FrameworkParameterNullable(method.OriginalDefinition, 0) is { } returnNullable ? FrameworkNullableSet(returnNullable) : new AttributeSet([], 0, true);
             return SourceReturnAttributes(method.OriginalDefinition);
         }
         if (!ilParameters.TryGetValue(0, out var row)) return new AttributeSet([], 0, false);
@@ -1478,7 +1549,7 @@ public sealed partial class ModuleCodeGen
             return ParseSerialized(name, ref position, nested: false);
         }
 
-        private ITypeSymbol? ParseSerialized(string s, ref int pos, bool nested)
+        private ITypeSymbol? ParseSerialized(string s, ref int pos, bool nested, bool bare = false)
         {
             var start = pos;
             while (pos < s.Length && s[pos] != '[' && s[pos] != ',' && s[pos] != ']') pos++;
@@ -1504,16 +1575,30 @@ public sealed partial class ModuleCodeGen
                     if (pos >= s.Length || s[pos] != ']') return null;
                     pos++;
                 }
-                else
+                else if (pos + 1 < s.Length && (s[pos + 1] == ',' || s[pos + 1] == ']' || s[pos + 1] == '*'))
                 {
                     var close = s.IndexOf(']', pos);
                     if (close < 0) return null;
                     ranks.Add(s[pos..close].Count(c => c == ',') + 1);
                     pos = close + 1;
                 }
+                else
+                {
+                    // Type arguments of the attribute's own assembly or the core library, written without assembly names: "Gen`1[A,B`1[C]]".
+                    pos++;
+                    while (true)
+                    {
+                        if (ParseSerialized(s, ref pos, nested: true, bare: true) is not { } argument) return null;
+                        arguments.Add(argument);
+                        if (pos < s.Length && s[pos] == ',') { pos++; continue; }
+                        break;
+                    }
+                    if (pos >= s.Length || s[pos] != ']') return null;
+                    pos++;
+                }
             }
             // ", Assembly, Version=..., Culture=..., PublicKeyToken=...": not needed to find the type
-            if (pos < s.Length && s[pos] == ',')
+            if (!bare && pos < s.Length && s[pos] == ',')
                 while (pos < s.Length && (!nested || s[pos] != ']')) pos++;
             if ((m.Compilation.GetTypeByMetadataName(typeName) ?? il.Compilation.GetTypeByMetadataName(typeName)) is not { } definition) return null;
             ITypeSymbol type = definition;
@@ -1712,7 +1797,12 @@ public sealed partial class ModuleCodeGen
         if (_assemblyReferencesTable.IsNull) return;
         var names = new SortedSet<string>(StringComparer.Ordinal);
         foreach (var (_, described) in _typeMts)
-            if (described is ITypeSymbol { ContainingAssembly: { } assembly } && !SymbolEqualityComparer.Default.Equals(assembly, Compilation.Assembly)) names.Add(assembly.Name);
+            if (described is ITypeSymbol { ContainingAssembly: { } assembly } type && !SymbolEqualityComparer.Default.Equals(assembly, Compilation.Assembly))
+            {
+                // The name Type.Assembly reports (the implementation assembly: System.Private.Uri, not the reference assembly System.Runtime).
+                var full = AssemblyOf(type);
+                names.Add(full is null ? assembly.Name : full.Split(',')[0]);
+            }
         var text = new System.Text.StringBuilder();
         var directory = Frontend.SharedFramework.Directory;
         foreach (var name in names)
@@ -1751,7 +1841,7 @@ public sealed partial class ModuleCodeGen
                     Checked(f.Type, "field type"), f.Get, f.Set, AttributeArray(f.Attributes), AttributeCount(f.Attributes), Llvm.ConstUInt(Llvm.I32, f.FieldAttributes))).ToList());
                 var events = ConstTable("csharpc.reflection.events", EventRecordType, e.Events.Select(EventRecordConstant).ToList());
                 entries.Add(Llvm.ConstStruct(Checked(e.Mt, "method table of " + e.Type), ctors, methods, AttributeArray(e.Attributes), properties,
-                    Llvm.ConstInt(Llvm.I32, e.Constructors.Count), Llvm.ConstInt(Llvm.I32, e.Methods.Count), Llvm.ConstInt(Llvm.I32, e.Attributes.Count),
+                    Llvm.ConstInt(Llvm.I32, e.Constructors.Count), Llvm.ConstInt(Llvm.I32, e.Methods.Count), AttributeCount(e.Attributes),
                     Llvm.ConstUInt(Llvm.I32, e.Described), Llvm.ConstInt(Llvm.I32, e.Properties.Count), Llvm.ConstInt(Llvm.I32, e.Fields.Count), fields,
                     events, Llvm.ConstInt(Llvm.I32, e.Events.Count),
                     AttributeArray(e.InheritedAttributes ?? []), Llvm.ConstInt(Llvm.I32, e.InheritedAttributes?.Count ?? 0), Llvm.ConstInt(Llvm.I32, e.InheritedAttributes is null ? 0 : 1)));
