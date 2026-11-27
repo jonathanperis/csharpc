@@ -13,6 +13,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROGRAMS="$ROOT/tests/programs"
 DOTNET="${DOTNET:-dotnet}"
 REGEN=0; BENCH=0; FILTER=""
+# Milliseconds since the epoch: GNU date's %N, or perl where date has none (macOS prints a literal "N").
+now_ms() { local t; t=$(date +%s%N); if [[ $t == *N ]]; then perl -MTime::HiRes=time -e 'printf "%d\n", time * 1000'; else echo $((t / 1000000)); fi; }
 for arg in "$@"; do
   case "$arg" in
     --regen) REGEN=1 ;;
@@ -67,13 +69,13 @@ for name in "${names[@]}"; do
   fi
   for opt in -O0 -O2; do
     exe="$OUT/$name$opt$EXE_SUFFIX"
-    start=$(date +%s%N)
+    start=$(now_ms)
     if ! "${CSHARPC[@]}" "${TARGET_FLAGS[@]}" "$opt" "$dir/Program.cs" "${CULTURE_PIN[@]}" -o "$exe" 2> "$OUT/$name.compile"; then
       printf '%-24s %-5s %-6s\n' "$name" "$opt" FAIL; sed 's/^/     /' "$OUT/$name.compile" | head -6
       fail=$((fail + 1)); failed+=("$name[$opt]"); continue
     fi
-    ms=$(( ($(date +%s%N) - start) / 1000000 ))
-    size=$(( $(stat -c %s "$exe") / 1024 ))
+    ms=$(( $(now_ms) - start ))
+    size=$(( $(wc -c < "$exe") / 1024 ))
     bash -c 'ulimit -c 0 2>/dev/null; out="$1" err="$2" in="$3"; shift 3; timeout 120 "$@" > "$out" 2> "$err" < "$in"' _ \
       "$OUT/$name.out" "$OUT/$name.err" "$stdin_file" "${RUN_PREFIX[@]}" "$exe" 2>/dev/null
     code=$?
