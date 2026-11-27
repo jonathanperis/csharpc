@@ -111,6 +111,22 @@ elif grep -q "Unhandled exception" "$WORK/log"; then echo "FAIL cross-target new
 elif grep -q "Environment.NewLine" "$WORK/log"; then echo "PASS cross-target newline: diagnostic for $cross_target, exit code 1"; pass=$((pass+1))
 else echo "FAIL cross-target newline: wrong diagnostic"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
 
+# CSRT_TRACE_THROWS=1 (docs/13-debugging.md, #295): every throw is printed to stderr with its ToString() and return addresses,
+# including one the program catches; stdout and the exit code don't change.
+cat > "$WORK/throws.cs" <<'CS'
+try { throw new System.InvalidOperationException("traced boom"); }
+catch (System.InvalidOperationException e) { System.Console.WriteLine("caught " + e.Message); }
+CS
+if "$DOTNET" "$CSHARPC_DLL" "$WORK/throws.cs" -o "$WORK/throws$EXE_SUFFIX" > "$WORK/log" 2>&1; then
+  "$WORK/throws$EXE_SUFFIX" > "$WORK/throws.plain" 2> "$WORK/throws.plain.err"; plain_code=$?
+  CSRT_TRACE_THROWS=1 "$WORK/throws$EXE_SUFFIX" > "$WORK/throws.traced" 2> "$WORK/throws.err"; traced_code=$?
+  if [[ $plain_code != 0 || $traced_code != 0 ]] || ! cmp -s "$WORK/throws.plain" "$WORK/throws.traced" || [[ -s "$WORK/throws.plain.err" ]]; then
+    echo "FAIL CSRT_TRACE_THROWS: changed stdout, stderr or the exit code"; fail=$((fail+1))
+  elif grep -qF "csrt: throw System.InvalidOperationException: traced boom" "$WORK/throws.err" && grep -q "^    at 0x" "$WORK/throws.err"; then
+    echo "PASS CSRT_TRACE_THROWS: the caught throw is printed with its return addresses"; pass=$((pass+1))
+  else echo "FAIL CSRT_TRACE_THROWS: no trace"; sed 's/^/     /' "$WORK/throws.err" | head; fail=$((fail+1)); fi
+else echo "FAIL CSRT_TRACE_THROWS: compile"; sed 's/^/     /' "$WORK/log" | head; fail=$((fail+1)); fi
+
 # NativeAOT's native-linking items (docs/16-interop-io.md, "Static archives and DirectPInvoke"): DirectPInvoke makes a library's
 # [DllImport]s direct calls and NativeLibrary adds a static archive to the link line. tests/projects/native/DirectPInvoke
 # calls a tiny C library, built here as a shared library (`dotnet run` loads it next to the program: the reference output)
