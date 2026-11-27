@@ -276,9 +276,9 @@ namespace CsharpcCoreLib
 
         // ---- well-formedness, formatting, host names ----
 
-        // For this subset a reference is well formed unless it is an implicit file path or a relative reference
-        // with a fragment.
-        public bool IsWellFormedOriginalString() => _relative ? _original.IndexOf('#') < 0 : !_implicitFile;
+        // For this subset a reference is well formed unless it is an implicit file path or a relative reference with a
+        // fragment, a space or a backslash (characters .NET would have to escape; Uri.cs keeps them only in relative references).
+        public bool IsWellFormedOriginalString() => _relative ? _original.AsSpan().IndexOfAny('#', ' ', '\\') < 0 : !_implicitFile;
 
         public static bool IsWellFormedUriString(string uriString, UriKind uriKind)
         {

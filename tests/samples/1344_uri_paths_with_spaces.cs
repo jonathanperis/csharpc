@@ -12,6 +12,12 @@ static class Program
         var relative = new Uri("dir with space/p.xml", UriKind.RelativeOrAbsolute);
         Console.WriteLine($"{relative.IsAbsoluteUri} [{relative.OriginalString}] [{relative}]");
         Console.WriteLine(Uri.TryCreate("a b/c", UriKind.Relative, out var tried) ? $"relative [{tried}]" : "not relative");
+        // Windows' Path.Combine gives backslashes: kept as they are too. Spaces, backslashes and '#' make a relative
+        // reference not well formed (characters .NET would have to escape).
+        var backslashed = new Uri("dir with space\\p.xml", UriKind.RelativeOrAbsolute);
+        Console.WriteLine($"{backslashed.IsAbsoluteUri} [{backslashed.OriginalString}] [{backslashed}]");
+        foreach (var text in new[] { "a b", "a#b", "a/b", "a\\b" })
+            Console.WriteLine($"{text}: {Uri.IsWellFormedUriString(text, UriKind.Relative)} {Uri.IsWellFormedUriString(text, UriKind.RelativeOrAbsolute)} {new Uri(text, UriKind.Relative).IsWellFormedOriginalString()}");
 
         var root = Path.Combine(Path.GetTempPath(), "csharpc uri sample " + Environment.ProcessId);
         var dir = Path.Combine(root, "dir with space");
