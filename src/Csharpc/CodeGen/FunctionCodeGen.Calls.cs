@@ -1089,7 +1089,7 @@ public sealed partial class FunctionCodeGen
             return EmitInterfaceCall(property.GetMethod!, p.Instance!, p.Arguments, [], null);
         if (_m.IsUserType(property.ContainingType))
         {
-            var getter = property.GetMethod ?? throw CompileError.Unsupported($"reading set-only property '{property.Name}'", p);
+            var getter = GetterOf(property) ?? throw CompileError.Unsupported($"reading set-only property '{property.Name}'", p);
             var self = property.IsStatic ? default : Receiver(p.Instance!, getter);
             return CallAccessor(p, getter, self, []);
         }
@@ -1124,6 +1124,12 @@ public sealed partial class FunctionCodeGen
             : property.ContainingType.IsValueType ? AddressOrSpill(p.Instance!) : EmitValue(p.Instance!);
         var v = Coerce(value(), valueType, property.Type);
 
+        // An override with only a getter: the write calls the nearest overridden property's setter, virtually, as C# binds it.
+        if (property.SetMethod is null && property.IsOverride && SetterOf(property) is { } inherited)
+        {
+            CallAccessor(p, inherited, self, [v]);
+            return v;
+        }
         if (property.SetMethod is null)
         {
             // Get-only auto-property assigned in a constructor: write the backing field directly.
@@ -1696,6 +1702,25 @@ public sealed partial class FunctionCodeGen
     private static string NotCompiledHint(ITypeSymbol type) =>
         type.ContainingAssembly is { } asm && Frontend.FrameworkIl.NotCompiledFromIl.TryGetValue(asm.Name, out var why)
             ? $" ({asm.Name} is not compiled from IL: {why})" : "";
+
+    /// <summary>
+    /// The getter a read of <paramref name="property"/> calls: its own, or, for an override that only overrides the setter
+    /// (AnonymousPipeClientStream.ReadMode), the nearest overridden property's, called virtually as C# binds it.
+    /// </summary>
+    internal static IMethodSymbol? GetterOf(IPropertySymbol property)
+    {
+        for (var p = property; p is not null; p = p.OverriddenProperty)
+            if (p.GetMethod is { } getter) return getter;
+        return null;
+    }
+
+    /// <summary>The setter a write of <paramref name="property"/> calls: its own, or the nearest overridden property's.</summary>
+    internal static IMethodSymbol? SetterOf(IPropertySymbol property)
+    {
+        for (var p = property; p is not null; p = p.OverriddenProperty)
+            if (p.SetMethod is { } setter) return setter;
+        return null;
+    }
 
     /// <summary>
     /// `Dispose()` on the stack enumerator of a foreach over an array, also through implicit conversions (the finally's
