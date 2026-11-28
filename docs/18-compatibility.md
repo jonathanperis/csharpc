@@ -610,7 +610,7 @@ variables first, then `MacProxy` over CFNetwork / `HttpWindowsProxy` over WinINe
 
 Explicit diagnostics, never a different behavior:
 
-- **TLS** works on Linux, macOS and Windows over OpenSSL 3 (see "SslStream and https" below). HTTP/2 needs ALPN `h2` negotiated
+- **TLS** works on Linux over OpenSSL 3, on macOS over Security.framework and on Windows over SChannel/CNG, as in NativeAOT (see "SslStream and https" below). HTTP/2 needs ALPN `h2` negotiated
   by a server; HTTP/3 and QUIC are stubs (HTTP/2 over TLS and over cleartext "prior knowledge" is not tested).
 - **NTLM / Negotiate** authentication (`NegotiateAuthentication` needs GSSAPI/SSPI): `NotSupportedException` when a
   server challenges with it and the handler has credentials.
@@ -633,7 +633,7 @@ no HttpClient program yet); the budgets of the programs it has are unchanged.
 ## SslStream and https (Linux, macOS and Windows)
 
 `SslStream` (client and server), `AuthenticatedStream` and `HttpClient` over `https://` work on Linux, macOS and Windows ([ADR 0022](adr/0022-tls.md);
-on macOS Homebrew's `openssl@3` is needed, on Windows the OpenSSL 3 DLLs `libssl-3-x64.dll` and `libcrypto-3-x64.dll` must be next to the executable or on `PATH`):
+on macOS and Windows nothing beyond the OS):
 libssl 3 under corelib C#, with .NET's validation logic, policy errors and exception messages. Samples `1101_sslstream_loopback`
 (handshake properties and callbacks, synchronous and asynchronous I/O, a 1 MB round trip, TLS 1.2/1.3 selection, mutual
 authentication, ALPN, the unauthenticated state, close-notify), `1102_sslstream_validation` (untrusted root, a refusing callback,
@@ -663,10 +663,10 @@ PFX password, garbage data, a missing file (OpenSSL's `error:10000080:BIO routin
 Explicit diagnostics: `X509Certificate2.Extensions` and the typed extension classes (X509KeyUsageExtension, ...), `X509Store`,
 PKCS#7, exporting a PFX, `CopyWithPrivateKey`, `ToString(true)` of a `X509Certificate2` (it lists the extensions),
 `GetNameInfo` of names without CN/OU/O, revocation checking (`X509Chain` needs `RevocationMode.NoCheck`), ECDSA/DSA keys.
-On macOS the same code runs over Homebrew's `openssl@3` (ADR 0022, addendum: trust is OpenSSL's plus `/etc/ssl/cert.pem`, not the keychain; the machine needs `brew install openssl@3`). On Windows it runs over the OpenSSL 3 DLLs,
-with the Windows `ROOT` certificate stores (current user, then local machine) as the trust anchors of
-`X509ChainTrustMode.System` (sample `1231_x509_system_trust`); roots Windows downloads on demand and the `CA` (intermediate)
-stores are not consulted, and `RSA.Create()` (sample 553) uses the same OpenSSL on Windows rather than CNG.
+On macOS csharpc compiles .NET's own macOS code from the framework's IL over the runtime pack's Apple crypto shim, as NativeAOT
+links it (ADR 0022, addendum "macOS without OpenSSL", #144): SecureTransport/Network.framework, the keychain's trust and Security.framework's messages, no Homebrew OpenSSL. On Windows csharpc compiles .NET's own Windows code from the framework's IL, which calls SSPI (SChannel), CNG and crypt32
+directly, as NativeAOT does (ADR 0022, addendum "Windows without OpenSSL", #143): the Windows certificate stores, CryptoAPI's chain
+building and SChannel's messages, no OpenSSL DLLs.
 
 ## Expression trees
 

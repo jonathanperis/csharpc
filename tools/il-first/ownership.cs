@@ -400,7 +400,6 @@ static class Rules
         Add("IO/Posix.cs", osGlue);
         Add("IO/Win32.cs", osGlue);
         Add("Crypto/AesNative.cs", cryptoGlue);
-        Add("Crypto/OpenSsl.cs", cryptoGlue);
         Add("Net/NetNative.cs", osGlue);
         Add("Net/SocketEngine.cs", osGlue);
         Add("Net/SocketAddressPal.cs", osGlue);

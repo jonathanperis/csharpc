@@ -82,6 +82,10 @@ frame layout of `-g` builds.
 
 - `--no-strip` keeps the symbols in a release build, for `perf record` / `perf report`. The program's
   functions appear under their mangled names (`_CN…`); the runtime's under their C names.
+- `CSRT_TRACE_THROWS=1` prints every exception to stderr as it is thrown, caught ones included: its `ToString()` and the
+  native return addresses on the stack, as offsets from the executable's load address (`nm` of an unstripped build, or a linker
+  map with `-Wl,-Map`, names them). It finds the exception a program swallows (a callback's `IAsyncResult` nobody ends, an error
+  reporter that fails itself) without a debugger; stdout and the exit status are unchanged (#295).
 - `CSRT_GC_STATS=1` prints the collector's totals at exit (collections, pause time, bytes allocated,
   peak heap). A runtime built with `CSHARPC_RUNTIME_CFLAGS=-DCSRT_ALLOC_PROFILE` (extra C flags for the
   runtime, part of its cache key) also prints the objects collections freed, by type, top 40 by bytes:

@@ -17,7 +17,7 @@ of the milestone below says where it is tracked.
 |---|---|---|
 | M0 Spike | ✅ done | |
 | M1 Real programs | ✅ done | |
-| M2 Library in C# | 🟡 open | BCL surface ranked by the NuGet survey (#146: #152 `MathF` PR #156, #157 PR #158, #159, #162); TLS and X.509 on macOS and Windows run over OpenSSL, the native routes are the spikes #143 and #144; the gap lists #89, #95–#104 |
+| M2 Library in C# | 🟡 open | BCL surface ranked by the NuGet survey (#146: #152 `MathF` PR #156, #157 PR #158, #159, #162); TLS and X.509 on macOS and Windows run over .NET's own code and the OS's TLS and crypto as in NativeAOT (#144, #143); the gap lists #89, #95–#104 |
 | M3 Platforms | ✅ done | per-platform limits are documented, see M3 below |
 | M4 Real-world validation | 🟡 open | parity is 98.4 % (242 of 246) in the latest Compatibility run, down from 100 % (#163) |
 | M5 Binary packages and the program as IL | 🟡 open | the BCL surface packages use (#146) |
@@ -108,7 +108,7 @@ of the milestone below says where it is tracked.
 | `System.Text.Json` | ✅ | writer, reader, DOM, nodes, `JsonSchemaExporter`; serializer over source-generated metadata, reflection-style calls included ([12-corelib.md](12-corelib.md#systemtextjson)); gaps in #89, #100 |
 | `Task`, `TaskFactory`, `EventSource`/`EventListener` | ✅ | [10-async.md](10-async.md), [12-corelib.md](12-corelib.md) |
 | File I/O, sockets, `HttpClient` | ✅ | System.IO, sockets (TCP/UDP, `TcpListener`/`TcpClient`, `Dns`), `HttpClient` over HTTP/1.1 with system proxies and gzip/deflate/brotli ([16-interop-io.md](16-interop-io.md)); gaps in #102 |
-| TLS: `SslStream`, X.509, `https://` | 🟡 | Linux over OpenSSL 3 ([ADR 0022](adr/0022-tls.md)); the same code on macOS and Windows as an interim (#143, #144); not on WebAssembly; gaps in #101 |
+| TLS: `SslStream`, X.509, `https://` | 🟡 | Linux over OpenSSL 3 ([ADR 0022](adr/0022-tls.md)); macOS and Windows over .NET's own code and the OS's TLS and crypto, as in NativeAOT (#144, #143); not on WebAssembly; gaps in #101 |
 
 ## Standing goal: better than .NET in every area, always
 
@@ -206,9 +206,8 @@ Open:
   done): `MathF` and the floating-point generic-math statics (#152, PR #156), the
   reflection lookups (#157, PR #158; #159) and a generic local-function codegen bug (#162). (The `System.Xml.Linq` members the survey listed
   were an artifact of its consumer: the framework's own `System.Xml.Linq` is compiled from IL and behaves as .NET, sample 1235.)
-- TLS and X.509 on macOS and Windows run over OpenSSL (Homebrew's `openssl@3`, the OpenSSL 3 DLLs). That is an interim
-  state, decided by the owner on 2026-11-07, with the native routes as the end state (macOS: the runtime pack's Apple crypto shim and .NET's code from IL, #144;
-  Windows: .NET's SSPI/CNG code from IL, #143), both still spikes.
+- TLS and X.509 on macOS and Windows use the native routes by default, as in NativeAOT (owner, 2026-11-27): macOS the runtime
+  pack's Apple crypto shim and .NET's code from IL (#144), Windows .NET's SSPI/CNG code from IL (#143); no OpenSSL on either.
 - The gap lists from a large WinForms/macOS application: #89 (JSON numbers written with the current culture), #95
   (`Container`/`ComponentResourceManager`), #96–#99 (tasks, threading primitives, `TimeZoneInfo`, interop), #100–#104
   (JSON, cryptography/TLS, IO/process/networking, text, reflection/collections).
