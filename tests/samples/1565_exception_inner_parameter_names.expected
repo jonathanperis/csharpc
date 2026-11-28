@@ -1,0 +1,10 @@
+MissingMethodException: missing method | inner: InvalidOperationException: the cause
+MissingMemberException: missing member | inner: InvalidOperationException: the cause
+MissingFieldException: missing field | inner: InvalidOperationException: the cause
+MemberAccessException: member access | inner: InvalidOperationException: the cause
+TargetInvocationException: Exception has been thrown by the target of an invocation. | inner: InvalidOperationException: the cause
+TargetInvocationException: target invocation | inner: InvalidOperationException: the cause
+UriFormatException: uri format | inner: InvalidOperationException: the cause
+InvalidCastException: invalid cast | inner: InvalidOperationException: the cause
+TypeInitializationException: The type initializer for 'Some.Type' threw an exception. | inner: InvalidOperationException: the cause
+MissingMethodException: thrown | inner: MissingMethodException: Member not found.

@@ -1,8 +1,8 @@
 namespace Csharpc.Frontend;
 
 /// <summary>
-/// The opt-in "native TLS" build mode for Windows, macOS and Linux (CSHARPC_WINDOWS_NATIVE_TLS=1 / CSHARPC_MACOS_NATIVE_TLS=1 / CSHARPC_LINUX_NATIVE_TLS=1, never
-/// the default; docs/adr/0022-tls.md, "Windows without OpenSSL" and "macOS without OpenSSL"): the corelib's OpenSSL-backed shadows for X.509, RSA and
+/// The "native TLS" build mode (docs/adr/0022-tls.md, "Windows without OpenSSL" and "macOS without OpenSSL"): always on for macOS and
+/// Windows, as in NativeAOT (#144, #143); opt-in on glibc Linux (CSHARPC_LINUX_NATIVE_TLS=1). The corelib's OpenSSL-backed shadows for X.509, RSA and
 /// SslStream are not mapped, so System.Net.Security and System.Security.Cryptography (and the facades in
 /// front of them) are compiled from the shared framework's IL, whose own P/Invokes bind SSPI, CNG and crypt32 (Windows), the
 /// Apple crypto shim (macOS) or the OpenSSL shim (Linux) and libSystem.Native, linked from the NativeAOT runtime pack.
@@ -12,13 +12,12 @@ namespace Csharpc.Frontend;
 public static class NativeTls
 {
     /// <summary>
-    /// Whether the mode is on for a target: CSHARPC_WINDOWS_NATIVE_TLS=1 on Windows (SSPI, CNG, crypt32), CSHARPC_MACOS_NATIVE_TLS=1 on
-    /// macOS (the runtime pack's Apple crypto shim over Security.framework; docs/adr/0022-tls.md, "macOS without OpenSSL"),
+    /// Whether the mode is on for a target: always on Windows (SSPI, CNG, crypt32, what NativeAOT calls: no OpenSSL DLLs) and on macOS (the runtime
+    /// pack's Apple crypto shim over Security.framework, what NativeAOT links: no Homebrew OpenSSL; docs/adr/0022-tls.md, "macOS without OpenSSL"),
     /// CSHARPC_LINUX_NATIVE_TLS=1 on glibc Linux (the pack's OpenSSL shim, which loads libssl on first use; "Linux over the pack's shims").
     /// </summary>
     public static bool Enabled(bool windows, bool darwin = false, bool linux = false) =>
-        windows && Environment.GetEnvironmentVariable("CSHARPC_WINDOWS_NATIVE_TLS") is "1"
-        || darwin && Environment.GetEnvironmentVariable("CSHARPC_MACOS_NATIVE_TLS") is "1"
+        windows || darwin
         || linux && Environment.GetEnvironmentVariable("CSHARPC_LINUX_NATIVE_TLS") is "1";
 
     /// <summary>

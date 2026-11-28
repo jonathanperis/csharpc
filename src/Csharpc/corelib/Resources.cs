@@ -217,13 +217,29 @@ namespace CsharpcCoreLib
                 object[] converted = CoreIntrinsics.ResourceObjectHook(type, text);
                 if (converted != null) return converted[0] ?? throw new NullReferenceException();
             }
+            // Format 2: the converter's byte array (a WinForms .resx's images and icons), DeserializingResourceReader's
+            // TypeDescriptor.GetConverter(type).ConvertFrom(bytes); a byte[] itself gets TypeDescriptor's ArrayConverter (#300).
+            else if (stored == ConverterBytes && CoreIntrinsics.HasConverterResources())
+            {
+                byte[] data = Convert.FromBase64String(text);
+                if (type == "System.Byte[]") return TypeDescriptor.GetConverter(typeof(byte[])).ConvertFrom(data) ?? throw new NullReferenceException();
+                object[] converted = CoreIntrinsics.ResourceObjectFromBytesHook(type, data);
+                if (converted != null) return converted[0] ?? throw new NullReferenceException();
+            }
+            // Format 4: a read-only stream of the bytes for the type's (Stream) constructor (a ResXFileRef), as Activator.CreateInstance(type, stream).
+            else if (stored == ActivatorStream && CoreIntrinsics.HasConverterResources())
+            {
+                object[] created = CoreIntrinsics.ResourceObjectFromStreamHook(type, new System.IO.MemoryStream(Convert.FromBase64String(text), false));
+                if (created != null) return created[0];
+            }
             throw new NotSupportedException("csharpc: the resource '" + name + "' of '" + baseName + "' is a " + type
                 + (stored != null && stored != ConverterString ? " stored " + StoredHow(stored) : "")
-                + ", which ResourceManager.GetObject does not create yet (only strings, numbers, bools, chars, byte arrays, streams and types whose TypeConverter csharpc can create from the string in the .resx, from the types the project's .resx files name).");
+                + ", which ResourceManager.GetObject does not create yet (only strings, numbers, bools, chars, byte arrays, streams, and the types the project's .resx files name whose TypeConverter or (Stream) constructor csharpc can call).");
         }
 
         // A preserialized value that is the type converter's string ("\u0002" + this after the type name).
         private const string ConverterString = "3";
+        private const string ConverterBytes = "2", ActivatorStream = "4";
 
         private static string StoredHow(string format)
         {
@@ -439,6 +455,33 @@ namespace CsharpcCoreLib
         {
             if (value == null) throw new ArgumentNullException(paramName);
             if (value.Length == 0) throw new ArgumentException("The value cannot be an empty string.", paramName);
+        }
+
+        /// <summary>
+        /// AppContext.LogSwitchValues(RuntimeEventSource), which System.Runtime calls when a listener enables it (#455): an AppContextSwitch
+        /// event per switch the program set, then per configuration value that parses as a bool and is not also a set switch, as AppContext.AnyOS.cs
+        /// does. The event source comes in as an object (the slice's type has no name here; corelib/UpstreamTracing.cs).
+        /// </summary>
+        internal static void LogSwitchValues(object ev)
+        {
+            var switches = s_switches;
+            if (switches != null)
+                lock (switches)
+                    foreach (KeyValuePair<string, bool> kvp in switches) UpstreamTracing.LogAppContextSwitch(ev, kvp.Key, kvp.Value ? 1 : 0);
+            var data = Data;
+            lock (data)
+            {
+                if (switches != null)
+                    lock (switches) LogDataStore(ev, data, switches);
+                else LogDataStore(ev, data, null);
+            }
+
+            static void LogDataStore(object ev, Dictionary<string, object> data, Dictionary<string, bool> switches)
+            {
+                foreach (KeyValuePair<string, object> kvp in data)
+                    if (kvp.Value is string s && bool.TryParse(s, out bool isEnabled) && switches?.ContainsKey(kvp.Key) != true)
+                        UpstreamTracing.LogAppContextSwitch(ev, kvp.Key, isEnabled ? 1 : 0);
+            }
         }
     }
 }

@@ -40,6 +40,8 @@ windows 729_dllimport_resolver           live: .NET names the library kind "DLL"
 windows 731_process_start                runs a POSIX sh; csharpc's Process.Start on Windows is an explicit NotSupportedException (not implemented yet)
 windows 860_console_autoflush_pipe       starts itself with Process.Start, an explicit NotSupportedException on Windows in csharpc (not implemented yet); SIGPIPE is POSIX
 windows 286_pinvoke_portable_abi        live: imports from "libc", which doesn't exist on Windows
+windows 1348_pinvoke_safehandle_parameters live: imports from "libc", which doesn't exist on Windows
+windows 1347_pinvoke_delegate_parameters live: imports from "libc", which doesn't exist on Windows
 windows 295_regex_charclass             live: prints matched text that contains a bare "\n" (from the input string)
 windows 303_regex_options               live: prints matched text that contains a bare "\n" (from the input string)
 windows 194_marshal_strings              live: GetPInvokeErrorMessage is the Win32 FormatMessage text, not strerror
@@ -111,6 +113,7 @@ wasi 84_misc_bcl                  prints IntPtr.Size: 4 on wasm32
 wasi 160_pinvoke_dllimport        Linux LP64 signatures (C long as C# long; 32-bit on wasm32) and a libc symbol that doesn't exist (a link error with wasi-libc)
 wasi 176_pinvoke_struct_abi       Linux LP64 signatures: ldiv takes C long, 32-bit on wasm32
 wasi 286_pinvoke_portable_abi     Linux LP64 signatures: ldiv takes C long, 32-bit on wasm32
+wasi 1348_pinvoke_safehandle_parameters opens /dev/null, which the WASI sandbox (no preopened /dev) does not have
 wasi 162_pinvoke_libraryimport    prints an errno value (ENOENT is 2 on Linux, 44 in WASI)
 wasi 729_dllimport_resolver        loads a shared library with NativeLibrary.Load: WASI has no dynamic libraries
 wasi 730_pinvoke_static_constructor loads a shared library with NativeLibrary.Load: WASI has no dynamic libraries
@@ -340,5 +343,9 @@ wasi 1346_nfloat_from_framework    NFloat is a float on 32-bit targets (wasm32),
 windows 1563_timezoneinfo_from_il  live: Windows takes the local zone from the system settings, not TZ; recorded there
 macos 1562_special_folders        live: macOS takes the user folders from NSFileManager (the real home, not $HOME), Linux from $HOME and XDG; recorded on each
 windows 1562_special_folders      known gap: Environment.GetFolderPath on Windows (the known folders) is not supported by csharpc yet; an explicit NotSupportedException
+wasi 1567_named_pipes             WASI has no Unix domain sockets or pipes: System.IO.Pipes does not work there
+windows 1567_named_pipes          known gap: System.IO.Pipes on Windows is not supported by csharpc yet (it is compiled from IL on Linux and macOS); an explicit NotSupportedException
 wasi 1570_process_lookups         WASI has no processes to look up or start: Process.GetProcesses and Process.Start are explicit NotSupportedExceptions
 windows 1570_process_lookups      known gap: looking up and naming processes on Windows (GetProcessById, GetProcesses, Modules) is not supported by csharpc yet; an explicit NotSupportedException
+wasi 1574_runtime_event_counters  known gap: the counters are published by CounterGroup's background polling thread; WASI preview 1 has no threads (as 1470)
+wasi 1345_memorymapped_read_write  WASI has no memory mapping (no mmap): MemoryMappedFile throws PlatformNotSupportedException, as in .NET on WASI

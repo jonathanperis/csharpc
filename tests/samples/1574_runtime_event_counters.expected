@@ -1,0 +1,30 @@
+counters: 27
+active-timer-count | Mean | Number of Active Timers | 
+alloc-rate | Sum | Allocation Rate | B
+assembly-count | Mean | Number of Assemblies Loaded | 
+cpu-usage | Mean | CPU Usage | %
+exception-count | Sum | Exception Count | 
+gc-committed | Mean | GC Committed Bytes | MB
+gc-fragmentation | Mean | GC Fragmentation | %
+gc-heap-size | Mean | GC Heap Size | MB
+gen-0-gc-budget | Mean | Gen 0 GC Budget | MB
+gen-0-gc-count | Sum | Gen 0 GC Count | 
+gen-0-size | Mean | Gen 0 Size | B
+gen-1-gc-count | Sum | Gen 1 GC Count | 
+gen-1-size | Mean | Gen 1 Size | B
+gen-2-gc-count | Sum | Gen 2 GC Count | 
+gen-2-size | Mean | Gen 2 Size | B
+il-bytes-jitted | Mean | IL Bytes Jitted | B
+loh-size | Mean | LOH Size | B
+methods-jitted-count | Mean | Number of Methods Jitted | 
+monitor-lock-contention-count | Sum | Monitor Lock Contention Count | 
+poh-size | Mean | POH (Pinned Object Heap) Size | B
+threadpool-completed-items-count | Sum | ThreadPool Completed Work Item Count | 
+threadpool-queue-length | Mean | ThreadPool Queue Length | 
+threadpool-thread-count | Mean | ThreadPool Thread Count | 
+time-in-gc | Mean | % Time in GC since last GC | %
+time-in-jit | Sum | Time spent in JIT | ms
+total-pause-time-by-gc | Sum | Time paused by GC | ms
+working-set | Mean | Working Set | MB
+ProcessorCount events: 1, payload is Environment.ProcessorCount: True
+EventSource.IsSupported switch logged: True
