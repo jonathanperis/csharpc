@@ -999,6 +999,10 @@ public sealed partial class ModuleCodeGen
             case INamedTypeSymbol named:
             {
                 var definition = RealType(named.OriginalDefinition) is INamedTypeSymbol real ? real.OriginalDefinition : named.OriginalDefinition;
+                // A type of the upstream slice is CoreLib's own, cut out of System.Private.CoreLib (EventSource's manifest builder asks an internal
+                // event source such as RuntimeEventSource for its assembly, #455).
+                if (IsSliceType(definition) && !SymbolEqualityComparer.Default.Equals(definition, Compilation.GetSpecialType(SpecialType.System_Object)))
+                    return AssemblyOf(Compilation.GetSpecialType(SpecialType.System_Object));
                 if (CoreLib.IsCoreLib(definition)) return null;
                 var assembly = definition.ContainingAssembly;
                 if (assembly is null) return null;

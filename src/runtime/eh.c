@@ -1206,10 +1206,16 @@ void* csrt_begin_catch(void* unwind_exception) {
 }
 #endif
 
+// Exception.GetExceptionCount (the System.Runtime counter exception-count, #455): every new dispatch, not a rethrow (`throw;`), as NativeAOT
+// counts the first frame of a throw that is not a rethrow.
+static uint32_t s_exception_count;
+uint32_t csrt_exception_count(void) { return __atomic_load_n(&s_exception_count, __ATOMIC_RELAXED); }
+
 // `throw e`: a new stack trace starts here, even for an exception thrown before (as in .NET).
 void csrt_throw_object(void* exception) {
     if (!exception)  // `throw null;` throws a NullReferenceException
         exception = new_exception(&csrt_MT_System_NullReferenceException, "Object reference not set to an instance of an object.");
+    __atomic_fetch_add(&s_exception_count, 1, __ATOMIC_RELAXED);
     trace_reset(exception);
     eh_forget(exception);
     raise_exception(exception);
@@ -1236,6 +1242,7 @@ void csrt_exception_throw_captured(void* exception, void* captured) {
         trace_append(e, TRACE_PREVIOUS_LOCATION);
         trace_data(e->trace)->frame = 0;  // Throw() runs elsewhere on the stack than the capture
     } else trace_reset(e);
+    __atomic_fetch_add(&s_exception_count, 1, __ATOMIC_RELAXED);
     eh_forget(e);
     raise_exception(exception);
 }
