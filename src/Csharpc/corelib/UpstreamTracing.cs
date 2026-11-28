@@ -77,6 +77,66 @@ namespace CsharpcCoreLib
         public static int WaitForSessionSignal(ulong sessionID, int timeoutMs) => 0;
     }
 
+    /// <summary>
+    /// The runtime events NativeRuntimeEventSource (Microsoft-Windows-DotNETRuntime) writes from managed code: thread-pool, contention and wait
+    /// events, which CoreLib hands to the runtime through these QCalls for EventPipe to deliver. csharpc's runtime has no EventPipe session yet
+    /// (UpstreamEventPipe), so they are written nowhere, as NativeAOT's disabledruntimeeventinternal.cpp does without EventPipe (#455; delivering
+    /// them to listeners is the issue's second phase). The source's own guards fold to false (tools/il-first/slicer, DisabledEventSources); these
+    /// bind what the overloads with a level and keywords still reach.
+    /// </summary>
+    internal static class UpstreamNativeRuntimeEvents
+    {
+        private const string Trigger = "QCall!";
+
+        [RuntimeExport("NativeRuntimeEventSource_LogContentionLockCreated", Trigger + "NativeRuntimeEventSource_LogContentionLockCreated")]
+        public static void LogContentionLockCreated(nint lockID, nint associatedObjectID, ushort clrInstanceID) { }
+
+        [RuntimeExport("NativeRuntimeEventSource_LogContentionStart", Trigger + "NativeRuntimeEventSource_LogContentionStart")]
+        public static void LogContentionStart(byte contentionFlags, ushort clrInstanceID, nint lockID, nint associatedObjectID, ulong lockOwnerThreadID) { }
+
+        [RuntimeExport("NativeRuntimeEventSource_LogContentionStop", Trigger + "NativeRuntimeEventSource_LogContentionStop")]
+        public static void LogContentionStop(byte contentionFlags, ushort clrInstanceID, double durationNs) { }
+
+        [RuntimeExport("NativeRuntimeEventSource_LogThreadPoolWorkerThreadStart", Trigger + "NativeRuntimeEventSource_LogThreadPoolWorkerThreadStart")]
+        public static void LogThreadPoolWorkerThreadStart(uint activeWorkerThreadCount, uint retiredWorkerThreadCount, ushort clrInstanceID) { }
+
+        [RuntimeExport("NativeRuntimeEventSource_LogThreadPoolWorkerThreadStop", Trigger + "NativeRuntimeEventSource_LogThreadPoolWorkerThreadStop")]
+        public static void LogThreadPoolWorkerThreadStop(uint activeWorkerThreadCount, uint retiredWorkerThreadCount, ushort clrInstanceID) { }
+
+        [RuntimeExport("NativeRuntimeEventSource_LogThreadPoolWorkerThreadWait", Trigger + "NativeRuntimeEventSource_LogThreadPoolWorkerThreadWait")]
+        public static void LogThreadPoolWorkerThreadWait(uint activeWorkerThreadCount, uint retiredWorkerThreadCount, ushort clrInstanceID) { }
+
+        [RuntimeExport("NativeRuntimeEventSource_LogThreadPoolMinMaxThreads", Trigger + "NativeRuntimeEventSource_LogThreadPoolMinMaxThreads")]
+        public static void LogThreadPoolMinMaxThreads(ushort minWorkerThreads, ushort maxWorkerThreads, ushort minIOCompletionThreads, ushort maxIOCompletionThreads, ushort clrInstanceID) { }
+
+        [RuntimeExport("NativeRuntimeEventSource_LogThreadPoolWorkerThreadAdjustmentSample", Trigger + "NativeRuntimeEventSource_LogThreadPoolWorkerThreadAdjustmentSample")]
+        public static void LogThreadPoolWorkerThreadAdjustmentSample(double throughput, ushort clrInstanceID) { }
+
+        [RuntimeExport("NativeRuntimeEventSource_LogThreadPoolWorkerThreadAdjustmentAdjustment", Trigger + "NativeRuntimeEventSource_LogThreadPoolWorkerThreadAdjustmentAdjustment")]
+        public static void LogThreadPoolWorkerThreadAdjustmentAdjustment(double averageThroughput, uint newWorkerThreadCount, uint reason, ushort clrInstanceID) { }
+
+        [RuntimeExport("NativeRuntimeEventSource_LogThreadPoolWorkerThreadAdjustmentStats", Trigger + "NativeRuntimeEventSource_LogThreadPoolWorkerThreadAdjustmentStats")]
+        public static void LogThreadPoolWorkerThreadAdjustmentStats(double duration, double throughput, double threadPoolWorkerThreadWait, double throughputWave, double throughputErrorEstimate, double averageThroughputErrorEstimate, double throughputRatio, double confidence, double newControlSetting, ushort newThreadWaveMagnitude, ushort clrInstanceID) { }
+
+        [RuntimeExport("NativeRuntimeEventSource_LogThreadPoolIOEnqueue", Trigger + "NativeRuntimeEventSource_LogThreadPoolIOEnqueue")]
+        public static void LogThreadPoolIOEnqueue(nint nativeOverlapped, nint overlapped, int multiDequeues, ushort clrInstanceID) { }
+
+        [RuntimeExport("NativeRuntimeEventSource_LogThreadPoolIODequeue", Trigger + "NativeRuntimeEventSource_LogThreadPoolIODequeue")]
+        public static void LogThreadPoolIODequeue(nint nativeOverlapped, nint overlapped, ushort clrInstanceID) { }
+
+        [RuntimeExport("NativeRuntimeEventSource_LogThreadPoolWorkingThreadCount", Trigger + "NativeRuntimeEventSource_LogThreadPoolWorkingThreadCount")]
+        public static void LogThreadPoolWorkingThreadCount(uint count, ushort clrInstanceID) { }
+
+        [RuntimeExport("NativeRuntimeEventSource_LogThreadPoolIOPack", Trigger + "NativeRuntimeEventSource_LogThreadPoolIOPack")]
+        public static void LogThreadPoolIOPack(nint nativeOverlapped, nint overlapped, ushort clrInstanceID) { }
+
+        [RuntimeExport("NativeRuntimeEventSource_LogWaitHandleWaitStart", Trigger + "NativeRuntimeEventSource_LogWaitHandleWaitStart")]
+        public static void LogWaitHandleWaitStart(byte waitSource, nint associatedObjectID, ushort clrInstanceID) { }
+
+        [RuntimeExport("NativeRuntimeEventSource_LogWaitHandleWaitStop", Trigger + "NativeRuntimeEventSource_LogWaitHandleWaitStop")]
+        public static void LogWaitHandleWaitStop(ushort clrInstanceID) { }
+    }
+
     /// <summary>The members of the tracing IL csharpc serves as NativeAOT's build of CoreLib has them (tools/il-first/slicer, csharpc profile).</summary>
     internal static class UpstreamTracing
     {
@@ -94,16 +154,32 @@ namespace CsharpcCoreLib
         public static bool IsGenericMatch(Type type, object openType) =>
             type.IsGenericType && (type.IsPublic || type.IsNestedPublic || openType is Type { IsPublic: false, IsNestedPublic: false }) && type.GetGenericTypeDefinition() == (Type)openType;
 
+        private const string EventSourceType = "CsharpcCoreLib.Upstream.System.Diagnostics.Tracing.EventSource, CsharpcUpstream";
+
         /// <summary>
-        /// EventSource.InitializeDefaultEventSources (both overloads; the runtime calls the [UnmanagedCallersOnly] one at start-up): csharpc's runtime
-        /// does not create the runtime's and libraries' default event sources (Microsoft-Windows-DotNETRuntime, System.Runtime, ...), whose events
-        /// and counters come from the runtime itself (docs/il-first/System.Diagnostics.Tracing.md, "Differences").
+        /// The framework's EventSource.InitializeDefaultEventSources, run by the program's start-up before its module initializers when it turns
+        /// event sources on (EventSourceSupport=true; ModuleCodeGen.DefaultEventSources.cs), as NativeAOT runs it as CoreLib's module initializer:
+        /// it creates Microsoft-Windows-DotNETRuntime, FrameworkEventSource, ArrayPoolEventSource and System.Runtime, and preregisters
+        /// System.Diagnostics.Metrics (#455).
         /// </summary>
-        public static void InitializeDefaultEventSources() { }
+        public static void StartDefaultEventSources() => FrameworkInitializeDefaultEventSources(null);
+
+        [System.Runtime.CompilerServices.UnsafeAccessor(System.Runtime.CompilerServices.UnsafeAccessorKind.StaticMethod, Name = "InitializeDefaultEventSources")]
+        private static extern void FrameworkInitializeDefaultEventSources([System.Runtime.CompilerServices.UnsafeAccessorType(EventSourceType)] object type);
+
+        private const string RuntimeEventSourceType = "CsharpcCoreLib.Upstream.System.Diagnostics.Tracing.RuntimeEventSource, CsharpcUpstream";
+
+        /// <summary>AppContext.LogSwitchValues (the slicer forwards the framework's call here, with the event source as an object).</summary>
+        public static void LogSwitchValues(object ev) => AppContextImpl.LogSwitchValues(ev);
+
+        /// <summary>RuntimeEventSource.LogAppContextSwitch, the System.Runtime source's AppContextSwitch event (id 1).</summary>
+        [System.Runtime.CompilerServices.UnsafeAccessor(System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = "LogAppContextSwitch")]
+        internal static extern void LogAppContextSwitch([System.Runtime.CompilerServices.UnsafeAccessorType(RuntimeEventSourceType)] object ev, string switchName, int value);
 
         /// <summary>XplatEventLogger.InitializePersistentListener: no LTTng listener (CoreCLR's FEATURE_EVENTSOURCE_XPLAT), as in NativeAOT.</summary>
         public static System.Diagnostics.Tracing.EventListener InitializePersistentListener() => null;
 
+        /// <summary>The [UnmanagedCallersOnly] overload, CoreCLR's entry from native start-up, which csharpc never takes.</summary>
 #pragma warning disable CS8500 // (the [UnmanagedCallersOnly] overload's out parameter for an exception, never written here)
         public static unsafe void InitializeDefaultEventSources(Exception* pException) { }
 #pragma warning restore CS8500

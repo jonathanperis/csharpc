@@ -198,6 +198,13 @@ public static partial class FrameworkIl
             if (index.TryGetValue(dependency, out var needed) && needed.Ineligible is null && Unusable(needed) is null)
                 Add(needed, "the corelib uses its types");
 
+        // Event sources turned on (EventSourceSupport=true): the start-up's EventSource.InitializeDefaultEventSources preregisters
+        // System.Diagnostics.Metrics, whose source (MetricsEventSource) an EventListener creates through an [UnsafeAccessor] naming
+        // System.Diagnostics.DiagnosticSource (#455): that assembly is part of the program, as ILCompiler resolves the accessor for NativeAOT.
+        if (DefaultEventSourcesOn(settings.RuntimeConfig) && MeterSupported(settings.RuntimeConfig)
+            && index.TryGetValue("System.Diagnostics.DiagnosticSource", out var metrics) && Unusable(metrics) is null)
+            Add(metrics, "event sources are on, and their start-up preregisters System.Diagnostics.Metrics");
+
         // The networking types (Socket, Dns, NetworkInterface, and the corelib's SslStream shadow) take and return types of
         // System.Net.Primitives, which come from its IL (IPAddress, IPEndPoint, DnsEndPoint): a program that names any
         // System.Net namespace needs them, even when it never names one of those types (Dns.GetHostAddresses).
@@ -233,6 +240,15 @@ public static partial class FrameworkIl
                 Add(a, $"a facade of {target}");
         return result;
     }
+
+    /// <summary>EventSourceSupport=true (System.Diagnostics.Tracing.EventSource.IsSupported): the default event sources are created at start-up.</summary>
+    public static bool DefaultEventSourcesOn(IEnumerable<KeyValuePair<string, string>> runtimeConfig) => Switch(runtimeConfig, "System.Diagnostics.Tracing.EventSource.IsSupported") == true;
+
+    /// <summary>EventSource.IsMeterSupported: System.Diagnostics.Metrics.Meter.IsSupported, true unless the configuration turns it off.</summary>
+    public static bool MeterSupported(IEnumerable<KeyValuePair<string, string>> runtimeConfig) => Switch(runtimeConfig, "System.Diagnostics.Metrics.Meter.IsSupported") != false;
+
+    private static bool? Switch(IEnumerable<KeyValuePair<string, string>> runtimeConfig, string name) =>
+        runtimeConfig.LastOrDefault(c => c.Key == name).Value is { } value && bool.TryParse(value, out var on) ? on : null;
 
     private static string[] ReferencesOf(string path)
     {

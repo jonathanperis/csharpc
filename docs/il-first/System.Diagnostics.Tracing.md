@@ -25,7 +25,8 @@ A CoreLib library served from the framework's IL: its row of the per-library tab
   `eventpipeinternal.cpp`'s semantics. A QCall without a contract is now a stub that ends the program with the "not supported by csharpc
   yet" diagnostic, never a dlopen of "QCall".
 - **Contract members** (slicer profile): `GetHelperCallFirstArg` answers -1 (NativeAOT's CoreLib has no IL to read for the WriteEvent id
-  check); `InitializeDefaultEventSources` does nothing (below); LTTng's persistent listener is null (CoreCLR-only); TraceLogging's
+  check); `InitializeDefaultEventSources`' `[UnmanagedCallersOnly]` overload (CoreCLR's entry from native start-up) does nothing, while the
+  framework's own `InitializeDefaultEventSources()` runs at start-up (below); LTTng's persistent listener is null (CoreCLR-only); TraceLogging's
   `IsGenericMatch` does not ask a non-public type for its definition; its reference-type property getter reads through
   `PropertyInfo.GetValue` (no `MakeGenericType`/`CreateDelegate` at run time), wrapped so a null container is the delegate's
   NullReferenceException.
@@ -45,14 +46,48 @@ stub it for ILCompiler, so a ConcurrentBag's `CDSCollectionETWBCLProvider` event
 Checked besides the tracing samples: the full differential suite at -O2 (799 of 800 before the IsEnabled fold, 1030 the failure it fixes) and the concurrent-collection samples at -O0,
 -O2 and via IL.
 
+## The default event sources (#455, phase 1)
+
+With event sources on (`EventSourceSupport=true`, the `System.Diagnostics.Tracing.EventSource.IsSupported` switch set to true), the program's
+start-up calls the framework's `EventSource.InitializeDefaultEventSources()` after the static initialization and before the program's module
+initializers (`ModuleCodeGen.DefaultEventSources.cs`, through `corelib/UpstreamTracing.cs`), as NativeAOT runs it as CoreLib's
+`[ModuleInitializer]`. So `EventSource.GetSources()` lists `Microsoft-Windows-DotNETRuntime`, `System.Diagnostics.Eventing.FrameworkEventSource`,
+`System.Buffers.ArrayPoolEventSource` and `System.Runtime` before Main, and the first `EventListener` also creates the preregistered
+`System.Diagnostics.Metrics` (`EventSourceInitHelper.GetMetricsEventSource`, an `[UnsafeAccessor]` naming System.Diagnostics.DiagnosticSource's
+`MetricsEventSource`: that assembly is compiled from IL when event sources are on, and the accessor is bound at compile time, as ILCompiler does).
+With the switch off or unset nothing is emitted: the file-based and PublishAot default (NativeAOT's) pays nothing (`tests/size.sh` unchanged).
+A project that leaves the switch unset (a build without PublishAot, where .NET's JIT would create them) does not get them either.
+
+`System.Runtime`'s 27 counters are the framework's `RuntimeEventSource` over public APIs csharpc has, plus these contract members:
+`GC.GetGenerationSize` (generation 0 is csharpc's whole heap: its collector has one generation), `GC.GetGenerationBudget` (the allocation
+budget, `csrt_gc_budget`), `GC.GetLastGCPercentTimeInGC` (the last pause over the time since the previous collection ended,
+`csrt_gc_last_percent_time_in_gc`), `Exception.GetExceptionCount` (every new dispatch, not a rethrow, as NativeAOT counts:
+`csrt_exception_count`), `Assembly.GetAssemblyCount` (the assemblies compiled in), `AppContext.LogSwitchValues` (the AppContextSwitch events,
+over csharpc's AppContext) and libSystem.Native's `SystemNative_GetCpuUtilization` (pal_time.c's, over getrusage). The JIT counters are zero, as
+in NativeAOT. The runtime events `NativeRuntimeEventSource` hands to the runtime (`NativeRuntimeEventSource_Log*` QCalls: thread pool,
+contention, waits) are bound as no-ops, as NativeAOT's `disabledruntimeeventinternal.cpp` does without EventPipe; delivering them, and the GC's
+events, to listeners is phase 2.
+
+Samples: 1573 (the sources before Main and as listeners see them), 1574 (the 27 counters' names, kinds, display names and units, the
+ProcessorCount and AppContextSwitch events), recorded from .NET; NativeAOT prints the same.
+
+Size, `EventSourceSupport=true` hello world on linux-x64 (-O2, stripped): 28 544 B before (nothing referenced EventSource), 3 268 448 B after;
+NativeAOT 3 726 368 B. A default hello world stays 28 544 B.
+
 ## Differences from NativeAOT (explicit, or the runtime's)
+
+Still open after phase 1 (#455): `System.Threading.Tasks.TplEventSource` and `System.Runtime.CompilerServices.AsyncProfilerEventSource`, which
+.NET's Task implementation creates on first use, do not appear (csharpc's tasks are its own scheduler's); a listener enabling
+`System.Diagnostics.Metrics` gets the source's `Error` event with an explicit NotSupportedException (`MakeGenericType` of DiagnosticSource's
+`InstrumentState<TAggregator>`, an instantiation csharpc does not compile), not the meters' values; enabling `Microsoft-Windows-DotNETRuntime`
+starts no session, so the runtime's GC, thread-pool and contention events are not delivered (phase 2).
+
 
 The probe of 2026-11-20 (a listener created at start, `EventSourceSupport=true`): .NET and NativeAOT both show
 `Microsoft-Windows-DotNETRuntime`, `System.Diagnostics.Eventing.FrameworkEventSource`, `System.Buffers.ArrayPoolEventSource`,
 `System.Runtime` and `System.Diagnostics.Metrics` (later `TplEventSource`), deliver the runtime's GC events through EventPipe and the 27
-`System.Runtime` counters. These are the runtime's own sources, events and counters (GC, JIT, thread pool, contention), which csharpc's
-runtime does not produce: a csharpc listener sees the program's own sources only, as it did with the shadow. Moving that boundary is the
-owner's decision (#455). Out-of-process sessions (EventPipe, the diagnostics port, LTTng, ETW on Linux) do not exist.
+`System.Runtime` counters. Before #455 a csharpc listener saw the program's own sources only; the sources and counters are served now
+(above), the runtime's events through EventPipe are phase 2. Out-of-process sessions (EventPipe, the diagnostics port, LTTng, ETW on Linux) do not exist.
 
 ## Security review
 

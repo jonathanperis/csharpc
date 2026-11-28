@@ -12,7 +12,9 @@ static class Program
         var drive = new DriveInfo(root);
         Console.WriteLine($"ready: {drive.IsReady} root: {drive.RootDirectory.FullName == root} name: {drive.Name == root}");
         Console.WriteLine($"format: {drive.DriveFormat.Length > 0} type known: {drive.DriveType != DriveType.Unknown}");
-        Console.WriteLine($"sizes: {drive.TotalSize > 0} {drive.AvailableFreeSpace <= drive.TotalFreeSpace} {drive.TotalFreeSpace <= drive.TotalSize}");
+        // Each size property is a separate query of a disk other processes write to: comparing AvailableFreeSpace with a
+        // TotalFreeSpace read a moment later is a race (real .NET printed False on a busy CI runner), so each is checked alone.
+        Console.WriteLine($"sizes: {drive.TotalSize > 0} {drive.AvailableFreeSpace >= 0} {drive.TotalFreeSpace <= drive.TotalSize}");
         Console.WriteLine($"listed: {DriveInfo.GetDrives().Any(d => d.Name == root)}");
         if (!OperatingSystem.IsWindows())
         {

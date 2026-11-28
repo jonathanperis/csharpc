@@ -504,6 +504,20 @@ namespace CsharpcCoreLib
         public static TimeSpan GetTotalPauseDuration() => new TimeSpan(TotalPauseTicks());
         public static int MaxGeneration => 2;
 
+        // CoreLib-internal members the System.Runtime event counters read (RuntimeEventSource, #455; NativeAOT's GC.NativeAot.cs asks its GC
+        // the same). csharpc's collector has one generation (GetGeneration answers 0): generation 0 is the whole heap and has the budget.
+        [DllImport("__Internal", EntryPoint = "csrt_gc_budget")] private static extern long Budget();
+        [DllImport("__Internal", EntryPoint = "csrt_gc_last_percent_time_in_gc")] private static extern int LastPercentTimeInGC();
+
+        /// <summary>gen-0-size ... poh-size: the bytes in the generation (0 to 2, then the large and pinned object heaps).</summary>
+        public static ulong GetGenerationSize(int gen) => gen == 0 ? (ulong)GC.GetTotalMemory(false) : 0;
+
+        /// <summary>gen-0-gc-budget: what may be allocated before the next collection.</summary>
+        public static long GetGenerationBudget(int generation) => generation == 0 ? Budget() : 0;
+
+        /// <summary>time-in-gc: the last collection's pause as a percentage of the time since the one before it ended.</summary>
+        public static int GetLastGCPercentTimeInGC() => LastPercentTimeInGC();
+
         /// <summary>csharpc's collector has one generation (see JitInfoMembers).</summary>
         public static int GetGeneration(object obj)
         {
@@ -539,6 +553,14 @@ namespace CsharpcCoreLib
         // csharpc's collector never moves objects: every array is pinned, and fresh memory is zeroed anyway.
         public static T[] AllocateUninitializedArray<T>(int length, bool pinned = false) => new T[length];
         public static T[] AllocateArray<T>(int length, bool pinned = false) => new T[length];
+    }
+
+    /// <summary>Exception.GetExceptionCount, the System.Runtime counter exception-count (#455): the exceptions thrown so far, counted by the runtime's throw.</summary>
+    [ShadowMembers("System.Exception")]
+    internal static class ExceptionCountMembers
+    {
+        [DllImport("__Internal", EntryPoint = "csrt_exception_count")] private static extern uint Count();
+        public static uint GetExceptionCount() => Count();
     }
 
     [Shadows("System.Reflection.ReflectionTypeLoadException")]

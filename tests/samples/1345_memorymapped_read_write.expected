@@ -1,0 +1,20 @@
+file 64 capacity 64 read True write True
+1122334455667788 3 -5 2147483647 9 -2 True
+3 [0,10,20,30,0]
+2 [0,0,20,30,0]
+write past the end: ArgumentException: There are not enough bytes remaining in the accessor to write at this position. (Parameter 'position')
+read at the capacity: ArgumentOutOfRangeException: The position may not be greater or equal to the capacity of the accessor. (Parameter 'position')
+negative position: ArgumentOutOfRangeException: position ('-1') must be a non-negative value. (Parameter 'position')
+Actual value was -1.
+struct past the end: ArgumentException: There are not enough bytes remaining in the accessor to read at this position. (Parameter 'position')
+struct write past the end: ArgumentException: There are not enough bytes remaining in the accessor to write at this position. (Parameter 'position')
+array past the end: ArgumentException: Not enough space available in the buffer.
+array at the capacity: ArgumentOutOfRangeException: The position may not be greater or equal to the capacity of the accessor. (Parameter 'position')
+array null: ArgumentNullException: Value cannot be null. (Parameter 'array')
+array count: ArgumentException: Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.
+on disk 64: 88 11 3 FF 9 10 20
+read-only: 2147483647 write False
+write to a read view: NotSupportedException: Accessor does not support writing.
+disposed: read False
+read after dispose: ObjectDisposedException: Cannot access a closed accessor.
+Object name: 'UnmanagedMemoryAccessor'.

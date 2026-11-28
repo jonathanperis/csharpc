@@ -277,8 +277,12 @@ sealed class Cli
                     c.Replace["System.Diagnostics.Tracing.XplatEventLogger::InitializePersistentListener"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamTracing::InitializePersistentListener";
                     // NativeAOT's CoreLib does not read an event method's IL to check the id it passes to WriteEvent (no IL at run time).
                     c.Replace["System.Diagnostics.Tracing.EventSource::GetHelperCallFirstArg"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamTracing::GetHelperCallFirstArg";
-                    // The runtime's and libraries' default event sources are the runtime's to create; csharpc's does not (no-op, both overloads).
-                    c.Replace["System.Diagnostics.Tracing.EventSource::InitializeDefaultEventSources"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamTracing::InitializeDefaultEventSources";
+                    // The runtime's and libraries' default event sources (#455) are created by the framework's own InitializeDefaultEventSources, which
+                    // csharpc's start-up calls when the program turns event sources on (ModuleCodeGen.DefaultEventSources.cs), as NativeAOT's does. Its
+                    // [UnmanagedCallersOnly] overload is CoreCLR's entry from native start-up, which csharpc never takes: a no-op.
+                    c.Replace["System.Diagnostics.Tracing.EventSource::InitializeDefaultEventSources(System.Exception*)"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamTracing::InitializeDefaultEventSources";
+                    // System.Runtime's AppContextSwitch events read AppContext's switches, which are csharpc's (corelib/Resources.cs).
+                    c.Replace["System.AppContext::LogSwitchValues"] = "CsharpcCoreLib:CsharpcCoreLib.UpstreamTracing::LogSwitchValues";
                     // TraceLogging reads a reference type's property through a delegate made with MakeGenericType and CreateDelegate (a fast
                     // path); it reads the same value through PropertyInfo.GetValue, which its value-type path uses, with no run-time generics, and a
                     // null container is the delegate's NullReferenceException ("?nullref", Emit.WrapPropertyGetterNullCheck).

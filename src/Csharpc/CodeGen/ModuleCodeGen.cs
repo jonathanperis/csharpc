@@ -1614,6 +1614,7 @@ public sealed partial class ModuleCodeGen
                 Llvm.ConstInt(Llvm.I32, argTables.Length), argsTable, Llvm.ConstUInt(Llvm.I32, mask)]);
         }
         b.Call(_staticInit.Type, _staticInit.Fn, []);
+        EmitDefaultEventSources(b);
 
         // [ModuleInitializer] methods run when the module loads, before Main (Roslyn calls them from the
         // module's static constructor in source order: syntax tree order, then position).
