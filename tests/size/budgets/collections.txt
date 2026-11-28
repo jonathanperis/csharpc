@@ -21,7 +21,9 @@
 # string carries CoreLib's own vectorized search, ordinal ignore-case comparison and casing tables instead of the corelib's scalar copies:
 # a measured speed gain paid in size (tools/il-first/bench/string_throughput.cs 0.183 -> 0.126 s, 1 472 M -> 920 M instructions), which also
 # fixed two silent differences (#439, #440). The other platforms moved by the same 20 480 B until CI measures them.
-linux-x86_64 collections 299008
+# CSRT_TRACE_THROWS (#295, #523) is in every program's throw path: about 740 B of text on linux-x86_64 (the tracer, its unwinder callback and strings).
+# linux-x86_64 collections measured 300 216 B on that PR's CI (it crossed a page): budget 299 008 -> 309 248, measured + max(4 KiB, 3 %).
+linux-x86_64 collections 309248
 linux-aarch64 collections 297984
 macos-arm64 collections 311296
 windows-x86_64 collections 315392

@@ -1443,6 +1443,45 @@ namespace CsharpcCoreLib
 #endif
         }
 
+#if !CSHARPC_TARGET_WASI
+        [DllImport("libc")] private static extern int getrusage(int who, byte* usage);
+#endif
+
+        /// <summary>
+        /// SystemNative_GetCpuUtilization (pal_time.c), which the System.Runtime counter cpu-usage polls (RuntimeEventSourceHelper.Unix.cs, #455):
+        /// the process's user and kernel time since the previous call (getrusage(RUSAGE_SELF)) as a percentage of the monotonic time elapsed,
+        /// summed over the processors; the caller's ProcessCpuInformation { lastRecordedCurrentTime, lastRecordedKernelTime, lastRecordedUserTime }
+        /// (three nanosecond counts) carries the previous call's readings. 0 on WASI, as there.
+        /// </summary>
+        [RuntimeExport("SystemNative_GetCpuUtilization", Trigger + "SystemNative_GetCpuUtilization")]
+        public static double GetCpuUtilization(ulong* previousCpuInfo)
+        {
+#if CSHARPC_TARGET_WASI
+            return 0;
+#else
+            // struct rusage begins with ru_utime and ru_stime, two 16-byte timevals { time_t tv_sec; suseconds_t tv_usec } on every 64-bit
+            // target (tv_usec is a 32-bit int on macOS, padded): the microseconds are read as 32 bits, which is all they ever use.
+            byte* usage = stackalloc byte[256];
+            if (getrusage(0 /* RUSAGE_SELF */, usage) == -1) return 0;
+            ulong userTime = (ulong)*(long*)usage * 1_000_000_000UL + (ulong)*(int*)(usage + 8) * 1_000UL;
+            ulong kernelTime = (ulong)*(long*)(usage + 16) * 1_000_000_000UL + (ulong)*(int*)(usage + 24) * 1_000UL;
+            // minipal_hires_ticks: the monotonic clock in nanoseconds.
+            long ticks = System.Diagnostics.Stopwatch.GetTimestamp();
+            long frequency = System.Diagnostics.Stopwatch.Frequency;
+            ulong currentTime = frequency == 1_000_000_000 ? (ulong)ticks : (ulong)((double)ticks * (1e9 / frequency));
+
+            ulong lastRecordedCurrentTime = previousCpuInfo[0], lastRecordedKernelTime = previousCpuInfo[1], lastRecordedUserTime = previousCpuInfo[2];
+            ulong cpuTotalTime = currentTime > lastRecordedCurrentTime ? currentTime - lastRecordedCurrentTime : 0;
+            ulong cpuBusyTime = userTime >= lastRecordedUserTime && kernelTime >= lastRecordedKernelTime
+                ? (userTime - lastRecordedUserTime) + (kernelTime - lastRecordedKernelTime) : 0;
+            double cpuUtilization = cpuTotalTime > 0 && cpuBusyTime > 0 ? (double)cpuBusyTime * 100.0 / cpuTotalTime : 0.0;
+            previousCpuInfo[0] = currentTime;
+            previousCpuInfo[1] = kernelTime;
+            previousCpuInfo[2] = userTime;
+            return cpuUtilization;
+#endif
+        }
+
         // ---- errno <-> Interop.Error (pal_errno.c; PAL values are the framework's Interop.Error) --------------------
         private static int ToPal(int platform) => PalTables.ToPal(platform);
         private static int ToPlatform(int pal) => PalTables.FromPal(pal);

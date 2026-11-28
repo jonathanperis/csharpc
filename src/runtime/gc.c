@@ -279,6 +279,7 @@ static struct {
     size_t major_collections;  // CollectionCount(gen>0); equals collections when nursery is off
 #endif
     double total_gc_seconds;
+    int32_t last_gc_percent;          // the last collection's share of the time since the one before it (csrt_gc_last_percent_time_in_gc)
 } g;
 #if CSRT_HAS_CONCURRENT
 // The large-object table marking searches: g.large as sorted when the cycle (or collection) began.
@@ -1170,6 +1171,23 @@ int64_t csrt_gc_total_pause_ticks(void) {
     int64_t ticks = (int64_t)(g.total_gc_seconds * 1e7);
     gc_unlock();
     return ticks;
+}
+
+/// GC.GetGenerationBudget(0), the System.Runtime counter gen-0-gc-budget (#455): what may be allocated before the next collection.
+int64_t csrt_gc_budget(void) {
+    gc_lock();
+    int64_t budget = (int64_t)g.trigger;
+    gc_unlock();
+    return budget;
+}
+
+/// GC.GetLastGCPercentTimeInGC, the counter time-in-gc: the last collection's pause as a percentage of the time from the end of the
+/// collection before it to the end of this one (adapt_budget measures both).
+int32_t csrt_gc_last_percent_time_in_gc(void) {
+    gc_lock();
+    int32_t percent = g.last_gc_percent;
+    gc_unlock();
+    return percent;
 }
 
 int64_t csrt_gc_total_memory(void) {
@@ -2973,6 +2991,7 @@ static void adapt_budget(struct timespec start, struct timespec end) {
     g.last_gc_end = now;
     if (first || since <= pause) return;
     double overhead = pause / since;
+    g.last_gc_percent = (int32_t)(overhead * 100);
     size_t floor_min = g.min_trigger / 2, step = g.min_trigger / 8;
     if (overhead < 0.02) {
         if (g.growth_pct > 100) g.growth_pct -= 25;
