@@ -972,7 +972,8 @@ public sealed partial class ModuleCodeGen
     private static bool IsSliceType(INamedTypeSymbol type)
     {
         while (type.ContainingType is { } outer) type = outer;
-        return type.ContainingNamespace.ToDisplayString().StartsWith(Frontend.UpstreamSlice.Prefix + ".", StringComparison.Ordinal);
+        // Some symbols have no namespace (an error type, a function pointer's signature type): none of them is a slice type.
+        return type.ContainingNamespace is { } ns && ns.ToDisplayString().StartsWith(Frontend.UpstreamSlice.Prefix + ".", StringComparison.Ordinal);
     }
 
     private static string ArraySuffix(IArrayTypeSymbol array) =>
