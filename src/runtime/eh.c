@@ -32,6 +32,9 @@
 #ifdef _WIN32
 #include <windows.h>
 #endif
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 
 // ---------------------------------------------------------------------------------------------
 // The BCL exception hierarchy csharpc knows about. User exception classes derive from these;
@@ -1144,12 +1147,59 @@ void* csrt_object_disposed_exception_new(const char* message) {
     return new_exception(&csrt_MT_System_ObjectDisposedException, message);
 }
 
+// CSRT_TRACE_THROWS=1 (a debugging aid for porting large programs, #295): every throw is printed to stderr as it happens,
+// with the exception's ToString() and the native return addresses on the stack, relative to the executable's load address so
+// that a linker map or `nm` of the unstripped binary names them. Useful where the interesting exception is caught and dropped
+// (a callback's IAsyncResult nobody ends, an error reporter that fails itself). Off unless set; nothing else changes.
+static int s_trace_throws = -1;  // -1: not read yet
+static _Thread_local __attribute__((tls_model("local-exec"))) int tl_tracing_throw;  // ToString() may throw itself
+
+#ifndef __wasm__
+#ifdef __APPLE__
+static uintptr_t image_base(void) { return (uintptr_t)_dyld_get_image_vmaddr_slide(0); }
+#elif defined(_WIN32)
+static uintptr_t image_base(void) { return (uintptr_t)GetModuleHandleW(NULL); }
+#else
+extern char __executable_start[];
+static uintptr_t image_base(void) { return (uintptr_t)__executable_start; }
+#endif
+
+typedef struct { int count; } TraceThrowWalk;
+static _Unwind_Reason_Code trace_throw_frame(struct _Unwind_Context* context, void* parameter) {
+    TraceThrowWalk* walk = parameter;
+    uintptr_t ip = _Unwind_GetIP(context);
+    if (ip == 0 || walk->count++ >= 64) return _URC_END_OF_STACK;
+    fprintf(stderr, "    at 0x%llx" CSRT_NEWLINE, (unsigned long long)(ip - image_base()));
+    return _URC_NO_REASON;
+}
+#endif
+
+static void trace_throw(void* exception) {
+    if (s_trace_throws < 0) {
+        const char* env = getenv("CSRT_TRACE_THROWS");
+        s_trace_throws = env && *env && strcmp(env, "0") != 0;
+    }
+    if (!s_trace_throws || tl_tracing_throw) return;
+    tl_tracing_throw = 1;
+    fflush(stdout);
+    fputs("csrt: throw ", stderr);
+    csrt_stderr_write_string(csrt_object_to_string(exception));
+    fputs(CSRT_NEWLINE, stderr);
+#ifndef __wasm__
+    TraceThrowWalk walk = { 0 };
+    _Unwind_Backtrace(trace_throw_frame, &walk);
+#endif
+    fflush(stderr);
+    tl_tracing_throw = 0;
+}
+
 #ifdef __wasm__
 /// The exception being propagated (null: none). Every call that may throw is followed by a test of
 /// this variable (ExceptionLowering), so it is read far more often than written. A static root.
 void* csrt_pending_exception;
 
 static CSRT_THROWS void raise_exception(void* exception) {
+    trace_throw(exception);
     eh_search(exception);
     csrt_pending_exception = exception;
     // Debugging aid: wasm has no unwinder to show where an exception came from, but a trap prints
@@ -1180,6 +1230,7 @@ void* csrt_trap_call(void (*fn)(void*), void* arg) {
 __attribute__((used)) _Noreturn void csrt_unhandled_pending(void) { unhandled(csrt_begin_catch(NULL)); }
 #else
 static CSRT_THROWS void raise_exception(void* exception) {
+    trace_throw(exception);
     csrt_Throw* t = calloc(1, sizeof *t);
     if (!t) abort();
     t->exception = exception;
