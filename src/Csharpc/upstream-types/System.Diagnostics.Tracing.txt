@@ -17,3 +17,6 @@ System.Diagnostics.Tracing.PollingCounter
 System.Diagnostics.Tracing.IncrementingPollingCounter
 System.Diagnostics.Tracing.EventCounter
 System.Diagnostics.Tracing.IncrementingEventCounter
+# The default event sources (#455): EventSource.InitializeDefaultEventSources brings them; System.Runtime's AppContextSwitch event is written by
+# AppContext.LogSwitchValues, which is csharpc's (corelib/Resources.cs), so nothing in the slice calls it.
+System.Diagnostics.Tracing.RuntimeEventSource::LogAppContextSwitch

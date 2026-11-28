@@ -345,11 +345,14 @@ namespace CsharpcCoreLib
         /// <paramref name="handle"/> is the file's OS handle (SafeFileHandle, from the framework's IL since the file-system flip, holds the
         /// Win32 HANDLE itself, not a C runtime descriptor).
         /// </summary>
-        public static byte* MapView(nint handle, long offset, long length)
+        public static byte* MapView(nint handle, long offset, long length) => MapView(handle, offset, length, writable: false);
+
+        /// <summary>A view, writable (PAGE_READWRITE, FILE_MAP_WRITE) or read-only; null with errno set on failure.</summary>
+        public static byte* MapView(nint handle, long offset, long length, bool writable)
         {
-            nint mapping = CreateFileMappingW(handle, null, 0x02 /* PAGE_READONLY */, 0, 0, null);
+            nint mapping = CreateFileMappingW(handle, null, writable ? 0x04u /* PAGE_READWRITE */ : 0x02u /* PAGE_READONLY */, 0, 0, null);
             if (mapping == 0) { _set_errno(Win32Base + Marshal.GetLastPInvokeError()); return null; }
-            void* view = MapViewOfFile(mapping, 0x0004 /* FILE_MAP_READ */, (uint)(offset >> 32), (uint)offset, (nuint)length);
+            void* view = MapViewOfFile(mapping, writable ? 0x0002u /* FILE_MAP_WRITE */ : 0x0004u /* FILE_MAP_READ */, (uint)(offset >> 32), (uint)offset, (nuint)length);
             int error = Marshal.GetLastPInvokeError();
             CloseHandle(mapping); // the view keeps the mapping alive
             if (view == null) { _set_errno(Win32Base + error); return null; }
