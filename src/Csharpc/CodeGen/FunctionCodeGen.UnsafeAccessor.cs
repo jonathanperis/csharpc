@@ -35,8 +35,13 @@ public sealed partial class FunctionCodeGen
         // accessors at compile time, so the call throws what .NET throws for a missing member and the caller's own fallback applies.
         // A static method of a type named by string that this compilation knows (a public type of an IL assembly it compiles, such as the
         // upstream slice's System.Number, corelib/NumberUpstream.cs): bound at compile time, a direct call without the first (type-naming) argument.
+        // The return type may be named too (EventSourceInitHelper.GetMetricsEventSource: `[return: UnsafeAccessorType("...MetricsEventSource, ...")]
+        // static extern object GetInstance([UnsafeAccessorType("...MetricsEventSource, ...")] object? _)`, #455): an `object` the method's own
+        // reference type converts to.
+        var namedReturn = AccessorTypeName(target.GetReturnTypeAttributes()) is { } returnName ? ResolveAccessorType(returnName) : null;
         if (kind == 2 && target.Parameters.Length > 0 && AccessorTypeName(target.Parameters[0].GetAttributes()) is { } typeName
-            && !target.Parameters.Skip(1).Any(p => HasAccessorTypeName(p.GetAttributes())) && !HasAccessorTypeName(target.GetReturnTypeAttributes())
+            && !target.Parameters.Skip(1).Any(p => HasAccessorTypeName(p.GetAttributes()))
+            && (!HasAccessorTypeName(target.GetReturnTypeAttributes()) || namedReturn is { IsReferenceType: true } && target.ReturnType.SpecialType == SpecialType.System_Object)
             && ResolveAccessorType(typeName) is { } namedOwner)
         {
             var parameters = target.Parameters.Skip(1).ToArray();
@@ -47,9 +52,24 @@ public sealed partial class FunctionCodeGen
                 .Where(m => m.Arity == typeArguments.Length).Select(m => typeArguments.Length > 0 ? m.Construct(typeArguments) : m)
                 .FirstOrDefault(m => m.IsStatic && m.Parameters.Length == parameters.Length
                     && m.Parameters.Zip(parameters).All(x => x.First.RefKind == x.Second.RefKind && SymbolEqualityComparer.Default.Equals(S(x.First.Type), S(x.Second.Type)))
-                    && SymbolEqualityComparer.Default.Equals(S(m.ReturnType), S(target.ReturnType)))
+                    && SymbolEqualityComparer.Default.Equals(S(m.ReturnType), namedReturn ?? S(target.ReturnType)))
                 ?? throw CompileError.Unsupported($"[UnsafeAccessor] static method '{name}' not found on '{namedOwner}'", inv);
             return DirectCall(method, [.. args.Skip(1).Select(a => EmitArgument(a, target))]);
+        }
+        // An instance method (kind 1) of a type named by string that this compilation lowers from IL (the upstream slice's RuntimeEventSource,
+        // whose LogAppContextSwitch event the corelib's AppContext.LogSwitchValues writes, #455): a non-virtual call on the first argument.
+        if (kind == 1 && target.Parameters.Length > 0 && AccessorTypeName(target.Parameters[0].GetAttributes()) is { } instanceTypeName
+            && !target.Parameters.Skip(1).Any(p => HasAccessorTypeName(p.GetAttributes())) && !HasAccessorTypeName(target.GetReturnTypeAttributes())
+            && ResolveAccessorType(instanceTypeName) is { IsReferenceType: true } instanceOwner && _m.Il.OwnerOf(instanceOwner) is not null)
+        {
+            var instanceParameters = target.Parameters.Skip(1).ToArray();
+            var instanceMethod = FindMember<IMethodSymbol>(instanceOwner, name, m => !m.IsStatic && m.Arity == 0 && m.Parameters.Length == instanceParameters.Length
+                    && m.Parameters.Zip(instanceParameters).All(x => x.First.RefKind == x.Second.RefKind && SymbolEqualityComparer.Default.Equals(S(x.First.Type), S(x.Second.Type)))
+                    && SymbolEqualityComparer.Default.Equals(S(m.ReturnType), S(target.ReturnType)))
+                ?? throw CompileError.Unsupported($"[UnsafeAccessor] method '{name}' not found on '{instanceOwner}'", inv);
+            var instanceValues = args.Select(a => EmitArgument(a, target)).ToArray();
+            NullCheck(instanceValues[0]);
+            return DirectCall(instanceMethod, instanceValues);
         }
         // A static field (kind 4) or static method (kind 2) of the type the first parameter names, by its own type (`CultureInfo? _`) or by
         // [UnsafeAccessorType]: the field's address, or a direct call without that first argument (the corelib's contract with the
