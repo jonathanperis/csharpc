@@ -347,3 +347,4 @@ wasi 1567_named_pipes             WASI has no Unix domain sockets or pipes: Syst
 windows 1567_named_pipes          known gap: System.IO.Pipes on Windows is not supported by csharpc yet (it is compiled from IL on Linux and macOS); an explicit NotSupportedException
 wasi 1570_process_lookups         WASI has no processes to look up or start: Process.GetProcesses and Process.Start are explicit NotSupportedExceptions
 windows 1570_process_lookups      known gap: looking up and naming processes on Windows (GetProcessById, GetProcesses, Modules) is not supported by csharpc yet; an explicit NotSupportedException
+wasi 1345_memorymapped_read_write  WASI has no memory mapping (no mmap): MemoryMappedFile throws PlatformNotSupportedException, as in .NET on WASI
