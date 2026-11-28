@@ -43,6 +43,7 @@ namespace CsharpcCoreLib
 #if CSHARPC_TARGET_WASI
         public const bool CanMapFiles = false;
         public static byte* MapView(nint handle, long offset, long length) => null;
+        public static byte* MapView(nint handle, long offset, long length, bool writable) => null;
         public static void UnmapView(byte* view, long length) { }
 #else
         public const bool CanMapFiles = true;
@@ -51,9 +52,12 @@ namespace CsharpcCoreLib
 
         /// <summary>A read-only shared view of [offset, offset + length) of a file (offset aligned to 64 KiB by the caller); null with errno set on failure.</summary>
         /// <summary>A read-only view of [offset, offset + length) of a file; <paramref name="handle"/> is its descriptor (SafeFileHandle's value).</summary>
-        public static byte* MapView(nint handle, long offset, long length)
+        public static byte* MapView(nint handle, long offset, long length) => MapView(handle, offset, length, writable: false);
+
+        /// <summary>A shared view, writable (PROT_READ | PROT_WRITE) or read-only; null with errno set on failure.</summary>
+        public static byte* MapView(nint handle, long offset, long length, bool writable)
         {
-            void* p = mmap(null, (nuint)length, 1 /* PROT_READ */, 1 /* MAP_SHARED */, (int)handle, offset);
+            void* p = mmap(null, (nuint)length, writable ? 3 : 1 /* PROT_READ (| PROT_WRITE) */, 1 /* MAP_SHARED */, (int)handle, offset);
             return p == (void*)-1 ? null : (byte*)p;
         }
 
