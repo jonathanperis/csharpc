@@ -186,12 +186,10 @@ namespace CsharpcCoreLib
             throw Unrecognized();
         }
 
-        // Data that is no certificate, PEM or PKCS#12: .NET's message depends on its backend (Apple's import API on macOS).
+        // Data that is no certificate, PEM or PKCS#12: .NET's message depends on its backend (CryptoAPI on Windows).
         private static CryptographicException Unrecognized()
         {
-#if CSHARPC_TARGET_MACOS
-            return new CryptographicException("Unknown format in import.");
-#elif CSHARPC_TARGET_WINDOWS
+#if CSHARPC_TARGET_WINDOWS
             return new CryptographicException("Cannot find the requested object."); // CRYPT_E_NOT_FOUND from CryptoAPI
 #else
             return Der.Corrupt();
@@ -346,10 +344,7 @@ namespace CsharpcCoreLib
 
         internal static byte[] ReadFile(string path)
         {
-#if CSHARPC_TARGET_MACOS
-            // .NET on macOS reads the file itself: a missing one is the file system's exception.
-            return File.ReadAllBytes(path);
-#elif CSHARPC_TARGET_WINDOWS
+#if CSHARPC_TARGET_WINDOWS
             // .NET on Windows opens the file with CryptoAPI: a missing one is a CryptographicException with the Win32 text.
             if (!File.Exists(path))
             {

@@ -106,6 +106,12 @@ namespace CsharpcCoreLib
             }
         }
 
+        /// <summary>
+        /// Assembly.GetAssemblyCount, the System.Runtime counter assembly-count (#455): the assemblies the program has, all of them loaded
+        /// from the start in a closed world, as NativeAOT's binder counts the ones compiled in.
+        /// </summary>
+        internal static uint GetAssemblyCount() => (uint)CompiledBlob.Fields(CoreIntrinsics.LoadableAssemblies()).Count;
+
         /// <summary>Assembly.EntryPoint of a program whose entry method csc bridges (async or Task-returning Main).</summary>
         internal static MethodInfo EntryPointUnsupported() =>
             throw new NotSupportedException("Assembly.EntryPoint of an async or Task-returning Main is not supported by csharpc yet (csc's entry point is a method it synthesizes).");

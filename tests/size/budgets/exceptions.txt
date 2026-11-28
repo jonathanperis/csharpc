@@ -1,5 +1,7 @@
 linux-x86_64 exceptions 37888
 linux-aarch64 exceptions 37888
 macos-arm64 exceptions 73728
-windows-x86_64 exceptions 50176
+# CSRT_TRACE_THROWS (#295, #523) is in every program's throw path: about 740 B of text on linux-x86_64 (the tracer, its unwinder callback and strings).
+# windows-x86_64 exceptions measured 50 688 B on that PR's CI: budget 50 176 -> 55 296, measured + max(4 KiB, 3 %).
+windows-x86_64 exceptions 55296
 wasi-wasm32 exceptions 53248

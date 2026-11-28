@@ -43,7 +43,10 @@ sealed class Emitter
         "System.Diagnostics.CodeAnalysis.DynamicallyAccessedMembersAttribute", "System.Diagnostics.CodeAnalysis.DynamicDependencyAttribute",
         "System.Diagnostics.CodeAnalysis.RequiresUnreferencedCodeAttribute", "System.Diagnostics.CodeAnalysis.FeatureGuardAttribute",
         // What TraceLogging reads by reflection from the payload types it writes (the counters' [EventData] payloads).
-        "System.Diagnostics.Tracing.EventDataAttribute", "System.Diagnostics.Tracing.EventFieldAttribute", "System.Diagnostics.Tracing.EventIgnoreAttribute"];
+        "System.Diagnostics.Tracing.EventDataAttribute", "System.Diagnostics.Tracing.EventFieldAttribute", "System.Diagnostics.Tracing.EventIgnoreAttribute",
+        // An accessor's body is the runtime's (an extern method): the attributes name its target (EventSourceInitHelper.GetMetricsEventSource reaches
+        // System.Diagnostics.DiagnosticSource's MetricsEventSource.GetInstance by name, #455), which csharpc binds at compile time.
+        "System.Runtime.CompilerServices.UnsafeAccessorAttribute", "System.Runtime.CompilerServices.UnsafeAccessorTypeAttribute"];
 
     /// <summary>
     /// Attributes that change what a member means at run time or how csharpc lowers it (thread-local storage, fixed buffers, decoded constants,
@@ -279,6 +282,9 @@ sealed class Emitter
             }
             CopyAttributes(m, nm, $"{t.FullName}::{m.Name}");
             foreach (var (p, i) in m.Parameters.Select((p, i) => (p, i))) CopyAttributes(p, nm.Parameters[i], $"{t.FullName}::{m.Name}({p.Name})");
+            // An accessor's return type may be named by [UnsafeAccessorType] too (only accessors: other return attributes are not the slice's business).
+            if (m.CustomAttributes.Any(a => a.AttributeType.FullName == "System.Runtime.CompilerServices.UnsafeAccessorAttribute"))
+                CopyAttributes(m.MethodReturnType, nm.MethodReturnType, $"{t.FullName}::{m.Name}(return)");
         }
         foreach (var m in t.Methods.Where(_methods.ContainsKey))
             if (Environment.GetEnvironmentVariable("SLICER_NOOVR") is null) foreach (var o in m.Overrides) _methods[m].Overrides.Add(MethodRef(o));
@@ -857,13 +863,21 @@ sealed class Emitter
             var typeName = forward[(colon + 1)..sep]; var dot = typeName.LastIndexOf('.');
             var scope = AsmRef(new AssemblyNameReference(forward[..colon], new Version(1, 0, 0, 0)));
             var call = new MethodReference(forward[(sep + 2)..], Signature(mr.ReturnType), new TypeReference(typeName[..dot], typeName[(dot + 1)..], _m, scope, false));
-            foreach (var p in mr.Parameters) call.Parameters.Add(new ParameterDefinition(Signature(p.ParameterType)));
+            // A parameter of a non-public type the slice defines is an object: csharpc's corelib cannot name it (AppContext.LogSwitchValues(RuntimeEventSource)).
+            foreach (var p in mr.Parameters)
+                call.Parameters.Add(new ParameterDefinition(SafeResolveType(p.ParameterType) is { IsPublic: false, IsNestedPublic: false } own && _s.Types.Contains(own) && !own.IsValueType
+                    ? _m.TypeSystem.Object : Signature(p.ParameterType)));
             return call;
         }
         var r = new MethodReference(mr.Name, Signature(mr.ReturnType), Type(mr.DeclaringType)) { HasThis = mr.HasThis, ExplicitThis = mr.ExplicitThis, CallingConvention = mr.CallingConvention };
         foreach (var p in mr.Parameters) r.Parameters.Add(new ParameterDefinition(Signature(p.ParameterType)));
         for (int i = 0; i < mr.GenericParameters.Count; i++) r.GenericParameters.Add(new GenericParameter("M" + i, r));
         return r;
+    }
+
+    static TypeDefinition SafeResolveType(TypeReference r)
+    {
+        try { return r is TypeSpecification ? null : r.Resolve(); } catch (AssemblyResolutionException) { return null; }
     }
 
     static MethodDefinition SafeResolve(MethodReference r)

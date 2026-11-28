@@ -27,8 +27,12 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        # openssl@3: the corelib's X.509/TLS/RSA code binds it (docs/adr/0022-tls.md, "macOS"); usually preinstalled.
-        brew install llvm@18 bash coreutils openssl@3
+        brew install llvm@18 bash coreutils
+        # TLS, X.509 and RSA use .NET's own macOS code over Security.framework, as NativeAOT does (docs/adr/0022-tls.md, "macOS
+        # without OpenSSL", #144): the runner's preinstalled openssl@3 is moved away so that nothing can quietly depend on it.
+        for d in "$(brew --prefix)/opt/openssl@3" "$(brew --prefix)/Cellar/openssl@3"; do
+          if [ -e "$d" ]; then sudo mv "$d" "$d.hidden-by-csharpc"; fi
+        done
         llvm="$(brew --prefix llvm@18)"
         echo "$llvm/bin" >> "$GITHUB_PATH"
         echo "$(brew --prefix coreutils)/libexec/gnubin" >> "$GITHUB_PATH"

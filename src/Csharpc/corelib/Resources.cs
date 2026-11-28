@@ -456,5 +456,32 @@ namespace CsharpcCoreLib
             if (value == null) throw new ArgumentNullException(paramName);
             if (value.Length == 0) throw new ArgumentException("The value cannot be an empty string.", paramName);
         }
+
+        /// <summary>
+        /// AppContext.LogSwitchValues(RuntimeEventSource), which System.Runtime calls when a listener enables it (#455): an AppContextSwitch
+        /// event per switch the program set, then per configuration value that parses as a bool and is not also a set switch, as AppContext.AnyOS.cs
+        /// does. The event source comes in as an object (the slice's type has no name here; corelib/UpstreamTracing.cs).
+        /// </summary>
+        internal static void LogSwitchValues(object ev)
+        {
+            var switches = s_switches;
+            if (switches != null)
+                lock (switches)
+                    foreach (KeyValuePair<string, bool> kvp in switches) UpstreamTracing.LogAppContextSwitch(ev, kvp.Key, kvp.Value ? 1 : 0);
+            var data = Data;
+            lock (data)
+            {
+                if (switches != null)
+                    lock (switches) LogDataStore(ev, data, switches);
+                else LogDataStore(ev, data, null);
+            }
+
+            static void LogDataStore(object ev, Dictionary<string, object> data, Dictionary<string, bool> switches)
+            {
+                foreach (KeyValuePair<string, object> kvp in data)
+                    if (kvp.Value is string s && bool.TryParse(s, out bool isEnabled) && switches?.ContainsKey(kvp.Key) != true)
+                        UpstreamTracing.LogAppContextSwitch(ev, kvp.Key, isEnabled ? 1 : 0);
+            }
+        }
     }
 }

@@ -222,16 +222,9 @@ namespace CsharpcCoreLib
             }
         }
 
-        /// <summary>The status text: OpenSSL's, as .NET shows on Linux; on macOS the Security.framework and on Windows the CryptoAPI messages for the common errors.</summary>
+        /// <summary>The status text: OpenSSL's, as .NET shows on Linux; on Windows the CryptoAPI messages for the common errors.</summary>
         private static string Information(int error)
         {
-#if CSHARPC_TARGET_MACOS
-            switch (error)
-            {
-                case 18: case 19: return "The certificate was not trusted."; // errSecNotTrusted
-                case 10: return "An expired certificate was detected."; // errSecCertificateExpired
-            }
-#endif
 #if CSHARPC_TARGET_WINDOWS
             // .NET on Windows reports CryptoAPI's texts for the common errors.
             switch (error)

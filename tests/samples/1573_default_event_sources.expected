@@ -1,0 +1,8 @@
+Microsoft-Windows-DotNETRuntime e13c0d23-ccbc-4e12-931b-d9cc2eee27e4 enabled=False construction=ok
+System.Diagnostics.Eventing.FrameworkEventSource 8e9f5090-2d75-4d03-8a81-e5afbf85daf1 enabled=False construction=ok
+System.Buffers.ArrayPoolEventSource 0866b2b8-5cef-5db9-2612-0c0ffd814a44 enabled=False construction=ok
+System.Runtime 49592c0f-5a05-516d-aa4b-a64e02026c89 enabled=False construction=ok
+first listener: Microsoft-Windows-DotNETRuntime, System.Diagnostics.Eventing.FrameworkEventSource, System.Buffers.ArrayPoolEventSource, System.Runtime, System.Diagnostics.Metrics
+second listener: Microsoft-Windows-DotNETRuntime, System.Diagnostics.Eventing.FrameworkEventSource, System.Buffers.ArrayPoolEventSource, System.Runtime, System.Diagnostics.Metrics
+sources: Microsoft-Windows-DotNETRuntime, System.Diagnostics.Eventing.FrameworkEventSource, System.Buffers.ArrayPoolEventSource, System.Runtime, System.Diagnostics.Metrics
+any enabled: False
